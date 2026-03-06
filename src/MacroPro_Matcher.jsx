@@ -255,13 +255,14 @@ Incluye TODOS los clientes rankeados.`;
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
+          model: "claude-haiku-3-5-20241022",
           max_tokens: 2000,
           messages: [{ role:"user", content: prompt }]
         })
       });
 
       const data = await response.json();
+      if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
       const text = data.content?.find(b => b.type === "text")?.text || "";
       const clean = text.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
@@ -277,7 +278,7 @@ Incluye TODOS los clientes rankeados.`;
       setMatchResults({ mode, subject, results: enriched });
       setView("result");
     } catch(err) {
-      toast("⚠ Error en el análisis. Verifica la API key.");
+      const errMsg = data?.error?.message || err.message || "Error desconocido"; toast(`⚠ ${errMsg}`);
       console.error(err);
     } finally {
       clearInterval(interval);

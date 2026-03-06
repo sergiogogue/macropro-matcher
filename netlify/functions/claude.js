@@ -5,11 +5,16 @@ exports.handler = async function(event, context) {
 
   const apiKey = process.env.VITE_ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return { statusCode: 500, body: JSON.stringify({ error: "API key no configurada" }) };
+    return { 
+      statusCode: 500, 
+      body: JSON.stringify({ error: "API key no configurada en Netlify" }) 
+    };
   }
 
   try {
     const body = JSON.parse(event.body);
+    
+    console.log("Calling Anthropic with model:", body.model);
     
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -23,6 +28,8 @@ exports.handler = async function(event, context) {
 
     const data = await response.json();
     
+    console.log("Anthropic status:", response.status, "error:", data.error?.message);
+    
     return {
       statusCode: response.status,
       headers: {
@@ -32,6 +39,7 @@ exports.handler = async function(event, context) {
       body: JSON.stringify(data)
     };
   } catch (error) {
+    console.log("Function error:", error.message);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: error.message })
