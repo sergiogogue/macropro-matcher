@@ -169,7 +169,9 @@ export default function MacroProMatcher() {
           setInventory(mapped);
           toast(`✓ ${mapped.length} lotes cargados correctamente`);
         }
-      } catch(err) { toast("⚠ Error al leer el archivo Excel"); }
+      } catch(err) {
+      console.error("RAW ERROR:", err);
+      console.error("RAW DATA:", JSON.stringify(data)); toast("⚠ Error al leer el archivo Excel"); }
     };
     reader.readAsBinaryString(file);
   };
@@ -261,7 +263,9 @@ Incluye TODOS los clientes rankeados.`;
         })
       });
 
-      const data = await response.json();
+      let data = {};
+      data = await response.json();
+      console.log("API Response:", JSON.stringify(data).substring(0, 500));
       if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
       const text = data.content?.find(b => b.type === "text")?.text || "";
       const clean = text.replace(/```json|```/g, "").trim();
@@ -278,6 +282,8 @@ Incluye TODOS los clientes rankeados.`;
       setMatchResults({ mode, subject, results: enriched });
       setView("result");
     } catch(err) {
+      console.error("RAW ERROR:", err);
+      console.error("RAW DATA:", JSON.stringify(data));
       const errMsg = data?.error?.message || err.message || "Error desconocido"; toast(`⚠ ${errMsg}`);
       console.error(err);
     } finally {
