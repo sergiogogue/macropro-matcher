@@ -257,7 +257,7 @@ Incluye TODOS los clientes rankeados.`;
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-haiku-3-5-20241022",
+          model: "claude-haiku-3-20240307",
           max_tokens: 2000,
           messages: [{ role:"user", content: prompt }]
         })
