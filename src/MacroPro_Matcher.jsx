@@ -189,36 +189,22 @@ export default function MacroProMatcher() {
     try {
       let prompt = "";
       if (mode === "clientToLots") {
-        prompt = `Eres el mejor estratega inmobiliario de México, especializado en macrolotes. Analiza este perfil de cliente y rankea los lotes del inventario por compatibilidad.
-
-PERFIL DEL CLIENTE:
-- Nombre: ${subject.nombre} / ${subject.empresa}
-- Ciudades de interés: ${subject.ciudad_interes?.join(", ")}
-- Usos de interés: ${subject.uso_interes?.join(", ")}
-- Presupuesto: ${fmtM(subject.presupuesto_min)} - ${fmtM(subject.presupuesto_max)}
-- Superficie buscada: ${subject.sup_min?.toLocaleString()} - ${subject.sup_max?.toLocaleString()} m²
-- Temperatura: ${subject.temperatura}
-- Notas: ${subject.notas}
-
-INVENTARIO DE LOTES DISPONIBLES:
-${targets.map(l => `[${l.id}] ${l.nombre} | ${l.ciudad}, ${l.estado} | ${l.uso} | ${l.sup_m2?.toLocaleString()} m² | $${l.precio_m2?.toLocaleString()}/m² | Total: ${fmtM(l.precio_total)} | Fortaleza: ${l.fortaleza}`).join("\n")}
-
-Responde ÚNICAMENTE con un JSON válido, sin texto adicional, sin markdown:
-{
-  "resultados": [
-    {
-      "id": "CN-001",
-      "score": 85,
-      "match_label": "Match Excelente",
-      "razon_principal": "texto corto 1 oración",
-      "argumentos": ["arg1", "arg2", "arg3"],
-      "objeccion": "posible objeción del cliente",
-      "respuesta_objecion": "cómo responderla",
-      "urgencia": "por qué actuar ahora"
-    }
-  ]
-}
-Incluye TODOS los lotes rankeados de mayor a menor score. Score 0-100.`;
+        // Pre-filtro: solo lotes compatibles por ciudad, uso y presupuesto
+        const filtered = targets.filter(l => {
+          const ciudadOk = !subject.ciudad_interes?.length || subject.ciudad_interes.some(c => l.ciudad?.includes(c) || c?.includes(l.ciudad));
+          const presupuestoOk = !subject.presupuesto_max || l.precio_total <= subject.presupuesto_max * 1.3;
+          const superficieOk = !subject.sup_max || l.sup_m2 <= subject.sup_max * 1.5;
+          return ciudadOk && presupuestoOk && superficieOk;
+        });
+        const candidatos = filtered.length > 0 ? filtered : targets;
+        const top = candidatos.slice(0, 10);
+        
+        prompt = `Estratega inmobiliario México. Rankea estos lotes para el cliente. Solo JSON, sin texto extra.
+CLIENTE: ${subject.nombre}|${subject.empresa}|Ciudades:${subject.ciudad_interes?.join(",")}|Usos:${subject.uso_interes?.join(",")}|$${subject.presupuesto_min}M-$${subject.presupuesto_max}M|${subject.sup_min}-${subject.sup_max}m²
+LOTES:
+${top.map(l => `${l.id}|${l.nombre}|${l.ciudad}|${l.uso}|${l.sup_m2}m²|$${l.precio_m2}/m²|${fmtM(l.precio_total)}`).join("\n")}
+JSON:{"resultados":[{"id":"CN-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
+Rankea los ${top.length} lotes, mayor a menor score.`;
       } else {
         prompt = `Eres el mejor estratega inmobiliario de México. Analiza este macrolote y rankea los clientes por compatibilidad.
 
@@ -257,8 +243,8 @@ Incluye TODOS los clientes rankeados.`;
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-3-5-haiku-20241022",
-          max_tokens: 2000,
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1500,
           messages: [{ role:"user", content: prompt }]
         })
       });
