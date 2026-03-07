@@ -122,6 +122,7 @@ export default function MacroProMatcher() {
   const [showAddLot, setShowAddLot] = useState(false);
   const [newClient, setNewClient] = useState({ nombre:"", empresa:"", asesor:"", ciudad_interes:[], uso_interes:[], presupuesto_min:"", presupuesto_max:"", sup_min:"", sup_max:"", temperatura:"Tibio", status:"Nuevo", notas:"" });
   const [toastMsg, setToastMsg] = useState("");
+  const [selectedLotDetail, setSelectedLotDetail] = useState(null);
   const fileRef = useRef();
   const clientFileRef = useRef();
 
@@ -227,6 +228,12 @@ export default function MacroProMatcher() {
   };
 
   // ── EXCEL UPLOAD CLIENTES ─────────────────────────────────────────
+  // Compatible con Base_Datos_Clientes_MacroPro.xlsx (29 columnas A-AC)
+  // Col: A=ID B=Nombre C=Empresa D=TipoComprador E=Asesor F=Ciudad1 G=Estado1
+  //      H=Ciudad2 I=Ciudad3 J=UsoSuelo K=SupMin L=SupMax M=PptoMin N=PptoMax
+  //      O=PrecioMaxM2 P=Plazo Q=AceptaFinanc R=Temperatura S=StatusCRM
+  //      T=ProyectoDefinido U=FinancListo V=Agua W=Luz X=Drenaje Y=Acceso
+  //      Z=DealBreaker1 AA=DealBreaker2 AB=DealBreaker3 AC=Notas
   const handleClientExcelUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -234,53 +241,143 @@ export default function MacroProMatcher() {
     reader.onload = (ev) => {
       try {
         const wb = XLSX.read(ev.target.result, { type:"binary" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const raw = XLSX.utils.sheet_to_json(ws, { defval: "", header: 1 });
-        
-        // Buscar fila de encabezados
+        // Buscar hoja de clientes
+        const sheetName = wb.SheetNames.find(n =>
+          n.includes("BASE") || n.includes("CLIENTES") || n.includes("clientes")
+        ) || wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        const raw = XLSX.utils.sheet_to_json(ws, { defval:"", header:1 });
+
+        // Encontrar fila de encabezados buscando "Nombre Completo" o "ID Cliente"
         let headerRow = 0;
         for (let i = 0; i < Math.min(raw.length, 10); i++) {
-          if (raw[i] && raw[i].some(c => c && String(c).includes("Nombre"))) {
+          if (raw[i] && raw[i].some(c => c &&
+            (String(c).includes("Nombre Completo") || String(c).includes("ID Cliente")))) {
             headerRow = i; break;
           }
         }
-        
-        const headers = raw[headerRow].map(h => String(h || "").replace(/^\* /, "").trim());
-        const dataRows = raw.slice(headerRow + 1);
-        
-        const getVal = (row, ...names) => {
+
+        // Mapeo por nombre de columna (tolerante a variaciones)
+        const headers = raw[headerRow].map(h =>
+          String(h || "").replace(/^\* /,"").replace(/ \*$/,"").trim()
+        );
+
+        const colIdx = (names) => {
           for (const name of names) {
-            const idx = headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
-            if (idx >= 0 && row[idx] !== undefined && row[idx] !== "") return row[idx];
+            const idx = headers.findIndex(h =>
+              h.toLowerCase().replace(/[^a-záéíóúüñ0-9]/gi," ").trim()
+               .includes(name.toLowerCase())
+            );
+            if (idx >= 0) return idx;
           }
-          return "";
+          return -1;
         };
-        
-        const mapped = dataRows
-          .filter(row => row[0] && String(row[0]).trim() !== "")
-          .map((row, i) => ({
-            id: String(getVal(row, "ID", "id") || `CLI-${String(i+1).padStart(3,"0")}`),
-            nombre: String(getVal(row, "Nombre", "nombre") || `Cliente ${i+1}`),
-            empresa: String(getVal(row, "Empresa", "empresa") || ""),
-            asesor: String(getVal(row, "Asesor", "asesor") || ""),
-            ciudad_interes: String(getVal(row, "Ciudad", "ciudad") || "").split(/[,;]/).map(s=>s.trim()).filter(Boolean),
-            uso_interes: String(getVal(row, "Uso", "uso") || "").split(/[,;]/).map(s=>s.trim()).filter(Boolean),
-            presupuesto_min: parseFloat(String(getVal(row, "Presupuesto Min", "pres_min") || "0").replace(/[$,MDP\s]/gi,"")) * (String(getVal(row, "Presupuesto Min","pres_min")).includes("MDP") ? 1000000 : 1) || 0,
-            presupuesto_max: parseFloat(String(getVal(row, "Presupuesto Max", "pres_max") || "0").replace(/[$,MDP\s]/gi,"")) * (String(getVal(row, "Presupuesto Max","pres_max")).includes("MDP") ? 1000000 : 1) || 0,
-            sup_min: parseFloat(getVal(row, "Sup Min", "sup_min") || 0) || 0,
-            sup_max: parseFloat(getVal(row, "Sup Max", "sup_max") || 0) || 0,
-            temperatura: String(getVal(row, "Temperatura", "temp") || "Tibio"),
-            status: String(getVal(row, "Status", "status") || "Prospecto"),
-            notas: String(getVal(row, "Notas", "notas", "Observaciones") || ""),
-            fecha_contacto: String(getVal(row, "Fecha", "fecha") || ""),
-          }));
-        
-        if (mapped.length > 0) {
-          setClients([...DEMO_CLIENTS, ...mapped]);
-          toast(`✓ ${mapped.length} clientes cargados desde "${file.name}"`);
-        } else {
-          toast("⚠ No se encontraron clientes. Verifica el formato.");
+
+        // Mapeo de columnas — coincide exactamente con Base_Datos_Clientes_MacroPro.xlsx
+        const C = {
+          id:       colIdx(["id cliente","id"]),
+          nombre:   colIdx(["nombre completo","nombre"]),
+          empresa:  colIdx(["empresa grupo","empresa"]),
+          tipo:     colIdx(["tipo comprador","tipo"]),
+          asesor:   colIdx(["asesor"]),
+          ciudad1:  colIdx(["ciudad 1","ciudad1","ciudad"]),
+          estado1:  colIdx(["estado 1","estado1","estado"]),
+          ciudad2:  colIdx(["ciudad 2","ciudad2"]),
+          ciudad3:  colIdx(["ciudad 3","ciudad3"]),
+          uso:      colIdx(["uso de suelo","uso suelo","uso"]),
+          sup_min:  colIdx(["sup mn","sup min","superficie min"]),
+          sup_max:  colIdx(["sup mx","sup max","superficie max"]),
+          ppto_min: colIdx(["ppto mn","ppto min","presupuesto mn"]),
+          ppto_max: colIdx(["ppto mx","ppto max","presupuesto mx"]),
+          precio_m2:colIdx(["precio mx","precio max m"]),
+          plazo:    colIdx(["plazo cierre","plazo"]),
+          financia: colIdx(["acepta financ","financiamiento"]),
+          temp:     colIdx(["temperatura"]),
+          status:   colIdx(["status crm","status"]),
+          proyecto: colIdx(["proyecto definido","proyecto"]),
+          fin_listo:colIdx(["financ listo","financiamiento listo"]),
+          agua:     colIdx(["agua"]),
+          luz:      colIdx(["luz energia","luz"]),
+          drenaje:  colIdx(["drenaje"]),
+          acceso:   colIdx(["acceso vialidad","acceso"]),
+          db1:      colIdx(["deal breaker 1"]),
+          db2:      colIdx(["deal breaker 2"]),
+          db3:      colIdx(["deal breaker 3"]),
+          notas:    colIdx(["notas del asesor","notas"]),
+        };
+
+        const g = (row, key) => {
+          const idx = C[key];
+          if (idx < 0 || row[idx] === undefined) return "";
+          return String(row[idx]).trim();
+        };
+
+        const toNum = (v) => parseFloat(String(v).replace(/[$,\s]/g,"")) || 0;
+
+        // Limpiar temperatura (quitar emojis para comparación interna)
+        const cleanTemp = (v) => {
+          if (!v) return "Tibio";
+          if (String(v).includes("Caliente") || String(v).includes("🔴")) return "Caliente";
+          if (String(v).includes("Tibio")    || String(v).includes("🟡")) return "Tibio";
+          if (String(v).includes("Frío")     || String(v).includes("⚪")) return "Frío";
+          return String(v);
+        };
+
+        // Saltar filas de descripción/ejemplo (busca primera fila con nombre real)
+        const dataStart = headerRow + 1;
+        const dataRows = raw.slice(dataStart).filter(row => {
+          const nombre = C.nombre >= 0 ? String(row[C.nombre] || "").trim() : "";
+          return nombre !== "" &&
+                 !nombre.includes("EJEMPLO") &&
+                 !nombre.includes("Martín Campos") && // skip demo row
+                 !nombre.toLowerCase().includes("ej:");
+        });
+
+        if (dataRows.length === 0) {
+          toast("⚠ No se encontraron clientes. ¿Estás usando la Base_Datos_Clientes_MacroPro.xlsx?");
+          return;
         }
+
+        const mapped = dataRows.map((row, i) => {
+          // Ciudades de interés: combinar ciudad1 + ciudad2 + ciudad3
+          const ciudades = [g(row,"ciudad1"), g(row,"ciudad2"), g(row,"ciudad3")]
+            .filter(Boolean);
+
+          // Usos de interés: puede ser lista separada por coma en una sola celda
+          const usoRaw = g(row,"uso");
+          const usos = usoRaw.split(/[,;]/).map(s=>s.trim()).filter(Boolean);
+
+          return {
+            id:              g(row,"id") || `CLI-${String(i+1).padStart(3,"0")}`,
+            nombre:          g(row,"nombre") || `Cliente ${i+1}`,
+            empresa:         g(row,"empresa"),
+            tipo:            g(row,"tipo"),
+            asesor:          g(row,"asesor"),
+            ciudad_interes:  ciudades,
+            estado:          g(row,"estado1"),
+            uso_interes:     usos,
+            presupuesto_min: toNum(g(row,"ppto_min")),
+            presupuesto_max: toNum(g(row,"ppto_max")),
+            precio_max_m2:   toNum(g(row,"precio_m2")),
+            sup_min:         toNum(g(row,"sup_min")),
+            sup_max:         toNum(g(row,"sup_max")),
+            plazo:           g(row,"plazo"),
+            acepta_financ:   g(row,"financia"),
+            temperatura:     cleanTemp(g(row,"temp")),
+            status:          g(row,"status") || "Prospecto",
+            proyecto:        g(row,"proyecto"),
+            fin_listo:       g(row,"fin_listo"),
+            agua:            g(row,"agua"),
+            luz:             g(row,"luz"),
+            drenaje:         g(row,"drenaje"),
+            acceso:          g(row,"acceso"),
+            deal_breakers:   [g(row,"db1"), g(row,"db2"), g(row,"db3")].filter(Boolean),
+            notas:           g(row,"notas"),
+          };
+        });
+
+        setClients(mapped);
+        toast(`✓ ${mapped.length} clientes cargados desde "${file.name}"`);
       } catch(err) {
         console.error("Client Excel error:", err);
         toast("⚠ Error al leer clientes: " + err.message);
@@ -731,8 +828,13 @@ Incluye TODOS los clientes rankeados.`;
                 : `${subject.ciudad}, ${subject.estado} · ${subject.uso} · ${subject.sup_m2?.toLocaleString()} m²`}
             </div>
           </div>
-          <div style={{ display:"flex", gap:8 }}>
+          <div style={{ display:"flex", gap:8, flexDirection:"column", alignItems:"flex-end" }}>
             {results[0] && <ScoreRing score={results[0].score} size={72} />}
+            <button style={{ background:B.gold, color:B.navy, border:"none", borderRadius:8,
+              padding:"8px 16px", fontSize:12, fontWeight:700, cursor:"pointer" }}
+              onClick={() => window.print()}>
+              🖨️ Imprimir / PDF
+            </button>
           </div>
         </div>
 
@@ -865,18 +967,261 @@ Incluye TODOS los clientes rankeados.`;
     );
   };
 
+
+  // ── MODAL FICHA TÉCNICA COMPLETA ──────────────────────────────────
+  const ModalFichaTecnica = ({ lot, onClose }) => {
+    if (!lot) return null;
+    const Field = ({ label, value, wide }) => {
+      if (!value && value !== 0) return null;
+      return (
+        <div style={{ gridColumn: wide ? "1 / -1" : "auto",
+          background: B.offW, borderRadius: 8, padding: "10px 14px",
+          border: `1px solid ${B.grey1}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: B.grey3,
+            textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>{label}</div>
+          <div style={{ fontSize: 13, color: B.navy, fontWeight: 600 }}>{String(value)}</div>
+        </div>
+      );
+    };
+    const Section = ({ title, color }) => (
+      <div style={{ gridColumn: "1 / -1", background: color || B.navy,
+        borderRadius: 8, padding: "8px 14px", marginTop: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: B.gold,
+          textTransform: "uppercase", letterSpacing: 2 }}>{title}</span>
+      </div>
+    );
+    const precioTotal = lot.precio_total || (lot.sup_m2 * lot.precio_m2);
+    return (
+      <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)",
+        zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center",
+        padding: 20, overflow:"auto" }}
+        onClick={e => e.target === e.currentTarget && onClose()}>
+        <div style={{ background: B.white, borderRadius: 20, width: "100%", maxWidth: 860,
+          maxHeight: "90vh", overflowY: "auto", boxShadow: "0 25px 60px rgba(0,43,73,0.3)" }}>
+
+          {/* Header */}
+          <div style={{ background: `linear-gradient(135deg,${B.navy},${B.navyL})`,
+            borderRadius: "20px 20px 0 0", padding: "24px 28px",
+            display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: B.gold,
+                letterSpacing: 2, textTransform:"uppercase", marginBottom: 6 }}>
+                Ficha Técnica Completa · {lot.desarrollo || lot.id}
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: B.white,
+                fontFamily:"'Playfair Display',serif", marginBottom: 6 }}>{lot.nombre}</div>
+              <div style={{ fontSize: 13, color: B.grey2 }}>
+                {lot.ciudad}, {lot.estado} · {lot.uso}
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <button onClick={() => {
+                  const printWin = window.open("","_blank","width=900,height=700");
+                  printWin.document.write(`
+                    <html><head><title>Ficha ${lot.nombre} - Grupo Guía</title>
+                    <style>
+                      body{font-family:Arial,sans-serif;color:#002B49;margin:0;padding:24px}
+                      .header{background:#002B49;color:white;padding:20px 24px;border-radius:8px;margin-bottom:16px}
+                      .gold{color:#F5B335} .title{font-size:22px;font-weight:800;margin:4px 0}
+                      .sub{font-size:12px;opacity:0.8;margin-top:4px}
+                      .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px}
+                      .field{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:8px 12px}
+                      .flabel{font-size:9px;font-weight:700;text-transform:uppercase;color:#94A3B8;margin-bottom:2px}
+                      .fval{font-size:12px;font-weight:600;color:#002B49}
+                      .wide{grid-column:1/-1}
+                      .section{background:#002B49;color:#F5B335;padding:6px 12px;border-radius:6px;
+                               font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;
+                               grid-column:1/-1;margin-top:4px}
+                      .footer{text-align:center;font-size:10px;color:#94A3B8;margin-top:16px;
+                              padding-top:12px;border-top:1px solid #E2E8F0}
+                      @media print{body{padding:12px}}
+                    </style></head><body>
+                    <div class="header">
+                      <div class="gold" style="font-size:10px;letter-spacing:2px;text-transform:uppercase">
+                        FICHA TÉCNICA · MACROLOTES · GRUPO GUÍA</div>
+                      <div class="title">${lot.nombre}</div>
+                      <div class="sub">${lot.id} · ${lot.desarrollo||""} · ${lot.ciudad}, ${lot.estado}</div>
+                    </div>
+                    <div class="grid">
+                      <div class="section">📍 UBICACIÓN E IDENTIFICACIÓN</div>
+                      ${[["ID","id"],["Nombre","nombre"],["Desarrollo","desarrollo"],
+                         ["Ciudad","ciudad"],["Estado","estado"],["Colonia / Corredor","colonia"],
+                         ["Tipo de Inventario","tipo"],["Asesor","asesor"]
+                        ].filter(([,k])=>lot[k]).map(([l,k])=>`
+                        <div class="field"><div class="flabel">${l}</div>
+                        <div class="fval">${lot[k]}</div></div>`).join("")}
+                      <div class="section">📐 SUPERFICIE Y PRECIO</div>
+                      ${[["Superficie","sup_m2"],["Precio por m²","precio_m2"],["Precio Total","precio_total"],
+                         ["Condiciones de Pago","condiciones_pago"],["Entrega","entrega"]
+                        ].filter(([,k])=>lot[k]).map(([l,k])=>`
+                        <div class="field"><div class="flabel">${l}</div>
+                        <div class="fval">${typeof lot[k]==="number"?lot[k].toLocaleString("es-MX"):lot[k]}</div></div>`).join("")}
+                      <div class="section">🏛️ USO DE SUELO Y NORMATIVA</div>
+                      ${[["Uso de Suelo","uso"],["COS","cos"],["CUS","cus"],
+                         ["Niveles Permitidos","niveles"],["Viviendas Máx","viv_max"],
+                         ["Topografía","topografia"],["Estatus Legal","estatus_legal"]
+                        ].filter(([,k])=>lot[k]).map(([l,k])=>`
+                        <div class="field"><div class="flabel">${l}</div>
+                        <div class="fval">${lot[k]}</div></div>`).join("")}
+                      <div class="section">🔌 SERVICIOS E INFRAESTRUCTURA</div>
+                      ${[["Agua Potable","agua"],["Energía Eléctrica","luz"],
+                         ["Drenaje Sanitario","drenaje"],["Acceso a Vialidad","acceso"]
+                        ].filter(([,k])=>lot[k]).map(([l,k])=>`
+                        <div class="field"><div class="flabel">${l}</div>
+                        <div class="fval">${lot[k]}</div></div>`).join("")}
+                      <div class="section">⭐ ARGUMENTOS COMERCIALES</div>
+                      ${lot.fortaleza?`<div class="field wide"><div class="flabel">Fortaleza Principal</div>
+                        <div class="fval">${lot.fortaleza}</div></div>`:""}
+                      ${lot.atributos?`<div class="field wide"><div class="flabel">Atributos Estratégicos</div>
+                        <div class="fval">${lot.atributos}</div></div>`:""}
+                      ${lot.comprador?`<div class="field wide"><div class="flabel">Comprador Ideal</div>
+                        <div class="fval">${lot.comprador}</div></div>`:""}
+                    </div>
+                    <div class="footer">
+                      CONFIDENCIAL · Sistema MacroPro · Grupo Guía · Dirección de Macro Lotes
+                    </div>
+                    </body></html>
+                  `);
+                  printWin.document.close();
+                  printWin.focus();
+                  setTimeout(() => printWin.print(), 500);
+                }}
+                style={{ background: B.gold, color: B.navy, border:"none",
+                  borderRadius:8, padding:"8px 16px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                🖨️ Imprimir Ficha
+              </button>
+              <button onClick={onClose} style={{ background:"rgba(255,255,255,0.15)",
+                color: B.white, border:"none", borderRadius:8, padding:"8px 14px",
+                fontSize:14, cursor:"pointer", fontWeight:700 }}>✕</button>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div style={{ padding: "24px 28px" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+              {/* KPIs top */}
+              {[
+                ["Superficie", lot.sup_m2 ? lot.sup_m2.toLocaleString("es-MX") + " m²" : null],
+                ["Precio por m²", lot.precio_m2 ? "$" + lot.precio_m2.toLocaleString("es-MX") : null],
+                ["Precio Total", precioTotal ? "$" + (precioTotal/1000000).toFixed(1) + " MDP" : null],
+                ["CUS", lot.cus || null],
+                ["Niveles", lot.niveles || null],
+                ["Entrega", lot.entrega || null],
+              ].filter(([,v])=>v).map(([l,v]) => (
+                <div key={l} style={{ background:`linear-gradient(135deg,${B.navy}08,${B.navy}15)`,
+                  border:`2px solid ${B.navy}22`, borderRadius:10, padding:"12px 16px", textAlign:"center" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:B.grey3,
+                    textTransform:"uppercase", letterSpacing:1 }}>{l}</div>
+                  <div style={{ fontSize:18, fontWeight:800, color:B.navy, marginTop:4 }}>{v}</div>
+                </div>
+              ))}
+
+              <Section title="📍 Ubicación e Identificación" />
+              <Field label="ID" value={lot.id} />
+              <Field label="Desarrollo / Proyecto" value={lot.desarrollo} />
+              <Field label="Tipo de Inventario" value={lot.tipo} />
+              <Field label="Ciudad / Municipio" value={lot.ciudad} />
+              <Field label="Estado" value={lot.estado} />
+              <Field label="Colonia / Corredor" value={lot.colonia} />
+              <Field label="Asesor Responsable" value={lot.asesor} />
+              <Field label="Status" value={lot.status} />
+
+              <Section title="🏛️ Uso de Suelo y Normativa" />
+              <Field label="Uso de Suelo" value={lot.uso} />
+              <Field label="COS" value={lot.cos} />
+              <Field label="CUS" value={lot.cus} />
+              <Field label="Niveles Permitidos" value={lot.niveles} />
+              <Field label="Viviendas Máximas" value={lot.viv_max} />
+              <Field label="Topografía" value={lot.topografia} />
+              <Field label="Estatus Legal" value={lot.estatus_legal} />
+
+              <Section title="💰 Precio y Condiciones" />
+              <Field label="Precio por m²" value={lot.precio_m2 ? "$" + lot.precio_m2.toLocaleString("es-MX") : null} />
+              <Field label="Precio Total" value={precioTotal ? "$" + precioTotal.toLocaleString("es-MX") : null} />
+              <Field label="Condiciones de Pago" value={lot.condiciones_pago} />
+              <Field label="Fecha de Entrega" value={lot.entrega} />
+              <Field label="NSE Predominante" value={lot.nse} />
+
+              <Section title="🔌 Servicios e Infraestructura" />
+              <Field label="Agua Potable" value={lot.agua} />
+              <Field label="Energía Eléctrica" value={lot.luz} />
+              <Field label="Drenaje Sanitario" value={lot.drenaje} />
+              <Field label="Acceso a Vialidad" value={lot.acceso} />
+
+              <Section title="⭐ Argumentos Comerciales" />
+              <Field wide label="Fortaleza Principal" value={lot.fortaleza} />
+              <Field wide label="Atributos Estratégicos" value={lot.atributos} />
+              <Field wide label="Comprador Ideal" value={lot.comprador} />
+              <Field wide label="Observaciones" value={lot.observaciones} />
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{ padding:"16px 28px", borderTop:`1px solid ${B.grey1}`,
+            display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span style={{ fontSize:11, color:B.grey3 }}>
+              CONFIDENCIAL · MacroPro · Grupo Guía · Dirección de Macro Lotes
+            </span>
+            <button style={s.btn("primary")} onClick={() => { setSelectedLot(lot); setView("matchLot"); onClose(); }}>
+              🎯 Hacer Match con Clientes
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+
+  // ── PRINT STYLES ──────────────────────────────────────────────────
+  const PrintStyles = () => (
+    <style>{`
+      @media print {
+        nav, button, .no-print { display: none !important; }
+        body { background: white !important; }
+        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      }
+    `}</style>
+  );
+
   // ── CLIENTS LIST ──────────────────────────────────────────────────
   const ViewClients = () => (
     <div style={s.page}>
-      <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:24 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
         <button style={s.btn("ghost")} onClick={() => setView("home")}>← Inicio</button>
         <div style={s.sectionTitle}>Base de Clientes</div>
-        <button style={{ ...s.btn("ghost"), marginLeft:"auto" }} onClick={() => clientFileRef.current?.click()}>📤 Cargar Clientes Excel</button>
-        <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleClientExcelUpload} />
-        <button style={s.btn("primary")} onClick={() => setShowAddClient(true)}>
-          ➕ Nuevo cliente
-        </button>
+        <div style={{ marginLeft:"auto", display:"flex", gap:10, alignItems:"center" }}>
+          <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`,
+            borderRadius:10, padding:"9px 18px", fontSize:13, fontWeight:700, cursor:"pointer",
+            display:"flex", alignItems:"center", gap:8 }}
+            onClick={() => clientFileRef.current?.click()}>
+            📤 Cargar Excel de Clientes
+          </button>
+          <input ref={clientFileRef} type="file" accept=".xlsx,.xls"
+            style={{ display:"none" }} onChange={handleClientExcelUpload} />
+          <button style={s.btn("primary")} onClick={() => setShowAddClient(true)}>
+            ➕ Nuevo cliente
+          </button>
+        </div>
       </div>
+      {clients.length === 0 && (
+        <div style={{ background:`linear-gradient(135deg,${B.navy}08,${B.gold}15)`,
+          border:`2px dashed ${B.gold}`, borderRadius:16, padding:40, textAlign:"center",
+          marginBottom:24 }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>📊</div>
+          <div style={{ fontSize:18, fontWeight:800, color:B.navy, marginBottom:8 }}>
+            Carga tu Base de Datos de Clientes
+          </div>
+          <div style={{ fontSize:13, color:B.grey4, marginBottom:20, maxWidth:420, margin:"0 auto 20px" }}>
+            Usa el archivo <strong>Base_Datos_Clientes_MacroPro.xlsx</strong> que generamos.
+            Cada fila es un cliente — carga hasta 200 de una sola vez.
+          </div>
+          <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`,
+            borderRadius:10, padding:"12px 28px", fontSize:14, fontWeight:700, cursor:"pointer" }}
+            onClick={() => clientFileRef.current?.click()}>
+            📤 Seleccionar archivo Excel
+          </button>
+        </div>
+      )}
       {clients.map(c => (
         <div key={c.id} style={{ ...s.clientCard(false), cursor:"default" }}>
           <div style={{ display:"flex", alignItems:"center", gap:16 }}>
@@ -939,6 +1284,7 @@ Incluye TODOS los clientes rankeados.`;
                 <span>Entrega: {lot.entrega}</span>
               </div>
             </div>
+            <button style={{ ...s.btn("ghost"), fontSize:12, padding:"6px 12px" }} onClick={() => setSelectedLotDetail(lot)}>📋 Ficha</button>
             <button style={s.btn("sm")} onClick={() => { setSelectedLot(lot); setView("matchLot"); }}>🎯 Match</button>
           </div>
         </div>
@@ -1060,6 +1406,8 @@ Incluye TODOS los clientes rankeados.`;
 
       {/* MODALS */}
       {showAddClient && <ModalAddClient />}
+      {selectedLotDetail && <ModalFichaTecnica lot={selectedLotDetail} onClose={() => setSelectedLotDetail(null)} />}
+      <PrintStyles />
 
       {/* LOADING */}
       {loading && <LoadingView />}
