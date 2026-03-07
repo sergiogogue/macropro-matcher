@@ -123,6 +123,7 @@ export default function MacroProMatcher() {
   const [newClient, setNewClient] = useState({ nombre:"", empresa:"", asesor:"", ciudad_interes:[], uso_interes:[], presupuesto_min:"", presupuesto_max:"", sup_min:"", sup_max:"", temperatura:"Tibio", status:"Nuevo", notas:"" });
   const [toastMsg, setToastMsg] = useState("");
   const fileRef = useRef();
+  const clientFileRef = useRef();
 
   const cities = ["Todas", ...new Set(inventory.map(l => l.ciudad))];
   const usos = ["Todos", ...new Set(inventory.map(l => l.uso))];
@@ -130,7 +131,7 @@ export default function MacroProMatcher() {
 
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3000); };
 
-  // ── EXCEL UPLOAD ─────────────────────────────────────────────────
+  // ── EXCEL UPLOAD INVENTARIO ───────────────────────────────────────
   const handleExcelUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -138,45 +139,158 @@ export default function MacroProMatcher() {
     reader.onload = (ev) => {
       try {
         const wb = XLSX.read(ev.target.result, { type:"binary" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws, { defval:"" });
-        if (data.length > 0) {
-          const mapped = data.map((row, i) => ({
-            id: row["ID Macrolote"] || row["id"] || `LOT-${i+1}`,
-            nombre: row["Nombre / Clave"] || row["nombre"] || `Lote ${i+1}`,
-            desarrollo: row["Desarrollo / Proyecto"] || row["desarrollo"] || "",
-            ciudad: row["Ciudad / Municipio"] || row["ciudad"] || "",
-            estado: row["Estado"] || row["estado"] || "",
-            uso: row["Uso de Suelo"] || row["uso_suelo"] || row["uso"] || "",
-            sup_m2: parseFloat(row["Superficie (m²)"] || row["sup_m2"] || 0),
-            precio_m2: parseFloat(row["Precio por m² ($MXN)"] || row["precio_m2"] || 0),
-            precio_total: parseFloat(row["Precio Total ($MXN)"] || row["precio_total"] || 0),
-            status: row["Status"] || row["status"] || "Disponible",
-            entrega: row["Fecha Entrega"] || row["entrega"] || "",
-            cos: parseFloat(row["COS"] || row["cos"] || 0),
-            cus: parseFloat(row["CUS"] || row["cus"] || 0),
-            niveles: row["Niveles Permitidos"] || row["niveles"] || "",
-            viv_max: parseInt(row["Viviendas Máx"] || row["viv_max"] || 0),
-            agua: row["Agua Potable"] || row["agua"] || "",
-            luz: row["Energía Eléctrica"] || row["luz"] || "",
-            drenaje: row["Drenaje Sanitario"] || row["drenaje"] || "",
-            acceso: row["Acceso a Vialidad"] || row["acceso"] || "",
-            fortaleza: row["Fortaleza Principal"] || row["fortaleza"] || "",
-            atributos: row["Atributos Estratégicos"] || row["atributos"] || "",
-            comprador: row["Comprador Ideal"] || row["comprador"] || "",
-            asesor: row["Asesor Responsable"] || row["asesor"] || "",
-          }));
+        // Buscar hoja de inventario
+        const sheetName = wb.SheetNames.find(n => n.includes("INVENTARIO") || n.includes("inventario")) || wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        
+        // Leer con encabezados en fila 5 (índice 4), datos desde fila 9
+        const raw = XLSX.utils.sheet_to_json(ws, { 
+          defval: "", 
+          header: 1 
+        });
+        
+        // Encontrar fila de encabezados (buscar la que tenga "ID Macrolote")
+        let headerRow = 4; // default fila 5
+        for (let i = 0; i < Math.min(raw.length, 10); i++) {
+          if (raw[i] && raw[i].some(c => c && String(c).includes("ID Macrolote"))) {
+            headerRow = i;
+            break;
+          }
+        }
+        
+        const headers = raw[headerRow].map(h => String(h || "").replace(/^\* /, "").replace(/ ▼$/, "").trim());
+        const dataRows = raw.slice(headerRow + 4); // saltar filas de descripción y ejemplo
+        
+        const getVal = (row, ...names) => {
+          for (const name of names) {
+            const idx = headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
+            if (idx >= 0 && row[idx] !== undefined && row[idx] !== "") return row[idx];
+          }
+          return "";
+        };
+        
+        const mapped = dataRows
+          .filter(row => row[0] && String(row[0]).trim() !== "" && !String(row[0]).includes("Ej:"))
+          .map((row, i) => {
+            const sup = parseFloat(getVal(row, "Superficie (m²)")) || 0;
+            const pm2 = parseFloat(getVal(row, "Precio por m²")) || 0;
+            let total = parseFloat(getVal(row, "Precio Total")) || 0;
+            if (!total && sup && pm2) total = sup * pm2;
+            
+            return {
+              id: String(getVal(row, "ID Macrolote") || `LOT-${i+1}`),
+              nombre: String(getVal(row, "Nombre / Clave") || `Lote ${i+1}`),
+              desarrollo: String(getVal(row, "Desarrollo / Proyecto") || ""),
+              tipo: String(getVal(row, "Tipo de Inventario") || ""),
+              ciudad: String(getVal(row, "Ciudad / Municipio") || ""),
+              estado: String(getVal(row, "Estado") || ""),
+              colonia: String(getVal(row, "Colonia / Corredor") || ""),
+              uso: String(getVal(row, "Uso de Suelo") || ""),
+              sup_m2: sup,
+              precio_m2: pm2,
+              precio_total: total,
+              status: String(getVal(row, "Status") || "Disponible"),
+              entrega: String(getVal(row, "Fecha Entrega") || ""),
+              cos: parseFloat(getVal(row, "COS")) || 0,
+              cus: parseFloat(getVal(row, "CUS")) || 0,
+              niveles: String(getVal(row, "Niveles Permitidos") || ""),
+              viv_max: parseInt(getVal(row, "Viviendas Máx")) || 0,
+              agua: String(getVal(row, "Agua Potable") || ""),
+              luz: String(getVal(row, "Energía Eléctrica") || ""),
+              drenaje: String(getVal(row, "Drenaje Sanitario") || ""),
+              acceso: String(getVal(row, "Acceso a Vialidad") || ""),
+              topografia: String(getVal(row, "Topografía") || ""),
+              estatus_legal: String(getVal(row, "Estatus Legal") || ""),
+              fortaleza: String(getVal(row, "Fortaleza Principal") || ""),
+              atributos: String(getVal(row, "Atributos Estratégicos") || ""),
+              comprador: String(getVal(row, "Comprador Ideal") || ""),
+              asesor: String(getVal(row, "Asesor Responsable") || ""),
+              nse: String(getVal(row, "NSE Predominante") || ""),
+              condiciones_pago: String(getVal(row, "Condiciones de Pago") || ""),
+              observaciones: String(getVal(row, "Observaciones") || ""),
+            };
+          })
+          .filter(l => l.sup_m2 > 0 || l.precio_m2 > 0); // solo lotes con datos mínimos
+        
+        if (mapped.length > 0) {
           setInventory(mapped);
-          toast(`✓ ${mapped.length} lotes cargados correctamente`);
+          toast(`✓ ${mapped.length} lotes cargados desde "${file.name}"`);
+        } else {
+          toast("⚠ No se encontraron lotes con datos. Verifica el formato del Excel.");
         }
       } catch(err) {
-      console.error("RAW ERROR:", err);
-      console.error("RAW DATA:", JSON.stringify(data)); toast("⚠ Error al leer el archivo Excel"); }
+        console.error("Excel upload error:", err);
+        toast("⚠ Error al leer el archivo Excel: " + err.message);
+      }
     };
     reader.readAsBinaryString(file);
   };
 
-  // ── CLAUDE MATCH ENGINE ──────────────────────────────────────────
+  // ── EXCEL UPLOAD CLIENTES ─────────────────────────────────────────
+  const handleClientExcelUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type:"binary" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(ws, { defval: "", header: 1 });
+        
+        // Buscar fila de encabezados
+        let headerRow = 0;
+        for (let i = 0; i < Math.min(raw.length, 10); i++) {
+          if (raw[i] && raw[i].some(c => c && String(c).includes("Nombre"))) {
+            headerRow = i; break;
+          }
+        }
+        
+        const headers = raw[headerRow].map(h => String(h || "").replace(/^\* /, "").trim());
+        const dataRows = raw.slice(headerRow + 1);
+        
+        const getVal = (row, ...names) => {
+          for (const name of names) {
+            const idx = headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
+            if (idx >= 0 && row[idx] !== undefined && row[idx] !== "") return row[idx];
+          }
+          return "";
+        };
+        
+        const mapped = dataRows
+          .filter(row => row[0] && String(row[0]).trim() !== "")
+          .map((row, i) => ({
+            id: String(getVal(row, "ID", "id") || `CLI-${String(i+1).padStart(3,"0")}`),
+            nombre: String(getVal(row, "Nombre", "nombre") || `Cliente ${i+1}`),
+            empresa: String(getVal(row, "Empresa", "empresa") || ""),
+            asesor: String(getVal(row, "Asesor", "asesor") || ""),
+            ciudad_interes: String(getVal(row, "Ciudad", "ciudad") || "").split(/[,;]/).map(s=>s.trim()).filter(Boolean),
+            uso_interes: String(getVal(row, "Uso", "uso") || "").split(/[,;]/).map(s=>s.trim()).filter(Boolean),
+            presupuesto_min: parseFloat(String(getVal(row, "Presupuesto Min", "pres_min") || "0").replace(/[$,MDP\s]/gi,"")) * (String(getVal(row, "Presupuesto Min","pres_min")).includes("MDP") ? 1000000 : 1) || 0,
+            presupuesto_max: parseFloat(String(getVal(row, "Presupuesto Max", "pres_max") || "0").replace(/[$,MDP\s]/gi,"")) * (String(getVal(row, "Presupuesto Max","pres_max")).includes("MDP") ? 1000000 : 1) || 0,
+            sup_min: parseFloat(getVal(row, "Sup Min", "sup_min") || 0) || 0,
+            sup_max: parseFloat(getVal(row, "Sup Max", "sup_max") || 0) || 0,
+            temperatura: String(getVal(row, "Temperatura", "temp") || "Tibio"),
+            status: String(getVal(row, "Status", "status") || "Prospecto"),
+            notas: String(getVal(row, "Notas", "notas", "Observaciones") || ""),
+            fecha_contacto: String(getVal(row, "Fecha", "fecha") || ""),
+          }));
+        
+        if (mapped.length > 0) {
+          setClients([...DEMO_CLIENTS, ...mapped]);
+          toast(`✓ ${mapped.length} clientes cargados desde "${file.name}"`);
+        } else {
+          toast("⚠ No se encontraron clientes. Verifica el formato.");
+        }
+      } catch(err) {
+        console.error("Client Excel error:", err);
+        toast("⚠ Error al leer clientes: " + err.message);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+
+    // ── CLAUDE MATCH ENGINE ──────────────────────────────────────────
   const runMatch = async (mode, subject, targets) => {
     setLoading(true);
     setMatchResults(null);
@@ -489,7 +603,9 @@ Incluye TODOS los clientes rankeados.`;
           <div style={s.sectionTitle}>Selecciona el cliente</div>
           <div style={s.sectionSub}>El análisis cruzará su perfil con todos los lotes del inventario</div>
         </div>
-        <button style={{ ...s.btn("primary"), marginLeft:"auto" }} onClick={() => setShowAddClient(true)}>
+        <button style={{ ...s.btn("ghost"), marginLeft:"auto" }} onClick={() => clientFileRef.current?.click()}>📤 Cargar Clientes Excel</button>
+        <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleClientExcelUpload} />
+        <button style={s.btn("primary")} onClick={() => setShowAddClient(true)}>
           ➕ Nuevo cliente
         </button>
       </div>
@@ -755,7 +871,9 @@ Incluye TODOS los clientes rankeados.`;
       <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:24 }}>
         <button style={s.btn("ghost")} onClick={() => setView("home")}>← Inicio</button>
         <div style={s.sectionTitle}>Base de Clientes</div>
-        <button style={{ ...s.btn("primary"), marginLeft:"auto" }} onClick={() => setShowAddClient(true)}>
+        <button style={{ ...s.btn("ghost"), marginLeft:"auto" }} onClick={() => clientFileRef.current?.click()}>📤 Cargar Clientes Excel</button>
+        <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleClientExcelUpload} />
+        <button style={s.btn("primary")} onClick={() => setShowAddClient(true)}>
           ➕ Nuevo cliente
         </button>
       </div>
@@ -786,7 +904,7 @@ Incluye TODOS los clientes rankeados.`;
       <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:16 }}>
         <button style={s.btn("ghost")} onClick={() => setView("home")}>← Inicio</button>
         <div style={s.sectionTitle}>Inventario de Macrolotes</div>
-        <button style={{ ...s.btn("ghost"), marginLeft:"auto" }} onClick={() => fileRef.current?.click()}>📤 Actualizar Excel</button>
+        <button style={{ ...s.btn("ghost"), marginLeft:"auto" }} onClick={() => fileRef.current?.click()}>📤 Cargar Inventario Excel</button>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleExcelUpload} />
       </div>
       <div style={s.filterBar}>
