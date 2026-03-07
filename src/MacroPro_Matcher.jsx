@@ -408,7 +408,7 @@ export default function MacroProMatcher() {
     setLoading(true);
     setMatchResults(null);
 
-    const msgs = ["Analizando perfil...", "Calculando compatibilidad...", "Generando argumentos de venta...", "Rankeando resultados..."];
+    const msgs = ["Analizando perfil...", "Calculando compatibilidad...", "Generando argumentos...", "Rankeando..."];
     let mi = 0;
     setLoadingMsg(msgs[0]);
     const interval = setInterval(() => { mi = (mi+1) % msgs.length; setLoadingMsg(msgs[mi]); }, 1800);
@@ -424,61 +424,55 @@ export default function MacroProMatcher() {
           return ciudadOk && presupuestoOk && superficieOk;
         });
         const candidatos = filtered.length > 0 ? filtered : targets;
-        const top = candidatos.slice(0, 10);
-        
+        const top = candidatos.slice(0, 8);
+
         prompt = `Estratega inmobiliario México. Rankea estos lotes para el cliente. Solo JSON, sin texto extra.
-CLIENTE: ${subject.nombre}|${subject.empresa}|Ciudades:${subject.ciudad_interes?.join(",")}|Usos:${subject.uso_interes?.join(",")}|$${subject.presupuesto_min}M-$${subject.presupuesto_max}M|${subject.sup_min}-${subject.sup_max}m²
-LOTES:
+CLIENTE: ${subject.nombre}|${subject.empresa}|${subject.tipo}|Ciudades:${subject.ciudad_interes?.join(",")}|Usos:${subject.uso_interes?.join(",")}|Ppto:$${fmtM(subject.presupuesto_min)}-$${fmtM(subject.presupuesto_max)}|Sup:${subject.sup_min}-${subject.sup_max}m²|DealBreakers:${subject.deal_breakers?.join(",")||"ninguno"}
+LOTES (${top.length}):
 ${top.map(l => `${l.id}|${l.nombre}|${l.ciudad}|${l.uso}|${l.sup_m2}m²|$${l.precio_m2}/m²|${fmtM(l.precio_total)}`).join("\n")}
-JSON:{"resultados":[{"id":"CN-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
-Rankea los ${top.length} lotes, mayor a menor score.`;
+FORMATO JSON EXACTO:{"resultados":[{"id":"CN-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración max","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
+Rankea los ${top.length} lotes mayor a menor score.`;
+
       } else {
-        prompt = `Eres el mejor estratega inmobiliario de México. Analiza este macrolote y rankea los clientes por compatibilidad.
+        // loteToClients — pre-filtrar clientes compatibles antes de mandar al API
+        const filtered = targets.filter(c => {
+          const ciudadOk = !c.ciudad_interes?.length || c.ciudad_interes.some(ci => subject.ciudad?.includes(ci) || ci?.includes(subject.ciudad));
+          const presupuestoOk = !c.presupuesto_max || c.presupuesto_max >= subject.precio_total * 0.7;
+          const supOk = !c.sup_max || c.sup_max >= subject.sup_m2 * 0.7;
+          return ciudadOk && presupuestoOk && supOk;
+        });
+        const candidatos = filtered.length > 0 ? filtered : targets;
+        const top = candidatos.slice(0, 8);
 
-MACROLOTE:
-- ID: ${subject.id} | ${subject.nombre}
-- Ciudad: ${subject.ciudad}, ${subject.estado}
-- Uso: ${subject.uso}
-- Superficie: ${subject.sup_m2?.toLocaleString()} m²
-- Precio: $${subject.precio_m2?.toLocaleString()}/m² | Total: ${fmtM(subject.precio_total)}
-- Fortaleza: ${subject.fortaleza}
-- Atributos: ${subject.atributos}
-- Comprador ideal: ${subject.comprador}
-
-CLIENTES EN CARTERA:
-${targets.map(c => `[${c.id}] ${c.nombre} / ${c.empresa} | Ciudades: ${c.ciudad_interes?.join(",")} | Usos: ${c.uso_interes?.join(",")} | Presupuesto: ${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)} | Superficie: ${c.sup_min?.toLocaleString()}-${c.sup_max?.toLocaleString()} m² | Temp: ${c.temperatura} | Notas: ${c.notas}`).join("\n")}
-
-Responde ÚNICAMENTE con JSON válido:
-{
-  "resultados": [
-    {
-      "id": "CLI-001",
-      "score": 85,
-      "match_label": "Match Excelente",
-      "razon_principal": "texto corto 1 oración",
-      "argumentos": ["arg1", "arg2", "arg3"],
-      "objeccion": "posible objeción",
-      "respuesta_objecion": "cómo responderla",
-      "urgencia": "por qué actuar ahora"
-    }
-  ]
-}
-Incluye TODOS los clientes rankeados.`;
+        prompt = `Estratega inmobiliario México. Rankea estos clientes para el lote. Solo JSON, sin texto extra.
+LOTE: ${subject.id}|${subject.nombre}|${subject.ciudad}|${subject.uso}|${subject.sup_m2}m²|$${subject.precio_m2}/m²|${fmtM(subject.precio_total)}|${subject.fortaleza?.substring(0,100)}
+CLIENTES (${top.length}):
+${top.map(c => `${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}
+FORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración max","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
+Rankea los ${top.length} clientes mayor a menor score.`;
       }
 
       const response = await fetch("/.netlify/functions/claude", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 3000,
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 2000,
           messages: [{ role:"user", content: prompt }]
         })
       });
 
+      // Manejar errores HTTP (504, 502, etc.)
+      if (!response.ok) {
+        const errText = await response.text();
+        if (response.status === 504) throw new Error("La función tardó demasiado. Intenta de nuevo — usualmente funciona al segundo intento.");
+        if (response.status === 502) throw new Error("Error de servidor (502). Intenta de nuevo en unos segundos.");
+        throw new Error(`Error HTTP ${response.status}. Intenta de nuevo.`);
+      }
+
       let data = {};
       data = await response.json();
-      console.log("API Response:", JSON.stringify(data).substring(0, 500));
+      console.log("API Response:", JSON.stringify(data).substring(0, 300));
       if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
       const text = data.content?.find(b => b.type === "text")?.text || "";
       const clean = text.replace(/```json|```/g, "").trim();
@@ -490,15 +484,13 @@ Incluye TODOS los clientes rankeados.`;
           ? targets.find(l => l.id === r.id)
           : targets.find(c => c.id === r.id);
         return { ...r, data: item };
-      }).sort((a,b) => b.score - a.score);
+      }).filter(r => r.data).sort((a,b) => b.score - a.score);
 
       setMatchResults({ mode, subject, results: enriched });
       setView("result");
     } catch(err) {
-      console.error("RAW ERROR:", err);
-      console.error("RAW DATA:", JSON.stringify(data));
-      const errMsg = data?.error?.message || err.message || "Error desconocido"; toast(`⚠ ${errMsg}`);
-      console.error(err);
+      console.error("Match error:", err.message);
+      toast(`⚠ ${err.message}`);
     } finally {
       clearInterval(interval);
       setLoading(false);
