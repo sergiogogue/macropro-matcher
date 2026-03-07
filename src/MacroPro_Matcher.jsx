@@ -104,7 +104,7 @@ const Tag = ({ label, color = B.navy, bg = B.blueL }) => (
 // ─── MAIN APP ─────────────────────────────────────────────────────
 export default function MacroProMatcher() {
   const [view, setView] = useState("home"); // home | matchClient | matchLot | clients | lots | result
-  const [inventory, setInventory] = useState(SAMPLE_INVENTORY);
+  const [inventory, setInventory] = useState([]);
   const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedLot, setSelectedLot] = useState(null);
@@ -1254,13 +1254,52 @@ Incluye TODOS los clientes rankeados.`;
   // ── LOTS LIST ─────────────────────────────────────────────────────
   const ViewLots = () => (
     <div style={s.page}>
-      <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:16 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
         <button style={s.btn("ghost")} onClick={() => setView("home")}>← Inicio</button>
         <div style={s.sectionTitle}>Inventario de Macrolotes</div>
-        <button style={{ ...s.btn("ghost"), marginLeft:"auto" }} onClick={() => fileRef.current?.click()}>📤 Cargar Inventario Excel</button>
-        <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleExcelUpload} />
+        <div style={{ marginLeft:"auto", display:"flex", gap:10, alignItems:"center" }}>
+          <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`,
+            borderRadius:10, padding:"9px 18px", fontSize:13, fontWeight:700, cursor:"pointer",
+            display:"flex", alignItems:"center", gap:8 }}
+            onClick={() => fileRef.current?.click()}>
+            📤 Cargar Inventario Excel
+          </button>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleExcelUpload} />
+          {inventory.length > 0 && (
+            <span style={{ fontSize:12, color:B.grey3, fontWeight:600 }}>
+              {inventory.length} lotes cargados
+            </span>
+          )}
+        </div>
       </div>
-      <div style={s.filterBar}>
+      {inventory.length === 0 && (
+        <div style={{ background:`linear-gradient(135deg,${B.navy}08,${B.gold}15)`,
+          border:`2px dashed ${B.gold}`, borderRadius:16, padding:40, textAlign:"center",
+          marginBottom:24 }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>🏗️</div>
+          <div style={{ fontSize:18, fontWeight:800, color:B.navy, marginBottom:8 }}>
+            Carga tu Inventario de Macrolotes
+          </div>
+          <div style={{ fontSize:13, color:B.grey4, marginBottom:20, maxWidth:440, margin:"0 auto 20px" }}>
+            Usa el archivo <strong>Inventario_Unificado_MacroLotes.xlsx</strong>.<br/>
+            La app detecta automáticamente los 75 campos — carga hasta 200 lotes de una vez.
+          </div>
+          <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
+            <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`,
+              borderRadius:10, padding:"12px 28px", fontSize:14, fontWeight:700, cursor:"pointer" }}
+              onClick={() => fileRef.current?.click()}>
+              📤 Seleccionar archivo Excel
+            </button>
+            <button style={{ background:"transparent", color:B.grey4,
+              border:`1px solid ${B.grey2}`, borderRadius:10, padding:"12px 20px",
+              fontSize:13, cursor:"pointer" }}
+              onClick={() => { setInventory(SAMPLE_INVENTORY); toast("✓ 25 lotes demo cargados"); }}>
+              Ver inventario demo
+            </button>
+          </div>
+        </div>
+      )}
+      {inventory.length > 0 && <div style={s.filterBar}>
         <select style={s.select} value={filterCity} onChange={e=>setFilterCity(e.target.value)}>
           {cities.map(c=><option key={c}>{c}</option>)}
         </select>
@@ -1270,7 +1309,7 @@ Incluye TODOS los clientes rankeados.`;
         <span style={{ marginLeft:"auto", fontSize:13, color:B.grey3 }}>
           {inventory.filter(l=>(filterCity==="Todas"||l.ciudad===filterCity)&&(filterUso==="Todos"||l.uso===filterUso)).length} lotes
         </span>
-      </div>
+      </div>}
       {inventory.filter(l=>(filterCity==="Todas"||l.ciudad===filterCity)&&(filterUso==="Todos"||l.uso===filterUso)).map(lot => (
         <div key={lot.id} style={{ ...s.lotCard(false), cursor:"default" }}>
           <div style={{ display:"flex", alignItems:"center", gap:16 }}>
