@@ -250,14 +250,20 @@ export default function MacroProMatcher() {
         const ws = wb.Sheets[sheetName];
         const raw = XLSX.utils.sheet_to_json(ws, { defval:"", header:1 });
 
-        // Encontrar fila de encabezados buscando "Nombre Completo" o "ID Cliente"
+        // Encontrar fila de encabezados — busca la fila con más columnas reconocibles
         let headerRow = 0;
-        for (let i = 0; i < Math.min(raw.length, 10); i++) {
-          if (raw[i] && raw[i].some(c => c &&
-            (String(c).includes("Nombre Completo") || String(c).includes("ID Cliente")))) {
-            headerRow = i; break;
-          }
+        let bestScore = 0;
+        const recognizable = ["nombre","id","empresa","ciudad","estado","uso","presupuesto","superficie","asesor","temperatura","status","plazo","cliente","ppto","sup"];
+        for (let i = 0; i < Math.min(raw.length, 15); i++) {
+          if (!raw[i]) continue;
+          const score = raw[i].filter(c => {
+            const s = String(c||"").toLowerCase().replace(/[^a-záéíóúüñ0-9 ]/gi," ");
+            return recognizable.some(r => s.includes(r));
+          }).length;
+          if (score > bestScore) { bestScore = score; headerRow = i; }
         }
+        // Si la hoja es muy simple (encabezados en fila 1), también intentar fila 0
+        if (bestScore === 0) headerRow = 0;
 
         // Mapeo por nombre de columna (tolerante a variaciones)
         const headers = raw[headerRow].map(h =>
@@ -275,38 +281,42 @@ export default function MacroProMatcher() {
           return -1;
         };
 
-        // Mapeo de columnas — coincide exactamente con Base_Datos_Clientes_MacroPro.xlsx
+        // Mapeo de columnas — tolerante a variaciones, nombres simples y complejos
         const C = {
           id:       colIdx(["id cliente","id"]),
           nombre:   colIdx(["nombre completo","nombre"]),
-          empresa:  colIdx(["empresa grupo","empresa"]),
-          tipo:     colIdx(["tipo comprador","tipo"]),
-          asesor:   colIdx(["asesor"]),
-          ciudad1:  colIdx(["ciudad 1","ciudad1","ciudad"]),
-          estado1:  colIdx(["estado 1","estado1","estado"]),
-          ciudad2:  colIdx(["ciudad 2","ciudad2"]),
-          ciudad3:  colIdx(["ciudad 3","ciudad3"]),
-          uso:      colIdx(["uso de suelo","uso suelo","uso"]),
-          sup_min:  colIdx(["sup mn","sup min","superficie min"]),
-          sup_max:  colIdx(["sup mx","sup max","superficie max"]),
-          ppto_min: colIdx(["ppto mn","ppto min","presupuesto mn"]),
-          ppto_max: colIdx(["ppto mx","ppto max","presupuesto mx"]),
-          precio_m2:colIdx(["precio mx","precio max m"]),
-          plazo:    colIdx(["plazo cierre","plazo"]),
-          financia: colIdx(["acepta financ","financiamiento"]),
-          temp:     colIdx(["temperatura"]),
-          status:   colIdx(["status crm","status"]),
-          proyecto: colIdx(["proyecto definido","proyecto"]),
-          fin_listo:colIdx(["financ listo","financiamiento listo"]),
-          agua:     colIdx(["agua"]),
-          luz:      colIdx(["luz energia","luz"]),
-          drenaje:  colIdx(["drenaje"]),
-          acceso:   colIdx(["acceso vialidad","acceso"]),
-          db1:      colIdx(["deal breaker 1"]),
-          db2:      colIdx(["deal breaker 2"]),
-          db3:      colIdx(["deal breaker 3"]),
-          notas:    colIdx(["notas del asesor","notas"]),
+          empresa:  colIdx(["empresa grupo","empresa","compania","compañia","razon social"]),
+          tipo:     colIdx(["tipo comprador","tipo de comprador","tipo cliente","tipo"]),
+          asesor:   colIdx(["asesor","agente","responsable"]),
+          ciudad1:  colIdx(["ciudad 1","ciudad1","ciudad de interes","ciudad interes","ciudad"]),
+          estado1:  colIdx(["estado 1","estado1","estado de interes","estado interes","estado"]),
+          ciudad2:  colIdx(["ciudad 2","ciudad2","segunda ciudad"]),
+          ciudad3:  colIdx(["ciudad 3","ciudad3","tercera ciudad"]),
+          uso:      colIdx(["uso de suelo","uso suelo","uso del suelo","uso interes","uso"]),
+          sup_min:  colIdx(["sup mn","sup min","superficie min","superficie minima","m2 min","metros min"]),
+          sup_max:  colIdx(["sup mx","sup max","superficie max","superficie maxima","m2 max","metros max"]),
+          ppto_min: colIdx(["ppto mn","ppto min","presupuesto mn","presupuesto min","presupuesto minimo","budget min"]),
+          ppto_max: colIdx(["ppto mx","ppto max","presupuesto mx","presupuesto max","presupuesto maximo","presupuesto","budget"]),
+          precio_m2:colIdx(["precio mx","precio max m","precio m2","precio por m2"]),
+          plazo:    colIdx(["plazo cierre","plazo de cierre","plazo","tiempo cierre"]),
+          financia: colIdx(["acepta financ","acepta financiamiento","financiamiento","financia"]),
+          temp:     colIdx(["temperatura","calificacion","calidad prospecto","lead score"]),
+          status:   colIdx(["status crm","status del crm","status","estatus","etapa"]),
+          proyecto: colIdx(["proyecto definido","proyecto","tiene proyecto"]),
+          fin_listo:colIdx(["financ listo","financiamiento listo","credito listo","financiamiento aprobado"]),
+          agua:     colIdx(["agua","agua potable"]),
+          luz:      colIdx(["luz energia","luz electrica","energia","electricidad","luz"]),
+          drenaje:  colIdx(["drenaje","alcantarillado"]),
+          acceso:   colIdx(["acceso vialidad","acceso a vialidad","acceso","vialidad"]),
+          db1:      colIdx(["deal breaker 1","dealbreaker 1","restriccion 1","condicion 1"]),
+          db2:      colIdx(["deal breaker 2","dealbreaker 2","restriccion 2","condicion 2"]),
+          db3:      colIdx(["deal breaker 3","dealbreaker 3","restriccion 3","condicion 3"]),
+          notas:    colIdx(["notas del asesor","notas asesor","notas","comentarios","observaciones"]),
         };
+
+        // Si el nombre no encontró nada, usar posición por defecto (columnas A-AC)
+        const POS = { id:0, nombre:1, empresa:2, tipo:3, asesor:4, ciudad1:5, estado1:6, ciudad2:7, ciudad3:8, uso:9, sup_min:10, sup_max:11, ppto_min:12, ppto_max:13, precio_m2:14, plazo:15, financia:16, temp:17, status:18, proyecto:19, fin_listo:20, agua:21, luz:22, drenaje:23, acceso:24, db1:25, db2:26, db3:27, notas:28 };
+        Object.keys(C).forEach(k => { if (C[k] < 0 && POS[k] !== undefined) C[k] = POS[k]; });
 
         const g = (row, key) => {
           const idx = C[key];
@@ -325,18 +335,26 @@ export default function MacroProMatcher() {
           return String(v);
         };
 
-        // Saltar filas de descripción/ejemplo (busca primera fila con nombre real)
+        // Saltar filas de descripción/ejemplo — acepta cualquier fila con nombre o datos
         const dataStart = headerRow + 1;
         const dataRows = raw.slice(dataStart).filter(row => {
-          const nombre = C.nombre >= 0 ? String(row[C.nombre] || "").trim() : "";
-          return nombre !== "" &&
-                 !nombre.includes("EJEMPLO") &&
-                 !nombre.includes("Martín Campos") && // skip demo row
-                 !nombre.toLowerCase().includes("ej:");
+          // Si tiene columna nombre, usarla para filtrar; si no, aceptar cualquier fila con datos
+          if (C.nombre >= 0) {
+            const nombre = String(row[C.nombre] || "").trim();
+            return nombre !== "" &&
+                   !nombre.toUpperCase().includes("EJEMPLO") &&
+                   !nombre.toLowerCase().startsWith("ej:") &&
+                   !nombre.toLowerCase().startsWith("ejemplo:");
+          }
+          // Sin columna nombre detectada: aceptar filas con al menos 2 celdas con datos
+          return row.filter(c => String(c||"").trim() !== "").length >= 2;
         });
 
         if (dataRows.length === 0) {
-          toast("⚠ No se encontraron clientes. ¿Estás usando la Base_Datos_Clientes_MacroPro.xlsx?");
+          // Debug: mostrar qué encontró para ayudar al usuario
+          const sample = raw.slice(0, 5).map(r => r.slice(0,5).join(" | ")).join("\n");
+          toast(`⚠ No se encontraron clientes. Verifica que tu Excel tenga columnas con encabezados y al menos una fila de datos. Fila de encabezados detectada: ${headerRow+1}`);
+          console.warn("Client Excel debug — primeras filas:", sample, "| Headers detectados:", headers.slice(0,10));
           return;
         }
 
@@ -1258,12 +1276,6 @@ Incluye TODOS los clientes rankeados.`;
               onClick={() => clientFileRef.current?.click()}>
               📤 Seleccionar archivo Excel
             </button>
-            <button style={{ background:"transparent", color:B.grey4,
-              border:`1px solid ${B.grey2}`, borderRadius:10, padding:"12px 20px",
-              fontSize:13, cursor:"pointer" }}
-              onClick={() => { setClients(DEMO_CLIENTS); toast("✓ 3 clientes demo cargados"); }}>
-              Ver clientes demo
-            </button>
           </div>
         </div>
       )}
@@ -1326,12 +1338,6 @@ Incluye TODOS los clientes rankeados.`;
               borderRadius:10, padding:"12px 28px", fontSize:14, fontWeight:700, cursor:"pointer" }}
               onClick={() => fileRef.current?.click()}>
               📤 Seleccionar archivo Excel
-            </button>
-            <button style={{ background:"transparent", color:B.grey4,
-              border:`1px solid ${B.grey2}`, borderRadius:10, padding:"12px 20px",
-              fontSize:13, cursor:"pointer" }}
-              onClick={() => { setInventory(SAMPLE_INVENTORY); toast("✓ 25 lotes demo cargados"); }}>
-              Ver inventario demo
             </button>
           </div>
         </div>
