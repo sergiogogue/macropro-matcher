@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
+import { generarFichaTecnica, generarMatchLoteClientes, generarMatchClienteLotes } from "./reportGenerator.js";
 
 // ─── BRAND TOKENS ────────────────────────────────────────────────
 const B = {
@@ -112,6 +113,7 @@ export default function MacroProMatcher() {
   const [matchMode, setMatchMode] = useState(null); // "clientToLots" | "lotToClients"
   const [loading, setLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState("");
+  const [generatingReport, setGeneratingReport] = useState(false);
   const [filterCity, setFilterCity] = useState("Todas");
   const [filterUso, setFilterUso] = useState("Todos");
   const [filterAsesor, setFilterAsesor] = useState("Todos");
@@ -830,11 +832,34 @@ Incluye TODOS los clientes rankeados.`;
           </div>
           <div style={{ display:"flex", gap:8, flexDirection:"column", alignItems:"flex-end" }}>
             {results[0] && <ScoreRing score={results[0].score} size={72} />}
-            <button style={{ background:B.gold, color:B.navy, border:"none", borderRadius:8,
-              padding:"8px 16px", fontSize:12, fontWeight:700, cursor:"pointer" }}
-              onClick={() => window.print()}>
-              🖨️ Imprimir / PDF
-            </button>
+            <div style={{ display:"flex", gap:6 }}>
+              <button style={{ background:B.gold, color:B.navy, border:"none", borderRadius:8,
+                padding:"8px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}
+                onClick={() => window.print()}>
+                🖨️ Imprimir
+              </button>
+              <button
+                disabled={generatingReport}
+                style={{ background: generatingReport ? B.grey3 : B.navy, color:B.gold, border:`2px solid ${B.gold}`,
+                  borderRadius:8, padding:"8px 14px", fontSize:12, fontWeight:700,
+                  cursor: generatingReport ? "not-allowed" : "pointer", whiteSpace:"nowrap" }}
+                onClick={async () => {
+                  setGeneratingReport(true);
+                  try {
+                    if (isClientMode) {
+                      await generarMatchClienteLotes(subject, results);
+                    } else {
+                      await generarMatchLoteClientes(subject, results);
+                    }
+                  } catch(e) {
+                    alert("Error generando reporte: " + e.message);
+                  } finally {
+                    setGeneratingReport(false);
+                  }
+                }}>
+                {generatingReport ? "⏳ Generando..." : "📄 Reporte PPTX"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1089,6 +1114,18 @@ Incluye TODOS los clientes rankeados.`;
                 style={{ background: B.gold, color: B.navy, border:"none",
                   borderRadius:8, padding:"8px 16px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
                 🖨️ Imprimir Ficha
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await generarFichaTecnica(lot);
+                  } catch(e) {
+                    alert("Error generando PPTX: " + e.message);
+                  }
+                }}
+                style={{ background: B.navy, color: B.gold, border:`2px solid ${B.gold}`,
+                  borderRadius:8, padding:"8px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                📄 PPTX
               </button>
               <button onClick={onClose} style={{ background:"rgba(255,255,255,0.15)",
                 color: B.white, border:"none", borderRadius:8, padding:"8px 14px",
