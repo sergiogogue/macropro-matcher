@@ -105,7 +105,7 @@ const Tag = ({ label, color = B.navy, bg = B.blueL }) => (
 export default function MacroProMatcher() {
   const [view, setView] = useState("home"); // home | matchClient | matchLot | clients | lots | result
   const [inventory, setInventory] = useState(SAMPLE_INVENTORY);
-  const [clients, setClients] = useState(DEMO_CLIENTS);
+  const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedLot, setSelectedLot] = useState(null);
   const [matchResults, setMatchResults] = useState(null);
@@ -1215,11 +1215,19 @@ Incluye TODOS los clientes rankeados.`;
             Usa el archivo <strong>Base_Datos_Clientes_MacroPro.xlsx</strong> que generamos.
             Cada fila es un cliente — carga hasta 200 de una sola vez.
           </div>
-          <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`,
-            borderRadius:10, padding:"12px 28px", fontSize:14, fontWeight:700, cursor:"pointer" }}
-            onClick={() => clientFileRef.current?.click()}>
-            📤 Seleccionar archivo Excel
-          </button>
+          <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
+            <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`,
+              borderRadius:10, padding:"12px 28px", fontSize:14, fontWeight:700, cursor:"pointer" }}
+              onClick={() => clientFileRef.current?.click()}>
+              📤 Seleccionar archivo Excel
+            </button>
+            <button style={{ background:"transparent", color:B.grey4,
+              border:`1px solid ${B.grey2}`, borderRadius:10, padding:"12px 20px",
+              fontSize:13, cursor:"pointer" }}
+              onClick={() => { setClients(DEMO_CLIENTS); toast("✓ 3 clientes demo cargados"); }}>
+              Ver clientes demo
+            </button>
+          </div>
         </div>
       )}
       {clients.map(c => (
