@@ -230,12 +230,16 @@ export default function MacroProMatcher() {
   };
 
   // ── EXCEL UPLOAD CLIENTES ─────────────────────────────────────────
-  // Compatible con Base_Datos_Clientes_MacroPro.xlsx (29 columnas A-AC)
-  // Col: A=ID B=Nombre C=Empresa D=TipoComprador E=Asesor F=Ciudad1 G=Estado1
-  //      H=Ciudad2 I=Ciudad3 J=UsoSuelo K=SupMin L=SupMax M=PptoMin N=PptoMax
-  //      O=PrecioMaxM2 P=Plazo Q=AceptaFinanc R=Temperatura S=StatusCRM
-  //      T=ProyectoDefinido U=FinancListo V=Agua W=Luz X=Drenaje Y=Acceso
-  //      Z=DealBreaker1 AA=DealBreaker2 AB=DealBreaker3 AC=Notas
+  // Compatible con Base_Datos_Clientes_MacroPro_v2.xlsx (47 columnas)
+  // Hoja: 🗂️ BASE DE CLIENTES — encabezados en fila 4, datos desde fila 5
+  // A=ID B=Nombre C=Empresa D=Giro E=TipoComprador F=Asesor G=Correo H=Tel
+  // I=ComoNosConocio J=FechaCaptura K=Ciudad1 L=Estado1 M=Ciudad2 N=Ciudad3
+  // O=Estado2 P=Estado3 Q=ZonasPref R=ZonasDesc S=UsoSuelo T=SupMin U=SupMax
+  // V=PptoMin W=PptoMax X=PrecioMaxM2 Y=FrenteMin Z=Plazo AA=AceptaFinanc
+  // AB=Agua AC=Luz AD=Drenaje AE=Gas AF=Fibra AG=Escriturado AH=AccesoVehicular
+  // AI=ProyectoDefinido AJ=SocioComprometido AK=FinancListo AL=Temperatura
+  // AM=StatusCRM AN=ProyectosPrevios AO=Viviendas AP=DealBreaker1 AQ=DB2
+  // AR=DB3 AS=DB4 AT=Notas
   const handleClientExcelUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -243,138 +247,130 @@ export default function MacroProMatcher() {
     reader.onload = (ev) => {
       try {
         const wb = XLSX.read(ev.target.result, { type:"binary" });
-        // Buscar hoja de clientes
+
+        // Buscar la hoja de clientes — priorizar hoja con "BASE" o "CLIENTES"
         const sheetName = wb.SheetNames.find(n =>
-          n.includes("BASE") || n.includes("CLIENTES") || n.includes("clientes")
+          n.includes("BASE") || n.toUpperCase().includes("CLIENTES") || n.includes("🗂")
         ) || wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
         const raw = XLSX.utils.sheet_to_json(ws, { defval:"", header:1 });
 
-        // Encontrar fila de encabezados — busca la fila con más columnas reconocibles
+        // Encontrar fila de encabezados — busca la fila con "Nombre Completo" o "ID Cliente"
+        // También acepta encabezados simples como "Nombre", "Ciudad", "Presupuesto"
         let headerRow = 0;
         let bestScore = 0;
-        const recognizable = ["nombre","id","empresa","ciudad","estado","uso","presupuesto","superficie","asesor","temperatura","status","plazo","cliente","ppto","sup"];
+        const keywords = ["nombre","id","empresa","ciudad","estado","uso","presupuesto","superficie","temperatura","status","plazo","asesor","ppto","sup","deal","tipo","temperatura"];
         for (let i = 0; i < Math.min(raw.length, 15); i++) {
-          if (!raw[i]) continue;
+          if (!raw[i] || !Array.isArray(raw[i])) continue;
           const score = raw[i].filter(c => {
             const s = String(c||"").toLowerCase().replace(/[^a-záéíóúüñ0-9 ]/gi," ");
-            return recognizable.some(r => s.includes(r));
+            return keywords.some(k => s.includes(k));
           }).length;
           if (score > bestScore) { bestScore = score; headerRow = i; }
         }
-        // Si la hoja es muy simple (encabezados en fila 1), también intentar fila 0
-        if (bestScore === 0) headerRow = 0;
 
-        // Mapeo por nombre de columna (tolerante a variaciones)
         const headers = raw[headerRow].map(h =>
-          String(h || "").replace(/^\* /,"").replace(/ \*$/,"").trim()
+          String(h || "").replace(/^\*/,"").replace(/\*$/,"").trim()
         );
 
+        // colIdx: busca por nombre de columna, tolerante a variaciones
         const colIdx = (names) => {
           for (const name of names) {
-            const idx = headers.findIndex(h =>
-              h.toLowerCase().replace(/[^a-záéíóúüñ0-9]/gi," ").trim()
-               .includes(name.toLowerCase())
-            );
+            const idx = headers.findIndex(h => {
+              const hn = h.toLowerCase().replace(/[^a-záéíóúüñ0-9]/gi," ").trim();
+              return hn === name.toLowerCase() || hn.includes(name.toLowerCase());
+            });
             if (idx >= 0) return idx;
           }
           return -1;
         };
 
-        // Mapeo de columnas — tolerante a variaciones, nombres simples y complejos
+        // Mapeo exacto al Excel real de 47 columnas (Base_Datos_Clientes_MacroPro_v2.xlsx)
         const C = {
-          id:       colIdx(["id cliente","id"]),
-          nombre:   colIdx(["nombre completo","nombre"]),
-          empresa:  colIdx(["empresa grupo","empresa","compania","compañia","razon social"]),
-          tipo:     colIdx(["tipo comprador","tipo de comprador","tipo cliente","tipo"]),
-          asesor:   colIdx(["asesor","agente","responsable"]),
-          ciudad1:  colIdx(["ciudad 1","ciudad1","ciudad de interes","ciudad interes","ciudad"]),
-          estado1:  colIdx(["estado 1","estado1","estado de interes","estado interes","estado"]),
-          ciudad2:  colIdx(["ciudad 2","ciudad2","segunda ciudad"]),
-          ciudad3:  colIdx(["ciudad 3","ciudad3","tercera ciudad"]),
-          uso:      colIdx(["uso de suelo","uso suelo","uso del suelo","uso interes","uso"]),
-          sup_min:  colIdx(["sup mn","sup min","superficie min","superficie minima","m2 min","metros min"]),
-          sup_max:  colIdx(["sup mx","sup max","superficie max","superficie maxima","m2 max","metros max"]),
-          ppto_min: colIdx(["ppto mn","ppto min","presupuesto mn","presupuesto min","presupuesto minimo","budget min"]),
-          ppto_max: colIdx(["ppto mx","ppto max","presupuesto mx","presupuesto max","presupuesto maximo","presupuesto","budget"]),
-          precio_m2:colIdx(["precio mx","precio max m","precio m2","precio por m2"]),
-          plazo:    colIdx(["plazo cierre","plazo de cierre","plazo","tiempo cierre"]),
-          financia: colIdx(["acepta financ","acepta financiamiento","financiamiento","financia"]),
-          temp:     colIdx(["temperatura","calificacion","calidad prospecto","lead score"]),
-          status:   colIdx(["status crm","status del crm","status","estatus","etapa"]),
-          proyecto: colIdx(["proyecto definido","proyecto","tiene proyecto"]),
-          fin_listo:colIdx(["financ listo","financiamiento listo","credito listo","financiamiento aprobado"]),
-          agua:     colIdx(["agua","agua potable"]),
-          luz:      colIdx(["luz energia","luz electrica","energia","electricidad","luz"]),
-          drenaje:  colIdx(["drenaje","alcantarillado"]),
-          acceso:   colIdx(["acceso vialidad","acceso a vialidad","acceso","vialidad"]),
-          db1:      colIdx(["deal breaker 1","dealbreaker 1","restriccion 1","condicion 1"]),
-          db2:      colIdx(["deal breaker 2","dealbreaker 2","restriccion 2","condicion 2"]),
-          db3:      colIdx(["deal breaker 3","dealbreaker 3","restriccion 3","condicion 3"]),
-          notas:    colIdx(["notas del asesor","notas asesor","notas","comentarios","observaciones"]),
+          id:        colIdx(["id cliente","id"]),
+          nombre:    colIdx(["nombre completo","nombre"]),
+          empresa:   colIdx(["empresa grupo","empresa","compañia","razon social"]),
+          giro:      colIdx(["giro"]),
+          tipo:      colIdx(["tipo comprador","tipo de comprador","tipo cliente","tipo"]),
+          asesor:    colIdx(["asesor","agente","responsable"]),
+          ciudad1:   colIdx(["ciudad 1","ciudad1"]),
+          estado1:   colIdx(["estado 1","estado1"]),
+          ciudad2:   colIdx(["ciudad 2","ciudad2"]),
+          ciudad3:   colIdx(["ciudad 3","ciudad3"]),
+          zona_pref: colIdx(["zonas preferidas","zona preferida","zona pref","zona"]),
+          uso:       colIdx(["uso de suelo","uso suelo","uso del suelo","uso"]),
+          sup_min:   colIdx(["sup  m n","sup mn","sup min","sup  m","superficie min","superficie m"]),
+          sup_max:   colIdx(["sup  m x","sup mx","sup max","superficie max"]),
+          ppto_min:  colIdx(["ppto  m n","ppto mn","ppto min","presupuesto m n","presupuesto mn","presupuesto min"]),
+          ppto_max:  colIdx(["ppto  m x","ppto mx","ppto max","presupuesto m x","presupuesto mx","presupuesto max","presupuesto"]),
+          precio_m2: colIdx(["precio m x","precio mx","precio max m2","precio max","precio m2","precio por m2"]),
+          plazo:     colIdx(["plazo cierre","plazo de cierre","plazo"]),
+          financia:  colIdx(["acepta financ","acepta financiamiento","financ"]),
+          agua:      colIdx(["agua"]),
+          luz:       colIdx(["luz energia","luz electrica","luz"]),
+          drenaje:   colIdx(["drenaje"]),
+          acceso:    colIdx(["acceso vehicular","acceso vialidad","acceso"]),
+          proyecto:  colIdx(["proyecto definido","proyecto"]),
+          fin_listo: colIdx(["financ listo","financiamiento listo"]),
+          temp:      colIdx(["temperatura"]),
+          status:    colIdx(["status crm","status del crm","status","estatus"]),
+          db1:       colIdx(["deal breaker 1","dealbreaker 1"]),
+          db2:       colIdx(["deal breaker 2","dealbreaker 2"]),
+          db3:       colIdx(["deal breaker 3","dealbreaker 3"]),
+          db4:       colIdx(["deal breaker 4","dealbreaker 4"]),
+          notas:     colIdx(["notas del asesor","notas asesor","notas","comentarios"]),
         };
-
-        // Si el nombre no encontró nada, usar posición por defecto (columnas A-AC)
-        const POS = { id:0, nombre:1, empresa:2, tipo:3, asesor:4, ciudad1:5, estado1:6, ciudad2:7, ciudad3:8, uso:9, sup_min:10, sup_max:11, ppto_min:12, ppto_max:13, precio_m2:14, plazo:15, financia:16, temp:17, status:18, proyecto:19, fin_listo:20, agua:21, luz:22, drenaje:23, acceso:24, db1:25, db2:26, db3:27, notas:28 };
-        Object.keys(C).forEach(k => { if (C[k] < 0 && POS[k] !== undefined) C[k] = POS[k]; });
 
         const g = (row, key) => {
           const idx = C[key];
-          if (idx < 0 || row[idx] === undefined) return "";
+          if (idx === undefined || idx < 0 || row[idx] === undefined) return "";
           return String(row[idx]).trim();
         };
-
         const toNum = (v) => parseFloat(String(v).replace(/[$,\s]/g,"")) || 0;
-
-        // Limpiar temperatura (quitar emojis para comparación interna)
         const cleanTemp = (v) => {
           if (!v) return "Tibio";
           if (String(v).includes("Caliente") || String(v).includes("🔴")) return "Caliente";
           if (String(v).includes("Tibio")    || String(v).includes("🟡")) return "Tibio";
-          if (String(v).includes("Frío")     || String(v).includes("⚪")) return "Frío";
+          if (String(v).includes("Frío")     || String(v).includes("🔵")) return "Frío";
+          if (String(v).includes("Inactivo") || String(v).includes("⚫")) return "Inactivo";
           return String(v);
         };
 
-        // Saltar filas de descripción/ejemplo — acepta cualquier fila con nombre o datos
+        // Datos desde la fila siguiente al encabezado
+        // Filtrar: debe tener nombre, no ser fila de fórmula (=ROW()), no ser encabezado repetido
         const dataStart = headerRow + 1;
         const dataRows = raw.slice(dataStart).filter(row => {
-          // Si tiene columna nombre, usarla para filtrar; si no, aceptar cualquier fila con datos
-          if (C.nombre >= 0) {
-            const nombre = String(row[C.nombre] || "").trim();
-            return nombre !== "" &&
-                   !nombre.toUpperCase().includes("EJEMPLO") &&
-                   !nombre.toLowerCase().startsWith("ej:") &&
-                   !nombre.toLowerCase().startsWith("ejemplo:");
-          }
-          // Sin columna nombre detectada: aceptar filas con al menos 2 celdas con datos
-          return row.filter(c => String(c||"").trim() !== "").length >= 2;
+          const nombreIdx = C.nombre >= 0 ? C.nombre : 1;
+          const nombre = String(row[nombreIdx] || "").trim();
+          if (!nombre) return false;
+          if (nombre.startsWith("=")) return false;          // fila con fórmula vacía
+          if (nombre.toUpperCase() === "NOMBRE COMPLETO") return false; // encabezado repetido
+          if (nombre.toUpperCase().startsWith("EJEMPLO:")) return false;
+          return true;
         });
 
         if (dataRows.length === 0) {
-          // Debug: mostrar qué encontró para ayudar al usuario
-          const sample = raw.slice(0, 5).map(r => r.slice(0,5).join(" | ")).join("\n");
-          toast(`⚠ No se encontraron clientes. Verifica que tu Excel tenga columnas con encabezados y al menos una fila de datos. Fila de encabezados detectada: ${headerRow+1}`);
-          console.warn("Client Excel debug — primeras filas:", sample, "| Headers detectados:", headers.slice(0,10));
+          toast(`⚠ No se encontraron clientes. Hoja usada: "${sheetName}", encabezados en fila ${headerRow+1}. Verifica que haya filas con datos debajo de los encabezados.`);
+          console.warn("Headers detectados:", headers.slice(0,15));
+          console.warn("Primeras 5 filas de datos:", raw.slice(dataStart, dataStart+5));
           return;
         }
 
         const mapped = dataRows.map((row, i) => {
-          // Ciudades de interés: combinar ciudad1 + ciudad2 + ciudad3
-          const ciudades = [g(row,"ciudad1"), g(row,"ciudad2"), g(row,"ciudad3")]
-            .filter(Boolean);
-
-          // Usos de interés: puede ser lista separada por coma en una sola celda
+          const ciudades = [g(row,"ciudad1"), g(row,"ciudad2"), g(row,"ciudad3")].filter(Boolean);
           const usoRaw = g(row,"uso");
-          const usos = usoRaw.split(/[,;]/).map(s=>s.trim()).filter(Boolean);
+          const usos = usoRaw ? usoRaw.split(/[,;\/]/).map(s=>s.trim()).filter(Boolean) : [];
 
           return {
             id:              g(row,"id") || `CLI-${String(i+1).padStart(3,"0")}`,
             nombre:          g(row,"nombre") || `Cliente ${i+1}`,
             empresa:         g(row,"empresa"),
+            giro:            g(row,"giro"),
             tipo:            g(row,"tipo"),
             asesor:          g(row,"asesor"),
             ciudad_interes:  ciudades,
             estado:          g(row,"estado1"),
+            zona_preferida:  g(row,"zona_pref"),
             uso_interes:     usos,
             presupuesto_min: toNum(g(row,"ppto_min")),
             presupuesto_max: toNum(g(row,"ppto_max")),
@@ -391,13 +387,13 @@ export default function MacroProMatcher() {
             luz:             g(row,"luz"),
             drenaje:         g(row,"drenaje"),
             acceso:          g(row,"acceso"),
-            deal_breakers:   [g(row,"db1"), g(row,"db2"), g(row,"db3")].filter(Boolean),
+            deal_breakers:   [g(row,"db1"), g(row,"db2"), g(row,"db3"), g(row,"db4")].filter(Boolean),
             notas:           g(row,"notas"),
           };
         });
 
         setClients(mapped);
-        toast(`✓ ${mapped.length} clientes cargados desde "${file.name}"`);
+        toast(`✓ ${mapped.length} cliente${mapped.length > 1 ? "s" : ""} cargado${mapped.length > 1 ? "s" : ""} desde "${file.name}"`);
       } catch(err) {
         console.error("Client Excel error:", err);
         toast("⚠ Error al leer clientes: " + err.message);
