@@ -14,6 +14,14 @@ const B = {
   blue: "#2563AC", blueL: "#EEF4FF",
 };
 
+// ─── CASCADE MAP: Ciudad → Desarrollos ───────────────────────────
+// Se construye dinámicamente al cargar el Excel, pero también tiene
+// valores por defecto para el inventario de muestra (SAMPLE_INVENTORY)
+const CASCADE_DEFAULT = {
+  "Zapopan":    ["Capital Norte", "Capital Norte — Sierra Bosque"],
+  "El Marqués": ["Capital Sur"],
+};
+
 // ─── SAMPLE INVENTORY (25 lotes Capital Norte + Capital Sur) ──────
 const SAMPLE_INVENTORY = [
   { id:"CN-001", nombre:"G2-10B", desarrollo:"Capital Norte", ciudad:"Zapopan", estado:"Jalisco", uso:"Habitacional Vertical", sup_m2:9145.41, precio_m2:8000, precio_total:73163280, status:"Disponible", entrega:"Inmediata", cos:0.7, cus:2.1, niveles:"Según COS y CUS", viv_max:76, agua:"Sí", luz:"Sí", drenaje:"Sí", acceso:"Avenida principal", fortaleza:"Habitacional vertical con vistas directas a reserva natural protegida, a pie de avenida principal en el acceso al desarrollo.", atributos:"Vistas a reserva natural protegida. Acceso directo a desarrollo consolidado. 76 viviendas máx. Financiamiento directo disponible.", comprador:"Desarrollador habitacional vertical", asesor:"" },
@@ -104,17 +112,20 @@ const Tag = ({ label, color = B.navy, bg = B.blueL }) => (
 
 // ─── MAIN APP ─────────────────────────────────────────────────────
 export default function MacroProMatcher() {
-  const [view, setView] = useState("home"); // home | matchClient | matchLot | clients | lots | result
+  const [view, setView] = useState("home");
   const [inventory, setInventory] = useState([]);
   const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedLot, setSelectedLot] = useState(null);
   const [matchResults, setMatchResults] = useState(null);
-  const [matchMode, setMatchMode] = useState(null); // "clientToLots" | "lotToClients"
+  const [matchMode, setMatchMode] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState("");
   const [generatingReport, setGeneratingReport] = useState(false);
   const [filterCity, setFilterCity] = useState("Todas");
+  // ── NUEVO: filtro Desarrollo/Proyecto ────────────────────────────
+  const [filterDesarrollo, setFilterDesarrollo] = useState("Todos");
+  // ────────────────────────────────────────────────────────────────
   const [filterUso, setFilterUso] = useState("Todos");
   const [filterAsesor, setFilterAsesor] = useState("Todos");
   const [filterSupMin, setFilterSupMin] = useState("");
@@ -132,6 +143,23 @@ export default function MacroProMatcher() {
   const usos = ["Todos", ...new Set(inventory.map(l => l.uso))];
   const asesores = ["Todos", ...new Set(clients.map(c => c.asesor).filter(Boolean))];
 
+  // ── NUEVO: Cascade — desarrollos disponibles según ciudad ─────────
+  const desarrollosDisponibles = (() => {
+    const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
+    if (filterCity === "Todas") {
+      return ["Todos", ...new Set(source.map(l => l.desarrollo).filter(Boolean)).values()].sort((a,b) => a==="Todos"?-1:b==="Todos"?1:a.localeCompare(b));
+    }
+    const devs = [...new Set(source.filter(l => l.ciudad === filterCity).map(l => l.desarrollo).filter(Boolean))].sort();
+    return ["Todos", ...devs];
+  })();
+
+  // Al cambiar ciudad, resetear desarrollo si ya no aplica
+  const handleFilterCity = (val) => {
+    setFilterCity(val);
+    setFilterDesarrollo("Todos"); // siempre resetear cascada
+  };
+  // ────────────────────────────────────────────────────────────────
+
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3000); };
 
   // ── EXCEL UPLOAD INVENTARIO ───────────────────────────────────────
@@ -142,28 +170,18 @@ export default function MacroProMatcher() {
     reader.onload = (ev) => {
       try {
         const wb = XLSX.read(ev.target.result, { type:"binary" });
-        // Buscar hoja de inventario
         const sheetName = wb.SheetNames.find(n => n.includes("INVENTARIO") || n.includes("inventario")) || wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
-        
-        // Leer con encabezados en fila 5 (índice 4), datos desde fila 9
-        const raw = XLSX.utils.sheet_to_json(ws, { 
-          defval: "", 
-          header: 1 
-        });
-        
-        // Encontrar fila de encabezados (buscar la que tenga "ID Macrolote")
-        let headerRow = 4; // default fila 5
+        const raw = XLSX.utils.sheet_to_json(ws, { defval: "", header: 1 });
+        let headerRow = 4;
         for (let i = 0; i < Math.min(raw.length, 10); i++) {
           if (raw[i] && raw[i].some(c => c && String(c).includes("ID Macrolote"))) {
             headerRow = i;
             break;
           }
         }
-        
         const headers = raw[headerRow].map(h => String(h || "").replace(/^\* /, "").replace(/ ▼$/, "").trim());
-        const dataRows = raw.slice(headerRow + 4); // saltar filas de descripción y ejemplo
-        
+        const dataRows = raw.slice(headerRow + 4);
         const getVal = (row, ...names) => {
           for (const name of names) {
             const idx = headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
@@ -171,7 +189,6 @@ export default function MacroProMatcher() {
           }
           return "";
         };
-        
         const mapped = dataRows
           .filter(row => row[0] && String(row[0]).trim() !== "" && !String(row[0]).includes("Ej:"))
           .map((row, i) => {
@@ -179,7 +196,6 @@ export default function MacroProMatcher() {
             const pm2 = parseFloat(getVal(row, "Precio por m²")) || 0;
             let total = parseFloat(getVal(row, "Precio Total")) || 0;
             if (!total && sup && pm2) total = sup * pm2;
-            
             return {
               id: String(getVal(row, "ID Macrolote") || `LOT-${i+1}`),
               nombre: String(getVal(row, "Nombre / Clave") || `Lote ${i+1}`),
@@ -213,10 +229,13 @@ export default function MacroProMatcher() {
               observaciones: String(getVal(row, "Observaciones") || ""),
             };
           })
-          .filter(l => l.sup_m2 > 0 || l.precio_m2 > 0); // solo lotes con datos mínimos
-        
+          .filter(l => l.sup_m2 > 0 || l.precio_m2 > 0);
         if (mapped.length > 0) {
           setInventory(mapped);
+          // Resetear filtros al cargar nuevo inventario
+          setFilterCity("Todas");
+          setFilterDesarrollo("Todos");
+          setFilterUso("Todos");
           toast(`✓ ${mapped.length} lotes cargados desde "${file.name}"`);
         } else {
           toast("⚠ No se encontraron lotes con datos. Verifica el formato del Excel.");
@@ -230,16 +249,6 @@ export default function MacroProMatcher() {
   };
 
   // ── EXCEL UPLOAD CLIENTES ─────────────────────────────────────────
-  // Compatible con Base_Datos_Clientes_MacroPro_v2.xlsx (47 columnas)
-  // Hoja: 🗂️ BASE DE CLIENTES — encabezados en fila 4, datos desde fila 5
-  // A=ID B=Nombre C=Empresa D=Giro E=TipoComprador F=Asesor G=Correo H=Tel
-  // I=ComoNosConocio J=FechaCaptura K=Ciudad1 L=Estado1 M=Ciudad2 N=Ciudad3
-  // O=Estado2 P=Estado3 Q=ZonasPref R=ZonasDesc S=UsoSuelo T=SupMin U=SupMax
-  // V=PptoMin W=PptoMax X=PrecioMaxM2 Y=FrenteMin Z=Plazo AA=AceptaFinanc
-  // AB=Agua AC=Luz AD=Drenaje AE=Gas AF=Fibra AG=Escriturado AH=AccesoVehicular
-  // AI=ProyectoDefinido AJ=SocioComprometido AK=FinancListo AL=Temperatura
-  // AM=StatusCRM AN=ProyectosPrevios AO=Viviendas AP=DealBreaker1 AQ=DB2
-  // AR=DB3 AS=DB4 AT=Notas
   const handleClientExcelUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -247,16 +256,11 @@ export default function MacroProMatcher() {
     reader.onload = (ev) => {
       try {
         const wb = XLSX.read(ev.target.result, { type:"binary" });
-
-        // Buscar la hoja de clientes — priorizar hoja con "BASE" o "CLIENTES"
         const sheetName = wb.SheetNames.find(n =>
           n.includes("BASE") || n.toUpperCase().includes("CLIENTES") || n.includes("🗂")
         ) || wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
         const raw = XLSX.utils.sheet_to_json(ws, { defval:"", header:1 });
-
-        // Encontrar fila de encabezados — busca la fila con "Nombre Completo" o "ID Cliente"
-        // También acepta encabezados simples como "Nombre", "Ciudad", "Presupuesto"
         let headerRow = 0;
         let bestScore = 0;
         const keywords = ["nombre","id","empresa","ciudad","estado","uso","presupuesto","superficie","temperatura","status","plazo","asesor","ppto","sup","deal","tipo","temperatura"];
@@ -268,12 +272,7 @@ export default function MacroProMatcher() {
           }).length;
           if (score > bestScore) { bestScore = score; headerRow = i; }
         }
-
-        const headers = raw[headerRow].map(h =>
-          String(h || "").replace(/^\*/,"").replace(/\*$/,"").trim()
-        );
-
-        // colIdx: busca por nombre de columna, tolerante a variaciones
+        const headers = raw[headerRow].map(h => String(h || "").replace(/^\*/,"").replace(/\*$/,"").trim());
         const colIdx = (names) => {
           for (const name of names) {
             const idx = headers.findIndex(h => {
@@ -284,8 +283,6 @@ export default function MacroProMatcher() {
           }
           return -1;
         };
-
-        // Mapeo exacto al Excel real de 47 columnas (Base_Datos_Clientes_MacroPro_v2.xlsx)
         const C = {
           id:        colIdx(["id cliente","id"]),
           nombre:    colIdx(["nombre completo","nombre"]),
@@ -320,7 +317,6 @@ export default function MacroProMatcher() {
           db4:       colIdx(["deal breaker 4","dealbreaker 4"]),
           notas:     colIdx(["notas del asesor","notas asesor","notas","comentarios"]),
         };
-
         const g = (row, key) => {
           const idx = C[key];
           if (idx === undefined || idx < 0 || row[idx] === undefined) return "";
@@ -335,32 +331,24 @@ export default function MacroProMatcher() {
           if (String(v).includes("Inactivo") || String(v).includes("⚫")) return "Inactivo";
           return String(v);
         };
-
-        // Datos desde la fila siguiente al encabezado
-        // Filtrar: debe tener nombre, no ser fila de fórmula (=ROW()), no ser encabezado repetido
         const dataStart = headerRow + 1;
         const dataRows = raw.slice(dataStart).filter(row => {
           const nombreIdx = C.nombre >= 0 ? C.nombre : 1;
           const nombre = String(row[nombreIdx] || "").trim();
           if (!nombre) return false;
-          if (nombre.startsWith("=")) return false;          // fila con fórmula vacía
-          if (nombre.toUpperCase() === "NOMBRE COMPLETO") return false; // encabezado repetido
+          if (nombre.startsWith("=")) return false;
+          if (nombre.toUpperCase() === "NOMBRE COMPLETO") return false;
           if (nombre.toUpperCase().startsWith("EJEMPLO:")) return false;
           return true;
         });
-
         if (dataRows.length === 0) {
-          toast(`⚠ No se encontraron clientes. Hoja usada: "${sheetName}", encabezados en fila ${headerRow+1}. Verifica que haya filas con datos debajo de los encabezados.`);
-          console.warn("Headers detectados:", headers.slice(0,15));
-          console.warn("Primeras 5 filas de datos:", raw.slice(dataStart, dataStart+5));
+          toast(`⚠ No se encontraron clientes. Hoja usada: "${sheetName}", encabezados en fila ${headerRow+1}.`);
           return;
         }
-
         const mapped = dataRows.map((row, i) => {
           const ciudades = [g(row,"ciudad1"), g(row,"ciudad2"), g(row,"ciudad3")].filter(Boolean);
           const usoRaw = g(row,"uso");
           const usos = usoRaw ? usoRaw.split(/[,;\/]/).map(s=>s.trim()).filter(Boolean) : [];
-
           return {
             id:              g(row,"id") || `CLI-${String(i+1).padStart(3,"0")}`,
             nombre:          g(row,"nombre") || `Cliente ${i+1}`,
@@ -391,7 +379,6 @@ export default function MacroProMatcher() {
             notas:           g(row,"notas"),
           };
         });
-
         setClients(mapped);
         toast(`✓ ${mapped.length} cliente${mapped.length > 1 ? "s" : ""} cargado${mapped.length > 1 ? "s" : ""} desde "${file.name}"`);
       } catch(err) {
@@ -402,21 +389,17 @@ export default function MacroProMatcher() {
     reader.readAsBinaryString(file);
   };
 
-
-    // ── CLAUDE MATCH ENGINE ──────────────────────────────────────────
+  // ── CLAUDE MATCH ENGINE ──────────────────────────────────────────
   const runMatch = async (mode, subject, targets) => {
     setLoading(true);
     setMatchResults(null);
-
     const msgs = ["Analizando perfil...", "Calculando compatibilidad...", "Generando argumentos...", "Rankeando..."];
     let mi = 0;
     setLoadingMsg(msgs[0]);
     const interval = setInterval(() => { mi = (mi+1) % msgs.length; setLoadingMsg(msgs[mi]); }, 1800);
-
     try {
       let prompt = "";
       if (mode === "clientToLots") {
-        // Pre-filtro: solo lotes compatibles por ciudad, uso y presupuesto
         const filtered = targets.filter(l => {
           const ciudadOk = !subject.ciudad_interes?.length || subject.ciudad_interes.some(c => l.ciudad?.includes(c) || c?.includes(l.ciudad));
           const presupuestoOk = !subject.presupuesto_max || l.precio_total <= subject.presupuesto_max * 1.3;
@@ -425,16 +408,13 @@ export default function MacroProMatcher() {
         });
         const candidatos = filtered.length > 0 ? filtered : targets;
         const top = candidatos.slice(0, 8);
-
         prompt = `Estratega inmobiliario México. Rankea estos lotes para el cliente. Solo JSON, sin texto extra.
 CLIENTE: ${subject.nombre}|${subject.empresa}|${subject.tipo}|Ciudades:${subject.ciudad_interes?.join(",")}|Usos:${subject.uso_interes?.join(",")}|Ppto:$${fmtM(subject.presupuesto_min)}-$${fmtM(subject.presupuesto_max)}|Sup:${subject.sup_min}-${subject.sup_max}m²|DealBreakers:${subject.deal_breakers?.join(",")||"ninguno"}
 LOTES (${top.length}):
 ${top.map(l => `${l.id}|${l.nombre}|${l.ciudad}|${l.uso}|${l.sup_m2}m²|$${l.precio_m2}/m²|${fmtM(l.precio_total)}`).join("\n")}
 FORMATO JSON EXACTO:{"resultados":[{"id":"CN-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración max","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
 Rankea los ${top.length} lotes mayor a menor score.`;
-
       } else {
-        // loteToClients — pre-filtrar clientes compatibles antes de mandar al API
         const filtered = targets.filter(c => {
           const ciudadOk = !c.ciudad_interes?.length || c.ciudad_interes.some(ci => subject.ciudad?.includes(ci) || ci?.includes(subject.ciudad));
           const presupuestoOk = !c.presupuesto_max || c.presupuesto_max >= subject.precio_total * 0.7;
@@ -443,7 +423,6 @@ Rankea los ${top.length} lotes mayor a menor score.`;
         });
         const candidatos = filtered.length > 0 ? filtered : targets;
         const top = candidatos.slice(0, 8);
-
         prompt = `Estratega inmobiliario México. Rankea estos clientes para el lote. Solo JSON, sin texto extra.
 LOTE: ${subject.id}|${subject.nombre}|${subject.ciudad}|${subject.uso}|${subject.sup_m2}m²|$${subject.precio_m2}/m²|${fmtM(subject.precio_total)}|${subject.fortaleza?.substring(0,100)}
 CLIENTES (${top.length}):
@@ -451,7 +430,6 @@ ${top.map(c => `${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|
 FORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración max","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
 Rankea los ${top.length} clientes mayor a menor score.`;
       }
-
       const response = await fetch("/.netlify/functions/claude", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -461,31 +439,24 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           messages: [{ role:"user", content: prompt }]
         })
       });
-
-      // Manejar errores HTTP (504, 502, etc.)
       if (!response.ok) {
         const errText = await response.text();
-        if (response.status === 504) throw new Error("La función tardó demasiado. Intenta de nuevo — usualmente funciona al segundo intento.");
+        if (response.status === 504) throw new Error("La función tardó demasiado. Intenta de nuevo.");
         if (response.status === 502) throw new Error("Error de servidor (502). Intenta de nuevo en unos segundos.");
         throw new Error(`Error HTTP ${response.status}. Intenta de nuevo.`);
       }
-
       let data = {};
       data = await response.json();
-      console.log("API Response:", JSON.stringify(data).substring(0, 300));
       if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
       const text = data.content?.find(b => b.type === "text")?.text || "";
       const clean = text.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
-
-      // Enrich results with full data
       const enriched = parsed.resultados.map(r => {
         const item = mode === "clientToLots"
           ? targets.find(l => l.id === r.id)
           : targets.find(c => c.id === r.id);
         return { ...r, data: item };
       }).filter(r => r.data).sort((a,b) => b.score - a.score);
-
       setMatchResults({ mode, subject, results: enriched });
       setView("result");
     } catch(err) {
@@ -506,6 +477,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
       const isLot = matchResults?.mode === "clientToLots";
       if (isLot) {
         if (filterCity !== "Todas" && item.ciudad !== filterCity) return false;
+        if (filterDesarrollo !== "Todos" && item.desarrollo !== filterDesarrollo) return false;
         if (filterUso !== "Todos" && item.uso !== filterUso) return false;
         if (filterSupMin && item.sup_m2 < parseFloat(filterSupMin)) return false;
         if (filterSupMax && item.sup_m2 > parseFloat(filterSupMax)) return false;
@@ -550,7 +522,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
       color: active ? B.navy : B.grey2, fontSize:13, fontWeight:600,
       fontFamily:"'DM Sans',sans-serif", transition:"all 0.2s" }),
     page: { maxWidth:1200, margin:"0 auto", padding:"32px 24px" },
-    // HOME
     hero: { background:`linear-gradient(135deg, ${B.navy} 0%, ${B.navyL} 60%, ${B.navy} 100%)`,
       borderRadius:20, padding:"56px 48px", marginBottom:32, position:"relative", overflow:"hidden" },
     heroDecor: { position:"absolute", top:-40, right:-40, width:300, height:300,
@@ -565,7 +536,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     stat: { display:"flex", flexDirection:"column" },
     statNum: { fontSize:28, fontWeight:800, color:B.gold, fontFamily:"'Playfair Display',serif" },
     statLabel: { fontSize:12, color:B.grey3, fontWeight:500 },
-    // CARDS
     grid2: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:24 },
     modeCard: (active) => ({ background:B.white, borderRadius:16, padding:32, cursor:"pointer",
       border:`2px solid ${active ? B.gold : B.grey1}`,
@@ -574,22 +544,16 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     modeIcon: { fontSize:36 },
     modeTitle: { fontSize:18, fontWeight:700, color:B.navy, fontFamily:"'Playfair Display',serif" },
     modeSub: { fontSize:13, color:B.grey3, lineHeight:1.5 },
-    // SECTION
-    sectionTitle: { fontSize:24, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif",
-      marginBottom:6 },
+    sectionTitle: { fontSize:24, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginBottom:6 },
     sectionSub: { fontSize:14, color:B.grey3, marginBottom:24 },
-    // FILTERS BAR
     filterBar: { background:B.white, borderRadius:12, padding:"16px 20px",
       display:"flex", gap:12, flexWrap:"wrap", alignItems:"center", marginBottom:24,
       boxShadow:"0 2px 12px rgba(0,43,73,0.06)", border:`1px solid ${B.grey1}` },
     filterLabel: { fontSize:11, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1 },
     select: { padding:"8px 12px", borderRadius:8, border:`1px solid ${B.grey1}`, fontSize:13,
-      color:B.navy, backgroundColor:B.offW, fontFamily:"'DM Sans',sans-serif", outline:"none",
-      cursor:"pointer" },
+      color:B.navy, backgroundColor:B.offW, fontFamily:"'DM Sans',sans-serif", outline:"none", cursor:"pointer" },
     input: { padding:"8px 12px", borderRadius:8, border:`1px solid ${B.grey1}`, fontSize:13,
-      color:B.navy, backgroundColor:B.offW, fontFamily:"'DM Sans',sans-serif", outline:"none",
-      width:100 },
-    // RESULT CARD
+      color:B.navy, backgroundColor:B.offW, fontFamily:"'DM Sans',sans-serif", outline:"none", width:100 },
     resultCard: (rank) => ({ background:B.white, borderRadius:16, padding:24, marginBottom:16,
       border:`1px solid ${rank === 0 ? B.gold : B.grey1}`,
       boxShadow: rank === 0 ? `0 4px 24px ${B.gold}22` : "0 2px 8px rgba(0,43,73,0.04)",
@@ -598,7 +562,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
       borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center",
       backgroundColor: rank === 0 ? B.gold : rank === 1 ? B.grey2 : rank === 2 ? "#cd7f32" : B.grey1,
       color: rank < 3 ? B.navy : B.grey3, fontSize:13, fontWeight:800 }),
-    // BUTTONS
     btn: (variant="primary") => ({
       padding: variant === "sm" ? "8px 16px" : "12px 24px",
       borderRadius:10, border:"none", cursor:"pointer", fontWeight:700,
@@ -608,26 +571,18 @@ Rankea los ${top.length} clientes mayor a menor score.`;
       color: variant === "primary" ? B.navy : variant === "ghost" ? B.grey3 : B.white,
       boxShadow: variant === "primary" ? `0 4px 16px ${B.gold}44` : "none",
     }),
-    // CLIENT CARD
     clientCard: (sel) => ({ background: sel ? B.navy : B.white, borderRadius:14, padding:20,
-      cursor:"pointer", border:`2px solid ${sel ? B.gold : B.grey1}`,
-      transition:"all 0.2s", marginBottom:12 }),
-    // LOT CARD
+      cursor:"pointer", border:`2px solid ${sel ? B.gold : B.grey1}`, transition:"all 0.2s", marginBottom:12 }),
     lotCard: (sel) => ({ background: sel ? B.navy : B.white, borderRadius:14, padding:20,
-      cursor:"pointer", border:`2px solid ${sel ? B.gold : B.grey1}`,
-      transition:"all 0.2s", marginBottom:12 }),
-    // MODAL
+      cursor:"pointer", border:`2px solid ${sel ? B.gold : B.grey1}`, transition:"all 0.2s", marginBottom:12 }),
     overlay: { position:"fixed", inset:0, backgroundColor:"rgba(0,27,46,0.7)",
       zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:24 },
     modal: { background:B.white, borderRadius:20, padding:36, width:"100%", maxWidth:560,
       maxHeight:"90vh", overflowY:"auto" },
-    // LOADING
     loadingOverlay: { position:"fixed", inset:0, backgroundColor:"rgba(0,27,46,0.85)",
       zIndex:300, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:20 },
     spinner: { width:56, height:56, border:`4px solid ${B.grey5}`,
-      borderTopColor:B.gold, borderRadius:"50%",
-      animation:"spin 0.9s linear infinite" },
-    // TOAST
+      borderTopColor:B.gold, borderRadius:"50%", animation:"spin 0.9s linear infinite" },
     toast: { position:"fixed", bottom:32, left:"50%", transform:"translateX(-50%)",
       backgroundColor:B.navy, color:B.white, padding:"12px 24px", borderRadius:12,
       fontSize:14, fontWeight:600, boxShadow:"0 8px 32px rgba(0,0,0,0.3)", zIndex:400,
@@ -638,7 +593,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
   // VIEWS
   // ─────────────────────────────────────────────────────────────────
 
-  // ── HOME ─────────────────────────────────────────────────────────
   const ViewHome = () => (
     <div style={s.page}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap');`}</style>
@@ -654,12 +608,10 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           <div style={s.stat}><span style={s.statNum}>{fmtM(inventory.reduce((a,l)=>a+l.precio_total,0))}</span><span style={s.statLabel}>Valor portafolio</span></div>
         </div>
       </div>
-
       <div style={{ marginBottom:12 }}>
         <div style={s.sectionTitle}>¿Qué análisis quieres hacer?</div>
         <div style={s.sectionSub}>Elige el modo de cruce según tu necesidad del momento</div>
       </div>
-
       <div style={s.grid2}>
         <div style={s.modeCard(false)} onClick={() => setView("matchClient")}
           onMouseEnter={e => e.currentTarget.style.transform="translateY(-4px)"}
@@ -676,30 +628,21 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           onMouseLeave={e => e.currentTarget.style.transform="translateY(0)"}>
           <div style={s.modeIcon}>🏗</div>
           <div style={s.modeTitle}>Lote → Clientes</div>
-          <div style={s.modeSub}>Selecciona un macrolote y descubre qué clientes de tu cartera tienen mayor compatibilidad. Ideal cuando baja un precio o entra inventario nuevo.</div>
+          <div style={s.modeSub}>Selecciona un macrolote y descubre qué clientes de tu cartera tienen mayor compatibilidad.</div>
           <div style={{ marginTop:"auto" }}>
             <button style={s.btn("navy")} onClick={() => setView("matchLot")}>Seleccionar lote →</button>
           </div>
         </div>
       </div>
-
-      {/* Upload + Quick actions */}
       <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginTop:8 }}>
-        <button style={s.btn("ghost")} onClick={() => fileRef.current?.click()}>
-          📤 Cargar Excel de inventario
-        </button>
-        <button style={s.btn("ghost")} onClick={() => setView("clients")}>
-          👤 Gestionar clientes
-        </button>
-        <button style={s.btn("ghost")} onClick={() => setView("lots")}>
-          🏗 Ver inventario completo
-        </button>
+        <button style={s.btn("ghost")} onClick={() => fileRef.current?.click()}>📤 Cargar Excel de inventario</button>
+        <button style={s.btn("ghost")} onClick={() => setView("clients")}>👤 Gestionar clientes</button>
+        <button style={s.btn("ghost")} onClick={() => setView("lots")}>🏗 Ver inventario completo</button>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleExcelUpload} />
       </div>
     </div>
   );
 
-  // ── SELECT CLIENT ─────────────────────────────────────────────────
   const ViewMatchClient = () => (
     <div style={s.page}>
       <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:28 }}>
@@ -710,14 +653,10 @@ Rankea los ${top.length} clientes mayor a menor score.`;
         </div>
         <button style={{ ...s.btn("ghost"), marginLeft:"auto" }} onClick={() => clientFileRef.current?.click()}>📤 Cargar Clientes Excel</button>
         <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleClientExcelUpload} />
-        <button style={s.btn("primary")} onClick={() => setShowAddClient(true)}>
-          ➕ Nuevo cliente
-        </button>
+        <button style={s.btn("primary")} onClick={() => setShowAddClient(true)}>➕ Nuevo cliente</button>
       </div>
-
       {clients.map(c => (
-        <div key={c.id} style={s.clientCard(selectedClient?.id === c.id)}
-          onClick={() => setSelectedClient(c)}>
+        <div key={c.id} style={s.clientCard(selectedClient?.id === c.id)} onClick={() => setSelectedClient(c)}>
           <div style={{ display:"flex", alignItems:"center", gap:16 }}>
             <div style={{ width:44, height:44, borderRadius:"50%", backgroundColor: selectedClient?.id===c.id ? B.gold : B.blueL,
               display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>👤</div>
@@ -738,11 +677,9 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           </div>
         </div>
       ))}
-
       {selectedClient && (
         <div style={{ position:"sticky", bottom:24, display:"flex", justifyContent:"center", marginTop:16 }}>
-          <button style={{ ...s.btn("primary"), padding:"16px 40px", fontSize:16,
-            boxShadow:`0 8px 32px ${B.gold}55` }}
+          <button style={{ ...s.btn("primary"), padding:"16px 40px", fontSize:16, boxShadow:`0 8px 32px ${B.gold}55` }}
             onClick={() => { setMatchMode("clientToLots"); runMatch("clientToLots", selectedClient, inventory); }}>
             🎯 &nbsp;Generar Match para {selectedClient.nombre}
           </button>
@@ -751,7 +688,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     </div>
   );
 
-  // ── SELECT LOT ────────────────────────────────────────────────────
   const ViewMatchLot = () => {
     const [localFilter, setLocalFilter] = useState("Todos");
     const filtered = localFilter === "Todos" ? inventory : inventory.filter(l => l.ciudad === localFilter);
@@ -763,12 +699,10 @@ Rankea los ${top.length} clientes mayor a menor score.`;
             <div style={s.sectionTitle}>Selecciona el macrolote</div>
             <div style={s.sectionSub}>Cruzará contra todos los clientes de la cartera</div>
           </div>
-          <select style={{ ...s.select, marginLeft:"auto" }} value={localFilter}
-            onChange={e => setLocalFilter(e.target.value)}>
+          <select style={{ ...s.select, marginLeft:"auto" }} value={localFilter} onChange={e => setLocalFilter(e.target.value)}>
             {cities.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
-
         {filtered.map(lot => (
           <div key={lot.id} style={s.lotCard(selectedLot?.id === lot.id)} onClick={() => setSelectedLot(lot)}>
             <div style={{ display:"flex", alignItems:"center", gap:16 }}>
@@ -796,7 +730,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
             </div>
           </div>
         ))}
-
         {selectedLot && (
           <div style={{ position:"sticky", bottom:24, display:"flex", justifyContent:"center", marginTop:16 }}>
             <button style={{ ...s.btn("primary"), padding:"16px 40px", fontSize:16 }}
@@ -809,16 +742,13 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     );
   };
 
-  // ── RESULTS ───────────────────────────────────────────────────────
   const ViewResults = () => {
     if (!matchResults) return null;
     const { mode, subject, results } = matchResults;
     const isClientMode = mode === "clientToLots";
     const filtered = applyFilters(results);
-
     return (
       <div style={s.page}>
-        {/* Header */}
         <div style={{ background:`linear-gradient(135deg,${B.navy},${B.navyL})`, borderRadius:16,
           padding:"28px 32px", marginBottom:24, display:"flex", alignItems:"center", gap:20 }}>
           <button style={{ ...s.btn("ghost"), color:B.grey2 }} onClick={() => setView(isClientMode ? "matchClient" : "matchLot")}>← Volver</button>
@@ -827,8 +757,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
               Resultados del Match · {isClientMode ? "Cliente → Lotes" : "Lote → Clientes"}
             </div>
             <div style={{ fontSize:22, fontWeight:800, color:B.white, fontFamily:"'Playfair Display',serif" }}>
-              {isClientMode ? subject.nombre : subject.nombre}
-              <span style={{ color:B.gold }}> · {results.length} resultados rankeados</span>
+              {subject.nombre}<span style={{ color:B.gold }}> · {results.length} resultados rankeados</span>
             </div>
             <div style={{ fontSize:13, color:B.grey2, marginTop:4 }}>
               {isClientMode
@@ -840,28 +769,20 @@ Rankea los ${top.length} clientes mayor a menor score.`;
             {results[0] && <ScoreRing score={results[0].score} size={72} />}
             <div style={{ display:"flex", gap:6 }}>
               <button style={{ background:B.gold, color:B.navy, border:"none", borderRadius:8,
-                padding:"8px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}
-                onClick={() => window.print()}>
+                padding:"8px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }} onClick={() => window.print()}>
                 🖨️ Imprimir
               </button>
-              <button
-                disabled={generatingReport}
+              <button disabled={generatingReport}
                 style={{ background: generatingReport ? B.grey3 : B.navy, color:B.gold, border:`2px solid ${B.gold}`,
                   borderRadius:8, padding:"8px 14px", fontSize:12, fontWeight:700,
                   cursor: generatingReport ? "not-allowed" : "pointer", whiteSpace:"nowrap" }}
                 onClick={async () => {
                   setGeneratingReport(true);
                   try {
-                    if (isClientMode) {
-                      await generarMatchClienteLotes(subject, results);
-                    } else {
-                      await generarMatchLoteClientes(subject, results);
-                    }
-                  } catch(e) {
-                    alert("Error generando reporte: " + e.message);
-                  } finally {
-                    setGeneratingReport(false);
-                  }
+                    if (isClientMode) await generarMatchClienteLotes(subject, results);
+                    else await generarMatchLoteClientes(subject, results);
+                  } catch(e) { alert("Error generando reporte: " + e.message); }
+                  finally { setGeneratingReport(false); }
                 }}>
                 {generatingReport ? "⏳ Generando..." : "📄 Reporte PPTX"}
               </button>
@@ -869,16 +790,31 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           </div>
         </div>
 
-        {/* FILTERS */}
+        {/* ── FILTROS CON DESARROLLO/PROYECTO ── */}
         <div style={s.filterBar}>
-          <span style={s.filterLabel}>⚡ Filtrar resultados:</span>
+          <span style={s.filterLabel}>⚡ Filtrar:</span>
           {isClientMode ? (<>
+            {/* CIUDAD */}
             <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
               <span style={{ fontSize:10, color:B.grey3, fontWeight:600 }}>CIUDAD</span>
-              <select style={s.select} value={filterCity} onChange={e=>setFilterCity(e.target.value)}>
+              <select style={s.select} value={filterCity} onChange={e => handleFilterCity(e.target.value)}>
                 {cities.map(c=><option key={c}>{c}</option>)}
               </select>
             </div>
+            {/* DESARROLLO / PROYECTO — cascada inteligente */}
+            <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+              <span style={{ fontSize:10, color:B.grey3, fontWeight:600, display:"flex", alignItems:"center", gap:4 }}>
+                DESARROLLO / PROYECTO
+                {filterCity !== "Todas" && (
+                  <span style={{ fontSize:9, color:B.gold, background:"#FFF9EC", border:`1px solid ${B.gold}`,
+                    padding:"1px 5px", borderRadius:6, fontWeight:700 }}>↳ {filterCity}</span>
+                )}
+              </span>
+              <select style={{ ...s.select, minWidth:160 }} value={filterDesarrollo} onChange={e => setFilterDesarrollo(e.target.value)}>
+                {desarrollosDisponibles.map(d=><option key={d}>{d}</option>)}
+              </select>
+            </div>
+            {/* USO DE SUELO */}
             <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
               <span style={{ fontSize:10, color:B.grey3, fontWeight:600 }}>USO DE SUELO</span>
               <select style={s.select} value={filterUso} onChange={e=>setFilterUso(e.target.value)}>
@@ -910,7 +846,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           </div>
         </div>
 
-        {/* RESULT CARDS */}
         {filtered.map((r, i) => {
           const item = r.data;
           if (!item) return null;
@@ -920,18 +855,16 @@ Rankea los ${top.length} clientes mayor a menor score.`;
               <div style={{ display:"flex", gap:20, alignItems:"flex-start" }}>
                 <ScoreRing score={r.score} size={80} />
                 <div style={{ flex:1, minWidth:0 }}>
-                  {/* Header */}
                   <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8, flexWrap:"wrap" }}>
                     <span style={{ fontSize:18, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif" }}>
-                      {isClientMode ? item.nombre : item.nombre}
+                      {item.nombre}
                     </span>
                     <Tag label={r.match_label} color={scoreColor(r.score)} bg={r.score>=80?B.greenL:r.score>=60?"#fff8e7":B.blueL} />
                     {isClientMode && <Tag label={item.uso} color={B.navy} bg={B.blueL} />}
                     {isClientMode && <Tag label={item.ciudad} color={B.navy} bg={B.grey1} />}
+                    {isClientMode && item.desarrollo && <Tag label={item.desarrollo} color={B.goldD} bg="#FFF9EC" />}
                     {!isClientMode && <Tag label={item.temperatura||""} color={tempColor(item.temperatura)} bg={tempBg(item.temperatura)} />}
                   </div>
-
-                  {/* Info row */}
                   <div style={{ fontSize:13, color:B.grey3, marginBottom:12, display:"flex", gap:16, flexWrap:"wrap" }}>
                     {isClientMode ? (<>
                       <span>📐 {item.sup_m2?.toLocaleString()} m²</span>
@@ -946,23 +879,16 @@ Rankea los ${top.length} clientes mayor a menor score.`;
                       <span>📐 {item.sup_min?.toLocaleString()}–{item.sup_max?.toLocaleString()} m²</span>
                     </>)}
                   </div>
-
-                  {/* Razón principal */}
                   <div style={{ background:`linear-gradient(90deg,${B.gold}18,transparent)`,
                     borderLeft:`3px solid ${B.gold}`, padding:"10px 14px",
-                    borderRadius:"0 8px 8px 0", marginBottom:12, fontSize:14,
-                    color:B.navy, fontWeight:600 }}>
+                    borderRadius:"0 8px 8px 0", marginBottom:12, fontSize:14, color:B.navy, fontWeight:600 }}>
                     {r.razon_principal}
                   </div>
-
-                  {/* Grid: argumentos + objeción */}
                   <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
                     <div style={{ background:B.greenL, borderRadius:10, padding:14 }}>
-                      <div style={{ fontSize:11, fontWeight:700, color:B.green, letterSpacing:1,
-                        textTransform:"uppercase", marginBottom:8 }}>✦ Argumentos de venta</div>
+                      <div style={{ fontSize:11, fontWeight:700, color:B.green, letterSpacing:1, textTransform:"uppercase", marginBottom:8 }}>✦ Argumentos de venta</div>
                       {r.argumentos?.map((a,ai) => (
-                        <div key={ai} style={{ fontSize:13, color:B.grey4, marginBottom:6,
-                          display:"flex", gap:8 }}>
+                        <div key={ai} style={{ fontSize:13, color:B.grey4, marginBottom:6, display:"flex", gap:8 }}>
                           <span style={{ color:B.green, fontWeight:700, flexShrink:0 }}>{ai+1}.</span>
                           <span>{a}</span>
                         </div>
@@ -970,14 +896,12 @@ Rankea los ${top.length} clientes mayor a menor score.`;
                     </div>
                     <div>
                       <div style={{ background:B.redL, borderRadius:10, padding:14, marginBottom:10 }}>
-                        <div style={{ fontSize:11, fontWeight:700, color:B.red, letterSpacing:1,
-                          textTransform:"uppercase", marginBottom:6 }}>⚠ Posible objeción</div>
+                        <div style={{ fontSize:11, fontWeight:700, color:B.red, letterSpacing:1, textTransform:"uppercase", marginBottom:6 }}>⚠ Posible objeción</div>
                         <div style={{ fontSize:13, color:B.grey4 }}>{r.objeccion}</div>
                         <div style={{ fontSize:13, color:B.green, marginTop:6, fontWeight:600 }}>→ {r.respuesta_objecion}</div>
                       </div>
-                      <div style={{ background:AMBER_LT||"#fff8e7", borderRadius:10, padding:14, border:`1px solid ${B.gold}44` }}>
-                        <div style={{ fontSize:11, fontWeight:700, color:B.goldD, letterSpacing:1,
-                          textTransform:"uppercase", marginBottom:6 }}>⚡ Urgencia / Cierre</div>
+                      <div style={{ background:"#fff8e7", borderRadius:10, padding:14, border:`1px solid ${B.gold}44` }}>
+                        <div style={{ fontSize:11, fontWeight:700, color:B.goldD, letterSpacing:1, textTransform:"uppercase", marginBottom:6 }}>⚡ Urgencia / Cierre</div>
                         <div style={{ fontSize:13, color:B.grey4 }}>{r.urgencia}</div>
                       </div>
                     </div>
@@ -998,275 +922,105 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     );
   };
 
-
-  // ── MODAL FICHA TÉCNICA COMPLETA ──────────────────────────────────
   const ModalFichaTecnica = ({ lot, onClose }) => {
     if (!lot) return null;
     const Field = ({ label, value, wide }) => {
       if (!value && value !== 0) return null;
       return (
-        <div style={{ gridColumn: wide ? "1 / -1" : "auto",
-          background: B.offW, borderRadius: 8, padding: "10px 14px",
-          border: `1px solid ${B.grey1}` }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: B.grey3,
-            textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>{label}</div>
+        <div style={{ gridColumn: wide ? "1 / -1" : "auto", background: B.offW, borderRadius: 8, padding: "10px 14px", border: `1px solid ${B.grey1}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 }}>{label}</div>
           <div style={{ fontSize: 13, color: B.navy, fontWeight: 600 }}>{String(value)}</div>
         </div>
       );
     };
     const Section = ({ title, color }) => (
-      <div style={{ gridColumn: "1 / -1", background: color || B.navy,
-        borderRadius: 8, padding: "8px 14px", marginTop: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 800, color: B.gold,
-          textTransform: "uppercase", letterSpacing: 2 }}>{title}</span>
+      <div style={{ gridColumn: "1 / -1", background: color || B.navy, borderRadius: 8, padding: "8px 14px", marginTop: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: B.gold, textTransform: "uppercase", letterSpacing: 2 }}>{title}</span>
       </div>
     );
     const precioTotal = lot.precio_total || (lot.sup_m2 * lot.precio_m2);
     return (
-      <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)",
-        zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center",
-        padding: 20, overflow:"auto" }}
+      <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000,
+        display:"flex", alignItems:"center", justifyContent:"center", padding: 20, overflow:"auto" }}
         onClick={e => e.target === e.currentTarget && onClose()}>
         <div style={{ background: B.white, borderRadius: 20, width: "100%", maxWidth: 860,
           maxHeight: "90vh", overflowY: "auto", boxShadow: "0 25px 60px rgba(0,43,73,0.3)" }}>
-
-          {/* Header */}
-          <div style={{ background: `linear-gradient(135deg,${B.navy},${B.navyL})`,
-            borderRadius: "20px 20px 0 0", padding: "24px 28px",
-            display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+          <div style={{ background: `linear-gradient(135deg,${B.navy},${B.navyL})`, borderRadius: "20px 20px 0 0",
+            padding: "24px 28px", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
             <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: B.gold,
-                letterSpacing: 2, textTransform:"uppercase", marginBottom: 6 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: B.gold, letterSpacing: 2, textTransform:"uppercase", marginBottom: 6 }}>
                 Ficha Técnica Completa · {lot.desarrollo || lot.id}
               </div>
-              <div style={{ fontSize: 26, fontWeight: 800, color: B.white,
-                fontFamily:"'Playfair Display',serif", marginBottom: 6 }}>{lot.nombre}</div>
-              <div style={{ fontSize: 13, color: B.grey2 }}>
-                {lot.ciudad}, {lot.estado} · {lot.uso}
-              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: B.white, fontFamily:"'Playfair Display',serif", marginBottom: 6 }}>{lot.nombre}</div>
+              <div style={{ fontSize: 13, color: B.grey2 }}>{lot.ciudad}, {lot.estado} · {lot.uso}</div>
             </div>
             <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-              <button onClick={() => {
-                  const printWin = window.open("","_blank","width=900,height=700");
-                  printWin.document.write(`
-                    <html><head><title>Ficha ${lot.nombre} - Grupo Guía</title>
-                    <style>
-                      body{font-family:Arial,sans-serif;color:#002B49;margin:0;padding:24px}
-                      .header{background:#002B49;color:white;padding:20px 24px;border-radius:8px;margin-bottom:16px}
-                      .gold{color:#F5B335} .title{font-size:22px;font-weight:800;margin:4px 0}
-                      .sub{font-size:12px;opacity:0.8;margin-top:4px}
-                      .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px}
-                      .field{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:8px 12px}
-                      .flabel{font-size:9px;font-weight:700;text-transform:uppercase;color:#94A3B8;margin-bottom:2px}
-                      .fval{font-size:12px;font-weight:600;color:#002B49}
-                      .wide{grid-column:1/-1}
-                      .section{background:#002B49;color:#F5B335;padding:6px 12px;border-radius:6px;
-                               font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;
-                               grid-column:1/-1;margin-top:4px}
-                      .footer{text-align:center;font-size:10px;color:#94A3B8;margin-top:16px;
-                              padding-top:12px;border-top:1px solid #E2E8F0}
-                      @media print{body{padding:12px}}
-                    </style></head><body>
-                    <div class="header">
-                      <div class="gold" style="font-size:10px;letter-spacing:2px;text-transform:uppercase">
-                        FICHA TÉCNICA · MACROLOTES · GRUPO GUÍA</div>
-                      <div class="title">${lot.nombre}</div>
-                      <div class="sub">${lot.id} · ${lot.desarrollo||""} · ${lot.ciudad}, ${lot.estado}</div>
-                    </div>
-                    <div class="grid">
-                      <div class="section">📍 UBICACIÓN E IDENTIFICACIÓN</div>
-                      ${[["ID","id"],["Nombre","nombre"],["Desarrollo","desarrollo"],
-                         ["Ciudad","ciudad"],["Estado","estado"],["Colonia / Corredor","colonia"],
-                         ["Tipo de Inventario","tipo"],["Asesor","asesor"]
-                        ].filter(([,k])=>lot[k]).map(([l,k])=>`
-                        <div class="field"><div class="flabel">${l}</div>
-                        <div class="fval">${lot[k]}</div></div>`).join("")}
-                      <div class="section">📐 SUPERFICIE Y PRECIO</div>
-                      ${[["Superficie","sup_m2"],["Precio por m²","precio_m2"],["Precio Total","precio_total"],
-                         ["Condiciones de Pago","condiciones_pago"],["Entrega","entrega"]
-                        ].filter(([,k])=>lot[k]).map(([l,k])=>`
-                        <div class="field"><div class="flabel">${l}</div>
-                        <div class="fval">${typeof lot[k]==="number"?lot[k].toLocaleString("es-MX"):lot[k]}</div></div>`).join("")}
-                      <div class="section">🏛️ USO DE SUELO Y NORMATIVA</div>
-                      ${[["Uso de Suelo","uso"],["COS","cos"],["CUS","cus"],
-                         ["Niveles Permitidos","niveles"],["Viviendas Máx","viv_max"],
-                         ["Topografía","topografia"],["Estatus Legal","estatus_legal"]
-                        ].filter(([,k])=>lot[k]).map(([l,k])=>`
-                        <div class="field"><div class="flabel">${l}</div>
-                        <div class="fval">${lot[k]}</div></div>`).join("")}
-                      <div class="section">🔌 SERVICIOS E INFRAESTRUCTURA</div>
-                      ${[["Agua Potable","agua"],["Energía Eléctrica","luz"],
-                         ["Drenaje Sanitario","drenaje"],["Acceso a Vialidad","acceso"]
-                        ].filter(([,k])=>lot[k]).map(([l,k])=>`
-                        <div class="field"><div class="flabel">${l}</div>
-                        <div class="fval">${lot[k]}</div></div>`).join("")}
-                      <div class="section">⭐ ARGUMENTOS COMERCIALES</div>
-                      ${lot.fortaleza?`<div class="field wide"><div class="flabel">Fortaleza Principal</div>
-                        <div class="fval">${lot.fortaleza}</div></div>`:""}
-                      ${lot.atributos?`<div class="field wide"><div class="flabel">Atributos Estratégicos</div>
-                        <div class="fval">${lot.atributos}</div></div>`:""}
-                      ${lot.comprador?`<div class="field wide"><div class="flabel">Comprador Ideal</div>
-                        <div class="fval">${lot.comprador}</div></div>`:""}
-                    </div>
-                    <div class="footer">
-                      CONFIDENCIAL · Sistema MacroPro · Grupo Guía · Dirección de Macro Lotes
-                    </div>
-                    </body></html>
-                  `);
-                  printWin.document.close();
-                  printWin.focus();
-                  setTimeout(() => printWin.print(), 500);
-                }}
-                style={{ background: B.gold, color: B.navy, border:"none",
-                  borderRadius:8, padding:"8px 16px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
-                🖨️ Imprimir Ficha
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    await generarFichaTecnica(lot);
-                  } catch(e) {
-                    alert("Error generando PPTX: " + e.message);
-                  }
-                }}
-                style={{ background: B.navy, color: B.gold, border:`2px solid ${B.gold}`,
-                  borderRadius:8, padding:"8px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+              <button onClick={async () => { try { await generarFichaTecnica(lot); } catch(e) { alert("Error: " + e.message); } }}
+                style={{ background: B.navy, color: B.gold, border:`2px solid ${B.gold}`, borderRadius:8, padding:"8px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
                 📄 PPTX
               </button>
-              <button onClick={onClose} style={{ background:"rgba(255,255,255,0.15)",
-                color: B.white, border:"none", borderRadius:8, padding:"8px 14px",
-                fontSize:14, cursor:"pointer", fontWeight:700 }}>✕</button>
+              <button onClick={onClose} style={{ background:"rgba(255,255,255,0.15)", color: B.white, border:"none", borderRadius:8, padding:"8px 14px", fontSize:14, cursor:"pointer", fontWeight:700 }}>✕</button>
             </div>
           </div>
-
-          {/* Body */}
           <div style={{ padding: "24px 28px" }}>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
-              {/* KPIs top */}
-              {[
-                ["Superficie", lot.sup_m2 ? lot.sup_m2.toLocaleString("es-MX") + " m²" : null],
+              {[["Superficie", lot.sup_m2 ? lot.sup_m2.toLocaleString("es-MX") + " m²" : null],
                 ["Precio por m²", lot.precio_m2 ? "$" + lot.precio_m2.toLocaleString("es-MX") : null],
                 ["Precio Total", precioTotal ? "$" + (precioTotal/1000000).toFixed(1) + " MDP" : null],
-                ["CUS", lot.cus || null],
-                ["Niveles", lot.niveles || null],
-                ["Entrega", lot.entrega || null],
+                ["CUS", lot.cus || null], ["Niveles", lot.niveles || null], ["Entrega", lot.entrega || null],
               ].filter(([,v])=>v).map(([l,v]) => (
                 <div key={l} style={{ background:`linear-gradient(135deg,${B.navy}08,${B.navy}15)`,
                   border:`2px solid ${B.navy}22`, borderRadius:10, padding:"12px 16px", textAlign:"center" }}>
-                  <div style={{ fontSize:10, fontWeight:700, color:B.grey3,
-                    textTransform:"uppercase", letterSpacing:1 }}>{l}</div>
+                  <div style={{ fontSize:10, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1 }}>{l}</div>
                   <div style={{ fontSize:18, fontWeight:800, color:B.navy, marginTop:4 }}>{v}</div>
                 </div>
               ))}
-
               <Section title="📍 Ubicación e Identificación" />
               <Field label="ID" value={lot.id} />
               <Field label="Desarrollo / Proyecto" value={lot.desarrollo} />
-              <Field label="Tipo de Inventario" value={lot.tipo} />
               <Field label="Ciudad / Municipio" value={lot.ciudad} />
               <Field label="Estado" value={lot.estado} />
-              <Field label="Colonia / Corredor" value={lot.colonia} />
-              <Field label="Asesor Responsable" value={lot.asesor} />
-              <Field label="Status" value={lot.status} />
-
-              <Section title="🏛️ Uso de Suelo y Normativa" />
               <Field label="Uso de Suelo" value={lot.uso} />
               <Field label="COS" value={lot.cos} />
               <Field label="CUS" value={lot.cus} />
               <Field label="Niveles Permitidos" value={lot.niveles} />
               <Field label="Viviendas Máximas" value={lot.viv_max} />
-              <Field label="Topografía" value={lot.topografia} />
-              <Field label="Estatus Legal" value={lot.estatus_legal} />
-
-              <Section title="💰 Precio y Condiciones" />
               <Field label="Precio por m²" value={lot.precio_m2 ? "$" + lot.precio_m2.toLocaleString("es-MX") : null} />
               <Field label="Precio Total" value={precioTotal ? "$" + precioTotal.toLocaleString("es-MX") : null} />
-              <Field label="Condiciones de Pago" value={lot.condiciones_pago} />
-              <Field label="Fecha de Entrega" value={lot.entrega} />
-              <Field label="NSE Predominante" value={lot.nse} />
-
-              <Section title="🔌 Servicios e Infraestructura" />
               <Field label="Agua Potable" value={lot.agua} />
               <Field label="Energía Eléctrica" value={lot.luz} />
               <Field label="Drenaje Sanitario" value={lot.drenaje} />
               <Field label="Acceso a Vialidad" value={lot.acceso} />
-
-              <Section title="⭐ Argumentos Comerciales" />
               <Field wide label="Fortaleza Principal" value={lot.fortaleza} />
               <Field wide label="Atributos Estratégicos" value={lot.atributos} />
               <Field wide label="Comprador Ideal" value={lot.comprador} />
-              <Field wide label="Observaciones" value={lot.observaciones} />
             </div>
           </div>
-
-          {/* Footer */}
-          <div style={{ padding:"16px 28px", borderTop:`1px solid ${B.grey1}`,
-            display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <span style={{ fontSize:11, color:B.grey3 }}>
-              CONFIDENCIAL · MacroPro · Grupo Guía · Dirección de Macro Lotes
-            </span>
-            <button style={s.btn("primary")} onClick={() => { setSelectedLot(lot); setView("matchLot"); onClose(); }}>
-              🎯 Hacer Match con Clientes
-            </button>
+          <div style={{ padding:"16px 28px", borderTop:`1px solid ${B.grey1}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span style={{ fontSize:11, color:B.grey3 }}>CONFIDENCIAL · MacroPro · Grupo Guía</span>
+            <button style={s.btn("primary")} onClick={() => { setSelectedLot(lot); setView("matchLot"); onClose(); }}>🎯 Hacer Match con Clientes</button>
           </div>
         </div>
       </div>
     );
   };
 
-
-  // ── PRINT STYLES ──────────────────────────────────────────────────
   const PrintStyles = () => (
-    <style>{`
-      @media print {
-        nav, button, .no-print { display: none !important; }
-        body { background: white !important; }
-        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-      }
-    `}</style>
+    <style>{`@media print { nav, button, .no-print { display: none !important; } body { background: white !important; } * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }`}</style>
   );
 
-  // ── CLIENTS LIST ──────────────────────────────────────────────────
   const ViewClients = () => (
     <div style={s.page}>
       <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
         <button style={s.btn("ghost")} onClick={() => setView("home")}>← Inicio</button>
         <div style={s.sectionTitle}>Base de Clientes</div>
         <div style={{ marginLeft:"auto", display:"flex", gap:10, alignItems:"center" }}>
-          <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`,
-            borderRadius:10, padding:"9px 18px", fontSize:13, fontWeight:700, cursor:"pointer",
-            display:"flex", alignItems:"center", gap:8 }}
-            onClick={() => clientFileRef.current?.click()}>
-            📤 Cargar Excel de Clientes
-          </button>
-          <input ref={clientFileRef} type="file" accept=".xlsx,.xls"
-            style={{ display:"none" }} onChange={handleClientExcelUpload} />
-          <button style={s.btn("primary")} onClick={() => setShowAddClient(true)}>
-            ➕ Nuevo cliente
-          </button>
+          <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`, borderRadius:10, padding:"9px 18px", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:8 }}
+            onClick={() => clientFileRef.current?.click()}>📤 Cargar Excel de Clientes</button>
+          <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleClientExcelUpload} />
+          <button style={s.btn("primary")} onClick={() => setShowAddClient(true)}>➕ Nuevo cliente</button>
         </div>
       </div>
-      {clients.length === 0 && (
-        <div style={{ background:`linear-gradient(135deg,${B.navy}08,${B.gold}15)`,
-          border:`2px dashed ${B.gold}`, borderRadius:16, padding:40, textAlign:"center",
-          marginBottom:24 }}>
-          <div style={{ fontSize:40, marginBottom:12 }}>📊</div>
-          <div style={{ fontSize:18, fontWeight:800, color:B.navy, marginBottom:8 }}>
-            Carga tu Base de Datos de Clientes
-          </div>
-          <div style={{ fontSize:13, color:B.grey4, marginBottom:20, maxWidth:420, margin:"0 auto 20px" }}>
-            Usa el archivo <strong>Base_Datos_Clientes_MacroPro.xlsx</strong> que generamos.
-            Cada fila es un cliente — carga hasta 200 de una sola vez.
-          </div>
-          <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
-            <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`,
-              borderRadius:10, padding:"12px 28px", fontSize:14, fontWeight:700, cursor:"pointer" }}
-              onClick={() => clientFileRef.current?.click()}>
-              📤 Seleccionar archivo Excel
-            </button>
-          </div>
-        </div>
-      )}
       {clients.map(c => (
         <div key={c.id} style={{ ...s.clientCard(false), cursor:"default" }}>
           <div style={{ display:"flex", alignItems:"center", gap:16 }}>
@@ -1279,98 +1033,113 @@ Rankea los ${top.length} clientes mayor a menor score.`;
               <div style={{ fontSize:13, color:B.grey3 }}>{c.empresa} · {c.asesor} · {c.ciudad_interes?.join(", ")}</div>
               <div style={{ fontSize:12, color:B.grey3, marginTop:2 }}>{c.notas}</div>
             </div>
-            <button style={s.btn("sm")} onClick={() => { setSelectedClient(c); setView("matchClient"); }}>
-              🎯 Match
-            </button>
+            <button style={s.btn("sm")} onClick={() => { setSelectedClient(c); setView("matchClient"); }}>🎯 Match</button>
           </div>
         </div>
       ))}
     </div>
   );
 
-  // ── LOTS LIST ─────────────────────────────────────────────────────
-  const ViewLots = () => (
-    <div style={s.page}>
-      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
-        <button style={s.btn("ghost")} onClick={() => setView("home")}>← Inicio</button>
-        <div style={s.sectionTitle}>Inventario de Macrolotes</div>
-        <div style={{ marginLeft:"auto", display:"flex", gap:10, alignItems:"center" }}>
-          <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`,
-            borderRadius:10, padding:"9px 18px", fontSize:13, fontWeight:700, cursor:"pointer",
-            display:"flex", alignItems:"center", gap:8 }}
-            onClick={() => fileRef.current?.click()}>
-            📤 Cargar Inventario Excel
-          </button>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleExcelUpload} />
-          {inventory.length > 0 && (
-            <span style={{ fontSize:12, color:B.grey3, fontWeight:600 }}>
-              {inventory.length} lotes cargados
+  // ── INVENTARIO: ahora con 3 filtros en cascada ────────────────────
+  const ViewLots = () => {
+    // Desarrollos disponibles para el filtro local de esta vista
+    const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
+    const lotCities = ["Todas", ...new Set(source.map(l => l.ciudad))];
+    const lotUsos = ["Todos", ...new Set(source.map(l => l.uso))];
+
+    const localDevs = (() => {
+      if (filterCity === "Todas") return ["Todos", ...new Set(source.map(l => l.desarrollo).filter(Boolean))].sort((a,b)=>a==="Todos"?-1:b==="Todos"?1:a.localeCompare(b));
+      const devs = [...new Set(source.filter(l => l.ciudad === filterCity).map(l => l.desarrollo).filter(Boolean))].sort();
+      return ["Todos", ...devs];
+    })();
+
+    const filtered = source.filter(l =>
+      (filterCity === "Todas" || l.ciudad === filterCity) &&
+      (filterDesarrollo === "Todos" || l.desarrollo === filterDesarrollo) &&
+      (filterUso === "Todos" || l.uso === filterUso)
+    );
+
+    return (
+      <div style={s.page}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
+          <button style={s.btn("ghost")} onClick={() => setView("home")}>← Inicio</button>
+          <div style={s.sectionTitle}>Inventario de Macrolotes</div>
+          <div style={{ marginLeft:"auto", display:"flex", gap:10, alignItems:"center" }}>
+            <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`, borderRadius:10, padding:"9px 18px", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", gap:8 }}
+              onClick={() => fileRef.current?.click()}>📤 Cargar Inventario Excel</button>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleExcelUpload} />
+            {source.length > 0 && <span style={{ fontSize:12, color:B.grey3, fontWeight:600 }}>{source.length} lotes cargados</span>}
+          </div>
+        </div>
+
+        {/* ── BARRA DE FILTROS CON CASCADA ── */}
+        <div style={s.filterBar}>
+          {/* CIUDAD */}
+          <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+            <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase", letterSpacing:1 }}>📍 Ciudad</span>
+            <select style={s.select} value={filterCity} onChange={e => handleFilterCity(e.target.value)}>
+              {lotCities.map(c=><option key={c}>{c}</option>)}
+            </select>
+          </div>
+
+          {/* DESARROLLO / PROYECTO — cascada inteligente */}
+          <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+            <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase", letterSpacing:1, display:"flex", alignItems:"center", gap:4 }}>
+              🏗 Desarrollo / Proyecto
+              {filterCity !== "Todas" && (
+                <span style={{ fontSize:9, color:B.gold, background:"#FFF9EC", border:`1px solid ${B.gold}`,
+                  padding:"1px 5px", borderRadius:6, fontWeight:700 }}>↳ {filterCity}</span>
+              )}
             </span>
-          )}
-        </div>
-      </div>
-      {inventory.length === 0 && (
-        <div style={{ background:`linear-gradient(135deg,${B.navy}08,${B.gold}15)`,
-          border:`2px dashed ${B.gold}`, borderRadius:16, padding:40, textAlign:"center",
-          marginBottom:24 }}>
-          <div style={{ fontSize:40, marginBottom:12 }}>🏗️</div>
-          <div style={{ fontSize:18, fontWeight:800, color:B.navy, marginBottom:8 }}>
-            Carga tu Inventario de Macrolotes
+            <select style={{ ...s.select, minWidth:170 }} value={filterDesarrollo} onChange={e => setFilterDesarrollo(e.target.value)}>
+              {localDevs.map(d=><option key={d}>{d}</option>)}
+            </select>
           </div>
-          <div style={{ fontSize:13, color:B.grey4, marginBottom:20, maxWidth:440, margin:"0 auto 20px" }}>
-            Usa el archivo <strong>Inventario_Unificado_MacroLotes.xlsx</strong>.<br/>
-            La app detecta automáticamente los 75 campos — carga hasta 200 lotes de una vez.
-          </div>
-          <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
-            <button style={{ background:B.navy, color:B.gold, border:`2px solid ${B.gold}`,
-              borderRadius:10, padding:"12px 28px", fontSize:14, fontWeight:700, cursor:"pointer" }}
-              onClick={() => fileRef.current?.click()}>
-              📤 Seleccionar archivo Excel
-            </button>
-          </div>
-        </div>
-      )}
-      {inventory.length > 0 && <div style={s.filterBar}>
-        <select style={s.select} value={filterCity} onChange={e=>setFilterCity(e.target.value)}>
-          {cities.map(c=><option key={c}>{c}</option>)}
-        </select>
-        <select style={s.select} value={filterUso} onChange={e=>setFilterUso(e.target.value)}>
-          {usos.map(u=><option key={u}>{u}</option>)}
-        </select>
-        <span style={{ marginLeft:"auto", fontSize:13, color:B.grey3 }}>
-          {inventory.filter(l=>(filterCity==="Todas"||l.ciudad===filterCity)&&(filterUso==="Todos"||l.uso===filterUso)).length} lotes
-        </span>
-      </div>}
-      {inventory.filter(l=>(filterCity==="Todas"||l.ciudad===filterCity)&&(filterUso==="Todos"||l.uso===filterUso)).map(lot => (
-        <div key={lot.id} style={{ ...s.lotCard(false), cursor:"default" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:16 }}>
-            <div style={{ width:40, height:40, borderRadius:8, backgroundColor:B.navy,
-              display:"flex", alignItems:"center", justifyContent:"center",
-              fontSize:10, fontWeight:800, color:B.gold, flexShrink:0 }}>
-              {lot.id.split("-")[0]}
-            </div>
-            <div style={{ flex:1 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                <span style={{ fontWeight:700, fontSize:14 }}>{lot.nombre}</span>
-                <Tag label={lot.uso} color={B.navy} bg={B.blueL} />
-                <Tag label={lot.ciudad} color={B.grey4} bg={B.grey1} />
-              </div>
-              <div style={{ fontSize:13, color:B.grey3, display:"flex", gap:16 }}>
-                <span>{lot.sup_m2?.toLocaleString()} m²</span>
-                <span>${lot.precio_m2?.toLocaleString()}/m²</span>
-                <span style={{ fontWeight:700, color:B.navy }}>{fmtM(lot.precio_total)}</span>
-                <span>Entrega: {lot.entrega}</span>
-              </div>
-            </div>
-            <button style={{ ...s.btn("ghost"), fontSize:12, padding:"6px 12px" }} onClick={() => setSelectedLotDetail(lot)}>📋 Ficha</button>
-            <button style={s.btn("sm")} onClick={() => { setSelectedLot(lot); setView("matchLot"); }}>🎯 Match</button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
 
-  // ── ADD CLIENT MODAL ──────────────────────────────────────────────
+          {/* USO DE SUELO */}
+          <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+            <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase", letterSpacing:1 }}>🏙 Uso de Suelo</span>
+            <select style={s.select} value={filterUso} onChange={e=>setFilterUso(e.target.value)}>
+              {lotUsos.map(u=><option key={u}>{u}</option>)}
+            </select>
+          </div>
+
+          <span style={{ marginLeft:"auto", fontSize:13, color:B.grey3, fontWeight:600 }}>
+            {filtered.length} <span style={{ fontWeight:400 }}>lote{filtered.length !== 1 ? "s" : ""}</span>
+          </span>
+        </div>
+
+        {filtered.map(lot => (
+          <div key={lot.id} style={{ ...s.lotCard(false), cursor:"default" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+              <div style={{ width:40, height:40, borderRadius:8, backgroundColor:B.navy,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                fontSize:10, fontWeight:800, color:B.gold, flexShrink:0 }}>
+                {lot.id.split("-")[0]}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                  <span style={{ fontWeight:700, fontSize:14 }}>{lot.nombre}</span>
+                  <Tag label={lot.uso} color={B.navy} bg={B.blueL} />
+                  <Tag label={lot.ciudad} color={B.grey4} bg={B.grey1} />
+                  {lot.desarrollo && <Tag label={lot.desarrollo} color={B.goldD} bg="#FFF9EC" />}
+                </div>
+                <div style={{ fontSize:13, color:B.grey3, display:"flex", gap:16 }}>
+                  <span>{lot.sup_m2?.toLocaleString()} m²</span>
+                  <span>${lot.precio_m2?.toLocaleString()}/m²</span>
+                  <span style={{ fontWeight:700, color:B.navy }}>{fmtM(lot.precio_total)}</span>
+                  <span>Entrega: {lot.entrega}</span>
+                </div>
+              </div>
+              <button style={{ ...s.btn("ghost"), fontSize:12, padding:"6px 12px" }} onClick={() => setSelectedLotDetail(lot)}>📋 Ficha</button>
+              <button style={s.btn("sm")} onClick={() => { setSelectedLot(lot); setView("matchLot"); }}>🎯 Match</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const ModalAddClient = () => (
     <div style={s.overlay} onClick={e => e.target===e.currentTarget && setShowAddClient(false)}>
       <div style={s.modal}>
@@ -1388,52 +1157,45 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           ["Presupuesto máximo (millones MXN)", "presupuesto_max", "number", "Ej: 100"],
           ["Superficie mínima (m²)", "sup_min", "number", "Ej: 5000"],
           ["Superficie máxima (m²)", "sup_max", "number", "Ej: 20000"],
-          ["Notas / Perfil del cliente", "notas", "text", "Descripción libre del cliente y sus necesidades"],
+          ["Notas / Perfil del cliente", "notas", "text", "Descripción libre"],
         ].map(([lbl, key, type, ph]) => (
           <div key={key} style={{ marginBottom:14 }}>
             <div style={{ fontSize:12, fontWeight:600, color:B.grey4, marginBottom:5 }}>{lbl}</div>
             {key === "notas" ? (
               <textarea style={{ ...s.input, width:"100%", height:70, resize:"none", padding:"10px 12px" }}
-                placeholder={ph} value={newClient[key]||""}
-                onChange={e => setNewClient({...newClient,[key]:e.target.value})} />
+                placeholder={ph} value={newClient[key]||""} onChange={e => setNewClient({...newClient,[key]:e.target.value})} />
             ) : (
               <input style={{ ...s.input, width:"100%" }} type={type} placeholder={ph}
-                value={newClient[key]||""}
-                onChange={e => setNewClient({...newClient,[key]:e.target.value})} />
+                value={newClient[key]||""} onChange={e => setNewClient({...newClient,[key]:e.target.value})} />
             )}
           </div>
         ))}
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
           <div>
             <div style={{ fontSize:12, fontWeight:600, color:B.grey4, marginBottom:5 }}>Temperatura</div>
-            <select style={{ ...s.select, width:"100%" }} value={newClient.temperatura}
-              onChange={e => setNewClient({...newClient,temperatura:e.target.value})}>
+            <select style={{ ...s.select, width:"100%" }} value={newClient.temperatura} onChange={e => setNewClient({...newClient,temperatura:e.target.value})}>
               {["Caliente","Tibio","Frío"].map(t=><option key={t}>{t}</option>)}
             </select>
           </div>
           <div>
             <div style={{ fontSize:12, fontWeight:600, color:B.grey4, marginBottom:5 }}>Status</div>
-            <select style={{ ...s.select, width:"100%" }} value={newClient.status}
-              onChange={e => setNewClient({...newClient,status:e.target.value})}>
+            <select style={{ ...s.select, width:"100%" }} value={newClient.status} onChange={e => setNewClient({...newClient,status:e.target.value})}>
               {["Nuevo","Calificado","Presentación activa","Negociando","Cerrado"].map(s=><option key={s}>{s}</option>)}
             </select>
           </div>
         </div>
-        <button style={{ ...s.btn("primary"), width:"100%", justifyContent:"center", padding:"14px" }}
-          onClick={addClient}>
+        <button style={{ ...s.btn("primary"), width:"100%", justifyContent:"center", padding:"14px" }} onClick={addClient}>
           ➕ Agregar cliente
         </button>
       </div>
     </div>
   );
 
-  // ── LOADING OVERLAY ───────────────────────────────────────────────
   const LoadingView = () => (
     <div style={s.loadingOverlay}>
       <div style={{ textAlign:"center" }}>
         <div style={{ fontSize:56, marginBottom:16 }}>🎯</div>
-        <div style={{ fontSize:22, fontWeight:800, color:B.white, fontFamily:"'Playfair Display',serif",
-          marginBottom:8 }}>Analizando con IA</div>
+        <div style={{ fontSize:22, fontWeight:800, color:B.white, fontFamily:"'Playfair Display',serif", marginBottom:8 }}>Analizando con IA</div>
         <div style={{ fontSize:15, color:B.grey2, marginBottom:32 }}>{loadingMsg}</div>
         <div style={s.spinner} />
         <div style={{ marginTop:24, fontSize:13, color:B.grey3 }}>Esto tarda 5-10 segundos...</div>
@@ -1441,9 +1203,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     </div>
   );
 
-  // ─────────────────────────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────────────────────────
   const AMBER_LT = "#fff8e7";
 
   return (
@@ -1457,13 +1216,9 @@ Rankea los ${top.length} clientes mayor a menor score.`;
         textarea { font-family: 'DM Sans', sans-serif; }
         input, select { font-family: 'DM Sans', sans-serif; }
       `}</style>
-
-      {/* NAV */}
       <nav style={s.nav}>
         <div style={s.navLogo} onClick={() => setView("home")}>
-          <div style={{ width:32, height:32, background:B.gold, borderRadius:8,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontSize:16, fontWeight:800, color:B.navy }}>M</div>
+          <div style={{ width:32, height:32, background:B.gold, borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:800, color:B.navy }}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{ fontSize:11, color:B.grey3, fontWeight:500, marginLeft:4 }}>by Grupo Guía</span>
         </div>
@@ -1473,24 +1228,16 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           ))}
         </div>
       </nav>
-
-      {/* VIEWS */}
       {view === "home" && <ViewHome />}
       {view === "matchClient" && <ViewMatchClient />}
       {view === "matchLot" && <ViewMatchLot />}
       {view === "result" && <ViewResults />}
       {view === "clients" && <ViewClients />}
       {view === "lots" && <ViewLots />}
-
-      {/* MODALS */}
       {showAddClient && <ModalAddClient />}
       {selectedLotDetail && <ModalFichaTecnica lot={selectedLotDetail} onClose={() => setSelectedLotDetail(null)} />}
       <PrintStyles />
-
-      {/* LOADING */}
       {loading && <LoadingView />}
-
-      {/* TOAST */}
       {toastMsg && <div style={s.toast}>{toastMsg}</div>}
     </div>
   );
