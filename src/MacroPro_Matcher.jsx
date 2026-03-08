@@ -1242,3 +1242,4 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     </div>
   );
 }
+
