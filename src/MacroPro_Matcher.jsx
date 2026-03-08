@@ -416,20 +416,30 @@ ${top.map(l => `${l.id}|${l.nombre}|${l.ciudad}|${l.uso}|${l.sup_m2}m²|$${l.pre
 FORMATO JSON EXACTO:{"resultados":[{"id":"CN-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración max","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
 Rankea los ${top.length} lotes mayor a menor score.`;
       } else {
+        const isFiltroMode = subject.id === "FILTRO";
         const filtered = targets.filter(c => {
           const ciudadOk = !c.ciudad_interes?.length || c.ciudad_interes.some(ci => subject.ciudad?.includes(ci) || ci?.includes(subject.ciudad));
-          const presupuestoOk = !c.presupuesto_max || c.presupuesto_max >= subject.precio_total * 0.7;
-          const supOk = !c.sup_max || c.sup_max >= subject.sup_m2 * 0.7;
-          return ciudadOk && presupuestoOk && supOk;
+          const presupuestoOk = !c.presupuesto_max || c.presupuesto_max >= (subject.precio_total || 0) * 0.7;
+          const supOk = !c.sup_max || c.sup_max >= (subject.sup_m2 || 0) * 0.7;
+          return isFiltroMode ? true : (ciudadOk && presupuestoOk && supOk);
         });
         const candidatos = filtered.length > 0 ? filtered : targets;
         const top = candidatos.slice(0, 8);
-        prompt = `Estratega inmobiliario México. Rankea estos clientes para el lote. Solo JSON, sin texto extra.
+        if (isFiltroMode) {
+          prompt = `Estratega inmobiliario México. Rankea estos clientes por su probabilidad de comprar un macrolote de uso "${subject.uso}" en ${subject.ciudad !== "Todas" ? subject.ciudad : "México"}. Solo JSON, sin texto extra.
+USO DE SUELO BUSCADO: ${subject.uso}|Ciudad: ${subject.ciudad !== "Todas" ? subject.ciudad : "Cualquiera"}|Desarrollo: ${subject.desarrollo !== "Todos" ? subject.desarrollo : "Cualquiera"}
+CLIENTES (${top.length}):
+${top.map(c => `${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}
+FORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración max","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
+Rankea los ${top.length} clientes mayor a menor score.`;
+        } else {
+          prompt = `Estratega inmobiliario México. Rankea estos clientes para el lote. Solo JSON, sin texto extra.
 LOTE: ${subject.id}|${subject.nombre}|${subject.ciudad}|${subject.uso}|${subject.sup_m2}m²|$${subject.precio_m2}/m²|${fmtM(subject.precio_total)}|${subject.fortaleza?.substring(0,100)}
 CLIENTES (${top.length}):
 ${top.map(c => `${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}
 FORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración max","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
 Rankea los ${top.length} clientes mayor a menor score.`;
+        }
       }
       const response = await fetch("/.netlify/functions/claude", {
         method: "POST",
