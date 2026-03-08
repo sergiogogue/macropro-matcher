@@ -456,7 +456,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
         const item = mode === "clientToLots"
           ? targets.find(l => l.id === r.id)
           : targets.find(c => c.id === r.id);
-        return { ...r, data: item };
+        return { ...r, ...(item || {}), data: item };
       }).filter(r => r.data).sort((a,b) => b.score - a.score);
       setMatchResults({ mode, subject, results: enriched });
       setView("result");
