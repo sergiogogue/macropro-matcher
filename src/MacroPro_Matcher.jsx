@@ -456,7 +456,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
         const item = mode === "clientToLots"
           ? targets.find(l => l.id === r.id)
           : targets.find(c => c.id === r.id);
-        return { ...r, ...(item || {}), data: item };
+        return { ...r, data: item };
       }).filter(r => r.data).sort((a,b) => b.score - a.score);
       setMatchResults({ mode, subject, results: enriched });
       setView("result");
@@ -998,24 +998,37 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           </div>
         </div>
 
-        {selectedLot && clientsFiltered.length > 0 && (
-          <div style={{ position:"sticky", bottom:24, display:"flex", justifyContent:"center", marginTop:20 }}>
-            <button style={{ ...s.btn("primary"), padding:"16px 40px", fontSize:16, boxShadow:`0 8px 32px ${B.gold}55` }}
-              onClick={() => { setMatchMode("lotToClients"); runMatch("lotToClients", selectedLot, clientsFiltered); }}>
-              🎯 &nbsp;Match: {selectedLot.nombre} × {clientsFiltered.length} clientes
-            </button>
-          </div>
-        )}
-        {selectedLot && clientsFiltered.length === 0 && (
-          <div style={{ textAlign:"center", padding:20, color:B.red, fontWeight:600, fontSize:14 }}>
-            ⚠ Sin clientes con los filtros actuales.
-          </div>
-        )}
-        {!selectedLot && (
-          <div style={{ textAlign:"center", padding:20, color:B.grey3, fontSize:13 }}>
-            Selecciona un macrolote para activar el match
-          </div>
-        )}
+        {(() => {
+          const hasFilters = fUso !== "Todos" || fCity !== "Todas" || fDev !== "Todos";
+          const matchSubject = selectedLot || (hasFilters && lotsFiltered.length > 0 ? {
+            id: "FILTRO",
+            nombre: fUso !== "Todos" ? fUso : (fCity !== "Todas" ? fCity : "Inventario filtrado"),
+            uso: fUso !== "Todos" ? fUso : "Todos",
+            ciudad: fCity,
+            desarrollo: fDev
+          } : null);
+          const matchLabel = selectedLot
+            ? `${selectedLot.nombre} × ${clientsFiltered.length} clientes`
+            : `Uso: ${fUso !== "Todos" ? fUso : "Todos"} × ${clientsFiltered.length} clientes`;
+          if (matchSubject && clientsFiltered.length > 0) return (
+            <div style={{ position:"sticky", bottom:24, display:"flex", justifyContent:"center", marginTop:20 }}>
+              <button style={{ ...s.btn("primary"), padding:"16px 40px", fontSize:16, boxShadow:`0 8px 32px ${B.gold}55` }}
+                onClick={() => { setMatchMode("lotToClients"); runMatch("lotToClients", matchSubject, clientsFiltered); }}>
+                🎯 &nbsp;Match: {matchLabel}
+              </button>
+            </div>
+          );
+          if (matchSubject && clientsFiltered.length === 0) return (
+            <div style={{ textAlign:"center", padding:20, color:B.red, fontWeight:600, fontSize:14 }}>
+              ⚠ Sin clientes con los filtros actuales.
+            </div>
+          );
+          return (
+            <div style={{ textAlign:"center", padding:20, color:B.grey3, fontSize:13 }}>
+              Filtra por uso de suelo o ciudad para buscar clientes — o selecciona un lote específico
+            </div>
+          );
+        })()}
       </div>
     );
   };
