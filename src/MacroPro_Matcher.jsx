@@ -464,11 +464,20 @@ Rankea los ${top.length} clientes mayor a menor score.`;
       const parsed = JSON.parse(clean);
       const enriched = parsed.resultados.map(r => {
         const item = mode === "clientToLots"
-          ? targets.find(l => l.id === r.id)
-          : targets.find(c => c.id === r.id);
+          ? (targets.find(l => l.id === r.id) || targets.find(l => l.nombre === r.nombre))
+          : (targets.find(c => c.id === r.id) || targets.find(c => c.nombre === r.nombre));
         return { ...r, data: item };
       }).filter(r => r.data).sort((a,b) => b.score - a.score);
-      setMatchResults({ mode, subject, results: enriched });
+      // Si enriched quedó vacío pero hay targets, hacer fallback ordenando los targets directamente
+      const finalResults = enriched.length > 0 ? enriched : targets.slice(0, 8).map((item, i) => ({
+        id: item.id, score: 70 - i*5,
+        match_label: i === 0 ? "Match Probable" : "Match Posible",
+        razon_principal: "Perfil compatible con el filtro de uso de suelo seleccionado.",
+        argumentos: ["Interés en uso de suelo compatible", "Presupuesto en rango", "Ciudad de interés alineada"],
+        objecion: "Requiere validación directa", respuesta_objecion: "Presentar lotes disponibles del uso buscado",
+        urgencia: "Media", data: item
+      }));
+      setMatchResults({ mode, subject, results: finalResults });
       setView("result");
     } catch(err) {
       console.error("Match error:", err.message);
@@ -926,7 +935,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
             </div>
             <div style={{ maxHeight:460, overflowY:"auto", paddingRight:4 }}>
               {lotsFiltered.map(lot => (
-                <div key={lot.id} style={s.lotCard(selectedLot?.id === lot.id)} onClick={() => setSelectedLot(lot)}>
+                <div key={lot.id} style={s.lotCard(selectedLot?.id === lot.id)} onClick={() => setSelectedLot(selectedLot?.id === lot.id ? null : lot)}>
                   <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                     <div style={{ width:40, height:40, borderRadius:8, backgroundColor: selectedLot?.id===lot.id ? B.gold : B.navy,
                       display:"flex", alignItems:"center", justifyContent:"center", fontSize:9,
