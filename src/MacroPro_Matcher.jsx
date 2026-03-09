@@ -1,3 +1,4 @@
+// MacroPro v2.1 — Filtros Cruzados — Build 2026-03-08
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { generarFichaTecnica, generarMatchLoteClientes, generarMatchClienteLotes } from "./reportGenerator.js";
@@ -415,20 +416,30 @@ ${top.map(l => `${l.id}|${l.nombre}|${l.ciudad}|${l.uso}|${l.sup_m2}m²|$${l.pre
 FORMATO JSON EXACTO:{"resultados":[{"id":"CN-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración max","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
 Rankea los ${top.length} lotes mayor a menor score.`;
       } else {
+        const isFiltroMode = subject.id === "FILTRO";
         const filtered = targets.filter(c => {
           const ciudadOk = !c.ciudad_interes?.length || c.ciudad_interes.some(ci => subject.ciudad?.includes(ci) || ci?.includes(subject.ciudad));
-          const presupuestoOk = !c.presupuesto_max || c.presupuesto_max >= subject.precio_total * 0.7;
-          const supOk = !c.sup_max || c.sup_max >= subject.sup_m2 * 0.7;
-          return ciudadOk && presupuestoOk && supOk;
+          const presupuestoOk = !c.presupuesto_max || c.presupuesto_max >= (subject.precio_total || 0) * 0.7;
+          const supOk = !c.sup_max || c.sup_max >= (subject.sup_m2 || 0) * 0.7;
+          return isFiltroMode ? true : (ciudadOk && presupuestoOk && supOk);
         });
         const candidatos = filtered.length > 0 ? filtered : targets;
         const top = candidatos.slice(0, 8);
-        prompt = `Estratega inmobiliario México. Rankea estos clientes para el lote. Solo JSON, sin texto extra.
+        if (isFiltroMode) {
+          prompt = `Estratega inmobiliario México. Rankea estos clientes por su probabilidad de comprar un macrolote de uso "${subject.uso}" en ${subject.ciudad !== "Todas" ? subject.ciudad : "México"}. Solo JSON, sin texto extra.
+USO DE SUELO BUSCADO: ${subject.uso}|Ciudad: ${subject.ciudad !== "Todas" ? subject.ciudad : "Cualquiera"}|Desarrollo: ${subject.desarrollo !== "Todos" ? subject.desarrollo : "Cualquiera"}
+CLIENTES (${top.length}):
+${top.map(c => `${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}
+FORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración max","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
+Rankea los ${top.length} clientes mayor a menor score.`;
+        } else {
+          prompt = `Estratega inmobiliario México. Rankea estos clientes para el lote. Solo JSON, sin texto extra.
 LOTE: ${subject.id}|${subject.nombre}|${subject.ciudad}|${subject.uso}|${subject.sup_m2}m²|$${subject.precio_m2}/m²|${fmtM(subject.precio_total)}|${subject.fortaleza?.substring(0,100)}
 CLIENTES (${top.length}):
 ${top.map(c => `${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}
 FORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración max","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
 Rankea los ${top.length} clientes mayor a menor score.`;
+        }
       }
       const response = await fetch("/.netlify/functions/claude", {
         method: "POST",
@@ -643,101 +654,391 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     </div>
   );
 
-  const ViewMatchClient = () => (
-    <div style={s.page}>
-      <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:28 }}>
-        <button style={s.btn("ghost")} onClick={() => setView("home")}>← Inicio</button>
-        <div>
-          <div style={s.sectionTitle}>Selecciona el cliente</div>
-          <div style={s.sectionSub}>El análisis cruzará su perfil con todos los lotes del inventario</div>
-        </div>
-        <button style={{ ...s.btn("ghost"), marginLeft:"auto" }} onClick={() => clientFileRef.current?.click()}>📤 Cargar Clientes Excel</button>
-        <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleClientExcelUpload} />
-        <button style={s.btn("primary")} onClick={() => setShowAddClient(true)}>➕ Nuevo cliente</button>
-      </div>
-      {clients.map(c => (
-        <div key={c.id} style={s.clientCard(selectedClient?.id === c.id)} onClick={() => setSelectedClient(c)}>
-          <div style={{ display:"flex", alignItems:"center", gap:16 }}>
-            <div style={{ width:44, height:44, borderRadius:"50%", backgroundColor: selectedClient?.id===c.id ? B.gold : B.blueL,
-              display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>👤</div>
-            <div style={{ flex:1 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
-                <span style={{ fontWeight:700, fontSize:16, color: selectedClient?.id===c.id ? B.white : B.navy }}>{c.nombre}</span>
-                <Tag label={c.temperatura} color={tempColor(c.temperatura)} bg={selectedClient?.id===c.id ? "rgba(255,255,255,0.15)" : tempBg(c.temperatura)} />
-                <Tag label={c.status} color={B.blue} bg={selectedClient?.id===c.id ? "rgba(255,255,255,0.15)" : B.blueL} />
-              </div>
-              <div style={{ fontSize:13, color: selectedClient?.id===c.id ? B.grey2 : B.grey3 }}>
-                {c.empresa} &nbsp;·&nbsp; Asesor: {c.asesor} &nbsp;·&nbsp; {c.ciudad_interes?.join(", ")}
-              </div>
-              <div style={{ fontSize:12, color: selectedClient?.id===c.id ? B.grey2 : B.grey3, marginTop:2 }}>
-                {c.uso_interes?.join(" / ")} &nbsp;·&nbsp; {fmtM(c.presupuesto_min)} – {fmtM(c.presupuesto_max)} &nbsp;·&nbsp; {c.sup_min?.toLocaleString()}–{c.sup_max?.toLocaleString()} m²
-              </div>
-            </div>
-            {selectedClient?.id===c.id && <div style={{ color:B.gold, fontSize:22 }}>✓</div>}
-          </div>
-        </div>
-      ))}
-      {selectedClient && (
-        <div style={{ position:"sticky", bottom:24, display:"flex", justifyContent:"center", marginTop:16 }}>
-          <button style={{ ...s.btn("primary"), padding:"16px 40px", fontSize:16, boxShadow:`0 8px 32px ${B.gold}55` }}
-            onClick={() => { setMatchMode("clientToLots"); runMatch("clientToLots", selectedClient, inventory); }}>
-            🎯 &nbsp;Generar Match para {selectedClient.nombre}
-          </button>
-        </div>
-      )}
-    </div>
-  );
+  const ViewMatchClient = () => {
+    const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
+    const [fCity, setFCity] = useState("Todas");
+    const [fDev, setFDev] = useState("Todos");
+    const [fUso, setFUso] = useState("Todos");
+    const [fSupMin, setFSupMin] = useState("");
+    const [fSupMax, setFSupMax] = useState("");
+    const [fPrecioMax, setFPrecioMax] = useState("");
+    const [fTemp, setFTemp] = useState("Todos");
+    const [fStatus, setFStatus] = useState("Todos");
+    const [fSearch, setFSearch] = useState("");
 
-  const ViewMatchLot = () => {
-    const [localFilter, setLocalFilter] = useState("Todos");
-    const filtered = localFilter === "Todos" ? inventory : inventory.filter(l => l.ciudad === localFilter);
+    const cCities = ["Todas", ...new Set(source.map(l => l.ciudad))];
+    const cUsos = ["Todos", ...new Set(source.map(l => l.uso))];
+    const devs = (() => {
+      if (fCity === "Todas") return ["Todos", ...new Set(source.map(l => l.desarrollo).filter(Boolean))].sort((a,b)=>a==="Todos"?-1:b==="Todos"?1:a.localeCompare(b));
+      return ["Todos", ...new Set(source.filter(l => l.ciudad === fCity).map(l => l.desarrollo).filter(Boolean))].sort();
+    })();
+
+    const lotsFiltered = source.filter(l =>
+      (fCity === "Todas" || l.ciudad === fCity) &&
+      (fDev === "Todos" || l.desarrollo === fDev) &&
+      (fUso === "Todos" || l.uso === fUso) &&
+      (!fSupMin || l.sup_m2 >= parseFloat(fSupMin)) &&
+      (!fSupMax || l.sup_m2 <= parseFloat(fSupMax)) &&
+      (!fPrecioMax || l.precio_total <= parseFloat(fPrecioMax) * 1000000)
+    );
+
+    const temps = ["Todos", "Caliente", "Tibio", "Frío", "Inactivo"];
+    const statuses = ["Todos", ...new Set(clients.map(c => c.status).filter(Boolean))];
+    const clientsFiltered = clients.filter(c =>
+      (fTemp === "Todos" || c.temperatura === fTemp) &&
+      (fStatus === "Todos" || c.status === fStatus) &&
+      (!fSearch || c.nombre?.toLowerCase().includes(fSearch.toLowerCase()) || c.empresa?.toLowerCase().includes(fSearch.toLowerCase()))
+    );
+
     return (
       <div style={s.page}>
-        <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:28 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20 }}>
           <button style={s.btn("ghost")} onClick={() => setView("home")}>← Inicio</button>
           <div>
-            <div style={s.sectionTitle}>Selecciona el macrolote</div>
-            <div style={s.sectionSub}>Cruzará contra todos los clientes de la cartera</div>
+            <div style={s.sectionTitle}>Cliente → Lotes</div>
+            <div style={s.sectionSub}>Elige cliente y filtra el inventario — cualquier combinación</div>
           </div>
-          <select style={{ ...s.select, marginLeft:"auto" }} value={localFilter} onChange={e => setLocalFilter(e.target.value)}>
-            {cities.map(c => <option key={c}>{c}</option>)}
-          </select>
+          <button style={{ ...s.btn("ghost"), marginLeft:"auto" }} onClick={() => clientFileRef.current?.click()}>📤 Cargar Clientes Excel</button>
+          <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleClientExcelUpload} />
+          <button style={s.btn("primary")} onClick={() => setShowAddClient(true)}>➕ Nuevo cliente</button>
         </div>
-        {filtered.map(lot => (
-          <div key={lot.id} style={s.lotCard(selectedLot?.id === lot.id)} onClick={() => setSelectedLot(lot)}>
-            <div style={{ display:"flex", alignItems:"center", gap:16 }}>
-              <div style={{ width:44, height:44, borderRadius:10, backgroundColor: selectedLot?.id===lot.id ? B.gold : B.navy,
-                display:"flex", alignItems:"center", justifyContent:"center", fontSize:11,
-                fontWeight:800, color: selectedLot?.id===lot.id ? B.navy : B.white, flexShrink:0 }}>
-                {lot.id.split("-")[0]}
-              </div>
-              <div style={{ flex:1 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
-                  <span style={{ fontWeight:700, fontSize:15, color: selectedLot?.id===lot.id ? B.white : B.navy }}>{lot.nombre}</span>
-                  <Tag label={lot.uso} color={B.navy} bg={selectedLot?.id===lot.id ? "rgba(255,255,255,0.15)" : B.blueL} />
-                  <Tag label={lot.status} color={B.green} bg={selectedLot?.id===lot.id ? "rgba(255,255,255,0.15)" : B.greenL} />
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+          {/* ── IZQUIERDA: CLIENTES ── */}
+          <div>
+            <div style={{ fontSize:13, fontWeight:700, color:B.navy, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
+              👤 PASO 1 — Elige el cliente
+              {selectedClient && <Tag label={selectedClient.nombre} color={B.gold} bg="#fff8e7" />}
+            </div>
+            <div style={{ background:B.white, borderRadius:10, padding:"12px 16px", marginBottom:12, border:`1px solid ${B.grey1}`, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+              <input style={{ ...s.input, width:150 }} placeholder="🔍 Nombre / empresa" value={fSearch} onChange={e => setFSearch(e.target.value)} />
+              <select style={s.select} value={fTemp} onChange={e => setFTemp(e.target.value)}>
+                {temps.map(t => <option key={t}>{t}</option>)}
+              </select>
+              <select style={s.select} value={fStatus} onChange={e => setFStatus(e.target.value)}>
+                {statuses.map(t => <option key={t}>{t}</option>)}
+              </select>
+              <span style={{ fontSize:12, color:B.grey3 }}>{clientsFiltered.length} clientes</span>
+            </div>
+            <div style={{ maxHeight:480, overflowY:"auto", paddingRight:4 }}>
+              {clientsFiltered.map(c => (
+                <div key={c.id} style={s.clientCard(selectedClient?.id === c.id)} onClick={() => setSelectedClient(c)}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <div style={{ width:40, height:40, borderRadius:"50%", backgroundColor: selectedClient?.id===c.id ? B.gold : B.blueL,
+                      display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👤</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                        <span style={{ fontWeight:700, fontSize:14, color: selectedClient?.id===c.id ? B.white : B.navy }}>{c.nombre}</span>
+                        <Tag label={c.temperatura} color={tempColor(c.temperatura)} bg={selectedClient?.id===c.id ? "rgba(255,255,255,0.15)" : tempBg(c.temperatura)} />
+                        <Tag label={c.status} color={B.blue} bg={selectedClient?.id===c.id ? "rgba(255,255,255,0.15)" : B.blueL} />
+                      </div>
+                      <div style={{ fontSize:12, color: selectedClient?.id===c.id ? B.grey2 : B.grey3 }}>
+                        {c.empresa} · {c.ciudad_interes?.join(", ")}
+                      </div>
+                      <div style={{ fontSize:11, color: selectedClient?.id===c.id ? B.grey2 : B.grey3, marginTop:2 }}>
+                        {c.uso_interes?.join(" / ")} · {fmtM(c.presupuesto_max)}
+                      </div>
+                    </div>
+                    {selectedClient?.id===c.id && <div style={{ color:B.gold, fontSize:20 }}>✓</div>}
+                  </div>
                 </div>
-                <div style={{ fontSize:13, color: selectedLot?.id===lot.id ? B.grey2 : B.grey3 }}>
-                  {lot.desarrollo} &nbsp;·&nbsp; {lot.ciudad}, {lot.estado}
+              ))}
+              {clientsFiltered.length === 0 && (
+                <div style={{ textAlign:"center", padding:32, color:B.grey3 }}>
+                  <div style={{ fontSize:28 }}>👤</div>
+                  <div style={{ fontSize:13, marginTop:8 }}>Sin clientes con estos filtros</div>
                 </div>
-                <div style={{ fontSize:13, color: selectedLot?.id===lot.id ? B.grey2 : B.grey3, marginTop:2, display:"flex", gap:16 }}>
-                  <span>{lot.sup_m2?.toLocaleString()} m²</span>
-                  <span>${lot.precio_m2?.toLocaleString()}/m²</span>
-                  <span style={{ fontWeight:700, color: selectedLot?.id===lot.id ? B.gold : B.navy }}>{fmtM(lot.precio_total)}</span>
-                </div>
-              </div>
-              {selectedLot?.id===lot.id && <div style={{ color:B.gold, fontSize:22 }}>✓</div>}
+              )}
             </div>
           </div>
-        ))}
-        {selectedLot && (
-          <div style={{ position:"sticky", bottom:24, display:"flex", justifyContent:"center", marginTop:16 }}>
-            <button style={{ ...s.btn("primary"), padding:"16px 40px", fontSize:16 }}
-              onClick={() => { setMatchMode("lotToClients"); runMatch("lotToClients", selectedLot, clients); }}>
-              🎯 &nbsp;Encontrar clientes para {selectedLot.nombre}
+
+          {/* ── DERECHA: INVENTARIO ── */}
+          <div>
+            <div style={{ fontSize:13, fontWeight:700, color:B.navy, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
+              🏗 PASO 2 — Filtra el inventario a cruzar
+              <Tag label={`${lotsFiltered.length} lotes`} color={B.navy} bg={B.blueL} />
+            </div>
+            <div style={{ background:B.white, borderRadius:10, padding:"12px 16px", marginBottom:12, border:`1px solid ${B.grey1}` }}>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:8 }}>
+                <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                  <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>📍 Ciudad</span>
+                  <select style={s.select} value={fCity} onChange={e => { setFCity(e.target.value); setFDev("Todos"); }}>
+                    {cCities.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                  <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase", display:"flex", alignItems:"center", gap:4 }}>
+                    🏗 Desarrollo
+                    {fCity !== "Todas" && <span style={{ fontSize:9, color:B.gold, background:"#FFF9EC", border:`1px solid ${B.gold}`, padding:"1px 5px", borderRadius:6 }}>↳ {fCity}</span>}
+                  </span>
+                  <select style={{ ...s.select, minWidth:140 }} value={fDev} onChange={e => setFDev(e.target.value)}>
+                    {devs.map(d => <option key={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                  <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>🏙 Uso</span>
+                  <select style={s.select} value={fUso} onChange={e => setFUso(e.target.value)}>
+                    {cUsos.map(u => <option key={u}>{u}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                  <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>Sup. mín (m²)</span>
+                  <input style={{ ...s.input, width:90 }} type="number" placeholder="Ej: 2000" value={fSupMin} onChange={e => setFSupMin(e.target.value)} />
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                  <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>Sup. máx (m²)</span>
+                  <input style={{ ...s.input, width:90 }} type="number" placeholder="Ej: 20000" value={fSupMax} onChange={e => setFSupMax(e.target.value)} />
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                  <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>Precio máx (MDP)</span>
+                  <input style={{ ...s.input, width:100 }} type="number" placeholder="Ej: 100" value={fPrecioMax} onChange={e => setFPrecioMax(e.target.value)} />
+                </div>
+              </div>
+            </div>
+            <div style={{ maxHeight:360, overflowY:"auto", paddingRight:4 }}>
+              {lotsFiltered.map(lot => (
+                <div key={lot.id} style={{ background:B.white, borderRadius:10, padding:"12px 16px", marginBottom:8, border:`1px solid ${B.grey1}` }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ width:36, height:36, borderRadius:8, backgroundColor:B.navy, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:800, color:B.gold, flexShrink:0 }}>
+                      {lot.id.split("-")[0]}
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
+                        <span style={{ fontWeight:700, fontSize:13, color:B.navy }}>{lot.nombre}</span>
+                        <Tag label={lot.uso} color={B.navy} bg={B.blueL} />
+                        {lot.desarrollo && <Tag label={lot.desarrollo} color={B.goldD} bg="#FFF9EC" />}
+                      </div>
+                      <div style={{ fontSize:11, color:B.grey3 }}>
+                        {lot.ciudad} · {lot.sup_m2?.toLocaleString()} m² · <strong style={{ color:B.navy }}>{fmtM(lot.precio_total)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {lotsFiltered.length === 0 && (
+                <div style={{ textAlign:"center", padding:32, color:B.grey3 }}>
+                  <div style={{ fontSize:28 }}>🏗</div>
+                  <div style={{ fontSize:13, marginTop:8 }}>Sin lotes con estos filtros</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {selectedClient && lotsFiltered.length > 0 && (
+          <div style={{ position:"sticky", bottom:24, display:"flex", justifyContent:"center", marginTop:20 }}>
+            <button style={{ ...s.btn("primary"), padding:"16px 40px", fontSize:16, boxShadow:`0 8px 32px ${B.gold}55` }}
+              onClick={() => { setMatchMode("clientToLots"); runMatch("clientToLots", selectedClient, lotsFiltered); }}>
+              🎯 &nbsp;Match: {selectedClient.nombre} × {lotsFiltered.length} lotes
             </button>
           </div>
         )}
+        {selectedClient && lotsFiltered.length === 0 && (
+          <div style={{ textAlign:"center", padding:20, color:B.red, fontWeight:600, fontSize:14 }}>
+            ⚠ Sin lotes con los filtros actuales. Amplía los criterios.
+          </div>
+        )}
+        {!selectedClient && (
+          <div style={{ textAlign:"center", padding:20, color:B.grey3, fontSize:13 }}>
+            Selecciona un cliente para activar el match
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const ViewMatchLot = () => {
+    const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
+    const [fCity, setFCity] = useState("Todas");
+    const [fDev, setFDev] = useState("Todos");
+    const [fUso, setFUso] = useState("Todos");
+    const [fTemp, setFTemp] = useState("Todos");
+    const [fStatus, setFStatus] = useState("Todos");
+    const [fSearch, setFSearch] = useState("");
+    const [fPresupMax, setFPresupMax] = useState("");
+
+    const lotCities = ["Todas", ...new Set(source.map(l => l.ciudad))];
+    const lotUsos = ["Todos", ...new Set(source.map(l => l.uso))];
+    const devs = (() => {
+      if (fCity === "Todas") return ["Todos", ...new Set(source.map(l => l.desarrollo).filter(Boolean))].sort((a,b)=>a==="Todos"?-1:b==="Todos"?1:a.localeCompare(b));
+      return ["Todos", ...new Set(source.filter(l => l.ciudad === fCity).map(l => l.desarrollo).filter(Boolean))].sort();
+    })();
+
+    const lotsFiltered = source.filter(l =>
+      (fCity === "Todas" || l.ciudad === fCity) &&
+      (fDev === "Todos" || l.desarrollo === fDev) &&
+      (fUso === "Todos" || l.uso === fUso)
+    );
+
+    const temps = ["Todos", "Caliente", "Tibio", "Frío", "Inactivo"];
+    const statuses = ["Todos", ...new Set(clients.map(c => c.status).filter(Boolean))];
+    const clientsFiltered = clients.filter(c =>
+      (fTemp === "Todos" || c.temperatura === fTemp) &&
+      (fStatus === "Todos" || c.status === fStatus) &&
+      (!fPresupMax || !c.presupuesto_max || c.presupuesto_max >= (parseFloat(fPresupMax) * 1000000 * 0.5)) &&
+      (!fSearch || c.nombre?.toLowerCase().includes(fSearch.toLowerCase()) || c.empresa?.toLowerCase().includes(fSearch.toLowerCase()))
+    );
+
+    return (
+      <div style={s.page}>
+        <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20 }}>
+          <button style={s.btn("ghost")} onClick={() => setView("home")}>← Inicio</button>
+          <div>
+            <div style={s.sectionTitle}>Lote → Clientes</div>
+            <div style={s.sectionSub}>Selecciona lote y filtra los clientes a cruzar — cualquier combinación</div>
+          </div>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
+          {/* ── IZQUIERDA: INVENTARIO ── */}
+          <div>
+            <div style={{ fontSize:13, fontWeight:700, color:B.navy, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
+              🏗 PASO 1 — Elige el macrolote
+              {selectedLot && <Tag label={selectedLot.nombre} color={B.gold} bg="#fff8e7" />}
+            </div>
+            <div style={{ background:B.white, borderRadius:10, padding:"12px 16px", marginBottom:12, border:`1px solid ${B.grey1}` }}>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:6 }}>
+                <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                  <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>📍 Ciudad</span>
+                  <select style={s.select} value={fCity} onChange={e => { setFCity(e.target.value); setFDev("Todos"); }}>
+                    {lotCities.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                  <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase", display:"flex", alignItems:"center", gap:4 }}>
+                    🏗 Desarrollo
+                    {fCity !== "Todas" && <span style={{ fontSize:9, color:B.gold, background:"#FFF9EC", border:`1px solid ${B.gold}`, padding:"1px 5px", borderRadius:6 }}>↳ {fCity}</span>}
+                  </span>
+                  <select style={{ ...s.select, minWidth:130 }} value={fDev} onChange={e => setFDev(e.target.value)}>
+                    {devs.map(d => <option key={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                  <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>🏙 Uso</span>
+                  <select style={s.select} value={fUso} onChange={e => setFUso(e.target.value)}>
+                    {lotUsos.map(u => <option key={u}>{u}</option>)}
+                  </select>
+                </div>
+              </div>
+              <span style={{ fontSize:12, color:B.grey3 }}>{lotsFiltered.length} lotes</span>
+            </div>
+            <div style={{ maxHeight:460, overflowY:"auto", paddingRight:4 }}>
+              {lotsFiltered.map(lot => (
+                <div key={lot.id} style={s.lotCard(selectedLot?.id === lot.id)} onClick={() => setSelectedLot(lot)}>
+                  <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                    <div style={{ width:40, height:40, borderRadius:8, backgroundColor: selectedLot?.id===lot.id ? B.gold : B.navy,
+                      display:"flex", alignItems:"center", justifyContent:"center", fontSize:9,
+                      fontWeight:800, color: selectedLot?.id===lot.id ? B.navy : B.white, flexShrink:0 }}>
+                      {lot.id.split("-")[0]}
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                        <span style={{ fontWeight:700, fontSize:14, color: selectedLot?.id===lot.id ? B.white : B.navy }}>{lot.nombre}</span>
+                        <Tag label={lot.uso} color={B.navy} bg={selectedLot?.id===lot.id ? "rgba(255,255,255,0.15)" : B.blueL} />
+                      </div>
+                      <div style={{ fontSize:12, color: selectedLot?.id===lot.id ? B.grey2 : B.grey3 }}>
+                        {lot.desarrollo} · {lot.ciudad}
+                      </div>
+                      <div style={{ fontSize:12, color: selectedLot?.id===lot.id ? B.grey2 : B.grey3, marginTop:2 }}>
+                        {lot.sup_m2?.toLocaleString()} m² · <strong style={{ color: selectedLot?.id===lot.id ? B.gold : B.navy }}>{fmtM(lot.precio_total)}</strong>
+                      </div>
+                    </div>
+                    {selectedLot?.id===lot.id && <div style={{ color:B.gold, fontSize:20 }}>✓</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── DERECHA: CLIENTES ── */}
+          <div>
+            <div style={{ fontSize:13, fontWeight:700, color:B.navy, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
+              👤 PASO 2 — Filtra los clientes a cruzar
+              <Tag label={`${clientsFiltered.length} clientes`} color={B.navy} bg={B.blueL} />
+            </div>
+            <div style={{ background:B.white, borderRadius:10, padding:"12px 16px", marginBottom:12, border:`1px solid ${B.grey1}`, display:"flex", gap:8, flexWrap:"wrap", alignItems:"flex-end" }}>
+              <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>🔍 Buscar</span>
+                <input style={{ ...s.input, width:140 }} placeholder="Nombre / empresa" value={fSearch} onChange={e => setFSearch(e.target.value)} />
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>🌡 Temperatura</span>
+                <select style={s.select} value={fTemp} onChange={e => setFTemp(e.target.value)}>
+                  {temps.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>Status</span>
+                <select style={s.select} value={fStatus} onChange={e => setFStatus(e.target.value)}>
+                  {statuses.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>Ppto mín (MDP)</span>
+                <input style={{ ...s.input, width:90 }} type="number" placeholder="Ej: 50" value={fPresupMax} onChange={e => setFPresupMax(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ maxHeight:380, overflowY:"auto", paddingRight:4 }}>
+              {clientsFiltered.map(c => (
+                <div key={c.id} style={{ background:B.white, borderRadius:10, padding:"12px 16px", marginBottom:8, border:`1px solid ${B.grey1}` }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ width:36, height:36, borderRadius:"50%", backgroundColor:B.blueL, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>👤</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
+                        <span style={{ fontWeight:700, fontSize:13, color:B.navy }}>{c.nombre}</span>
+                        <Tag label={c.temperatura} color={tempColor(c.temperatura)} bg={tempBg(c.temperatura)} />
+                        <Tag label={c.status} color={B.blue} bg={B.blueL} />
+                      </div>
+                      <div style={{ fontSize:11, color:B.grey3 }}>
+                        {c.empresa} · {c.ciudad_interes?.join(", ")} · {fmtM(c.presupuesto_max)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {clientsFiltered.length === 0 && (
+                <div style={{ textAlign:"center", padding:32, color:B.grey3 }}>
+                  <div style={{ fontSize:28 }}>👤</div>
+                  <div style={{ fontSize:13, marginTop:8 }}>Sin clientes con estos filtros</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {(() => {
+          const hasFilters = fUso !== "Todos" || fCity !== "Todas" || fDev !== "Todos";
+          const matchSubject = selectedLot || (hasFilters && lotsFiltered.length > 0 ? {
+            id: "FILTRO",
+            nombre: fUso !== "Todos" ? fUso : (fCity !== "Todas" ? fCity : "Inventario filtrado"),
+            uso: fUso !== "Todos" ? fUso : "Todos",
+            ciudad: fCity,
+            desarrollo: fDev
+          } : null);
+          const matchLabel = selectedLot
+            ? `${selectedLot.nombre} × ${clientsFiltered.length} clientes`
+            : `Uso: ${fUso !== "Todos" ? fUso : "Todos"} × ${clientsFiltered.length} clientes`;
+          if (matchSubject && clientsFiltered.length > 0) return (
+            <div style={{ position:"sticky", bottom:24, display:"flex", justifyContent:"center", marginTop:20 }}>
+              <button style={{ ...s.btn("primary"), padding:"16px 40px", fontSize:16, boxShadow:`0 8px 32px ${B.gold}55` }}
+                onClick={() => { setMatchMode("lotToClients"); runMatch("lotToClients", matchSubject, clientsFiltered); }}>
+                🎯 &nbsp;Match: {matchLabel}
+              </button>
+            </div>
+          );
+          if (matchSubject && clientsFiltered.length === 0) return (
+            <div style={{ textAlign:"center", padding:20, color:B.red, fontWeight:600, fontSize:14 }}>
+              ⚠ Sin clientes con los filtros actuales.
+            </div>
+          );
+          return (
+            <div style={{ textAlign:"center", padding:20, color:B.grey3, fontSize:13 }}>
+              Filtra por uso de suelo o ciudad para buscar clientes — o selecciona un lote específico
+            </div>
+          );
+        })()}
       </div>
     );
   };
