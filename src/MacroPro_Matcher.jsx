@@ -319,8 +319,6 @@ export default function MacroProMatcher() {
           db4:       colIdx(["deal breaker 4","dealbreaker 4"]),
           notas:     colIdx(["notas del asesor","notas asesor","notas","comentarios"]),
         };
-        console.log("[MacroPro DEBUG] Headers:", headers);
-        console.log("[MacroPro DEBUG] Column mapping:", JSON.stringify(C));
         const g = (row, key) => {
           const idx = C[key];
           if (idx === undefined || idx < 0 || row[idx] === undefined) return "";
@@ -388,8 +386,6 @@ export default function MacroProMatcher() {
             notas:           g(row,"notas"),
           };
         });
-        console.log("[MacroPro DEBUG] First client parsed:", JSON.stringify(mapped[0]));
-        console.log("[MacroPro DEBUG] Second client parsed:", JSON.stringify(mapped[1]));
         setClients(mapped);
         toast(`✓ ${mapped.length} cliente${mapped.length > 1 ? "s" : ""} cargado${mapped.length > 1 ? "s" : ""} desde "${file.name}"`);
       } catch(err) {
