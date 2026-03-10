@@ -1035,13 +1035,29 @@ Rankea los ${top.length} clientes mayor a menor score.`;
 
         {(() => {
           const hasFilters = fUso !== "Todos" || fCity !== "Todas" || fDev !== "Todos";
-          const matchSubject = selectedLot || (hasFilters && lotsFiltered.length > 0 ? {
-            id: "FILTRO",
-            nombre: fUso !== "Todos" ? fUso : (fCity !== "Todas" ? fCity : "Inventario filtrado"),
-            uso: fUso !== "Todos" ? fUso : "Todos",
-            ciudad: fCity,
-            desarrollo: fDev
-          } : null);
+          const matchSubject = selectedLot || (hasFilters && lotsFiltered.length > 0 ? (() => {
+            const avgSup = lotsFiltered.reduce((s,l) => s + (l.sup_m2||0), 0) / lotsFiltered.length;
+            const avgPm2 = lotsFiltered.filter(l=>l.precio_m2>0).reduce((s,l,_,a) => s + l.precio_m2/a.length, 0);
+            const avgTotal = lotsFiltered.filter(l=>l.precio_total>0).reduce((s,l,_,a) => s + l.precio_total/a.length, 0);
+            const ciudades = [...new Set(lotsFiltered.map(l=>l.ciudad).filter(Boolean))];
+            const estados = [...new Set(lotsFiltered.map(l=>l.estado).filter(Boolean))];
+            const desarrollos = [...new Set(lotsFiltered.map(l=>l.desarrollo).filter(Boolean))];
+            return {
+              id: "FILTRO",
+              nombre: fUso !== "Todos" ? fUso : (fDev !== "Todos" ? fDev : (fCity !== "Todas" ? fCity : "Inventario filtrado")),
+              uso: fUso !== "Todos" ? fUso : "Todos",
+              ciudad: fCity !== "Todas" ? fCity : ciudades.join(", "),
+              estado: estados.join(", "),
+              desarrollo: fDev !== "Todos" ? fDev : desarrollos.join(", "),
+              sup_m2: Math.round(avgSup),
+              precio_m2: Math.round(avgPm2),
+              precio_total: Math.round(avgTotal),
+              cus: "Varios",
+              entrega: "Varios",
+              fortaleza: `Portafolio de ${lotsFiltered.length} lotes filtrados — ${ciudades.join(", ")} — Uso: ${fUso !== "Todos" ? fUso : "Varios"}`,
+              atributos: `${lotsFiltered.length} lotes disponibles con superficie promedio de ${Math.round(avgSup).toLocaleString()}m²`
+            };
+          })() : null);
           const matchLabel = selectedLot
             ? `${selectedLot.nombre} × ${clientsFiltered.length} clientes`
             : `Uso: ${fUso !== "Todos" ? fUso : "Todos"} × ${clientsFiltered.length} clientes`;
