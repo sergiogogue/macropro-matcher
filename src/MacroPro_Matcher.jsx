@@ -732,7 +732,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
             </div>
             <div style={{ maxHeight:480, overflowY:"auto", paddingRight:4 }}>
               {clientsFiltered.map(c => (
-                <div key={c.id} style={s.clientCard(selectedClient?.id === c.id)} onClick={() => setSelectedClient(c)}>
+                <div key={c.id} style={s.clientCard(selectedClient?.id === c.id)} onClick={() => setSelectedClient(selectedClient?.id === c.id ? null : c)}>
                   <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                     <div style={{ width:40, height:40, borderRadius:"50%", backgroundColor: selectedClient?.id===c.id ? B.gold : B.blueL,
                       display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>👤</div>
