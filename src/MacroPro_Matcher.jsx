@@ -298,11 +298,11 @@ export default function MacroProMatcher() {
           ciudad3:   colIdx(["ciudad 3","ciudad3"]),
           zona_pref: colIdx(["zonas preferidas","zona preferida","zona pref","zona"]),
           uso:       colIdx(["uso de suelo","uso suelo","uso del suelo","uso"]),
-          sup_min:   colIdx(["sup  m n","sup mn","sup min","sup  m","superficie min","superficie m"]),
-          sup_max:   colIdx(["sup  m x","sup mx","sup max","superficie max"]),
-          ppto_min:  colIdx(["ppto  m n","ppto mn","ppto min","presupuesto m n","presupuesto mn","presupuesto min"]),
-          ppto_max:  colIdx(["ppto  m x","ppto mx","ppto max","presupuesto m x","presupuesto mx","presupuesto max","presupuesto"]),
-          precio_m2: colIdx(["precio m x","precio mx","precio max m2","precio max","precio m2","precio por m2"]),
+          sup_min:   colIdx(["sup  m n","sup mn","sup min","sup mín","sup  m","superficie min","superficie mín"]),
+          sup_max:   colIdx(["sup  m x","sup mx","sup max","sup máx","superficie max","superficie máx"]),
+          ppto_min:  colIdx(["ppto  m n","ppto mn","ppto min","ppto mín","presupuesto m n","presupuesto mn","presupuesto min","presupuesto mín"]),
+          ppto_max:  colIdx(["ppto  m x","ppto mx","ppto max","ppto máx","presupuesto m x","presupuesto mx","presupuesto max","presupuesto máx","presupuesto"]),
+          precio_m2: colIdx(["precio m x","precio mx","precio max m2","precio max","precio máx","precio m2","precio por m2","precio máxm"]),
           plazo:     colIdx(["plazo cierre","plazo de cierre","plazo"]),
           financia:  colIdx(["acepta financ","acepta financiamiento","financ"]),
           agua:      colIdx(["agua"]),
@@ -324,7 +324,12 @@ export default function MacroProMatcher() {
           if (idx === undefined || idx < 0 || row[idx] === undefined) return "";
           return String(row[idx]).trim();
         };
-        const toNum = (v) => parseFloat(String(v).replace(/[$,\s]/g,"")) || 0;
+        const toNum = (v) => {
+          const s = String(v).replace(/[$\s]/g,"");
+          // Detect dot as thousands sep: $20.000.000 → 20000000
+          if (/^\d{1,3}(\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g,"")) || 0;
+          return parseFloat(s.replace(/,/g,"")) || 0;
+        };
         const cleanTemp = (v) => {
           if (!v) return "Tibio";
           if (String(v).includes("Caliente") || String(v).includes("🔴")) return "Caliente";
