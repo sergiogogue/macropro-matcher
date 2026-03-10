@@ -1,4 +1,4 @@
-// MacroPro v2.1 — Filtros Cruzados — Build 2026-03-08
+// MacroPro v2.3 — Dashboard Ejecutivo — Build 2026-03-10
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { generarFichaTecnica, generarMatchLoteClientes, generarMatchClienteLotes } from "./reportGenerator.js";
@@ -661,6 +661,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
         </div>
       </div>
       <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginTop:8 }}>
+        <button style={{ ...s.btn("primary"), padding:"14px 28px", fontSize:15, boxShadow:`0 4px 20px ${B.gold}44` }} onClick={() => setView("dashboard")}>📊 Dashboard Ejecutivo</button>
         <button style={s.btn("ghost")} onClick={() => fileRef.current?.click()}>📤 Cargar Excel de inventario</button>
         <button style={s.btn("ghost")} onClick={() => setView("clients")}>👤 Gestionar clientes</button>
         <button style={s.btn("ghost")} onClick={() => setView("lots")}>🏗 Ver inventario completo</button>
@@ -1389,6 +1390,208 @@ Rankea los ${top.length} clientes mayor a menor score.`;
   );
 
   // ── INVENTARIO: ahora con 3 filtros en cascada ────────────────────
+  // ─── DASHBOARD EJECUTIVO ──────────────────────────────────────────
+  const ViewDashboard = () => {
+    const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
+    const totalLotes = source.length;
+    const totalClientes = clients.length;
+    const valorTotal = source.reduce((a, l) => a + (l.precio_total || 0), 0);
+    const supTotal = source.reduce((a, l) => a + (l.sup_m2 || 0), 0);
+    const precioPromM2 = supTotal > 0 ? valorTotal / supTotal : 0;
+
+    // Lotes por desarrollo
+    const byDev = {};
+    source.forEach(l => { const d = l.desarrollo || "Sin desarrollo"; byDev[d] = (byDev[d] || 0) + 1; });
+    const devEntries = Object.entries(byDev).sort((a, b) => b[1] - a[1]);
+
+    // Lotes por uso de suelo
+    const byUso = {};
+    source.forEach(l => { const u = l.uso || "Sin uso"; byUso[u] = (byUso[u] || 0) + 1; });
+    const usoEntries = Object.entries(byUso).sort((a, b) => b[1] - a[1]);
+
+    // Lotes por ciudad
+    const byCity = {};
+    source.forEach(l => { const c = l.ciudad || "Sin ciudad"; byCity[c] = (byCity[c] || 0) + 1; });
+    const cityEntries = Object.entries(byCity).sort((a, b) => b[1] - a[1]);
+
+    // Valor por desarrollo
+    const valByDev = {};
+    source.forEach(l => { const d = l.desarrollo || "Sin desarrollo"; valByDev[d] = (valByDev[d] || 0) + (l.precio_total || 0); });
+    const valDevEntries = Object.entries(valByDev).sort((a, b) => b[1] - a[1]);
+
+    // Clientes por temperatura
+    const byTemp = {};
+    clients.forEach(c => { const t = c.temperatura || "Sin dato"; byTemp[t] = (byTemp[t] || 0) + 1; });
+    const calientes = byTemp["Caliente"] || 0;
+    const tibios = byTemp["Tibio"] || 0;
+    const frios = (byTemp["Frío"] || 0);
+    const inactivos = (byTemp["Inactivo"] || 0);
+
+    // Clientes por asesor
+    const byAsesor = {};
+    clients.forEach(c => { const a = c.asesor || "Sin asesor"; byAsesor[a] = (byAsesor[a] || 0) + 1; });
+    const asesorEntries = Object.entries(byAsesor).sort((a, b) => b[1] - a[1]);
+
+    // Clientes por tipo
+    const byTipo = {};
+    clients.forEach(c => { const t = c.tipo || "Sin tipo"; byTipo[t] = (byTipo[t] || 0) + 1; });
+    const tipoEntries = Object.entries(byTipo).sort((a, b) => b[1] - a[1]);
+
+    // Clientes por uso buscado
+    const byUsoCli = {};
+    clients.forEach(c => { (c.uso_interes || []).forEach(u => { byUsoCli[u] = (byUsoCli[u] || 0) + 1; }); });
+    const usoCliEntries = Object.entries(byUsoCli).sort((a, b) => b[1] - a[1]);
+
+    // Top lotes por valor
+    const topLotes = [...source].sort((a, b) => (b.precio_total || 0) - (a.precio_total || 0)).slice(0, 5);
+
+    // Rango de precios
+    const precios = source.map(l => l.precio_total).filter(p => p > 0);
+    const precioMin = precios.length > 0 ? Math.min(...precios) : 0;
+    const precioMax = precios.length > 0 ? Math.max(...precios) : 0;
+
+    // Lotes por tipo (Desarrollo vs Corretaje)
+    const byTipoInv = {};
+    source.forEach(l => { const t = l.tipo || l.desarrollo?.includes("Capital") || l.desarrollo?.includes("Kulkana") ? "Desarrollo" : "Corretaje"; byTipoInv[t] = (byTipoInv[t] || 0) + 1; });
+
+    const kpiCard = (label, value, sub, accent) => (
+      <div style={{ background: B.white, borderRadius: 16, padding: "24px 20px", boxShadow: "0 2px 12px rgba(0,43,73,0.06)", borderLeft: `4px solid ${accent || B.gold}`, display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1.2, color: B.grey3 }}>{label}</div>
+        <div style={{ fontSize: 28, fontWeight: 800, color: B.navy, lineHeight: 1.1 }}>{value}</div>
+        {sub && <div style={{ fontSize: 12, color: B.grey4, marginTop: 2 }}>{sub}</div>}
+      </div>
+    );
+
+    const barChart = (entries, colorFn, valueFmt) => {
+      const max = Math.max(...entries.map(e => e[1]), 1);
+      return entries.map(([label, val], i) => (
+        <div key={i} style={{ marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 600, color: B.grey5, marginBottom: 3 }}>
+            <span style={{ maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+            <span style={{ color: B.navy, fontWeight: 700 }}>{valueFmt ? valueFmt(val) : val}</span>
+          </div>
+          <div style={{ background: B.grey1, borderRadius: 6, height: 10, overflow: "hidden" }}>
+            <div style={{ width: `${(val / max) * 100}%`, height: "100%", borderRadius: 6, background: colorFn ? colorFn(i) : B.gold, transition: "width 0.6s ease" }} />
+          </div>
+        </div>
+      ));
+    };
+
+    const sectionCard = (title, children) => (
+      <div style={{ background: B.white, borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 12px rgba(0,43,73,0.06)" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: B.navy, marginBottom: 16, paddingBottom: 8, borderBottom: `2px solid ${B.grey1}` }}>{title}</div>
+        {children}
+      </div>
+    );
+
+    const tempDot = (color, label, count) => (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <div style={{ width: 12, height: 12, borderRadius: "50%", background: color, flexShrink: 0 }} />
+        <span style={{ fontSize: 13, color: B.grey4, flex: 1 }}>{label}</span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: B.navy }}>{count}</span>
+      </div>
+    );
+
+    const goldGrad = (i) => {
+      const colors = [B.gold, B.goldD, "#c4841f", B.navy, B.navyL, B.blue, B.green, "#8B5CF6", "#EC4899"];
+      return colors[i % colors.length];
+    };
+
+    return (
+      <div style={{ ...s.page, maxWidth: 1200, margin: "0 auto" }}>
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1.5, color: B.gold, marginBottom: 4 }}>📊 Dashboard Ejecutivo</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: B.navy }}>Panorama General</div>
+          <div style={{ fontSize: 13, color: B.grey3, marginTop: 4 }}>
+            {totalLotes} macrolotes · {totalClientes} clientes · {[...new Set(source.map(l => l.estado))].length} estados
+            {inventory.length === 0 && <span style={{ color: B.red, marginLeft: 8 }}>⚠ Mostrando inventario de muestra</span>}
+            {clients.length === 0 && <span style={{ color: B.red, marginLeft: 8 }}>⚠ Sin clientes cargados</span>}
+          </div>
+        </div>
+
+        {/* KPIs principales */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 28 }}>
+          {kpiCard("Valor del Portafolio", fmtM(valorTotal), `${totalLotes} macrolotes activos`, B.gold)}
+          {kpiCard("Superficie Total", `${(supTotal / 1000).toFixed(0)}K m²`, `${(supTotal / 10000).toFixed(1)} hectáreas`, B.green)}
+          {kpiCard("Precio Prom / m²", `$${Math.round(precioPromM2).toLocaleString("es-MX")}`, `Rango: ${fmtM(precioMin)} – ${fmtM(precioMax)}`, B.blue)}
+          {kpiCard("Clientes en Cartera", String(totalClientes), `${calientes} calientes · ${tibios} tibios`, B.navy)}
+          {kpiCard("Ticket Promedio", fmtM(totalLotes > 0 ? valorTotal / totalLotes : 0), `por macrolote`, B.goldD)}
+          {kpiCard("Ciudades", String([...new Set(source.map(l => l.ciudad))].length), [...new Set(source.map(l => l.ciudad))].slice(0, 3).join(", "), B.navyL)}
+        </div>
+
+        {/* Fila 1: Inventario por desarrollo + Valor por desarrollo */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+          {sectionCard("🏗 Lotes por Desarrollo", barChart(devEntries, goldGrad))}
+          {sectionCard("💰 Valor por Desarrollo", barChart(valDevEntries, goldGrad, v => fmtM(v)))}
+        </div>
+
+        {/* Fila 2: Uso de suelo + Ciudades */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+          {sectionCard("🏷 Lotes por Uso de Suelo", barChart(usoEntries, goldGrad))}
+          {sectionCard("📍 Lotes por Ciudad", barChart(cityEntries, goldGrad))}
+        </div>
+
+        {/* Fila 3: Clientes - Temperatura + Asesores */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+          {sectionCard("🌡 Clientes por Temperatura", (
+            <div>
+              {tempDot("#EF4444", "Caliente", calientes)}
+              {tempDot("#F59E0B", "Tibio", tibios)}
+              {tempDot("#3B82F6", "Frío", frios)}
+              {tempDot("#6B7280", "Inactivo", inactivos)}
+              <div style={{ marginTop: 16, display: "flex", gap: 4, height: 28, borderRadius: 8, overflow: "hidden" }}>
+                {calientes > 0 && <div style={{ flex: calientes, background: "#EF4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{Math.round(calientes / totalClientes * 100)}%</div>}
+                {tibios > 0 && <div style={{ flex: tibios, background: "#F59E0B", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{Math.round(tibios / totalClientes * 100)}%</div>}
+                {frios > 0 && <div style={{ flex: frios, background: "#3B82F6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{Math.round(frios / totalClientes * 100)}%</div>}
+                {inactivos > 0 && <div style={{ flex: inactivos, background: "#6B7280", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{Math.round(inactivos / totalClientes * 100)}%</div>}
+              </div>
+            </div>
+          ))}
+          {sectionCard("👔 Clientes por Asesor", barChart(asesorEntries, goldGrad))}
+        </div>
+
+        {/* Fila 4: Tipo comprador + Uso buscado */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+          {sectionCard("🏢 Clientes por Tipo de Comprador", barChart(tipoEntries, goldGrad))}
+          {sectionCard("🎯 Demanda por Uso de Suelo", barChart(usoCliEntries, goldGrad))}
+        </div>
+
+        {/* Top 5 lotes por valor */}
+        {sectionCard("🏆 Top 5 Macrolotes por Valor", (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: `2px solid ${B.grey1}` }}>
+                  {["#", "Nombre", "Desarrollo", "Ciudad", "Uso", "Superficie", "Precio Total"].map((h, i) => (
+                    <th key={i} style={{ textAlign: i > 4 ? "right" : "left", padding: "8px 10px", fontSize: 11, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {topLotes.map((l, i) => (
+                  <tr key={i} style={{ borderBottom: `1px solid ${B.grey1}`, cursor: "pointer" }} onClick={() => setSelectedLotDetail(l)}
+                    onMouseEnter={e => e.currentTarget.style.background = B.offW} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <td style={{ padding: "10px", fontWeight: 700, color: B.gold }}>{i + 1}</td>
+                    <td style={{ padding: "10px", fontWeight: 600, color: B.navy }}>{l.nombre}</td>
+                    <td style={{ padding: "10px", color: B.grey4 }}>{l.desarrollo}</td>
+                    <td style={{ padding: "10px", color: B.grey4 }}>{l.ciudad}, {l.estado}</td>
+                    <td style={{ padding: "10px", color: B.grey4 }}>{l.uso}</td>
+                    <td style={{ padding: "10px", textAlign: "right", fontWeight: 600 }}>{(l.sup_m2 || 0).toLocaleString("es-MX")} m²</td>
+                    <td style={{ padding: "10px", textAlign: "right", fontWeight: 700, color: B.navy }}>{fmtM(l.precio_total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+
+        <div style={{ textAlign: "center", marginTop: 24, fontSize: 11, color: B.grey3 }}>
+          MacroPro v2.3 · Dashboard Ejecutivo · Grupo Guía · {new Date().toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric" })}
+        </div>
+      </div>
+    );
+  };
+
   const ViewLots = () => {
     // Desarrollos disponibles para el filtro local de esta vista
     const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
@@ -1571,12 +1774,13 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           <span style={{ fontSize:11, color:B.grey3, fontWeight:500, marginLeft:4 }}>by Grupo Guía</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["dashboard","📊 Dashboard"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v)} onClick={()=>setView(v)}>{l}</button>
           ))}
         </div>
       </nav>
       {view === "home" && <ViewHome />}
+      {view === "dashboard" && <ViewDashboard />}
       {view === "matchClient" && <ViewMatchClient />}
       {view === "matchLot" && <ViewMatchLot />}
       {view === "result" && <ViewResults />}
