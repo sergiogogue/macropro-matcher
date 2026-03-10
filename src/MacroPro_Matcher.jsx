@@ -182,7 +182,7 @@ export default function MacroProMatcher() {
           }
         }
         const headers = raw[headerRow].map(h => String(h || "").replace(/^\* /, "").replace(/ ▼$/, "").trim());
-        const dataRows = raw.slice(headerRow + 1);
+        const dataRows = raw.slice(headerRow + 4);
         const getVal = (row, ...names) => {
           for (const name of names) {
             const idx = headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
@@ -193,10 +193,9 @@ export default function MacroProMatcher() {
         const mapped = dataRows
           .filter(row => row[0] && String(row[0]).trim() !== "" && !String(row[0]).includes("Ej:"))
           .map((row, i) => {
-            const cleanNum = (v) => parseFloat(String(v).replace(/[$,\s]/g,"")) || 0;
-            const sup = cleanNum(getVal(row, "Superficie (m²)"));
-            const pm2 = cleanNum(getVal(row, "Precio por m²"));
-            let total = cleanNum(getVal(row, "Precio Total"));
+            const sup = parseFloat(getVal(row, "Superficie (m²)")) || 0;
+            const pm2 = parseFloat(getVal(row, "Precio por m²")) || 0;
+            let total = parseFloat(getVal(row, "Precio Total")) || 0;
             if (!total && sup && pm2) total = sup * pm2;
             return {
               id: String(getVal(row, "ID Macrolote") || `LOT-${i+1}`),
@@ -231,7 +230,7 @@ export default function MacroProMatcher() {
               observaciones: String(getVal(row, "Observaciones") || ""),
             };
           })
-          .filter(l => l.nombre && l.nombre.trim() !== "" && !l.nombre.startsWith("LOT-") || l.sup_m2 > 0 || l.precio_m2 > 0);
+          .filter(l => l.sup_m2 > 0 || l.precio_m2 > 0);
         if (mapped.length > 0) {
           setInventory(mapped);
           // Resetear filtros al cargar nuevo inventario
