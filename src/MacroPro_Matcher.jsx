@@ -1090,8 +1090,8 @@ Rankea los ${top.length} clientes mayor a menor score.`;
                 onClick={async () => {
                   setGeneratingReport(true);
                   try {
-                    if (isClientMode) await generarMatchClienteLotes(subject, results);
-                    else await generarMatchLoteClientes(subject, results);
+                    const merged = results.map(r => { const d = r.data || {}; return { ...r, nombre: d.nombre || r.nombre || r.id, empresa: d.empresa || r.empresa || "", ciudad: d.ciudad || r.ciudad || "", estado: d.estado || r.estado || "", desarrollo: d.desarrollo || r.desarrollo || "", uso: d.uso || r.uso || "", sup_m2: d.sup_m2 || r.sup_m2 || 0, precio_m2: d.precio_m2 || r.precio_m2 || 0, precio_total: d.precio_total || r.precio_total || 0, fortaleza: d.fortaleza || r.fortaleza || "", atributos: d.atributos || r.atributos || "", comprador: d.comprador || r.comprador || "", asesor: d.asesor || r.asesor || "", entrega: d.entrega || r.entrega || "", cos: d.cos || r.cos || 0, cus: d.cus || r.cus || 0, notas: d.notas || r.notas || "" }; }); if (isClientMode) await generarMatchClienteLotes(subject, merged);
+                    else await generarMatchLoteClientes(subject, merged);
                   } catch(e) { alert("Error generando reporte: " + e.message); }
                   finally { setGeneratingReport(false); }
                 }}>
