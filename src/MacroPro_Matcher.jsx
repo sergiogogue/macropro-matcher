@@ -278,7 +278,7 @@ export default function MacroProMatcher() {
         const colIdx = (names) => {
           for (const name of names) {
             const idx = headers.findIndex(h => {
-              const hn = h.toLowerCase().replace(/[^a-záéíóúüñ0-9]/gi," ").trim();
+              const hn = h.toLowerCase().replace(/[^a-záéíóúüñ0-9]/gi," ").replace(/\s+/g," ").trim();
               return hn === name.toLowerCase() || hn.includes(name.toLowerCase());
             });
             if (idx >= 0) return idx;
