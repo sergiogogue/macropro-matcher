@@ -675,6 +675,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     const [fTemp, setFTemp] = useState("Todos");
     const [fStatus, setFStatus] = useState("Todos");
     const [fSearch, setFSearch] = useState("");
+    const [fAsesor, setFAsesor] = useState("Todos");
 
     const cCities = ["Todas", ...new Set(source.map(l => l.ciudad))];
     const cUsos = ["Todos", ...new Set(source.map(l => l.uso))];
@@ -692,11 +693,13 @@ Rankea los ${top.length} clientes mayor a menor score.`;
       (!fPrecioMax || l.precio_total <= parseFloat(fPrecioMax) * 1000000)
     );
 
+    const clientAsesores = ["Todos", ...new Set(clients.map(c => c.asesor).filter(Boolean))].sort();
     const temps = ["Todos", "Caliente", "Tibio", "Frío", "Inactivo"];
     const statuses = ["Todos", ...new Set(clients.map(c => c.status).filter(Boolean))];
     const clientsFiltered = clients.filter(c =>
       (fTemp === "Todos" || c.temperatura === fTemp) &&
       (fStatus === "Todos" || c.status === fStatus) &&
+      (fAsesor === "Todos" || c.asesor === fAsesor) &&
       (!fSearch || c.nombre?.toLowerCase().includes(fSearch.toLowerCase()) || c.empresa?.toLowerCase().includes(fSearch.toLowerCase()))
     );
 
@@ -727,6 +730,9 @@ Rankea los ${top.length} clientes mayor a menor score.`;
               </select>
               <select style={s.select} value={fStatus} onChange={e => setFStatus(e.target.value)}>
                 {statuses.map(t => <option key={t}>{t}</option>)}
+              </select>
+              <select style={s.select} value={fAsesor} onChange={e => setFAsesor(e.target.value)}>
+                {clientAsesores.map(a => <option key={a}>{a}</option>)}
               </select>
               <span style={{ fontSize:12, color:B.grey3 }}>{clientsFiltered.length} clientes</span>
             </div>
@@ -867,6 +873,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     const [fTemp, setFTemp] = useState("Todos");
     const [fStatus, setFStatus] = useState("Todos");
     const [fSearch, setFSearch] = useState("");
+    const [fAsesor, setFAsesor] = useState("Todos");
     const [fPresupMax, setFPresupMax] = useState("");
 
     const lotCities = ["Todas", ...new Set(source.map(l => l.ciudad))];
@@ -882,11 +889,13 @@ Rankea los ${top.length} clientes mayor a menor score.`;
       (fUso === "Todos" || l.uso === fUso)
     );
 
+    const clientAsesores = ["Todos", ...new Set(clients.map(c => c.asesor).filter(Boolean))].sort();
     const temps = ["Todos", "Caliente", "Tibio", "Frío", "Inactivo"];
     const statuses = ["Todos", ...new Set(clients.map(c => c.status).filter(Boolean))];
     const clientsFiltered = clients.filter(c =>
       (fTemp === "Todos" || c.temperatura === fTemp) &&
       (fStatus === "Todos" || c.status === fStatus) &&
+      (fAsesor === "Todos" || c.asesor === fAsesor) &&
       (!fPresupMax || !c.presupuesto_max || c.presupuesto_max >= (parseFloat(fPresupMax) * 1000000 * 0.5)) &&
       (!fSearch || c.nombre?.toLowerCase().includes(fSearch.toLowerCase()) || c.empresa?.toLowerCase().includes(fSearch.toLowerCase()))
     );
@@ -983,6 +992,12 @@ Rankea los ${top.length} clientes mayor a menor score.`;
                 <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>Status</span>
                 <select style={s.select} value={fStatus} onChange={e => setFStatus(e.target.value)}>
                   {statuses.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase" }}>👨‍💼 Asesor</span>
+                <select style={s.select} value={fAsesor} onChange={e => setFAsesor(e.target.value)}>
+                  {clientAsesores.map(a => <option key={a}>{a}</option>)}
                 </select>
               </div>
               <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
@@ -1090,7 +1105,8 @@ Rankea los ${top.length} clientes mayor a menor score.`;
                 onClick={async () => {
                   setGeneratingReport(true);
                   try {
-                    const merged = results.map(r => { const d = r.data || {}; return { ...r, nombre: d.nombre || r.nombre || r.id, empresa: d.empresa || r.empresa || "", ciudad: d.ciudad || r.ciudad || "", estado: d.estado || r.estado || "", desarrollo: d.desarrollo || r.desarrollo || "", uso: d.uso || r.uso || "", sup_m2: d.sup_m2 || r.sup_m2 || 0, precio_m2: d.precio_m2 || r.precio_m2 || 0, precio_total: d.precio_total || r.precio_total || 0, fortaleza: d.fortaleza || r.fortaleza || "", atributos: d.atributos || r.atributos || "", comprador: d.comprador || r.comprador || "", asesor: d.asesor || r.asesor || "", entrega: d.entrega || r.entrega || "", cos: d.cos || r.cos || 0, cus: d.cus || r.cus || 0, notas: d.notas || r.notas || "" }; }); if (isClientMode) await generarMatchClienteLotes(subject, merged);
+                    const merged = results.map(r => { const d = r.data || {}; return { ...r, nombre: d.nombre || r.nombre || r.id, empresa: d.empresa || r.empresa || "", ciudad: d.ciudad || r.ciudad || "", estado: d.estado || r.estado || "", desarrollo: d.desarrollo || r.desarrollo || "", uso: d.uso || r.uso || "", sup_m2: d.sup_m2 || r.sup_m2 || 0, precio_m2: d.precio_m2 || r.precio_m2 || 0, precio_total: d.precio_total || r.precio_total || 0, fortaleza: d.fortaleza || r.fortaleza || "", atributos: d.atributos || r.atributos || "", comprador: d.comprador || r.comprador || "", asesor: d.asesor || r.asesor || "", entrega: d.entrega || r.entrega || "", cos: d.cos || r.cos || 0, cus: d.cus || r.cus || 0, notas: d.notas || r.notas || "" }; });
+                    if (isClientMode) await generarMatchClienteLotes(subject, merged);
                     else await generarMatchLoteClientes(subject, merged);
                   } catch(e) { alert("Error generando reporte: " + e.message); }
                   finally { setGeneratingReport(false); }
