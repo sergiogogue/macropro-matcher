@@ -1,4 +1,4 @@
-// MacroPro v2.4 — Dashboard Ejecutivo + Búsqueda Rápida — Build 2026-03-23
+// MacroPro v2.4.1 — Búsqueda Rápida con filtro correcto precio/m² — Build 2026-03-23
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { generarFichaTecnica, generarMatchLoteClientes, generarMatchClienteLotes } from "./reportGenerator.js";
@@ -698,8 +698,8 @@ Rankea los ${top.length} clientes mayor a menor score.`;
       if (searchUso !== "Todos" && l.uso !== searchUso) return false;
       if (searchSupMin && l.sup_m2 < parseFloat(searchSupMin)) return false;
       if (searchSupMax && l.sup_m2 > parseFloat(searchSupMax)) return false;
-      if (searchPrecioMin && l.precio_total < parseFloat(searchPrecioMin) * 1000000) return false;
-      if (searchPrecioMax && l.precio_total > parseFloat(searchPrecioMax) * 1000000) return false;
+      if (searchPrecioMin && l.precio_m2 < parseFloat(searchPrecioMin) * 1000) return false;
+      if (searchPrecioMax && l.precio_m2 > parseFloat(searchPrecioMax) * 1000) return false;
       return true;
     });
 
@@ -774,12 +774,12 @@ Rankea los ${top.length} clientes mayor a menor score.`;
               <input style={{ ...s.input, width:"100%" }} type="number" placeholder="Ej: 20000" value={searchSupMax} onChange={e => setSearchSupMax(e.target.value)} />
             </div>
             <div>
-              <label style={{ fontSize:11, fontWeight:700, color:B.grey4, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>Precio mín (MDP)</label>
-              <input style={{ ...s.input, width:"100%" }} type="number" placeholder="Ej: 10" value={searchPrecioMin} onChange={e => setSearchPrecioMin(e.target.value)} />
+              <label style={{ fontSize:11, fontWeight:700, color:B.grey4, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>Precio/m² mín (miles $)</label>
+              <input style={{ ...s.input, width:"100%" }} type="number" placeholder="Ej: 8" value={searchPrecioMin} onChange={e => setSearchPrecioMin(e.target.value)} />
             </div>
             <div>
-              <label style={{ fontSize:11, fontWeight:700, color:B.grey4, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>Precio máx (MDP)</label>
-              <input style={{ ...s.input, width:"100%" }} type="number" placeholder="Ej: 100" value={searchPrecioMax} onChange={e => setSearchPrecioMax(e.target.value)} />
+              <label style={{ fontSize:11, fontWeight:700, color:B.grey4, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>Precio/m² máx (miles $)</label>
+              <input style={{ ...s.input, width:"100%" }} type="number" placeholder="Ej: 12" value={searchPrecioMax} onChange={e => setSearchPrecioMax(e.target.value)} />
             </div>
           </div>
         </div>
