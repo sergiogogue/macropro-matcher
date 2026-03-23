@@ -1,4 +1,4 @@
-// MacroPro v2.3 — Dashboard Ejecutivo — Build 2026-03-10
+// MacroPro v2.4 — Dashboard Ejecutivo + Búsqueda Rápida — Build 2026-03-23
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { generarFichaTecnica, generarMatchLoteClientes, generarMatchClienteLotes } from "./reportGenerator.js";
@@ -124,9 +124,7 @@ export default function MacroProMatcher() {
   const [loadingMsg, setLoadingMsg] = useState("");
   const [generatingReport, setGeneratingReport] = useState(false);
   const [filterCity, setFilterCity] = useState("Todas");
-  // ── NUEVO: filtro Desarrollo/Proyecto ────────────────────────────
   const [filterDesarrollo, setFilterDesarrollo] = useState("Todos");
-  // ────────────────────────────────────────────────────────────────
   const [filterUso, setFilterUso] = useState("Todos");
   const [filterAsesor, setFilterAsesor] = useState("Todos");
   const [filterSupMin, setFilterSupMin] = useState("");
@@ -144,7 +142,6 @@ export default function MacroProMatcher() {
   const usos = ["Todos", ...new Set(inventory.map(l => l.uso))];
   const asesores = ["Todos", ...new Set(clients.map(c => c.asesor).filter(Boolean))];
 
-  // ── NUEVO: Cascade — desarrollos disponibles según ciudad ─────────
   const desarrollosDisponibles = (() => {
     const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
     if (filterCity === "Todas") {
@@ -154,12 +151,10 @@ export default function MacroProMatcher() {
     return ["Todos", ...devs];
   })();
 
-  // Al cambiar ciudad, resetear desarrollo si ya no aplica
   const handleFilterCity = (val) => {
     setFilterCity(val);
-    setFilterDesarrollo("Todos"); // siempre resetear cascada
+    setFilterDesarrollo("Todos");
   };
-  // ────────────────────────────────────────────────────────────────
 
   const toast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3000); };
 
@@ -234,7 +229,6 @@ export default function MacroProMatcher() {
           .filter(l => l.nombre && l.nombre.trim() !== "" && !l.nombre.startsWith("LOT-") || l.sup_m2 > 0 || l.precio_m2 > 0);
         if (mapped.length > 0) {
           setInventory(mapped);
-          // Resetear filtros al cargar nuevo inventario
           setFilterCity("Todas");
           setFilterDesarrollo("Todos");
           setFilterUso("Todos");
@@ -326,7 +320,6 @@ export default function MacroProMatcher() {
         };
         const toNum = (v) => {
           const s = String(v).replace(/[$\s]/g,"");
-          // Detect dot as thousands sep: $20.000.000 → 20000000
           if (/^\d{1,3}(\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g,"")) || 0;
           return parseFloat(s.replace(/,/g,"")) || 0;
         };
@@ -474,13 +467,12 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           : (targets.find(c => c.id === r.id) || targets.find(c => c.nombre === r.nombre));
         return { ...r, data: item };
       }).filter(r => r.data).sort((a,b) => b.score - a.score);
-      // Si enriched quedó vacío pero hay targets, hacer fallback ordenando los targets directamente
       const finalResults = enriched.length > 0 ? enriched : targets.slice(0, 8).map((item, i) => ({
         id: item.id, score: 70 - i*5,
         match_label: i === 0 ? "Match Probable" : "Match Posible",
         razon_principal: "Perfil compatible con el filtro de uso de suelo seleccionado.",
         argumentos: ["Interés en uso de suelo compatible", "Presupuesto en rango", "Ciudad de interés alineada"],
-        objecion: "Requiere validación directa", respuesta_objecion: "Presentar lotes disponibles del uso buscado",
+        objeccion: "Requiere validación directa", respuesta_objecion: "Presentar lotes disponibles del uso buscado",
         urgencia: "Media", data: item
       }));
       setMatchResults({ mode, subject, results: finalResults });
@@ -661,14 +653,204 @@ Rankea los ${top.length} clientes mayor a menor score.`;
         </div>
       </div>
       <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginTop:8 }}>
-        <button style={{ ...s.btn("primary"), padding:"14px 28px", fontSize:15, boxShadow:`0 4px 20px ${B.gold}44` }} onClick={() => setView("dashboard")}>📊 Dashboard Ejecutivo</button>
-        <button style={s.btn("ghost")} onClick={() => fileRef.current?.click()}>📤 Cargar Excel de inventario</button>
-        <button style={s.btn("ghost")} onClick={() => setView("clients")}>👤 Gestionar clientes</button>
-        <button style={s.btn("ghost")} onClick={() => setView("lots")}>🏗 Ver inventario completo</button>
+        <button style={{ ...s.btn("primary"), padding:"14px 28px", fontSize:15, boxShadow:`0 4px 20px ${B.gold}44` }} onClick={() => setView("searchLots")}>🔍 Búsqueda Rápida</button>
+        <button style={s.btn("ghost")} onClick={() => setView("dashboard")}>📊 Dashboard</button>
+        <button style={s.btn("ghost")} onClick={() => fileRef.current?.click()}>📤 Cargar inventario</button>
+        <button style={s.btn("ghost")} onClick={() => setView("clients")}>👤 Clientes</button>
+        <button style={s.btn("ghost")} onClick={() => setView("lots")}>🏗 Ver inventario</button>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleExcelUpload} />
       </div>
     </div>
   );
+
+  // ─── NUEVA VISTA: BÚSQUEDA RÁPIDA ─────────────────────────────────
+  const ViewSearchLots = () => {
+    const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
+    
+    const [searchCity, setSearchCity] = useState("Todas");
+    const [searchDesarrollo, setSearchDesarrollo] = useState("Todos");
+    const [searchUso, setSearchUso] = useState("Todos");
+    const [searchSupMin, setSearchSupMin] = useState("");
+    const [searchSupMax, setSearchSupMax] = useState("");
+    const [searchPrecioMin, setSearchPrecioMin] = useState("");
+    const [searchPrecioMax, setSearchPrecioMax] = useState("");
+
+    const searchCities = ["Todas", ...new Set(source.map(l => l.ciudad))];
+    const searchUsos = ["Todos", ...new Set(source.map(l => l.uso))];
+    
+    const searchDesarrollos = (() => {
+      if (searchCity === "Todas") {
+        return ["Todos", ...new Set(source.map(l => l.desarrollo).filter(Boolean))].sort((a,b) => 
+          a==="Todos"?-1:b==="Todos"?1:a.localeCompare(b));
+      }
+      const devs = [...new Set(source.filter(l => l.ciudad === searchCity).map(l => l.desarrollo).filter(Boolean))].sort();
+      return ["Todos", ...devs];
+    })();
+
+    const handleSearchCity = (val) => {
+      setSearchCity(val);
+      setSearchDesarrollo("Todos");
+    };
+
+    const searchResults = source.filter(l => {
+      if (searchCity !== "Todas" && l.ciudad !== searchCity) return false;
+      if (searchDesarrollo !== "Todos" && l.desarrollo !== searchDesarrollo) return false;
+      if (searchUso !== "Todos" && l.uso !== searchUso) return false;
+      if (searchSupMin && l.sup_m2 < parseFloat(searchSupMin)) return false;
+      if (searchSupMax && l.sup_m2 > parseFloat(searchSupMax)) return false;
+      if (searchPrecioMin && l.precio_total < parseFloat(searchPrecioMin) * 1000000) return false;
+      if (searchPrecioMax && l.precio_total > parseFloat(searchPrecioMax) * 1000000) return false;
+      return true;
+    });
+
+    const copiarParaWhatsApp = () => {
+      if (searchResults.length === 0) {
+        toast("⚠ No hay resultados para copiar");
+        return;
+      }
+      const texto = searchResults.slice(0, 10).map((l, i) => 
+        `${i+1}. *${l.nombre}*\n` +
+        `   📍 ${l.ciudad}, ${l.estado}\n` +
+        `   🏗 ${l.desarrollo || 'N/A'}\n` +
+        `   🏙 ${l.uso}\n` +
+        `   📐 ${l.sup_m2?.toLocaleString()} m²\n` +
+        `   💲 ${fmtM(l.precio_total)}\n`
+      ).join('\n');
+      navigator.clipboard.writeText(`🔍 *Macrolotes Disponibles*\n\n${texto}\n_Generado por MacroPro · Grupo Guía_`);
+      toast("✓ Copiado al portapapeles (WhatsApp)");
+    };
+
+    return (
+      <div style={s.page}>
+        <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20 }}>
+          <button style={s.btn("ghost")} onClick={() => setView("home")}>← Inicio</button>
+          <div>
+            <div style={s.sectionTitle}>🔍 Búsqueda Rápida de Macrolotes</div>
+            <div style={s.sectionSub}>Filtra el inventario sin crear cliente — prospección instantánea</div>
+          </div>
+        </div>
+
+        {/* PANEL DE BÚSQUEDA */}
+        <div style={{ background:`linear-gradient(135deg,${B.navy}15,${B.navy}08)`, borderRadius:16, padding:"24px 28px", marginBottom:24, border:`2px solid ${B.gold}44` }}>
+          <div style={{ fontSize:13, fontWeight:700, color:B.gold, textTransform:"uppercase", letterSpacing:1.5, marginBottom:16 }}>⚡ Criterios de Búsqueda</div>
+          
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:16, marginBottom:16 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, color:B.grey4, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>📍 Ciudad</label>
+              <select style={{ ...s.select, width:"100%" }} value={searchCity} onChange={e => handleSearchCity(e.target.value)}>
+                {searchCities.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, color:B.grey4, display:"flex", alignItems:"center", gap:6, marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>
+                🏗 Desarrollo
+                {searchCity !== "Todas" && (
+                  <span style={{ fontSize:9, color:B.gold, background:"#FFF9EC", border:`1px solid ${B.gold}`, padding:"1px 5px", borderRadius:6, fontWeight:700 }}>
+                    ↳ {searchCity}
+                  </span>
+                )}
+              </label>
+              <select style={{ ...s.select, width:"100%" }} value={searchDesarrollo} onChange={e => setSearchDesarrollo(e.target.value)}>
+                {searchDesarrollos.map(d => <option key={d}>{d}</option>)}
+              </select>
+            </div>
+            
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, color:B.grey4, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>🏙 Uso de Suelo</label>
+              <select style={{ ...s.select, width:"100%" }} value={searchUso} onChange={e => setSearchUso(e.target.value)}>
+                {searchUsos.map(u => <option key={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))", gap:12 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, color:B.grey4, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>Sup. mín (m²)</label>
+              <input style={{ ...s.input, width:"100%" }} type="number" placeholder="Ej: 5000" value={searchSupMin} onChange={e => setSearchSupMin(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, color:B.grey4, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>Sup. máx (m²)</label>
+              <input style={{ ...s.input, width:"100%" }} type="number" placeholder="Ej: 20000" value={searchSupMax} onChange={e => setSearchSupMax(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, color:B.grey4, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>Precio mín (MDP)</label>
+              <input style={{ ...s.input, width:"100%" }} type="number" placeholder="Ej: 10" value={searchPrecioMin} onChange={e => setSearchPrecioMin(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:700, color:B.grey4, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:0.8 }}>Precio máx (MDP)</label>
+              <input style={{ ...s.input, width:"100%" }} type="number" placeholder="Ej: 100" value={searchPrecioMax} onChange={e => setSearchPrecioMax(e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        {/* BARRA DE RESULTADOS */}
+        <div style={{ background:B.white, borderRadius:12, padding:"16px 24px", marginBottom:16, display:"flex", alignItems:"center", justifyContent:"space-between", boxShadow:"0 2px 12px rgba(0,43,73,0.06)", border:`1px solid ${B.grey1}` }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ fontSize:26, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif" }}>{searchResults.length}</div>
+            <div>
+              <div style={{ fontSize:13, fontWeight:600, color:B.grey4 }}>macrolote{searchResults.length !== 1 ? "s" : ""} encontrado{searchResults.length !== 1 ? "s" : ""}</div>
+              <div style={{ fontSize:11, color:B.grey3 }}>Resultados en tiempo real</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button style={{ ...s.btn("ghost"), padding:"8px 14px" }} onClick={copiarParaWhatsApp}>
+              📋 Copiar para WhatsApp
+            </button>
+          </div>
+        </div>
+
+        {/* RESULTADOS */}
+        <div>
+          {searchResults.map((lot, idx) => (
+            <div key={lot.id} style={{ background:B.white, borderRadius:14, padding:"20px 24px", marginBottom:12, border:`1px solid ${B.grey1}`, boxShadow:"0 2px 8px rgba(0,43,73,0.04)" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+                <div style={{ width:44, height:44, borderRadius:10, backgroundColor:B.navy, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:800, color:B.gold, flexShrink:0 }}>
+                  {lot.id.split("-")[0]}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, flexWrap:"wrap" }}>
+                    <span style={{ fontWeight:800, fontSize:16, color:B.navy }}>{lot.nombre}</span>
+                    <Tag label={lot.uso} color={B.navy} bg={B.blueL} />
+                    <Tag label={lot.ciudad} color={B.grey4} bg={B.grey1} />
+                    {lot.desarrollo && <Tag label={lot.desarrollo} color={B.goldD} bg="#FFF9EC" />}
+                  </div>
+                  <div style={{ display:"flex", gap:16, fontSize:13, color:B.grey3, flexWrap:"wrap" }}>
+                    <span>📐 {lot.sup_m2?.toLocaleString()} m²</span>
+                    <span>💲 ${lot.precio_m2?.toLocaleString()}/m²</span>
+                    <span style={{ fontWeight:700, color:B.navy }}>{fmtM(lot.precio_total)}</span>
+                    <span>⚡ Entrega: {lot.entrega}</span>
+                    {lot.niveles && <span>🏢 {lot.niveles}</span>}
+                  </div>
+                  {lot.fortaleza && (
+                    <div style={{ fontSize:12, color:B.grey4, marginTop:8, fontStyle:"italic" }}>
+                      "{lot.fortaleza.substring(0, 150)}{lot.fortaleza.length > 150 ? "..." : ""}"
+                    </div>
+                  )}
+                </div>
+                <div style={{ display:"flex", flexDirection:"column", gap:8, flexShrink:0 }}>
+                  <button style={{ ...s.btn("ghost"), fontSize:12, padding:"6px 12px" }} onClick={() => setSelectedLotDetail(lot)}>
+                    📋 Ficha
+                  </button>
+                  <button style={{ ...s.btn("sm"), whiteSpace:"nowrap" }} onClick={() => { setSelectedLot(lot); setView("matchLot"); }}>
+                    🎯 Match
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+          
+          {searchResults.length === 0 && (
+            <div style={{ textAlign:"center", padding:64, color:B.grey3 }}>
+              <div style={{ fontSize:56, marginBottom:16 }}>🔍</div>
+              <div style={{ fontSize:18, fontWeight:700, color:B.grey4, marginBottom:8 }}>Sin resultados con estos criterios</div>
+              <div style={{ fontSize:14 }}>Ajusta los filtros para ampliar la búsqueda</div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   const ViewMatchClient = () => {
     const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
@@ -723,7 +905,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
-          {/* ── IZQUIERDA: CLIENTES ── */}
+          {/* IZQUIERDA: CLIENTES */}
           <div>
             <div style={{ fontSize:13, fontWeight:700, color:B.navy, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
               👤 PASO 1 — Elige el cliente
@@ -774,7 +956,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
             </div>
           </div>
 
-          {/* ── DERECHA: INVENTARIO ── */}
+          {/* DERECHA: INVENTARIO */}
           <div>
             <div style={{ fontSize:13, fontWeight:700, color:B.navy, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
               🏗 PASO 2 — Filtra el inventario a cruzar
@@ -917,7 +1099,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20 }}>
-          {/* ── IZQUIERDA: INVENTARIO ── */}
+          {/* IZQUIERDA: INVENTARIO */}
           <div>
             <div style={{ fontSize:13, fontWeight:700, color:B.navy, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
               🏗 PASO 1 — Elige el macrolote
@@ -977,7 +1159,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
             </div>
           </div>
 
-          {/* ── DERECHA: CLIENTES ── */}
+          {/* DERECHA: CLIENTES */}
           <div>
             <div style={{ fontSize:13, fontWeight:700, color:B.navy, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
               👤 PASO 2 — Filtra los clientes a cruzar
@@ -1139,18 +1321,15 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           </div>
         </div>
 
-        {/* ── FILTROS CON DESARROLLO/PROYECTO ── */}
         <div style={s.filterBar}>
           <span style={s.filterLabel}>⚡ Filtrar:</span>
           {isClientMode ? (<>
-            {/* CIUDAD */}
             <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
               <span style={{ fontSize:10, color:B.grey3, fontWeight:600 }}>CIUDAD</span>
               <select style={s.select} value={filterCity} onChange={e => handleFilterCity(e.target.value)}>
                 {cities.map(c=><option key={c}>{c}</option>)}
               </select>
             </div>
-            {/* DESARROLLO / PROYECTO — cascada inteligente */}
             <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
               <span style={{ fontSize:10, color:B.grey3, fontWeight:600, display:"flex", alignItems:"center", gap:4 }}>
                 DESARROLLO / PROYECTO
@@ -1163,7 +1342,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
                 {desarrollosDisponibles.map(d=><option key={d}>{d}</option>)}
               </select>
             </div>
-            {/* USO DE SUELO */}
             <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
               <span style={{ fontSize:10, color:B.grey3, fontWeight:600 }}>USO DE SUELO</span>
               <select style={s.select} value={filterUso} onChange={e=>setFilterUso(e.target.value)}>
@@ -1389,8 +1567,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     </div>
   );
 
-  // ── INVENTARIO: ahora con 3 filtros en cascada ────────────────────
-  // ─── DASHBOARD EJECUTIVO ──────────────────────────────────────────
   const ViewDashboard = () => {
     const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
     const totalLotes = source.length;
@@ -1399,27 +1575,22 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     const supTotal = source.reduce((a, l) => a + (l.sup_m2 || 0), 0);
     const precioPromM2 = supTotal > 0 ? valorTotal / supTotal : 0;
 
-    // Lotes por desarrollo
     const byDev = {};
     source.forEach(l => { const d = l.desarrollo || "Sin desarrollo"; byDev[d] = (byDev[d] || 0) + 1; });
     const devEntries = Object.entries(byDev).sort((a, b) => b[1] - a[1]);
 
-    // Lotes por uso de suelo
     const byUso = {};
     source.forEach(l => { const u = l.uso || "Sin uso"; byUso[u] = (byUso[u] || 0) + 1; });
     const usoEntries = Object.entries(byUso).sort((a, b) => b[1] - a[1]);
 
-    // Lotes por ciudad
     const byCity = {};
     source.forEach(l => { const c = l.ciudad || "Sin ciudad"; byCity[c] = (byCity[c] || 0) + 1; });
     const cityEntries = Object.entries(byCity).sort((a, b) => b[1] - a[1]);
 
-    // Valor por desarrollo
     const valByDev = {};
     source.forEach(l => { const d = l.desarrollo || "Sin desarrollo"; valByDev[d] = (valByDev[d] || 0) + (l.precio_total || 0); });
     const valDevEntries = Object.entries(valByDev).sort((a, b) => b[1] - a[1]);
 
-    // Clientes por temperatura
     const byTemp = {};
     clients.forEach(c => { const t = c.temperatura || "Sin dato"; byTemp[t] = (byTemp[t] || 0) + 1; });
     const calientes = byTemp["Caliente"] || 0;
@@ -1427,32 +1598,23 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     const frios = (byTemp["Frío"] || 0);
     const inactivos = (byTemp["Inactivo"] || 0);
 
-    // Clientes por asesor
     const byAsesor = {};
     clients.forEach(c => { const a = c.asesor || "Sin asesor"; byAsesor[a] = (byAsesor[a] || 0) + 1; });
     const asesorEntries = Object.entries(byAsesor).sort((a, b) => b[1] - a[1]);
 
-    // Clientes por tipo
     const byTipo = {};
     clients.forEach(c => { const t = c.tipo || "Sin tipo"; byTipo[t] = (byTipo[t] || 0) + 1; });
     const tipoEntries = Object.entries(byTipo).sort((a, b) => b[1] - a[1]);
 
-    // Clientes por uso buscado
     const byUsoCli = {};
     clients.forEach(c => { (c.uso_interes || []).forEach(u => { byUsoCli[u] = (byUsoCli[u] || 0) + 1; }); });
     const usoCliEntries = Object.entries(byUsoCli).sort((a, b) => b[1] - a[1]);
 
-    // Top lotes por valor
     const topLotes = [...source].sort((a, b) => (b.precio_total || 0) - (a.precio_total || 0)).slice(0, 5);
 
-    // Rango de precios
     const precios = source.map(l => l.precio_total).filter(p => p > 0);
     const precioMin = precios.length > 0 ? Math.min(...precios) : 0;
     const precioMax = precios.length > 0 ? Math.max(...precios) : 0;
-
-    // Lotes por tipo (Desarrollo vs Corretaje)
-    const byTipoInv = {};
-    source.forEach(l => { const t = l.tipo || l.desarrollo?.includes("Capital") || l.desarrollo?.includes("Kulkana") ? "Desarrollo" : "Corretaje"; byTipoInv[t] = (byTipoInv[t] || 0) + 1; });
 
     const kpiCard = (label, value, sub, accent) => (
       <div style={{ background: B.white, borderRadius: 16, padding: "24px 20px", boxShadow: "0 2px 12px rgba(0,43,73,0.06)", borderLeft: `4px solid ${accent || B.gold}`, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1509,7 +1671,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           </div>
         </div>
 
-        {/* KPIs principales */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 28 }}>
           {kpiCard("Valor del Portafolio", fmtM(valorTotal), `${totalLotes} macrolotes activos`, B.gold)}
           {kpiCard("Superficie Total", `${(supTotal / 1000).toFixed(0)}K m²`, `${(supTotal / 10000).toFixed(1)} hectáreas`, B.green)}
@@ -1519,19 +1680,16 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           {kpiCard("Ciudades", String([...new Set(source.map(l => l.ciudad))].length), [...new Set(source.map(l => l.ciudad))].slice(0, 3).join(", "), B.navyL)}
         </div>
 
-        {/* Fila 1: Inventario por desarrollo + Valor por desarrollo */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
           {sectionCard("🏗 Lotes por Desarrollo", barChart(devEntries, goldGrad))}
           {sectionCard("💰 Valor por Desarrollo", barChart(valDevEntries, goldGrad, v => fmtM(v)))}
         </div>
 
-        {/* Fila 2: Uso de suelo + Ciudades */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
           {sectionCard("🏷 Lotes por Uso de Suelo", barChart(usoEntries, goldGrad))}
           {sectionCard("📍 Lotes por Ciudad", barChart(cityEntries, goldGrad))}
         </div>
 
-        {/* Fila 3: Clientes - Temperatura + Asesores */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
           {sectionCard("🌡 Clientes por Temperatura", (
             <div>
@@ -1550,13 +1708,11 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           {sectionCard("👔 Clientes por Asesor", barChart(asesorEntries, goldGrad))}
         </div>
 
-        {/* Fila 4: Tipo comprador + Uso buscado */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
           {sectionCard("🏢 Clientes por Tipo de Comprador", barChart(tipoEntries, goldGrad))}
           {sectionCard("🎯 Demanda por Uso de Suelo", barChart(usoCliEntries, goldGrad))}
         </div>
 
-        {/* Top 5 lotes por valor */}
         {sectionCard("🏆 Top 5 Macrolotes por Valor", (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -1586,14 +1742,13 @@ Rankea los ${top.length} clientes mayor a menor score.`;
         ))}
 
         <div style={{ textAlign: "center", marginTop: 24, fontSize: 11, color: B.grey3 }}>
-          MacroPro v2.3 · Dashboard Ejecutivo · Grupo Guía · {new Date().toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric" })}
+          MacroPro v2.4 · Dashboard Ejecutivo · Grupo Guía · {new Date().toLocaleDateString("es-MX", { year: "numeric", month: "long", day: "numeric" })}
         </div>
       </div>
     );
   };
 
   const ViewLots = () => {
-    // Desarrollos disponibles para el filtro local de esta vista
     const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
     const lotCities = ["Todas", ...new Set(source.map(l => l.ciudad))];
     const lotUsos = ["Todos", ...new Set(source.map(l => l.uso))];
@@ -1623,9 +1778,7 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           </div>
         </div>
 
-        {/* ── BARRA DE FILTROS CON CASCADA ── */}
         <div style={s.filterBar}>
-          {/* CIUDAD */}
           <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
             <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase", letterSpacing:1 }}>📍 Ciudad</span>
             <select style={s.select} value={filterCity} onChange={e => handleFilterCity(e.target.value)}>
@@ -1633,7 +1786,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
             </select>
           </div>
 
-          {/* DESARROLLO / PROYECTO — cascada inteligente */}
           <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
             <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase", letterSpacing:1, display:"flex", alignItems:"center", gap:4 }}>
               🏗 Desarrollo / Proyecto
@@ -1647,7 +1799,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
             </select>
           </div>
 
-          {/* USO DE SUELO */}
           <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
             <span style={{ fontSize:10, color:B.grey3, fontWeight:600, textTransform:"uppercase", letterSpacing:1 }}>🏙 Uso de Suelo</span>
             <select style={s.select} value={filterUso} onChange={e=>setFilterUso(e.target.value)}>
@@ -1754,8 +1905,6 @@ Rankea los ${top.length} clientes mayor a menor score.`;
     </div>
   );
 
-  const AMBER_LT = "#fff8e7";
-
   return (
     <div style={s.app}>
       <style>{`
@@ -1774,12 +1923,13 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           <span style={{ fontSize:11, color:B.grey3, fontWeight:500, marginLeft:4 }}>by Grupo Guía</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["dashboard","📊 Dashboard"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["searchLots","🔍 Búsqueda"],["dashboard","📊 Dashboard"],["matchClient","👤→🏗"],["matchLot","🏗→👤"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v)} onClick={()=>setView(v)}>{l}</button>
           ))}
         </div>
       </nav>
       {view === "home" && <ViewHome />}
+      {view === "searchLots" && <ViewSearchLots />}
       {view === "dashboard" && <ViewDashboard />}
       {view === "matchClient" && <ViewMatchClient />}
       {view === "matchLot" && <ViewMatchLot />}
