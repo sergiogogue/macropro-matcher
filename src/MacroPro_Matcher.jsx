@@ -183,9 +183,20 @@ export default function MacroProMatcher() {
         }
         const headers = raw[headerRow].map(h => String(h || "").replace(/^\* /, "").replace(/ ▼$/, "").trim());
         const dataRows = raw.slice(headerRow + 1);
+        // FIX CRÍTICO: Normalizar símbolos especiales en headers
+const normalizeHeader = (header) => {
+  if (!header) return '';
+  return String(header)
+    .toLowerCase()
+    .replace(/²/g, '2')
+    .replace(/³/g, '3')
+    .replace(/\./g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
         const getVal = (row, ...names) => {
           for (const name of names) {
-            const idx = headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
+const idx = headers.findIndex(h => normalizeHeader(h).includes(normalizeHeader(name)));
             if (idx >= 0 && row[idx] !== undefined && row[idx] !== "") return row[idx];
           }
           return "";
