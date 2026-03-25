@@ -136,7 +136,15 @@ export default function MacroProMatcher() {
   const [showAddLot, setShowAddLot] = useState(false);
   const [newClient, setNewClient] = useState({ nombre:"", empresa:"", asesor:"", ciudad_interes:[], uso_interes:[], presupuesto_min:"", presupuesto_max:"", sup_min:"", sup_max:"", temperatura:"Tibio", status:"Nuevo", notas:"" });
   const [toastMsg, setToastMsg] = useState("");
-  const [selectedLotDetail, setSelectedLotDetail] = useState(null);
+  const [selectedLotDetail, setSelectedLotDetail] = useState(null);const [quickSearchResults, setQuickSearchResults] = useState([]);
+const [quickSearchCriteria, setQuickSearchCriteria] = useState({
+  ciudad: "",
+  desarrollo: "",
+  uso: "",
+  sup_min: "",
+  sup_max: "",
+  presupuesto_max: ""
+});
   const fileRef = useRef();
   const clientFileRef = useRef();
 
@@ -457,7 +465,22 @@ ${top.map(c => `${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|
 FORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oración max","argumentos":["a1","a2","a3"],"objeccion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}
 Rankea los ${top.length} clientes mayor a menor score.`;
         }
-      }
+      // ── BÚSQUEDA RÁPIDA SIN CLIENTE ──────────────────────────────
+const handleQuickSearch = () => {
+  const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
+  
+  const results = source.filter(lote => {
+    if (quickSearchCriteria.ciudad && lote.ciudad !== quickSearchCriteria.ciudad) return false;
+    if (quickSearchCriteria.desarrollo && lote.desarrollo !== quickSearchCriteria.desarrollo) return false;
+    if (quickSearchCriteria.uso && lote.uso !== quickSearchCriteria.uso) return false;
+    if (quickSearchCriteria.sup_min && lote.sup_m2 < parseFloat(quickSearchCriteria.sup_min)) return false;
+    if (quickSearchCriteria.sup_max && lote.sup_m2 > parseFloat(quickSearchCriteria.sup_max)) return false;
+    if (quickSearchCriteria.presupuesto_max && lote.precio_total > parseFloat(quickSearchCriteria.presupuesto_max)) return false;
+    return true;
+  });
+  
+  setQuickSearchResults(results);
+};
       const response = await fetch("/.netlify/functions/claude", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -669,7 +692,11 @@ Rankea los ${top.length} clientes mayor a menor score.`;
           <div style={{ marginTop:"auto" }}>
             <button style={s.btn("navy")} onClick={() => setView("matchLot")}>Seleccionar lote →</button>
           </div>
-        </div>
+        </div><div onClick={() => setView("quickSearch")} style={{ background:B.white, padding:32, borderRadius:12, boxShadow:"0 2px 8px rgba(0,0,0,0.1)", cursor:"pointer", transition:"transform 0.2s" }}>
+  <span style={{ fontSize:48 }}>🔍</span>
+  <h2 style={{ fontSize:24, color:B.navy, marginTop:16, marginBottom:8 }}>Búsqueda Rápida</h2>
+  <p style={{ color:B.grey4, fontSize:14 }}>Encuentra lotes por criterios sin dar de alta cliente</p>
+</div>
       </div>
       <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginTop:8 }}>
         <button style={{ ...s.btn("primary"), padding:"14px 28px", fontSize:15, boxShadow:`0 4px 20px ${B.gold}44` }} onClick={() => setView("dashboard")}>📊 Dashboard Ejecutivo</button>
@@ -1802,6 +1829,120 @@ Rankea los ${top.length} clientes mayor a menor score.`;
       <PrintStyles />
       {loading && <LoadingView />}
       {toastMsg && <div style={s.toast}>{toastMsg}</div>}
+    </div>
+  );
+}// ── VISTA: BÚSQUEDA RÁPIDA ───────────────────────────────────
+if (view === "quickSearch") {
+  const source = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
+  const cities = ["", ...new Set(source.map(l => l.ciudad).filter(Boolean))];
+  const usos = ["", ...new Set(source.map(l => l.uso).filter(Boolean))];
+  
+  const desarrollosDisponibles = (() => {
+    if (!quickSearchCriteria.ciudad) {
+      return ["", ...new Set(source.map(l => l.desarrollo).filter(Boolean))];
+    }
+    return ["", ...new Set(source.filter(l => l.ciudad === quickSearchCriteria.ciudad).map(l => l.desarrollo).filter(Boolean))];
+  })();
+
+  return (
+    <div style={{ minHeight:"100vh", background:B.offW, fontFamily:"'DM Sans',sans-serif", padding:24 }}>
+      <div style={{ maxWidth:1200, margin:"0 auto" }}>
+        <button onClick={() => setView("home")} style={{ padding:"8px 16px", background:B.grey2, border:"none", borderRadius:6, cursor:"pointer", marginBottom:24 }}>
+          ← Volver
+        </button>
+        
+        <h1 style={{ fontSize:32, color:B.navy, marginBottom:24 }}>🔍 Búsqueda Rápida de Lote</h1>
+        
+        <div style={{ background:B.white, padding:24, borderRadius:12, boxShadow:"0 2px 8px rgba(0,0,0,0.1)", marginBottom:24 }}>
+          <h3 style={{ color:B.navy, marginBottom:16 }}>Criterios de Búsqueda</h3>
+          
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(2, 1fr)", gap:16 }}>
+            <div>
+              <label style={{ display:"block", color:B.grey4, fontSize:14, marginBottom:4 }}>Ciudad</label>
+              <select value={quickSearchCriteria.ciudad} onChange={(e) => setQuickSearchCriteria({...quickSearchCriteria, ciudad:e.target.value, desarrollo:""})} style={{ width:"100%", padding:"8px 12px", border:`1px solid ${B.grey2}`, borderRadius:6 }}>
+                <option value="">Todas las ciudades</option>
+                {cities.filter(Boolean).map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            
+            <div>
+              <label style={{ display:"block", color:B.grey4, fontSize:14, marginBottom:4 }}>Desarrollo</label>
+              <select value={quickSearchCriteria.desarrollo} onChange={(e) => setQuickSearchCriteria({...quickSearchCriteria, desarrollo:e.target.value})} style={{ width:"100%", padding:"8px 12px", border:`1px solid ${B.grey2}`, borderRadius:6 }}>
+                <option value="">Todos los desarrollos</option>
+                {desarrollosDisponibles.filter(Boolean).map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            
+            <div>
+              <label style={{ display:"block", color:B.grey4, fontSize:14, marginBottom:4 }}>Uso de Suelo</label>
+              <select value={quickSearchCriteria.uso} onChange={(e) => setQuickSearchCriteria({...quickSearchCriteria, uso:e.target.value})} style={{ width:"100%", padding:"8px 12px", border:`1px solid ${B.grey2}`, borderRadius:6 }}>
+                <option value="">Todos los usos</option>
+                {usos.filter(Boolean).map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+            
+            <div>
+              <label style={{ display:"block", color:B.grey4, fontSize:14, marginBottom:4 }}>Presupuesto Máximo</label>
+              <input type="number" value={quickSearchCriteria.presupuesto_max} onChange={(e) => setQuickSearchCriteria({...quickSearchCriteria, presupuesto_max:e.target.value})} placeholder="Ej: 50000000" style={{ width:"100%", padding:"8px 12px", border:`1px solid ${B.grey2}`, borderRadius:6 }} />
+            </div>
+            
+            <div>
+              <label style={{ display:"block", color:B.grey4, fontSize:14, marginBottom:4 }}>Superficie Mínima (m²)</label>
+              <input type="number" value={quickSearchCriteria.sup_min} onChange={(e) => setQuickSearchCriteria({...quickSearchCriteria, sup_min:e.target.value})} placeholder="Ej: 5000" style={{ width:"100%", padding:"8px 12px", border:`1px solid ${B.grey2}`, borderRadius:6 }} />
+            </div>
+            
+            <div>
+              <label style={{ display:"block", color:B.grey4, fontSize:14, marginBottom:4 }}>Superficie Máxima (m²)</label>
+              <input type="number" value={quickSearchCriteria.sup_max} onChange={(e) => setQuickSearchCriteria({...quickSearchCriteria, sup_max:e.target.value})} placeholder="Ej: 20000" style={{ width:"100%", padding:"8px 12px", border:`1px solid ${B.grey2}`, borderRadius:6 }} />
+            </div>
+          </div>
+          
+          <button onClick={handleQuickSearch} style={{ marginTop:16, padding:"12px 24px", background:B.gold, color:B.navy, border:"none", borderRadius:8, cursor:"pointer", fontWeight:600, width:"100%" }}>
+            🔍 Buscar Lotes
+          </button>
+        </div>
+        
+        {quickSearchResults.length > 0 && (
+          <div style={{ background:B.white, padding:24, borderRadius:12, boxShadow:"0 2px 8px rgba(0,0,0,0.1)" }}>
+            <h3 style={{ color:B.navy, marginBottom:16 }}>Resultados: {quickSearchResults.length} lote(s) encontrado(s)</h3>
+            
+            <table style={{ width:"100%", borderCollapse:"collapse" }}>
+              <thead>
+                <tr style={{ background:B.navy, color:B.white }}>
+                  <th style={{ padding:12, textAlign:"left" }}>ID</th>
+                  <th style={{ padding:12, textAlign:"left" }}>Nombre</th>
+                  <th style={{ padding:12, textAlign:"left" }}>Ciudad</th>
+                  <th style={{ padding:12, textAlign:"left" }}>Desarrollo</th>
+                  <th style={{ padding:12, textAlign:"left" }}>Uso</th>
+                  <th style={{ padding:12, textAlign:"right" }}>Superficie</th>
+                  <th style={{ padding:12, textAlign:"right" }}>Precio/m²</th>
+                  <th style={{ padding:12, textAlign:"right" }}>Precio Total</th>
+                  <th style={{ padding:12, textAlign:"center" }}>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {quickSearchResults.map((lote, idx) => (
+                  <tr key={lote.id} style={{ background: idx % 2 === 0 ? B.offW : B.white, borderBottom:`1px solid ${B.grey1}` }}>
+                    <td style={{ padding:12 }}>{lote.id}</td>
+                    <td style={{ padding:12, fontWeight:600 }}>{lote.nombre}</td>
+                    <td style={{ padding:12 }}>{lote.ciudad}</td>
+                    <td style={{ padding:12 }}>{lote.desarrollo}</td>
+                    <td style={{ padding:12 }}>{lote.uso}</td>
+                    <td style={{ padding:12, textAlign:"right" }}>{lote.sup_m2?.toLocaleString() || "N/D"} m²</td>
+                    <td style={{ padding:12, textAlign:"right" }}>{lote.precio_m2 ? fmt(lote.precio_m2) : "N/D"}</td>
+                    <td style={{ padding:12, textAlign:"right", fontWeight:600, color:B.green }}>{lote.precio_total ? fmtM(lote.precio_total) : "N/D"}</td>
+                    <td style={{ padding:12, textAlign:"center" }}>
+                      <button onClick={() => setSelectedLotDetail(lote)} style={{ padding:"6px 12px", background:B.blue, color:B.white, border:"none", borderRadius:4, cursor:"pointer", fontSize:12 }}>
+                        Ver Ficha
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
