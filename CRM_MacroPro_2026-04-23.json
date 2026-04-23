@@ -1,0 +1,389 @@
+{
+  "KU-17-r119": {
+    "pipeline": "En negociación",
+    "interacciones": [
+      {
+        "fecha": "2026-04-15",
+        "canal": "Llamada",
+        "contacto": "",
+        "reaccion": "Interesado",
+        "nota": "le voy a mandar info"
+      }
+    ],
+    "prospectos": [
+      {
+        "nombre": "IKON",
+        "empresa": "IKO",
+        "telefono": "",
+        "email": "",
+        "nota": "Asignado manualmente — 8/4/2026",
+        "pipeline": "En negociación",
+        "actividades": [
+          {
+            "id": "act-1776918208244-756",
+            "tipo": "Seguimiento",
+            "descripcion": "",
+            "fecha": "2026-04-23",
+            "hora": "10:00",
+            "completada": false,
+            "creadaEn": "2026-04-23"
+          }
+        ]
+      },
+      {
+        "nombre": "NESTOR DE LA TORRE",
+        "empresa": "",
+        "telefono": "",
+        "email": "",
+        "nota": "Match IA — score: 45 — 8/4/2026",
+        "pipeline": "Prospecto",
+        "temperatura": "Caliente"
+      }
+    ],
+    "devFeedback": [],
+    "lastContact": "2026-04-15",
+    "asesorResponsable": "Sergio González"
+  },
+  "LR - 01-r129": {
+    "pipeline": "Prospecto",
+    "interacciones": [
+      {
+        "fecha": "2026-04-13",
+        "canal": "Llamada",
+        "contacto": "",
+        "reaccion": "Interesado",
+        "nota": "PENDIENTE DE NDA"
+      },
+      {
+        "fecha": "2026-04-15",
+        "canal": "Llamada",
+        "contacto": "",
+        "reaccion": "Interesado",
+        "nota": "le voy a mandar infirmacion"
+      }
+    ],
+    "prospectos": [
+      {
+        "nombre": "DANIEL DURAN SANCHEZ",
+        "empresa": "",
+        "telefono": "",
+        "email": "",
+        "nota": "Asignado manualmente — 13/4/2026",
+        "pipeline": "Propuesta",
+        "temperatura": "Tibio"
+      },
+      {
+        "nombre": "Jose Ugalde",
+        "empresa": "Chistus Mugerza",
+        "telefono": "",
+        "email": "",
+        "nota": "Match IA — score: 70 — 15/4/2026",
+        "pipeline": "Prospecto",
+        "temperatura": "Frío",
+        "actividades": [
+          {
+            "id": "act-1776918142479-574",
+            "tipo": "Seguimiento",
+            "descripcion": "",
+            "fecha": "2026-04-23",
+            "hora": "10:22",
+            "completada": false,
+            "creadaEn": "2026-04-23"
+          }
+        ]
+      },
+      {
+        "nombre": "JORGE ZARAGOZA ALANIZ",
+        "empresa": "ACOR",
+        "telefono": "",
+        "email": "",
+        "pipeline": "Prospecto",
+        "nota": "Asignado manualmente — 23/4/2026"
+      }
+    ],
+    "devFeedback": [],
+    "lastContact": "2026-04-23"
+  },
+  "Gen_03-r136": {
+    "pipeline": "Prospecto",
+    "interacciones": [],
+    "prospectos": [],
+    "devFeedback": [],
+    "lastContact": "2026-04-15"
+  },
+  "Gen_04-r137": {
+    "pipeline": "Prospecto",
+    "interacciones": [
+      {
+        "fecha": "2026-04-15",
+        "canal": "Llamada",
+        "contacto": "",
+        "reaccion": "Interesado",
+        "nota": "le voy a mandar informacion"
+      }
+    ],
+    "prospectos": [
+      {
+        "nombre": "Jose Ugalde",
+        "empresa": "Chistus Mugerza",
+        "telefono": "",
+        "email": "",
+        "nota": "Asignado manualmente — 15/4/2026",
+        "pipeline": "Prospecto",
+        "temperatura": "Frío"
+      },
+      {
+        "nombre": "L Garza",
+        "empresa": "La Comer",
+        "telefono": "",
+        "email": "",
+        "nota": "Asignado manualmente — 15/4/2026",
+        "pipeline": "Prospecto",
+        "temperatura": "Frío"
+      }
+    ],
+    "devFeedback": [],
+    "lastContact": "2026-04-15"
+  },
+  "Gen_02-r135": {
+    "pipeline": "Prospecto",
+    "interacciones": [
+      {
+        "fecha": "2026-04-15",
+        "canal": "Llamada",
+        "contacto": "",
+        "reaccion": "Interesado",
+        "nota": "le voy a mandar informacion"
+      }
+    ],
+    "prospectos": [
+      {
+        "nombre": "Jose Ugalde",
+        "empresa": "Chistus Mugerza",
+        "telefono": "",
+        "email": "",
+        "nota": "Asignado manualmente — 15/4/2026",
+        "pipeline": "Prospecto",
+        "temperatura": "Frío"
+      },
+      {
+        "nombre": "L Garza",
+        "empresa": "La Comer",
+        "telefono": "",
+        "email": "",
+        "nota": "Asignado manualmente — 15/4/2026",
+        "pipeline": "Prospecto",
+        "temperatura": "Frío"
+      },
+      {
+        "nombre": "JORGE ZARAGOZA ALANIZ",
+        "empresa": "ACOR",
+        "telefono": "",
+        "email": "",
+        "pipeline": "Prospecto",
+        "nota": "Asignado manualmente — 23/4/2026"
+      }
+    ],
+    "devFeedback": [],
+    "lastContact": "2026-04-23"
+  },
+  "Gen_01-r134": {
+    "pipeline": "Prospecto",
+    "interacciones": [
+      {
+        "fecha": "2026-04-15",
+        "canal": "Llamada",
+        "contacto": "",
+        "reaccion": "Interesado",
+        "nota": "le voy a mandar informacion\n"
+      },
+      {
+        "fecha": "2026-04-15",
+        "canal": "Llamada",
+        "contacto": "",
+        "reaccion": "Interesado",
+        "nota": "le voy a mandar info"
+      }
+    ],
+    "prospectos": [
+      {
+        "nombre": "Jose Ugalde",
+        "empresa": "Chistus Mugerza",
+        "telefono": "",
+        "email": "",
+        "nota": "Asignado manualmente — 15/4/2026",
+        "pipeline": "Prospecto",
+        "temperatura": "Frío"
+      },
+      {
+        "nombre": "L Garza",
+        "empresa": "La Comer",
+        "telefono": "",
+        "email": "",
+        "nota": "Asignado manualmente — 15/4/2026",
+        "pipeline": "Prospecto",
+        "temperatura": "Frío",
+        "actividades": [
+          {
+            "id": "act-1776918239293-284",
+            "tipo": "Seguimiento",
+            "descripcion": "",
+            "fecha": "2026-04-27",
+            "hora": "10:23",
+            "completada": false,
+            "creadaEn": "2026-04-23"
+          }
+        ]
+      },
+      {
+        "nombre": "JORGE ZARAGOZA ALANIZ",
+        "empresa": "ACOR",
+        "telefono": "",
+        "email": "",
+        "pipeline": "Prospecto",
+        "nota": "Asignado manualmente — 23/4/2026"
+      }
+    ],
+    "devFeedback": [],
+    "lastContact": "2026-04-23"
+  },
+  "Gen_05-r138": {
+    "pipeline": "Prospecto",
+    "interacciones": [
+      {
+        "fecha": "2026-04-15",
+        "canal": "Llamada",
+        "contacto": "",
+        "reaccion": "Interesado",
+        "nota": "le voy a mandar info\n"
+      },
+      {
+        "fecha": "2026-04-15",
+        "canal": "Llamada",
+        "contacto": "",
+        "reaccion": "Interesado",
+        "nota": "le voy a mandar info"
+      }
+    ],
+    "prospectos": [
+      {
+        "nombre": "L Garza",
+        "empresa": "La Comer",
+        "telefono": "",
+        "email": "",
+        "nota": "Asignado manualmente — 15/4/2026",
+        "pipeline": "Prospecto",
+        "temperatura": "Frío"
+      },
+      {
+        "nombre": "JORGE ZARAGOZA ALANIZ",
+        "empresa": "ACOR",
+        "telefono": "",
+        "email": "",
+        "pipeline": "Prospecto",
+        "nota": "Asignado manualmente — 23/4/2026"
+      }
+    ],
+    "devFeedback": [],
+    "lastContact": "2026-04-23"
+  },
+  "KU-027-r139": {
+    "pipeline": "En negociación",
+    "interacciones": [],
+    "prospectos": [
+      {
+        "nombre": "GO MART",
+        "empresa": "GO MART",
+        "telefono": "",
+        "email": "",
+        "pipeline": "En negociación",
+        "nota": "Asignado manualmente — 23/4/2026",
+        "actividades": [
+          {
+            "id": "act-1776953753002-auto",
+            "tipo": "Visita al terreno",
+            "descripcion": "Agendar visita al terreno",
+            "fecha": "2026-04-28",
+            "hora": "",
+            "completada": false,
+            "creadaEn": "2026-04-23",
+            "autoGenerada": true
+          }
+        ]
+      }
+    ],
+    "devFeedback": [],
+    "lastContact": "2026-04-23"
+  },
+  "KU-028-r140": {
+    "pipeline": "En negociación",
+    "interacciones": [],
+    "prospectos": [
+      {
+        "nombre": "GO MART",
+        "empresa": "GO MART",
+        "telefono": "",
+        "email": "",
+        "pipeline": "En negociación",
+        "nota": "Asignado manualmente — 23/4/2026",
+        "actividades": [
+          {
+            "id": "act-1776953759035-auto",
+            "tipo": "Visita al terreno",
+            "descripcion": "Agendar visita al terreno",
+            "fecha": "2026-04-28",
+            "hora": "",
+            "completada": false,
+            "creadaEn": "2026-04-23",
+            "autoGenerada": true
+          }
+        ]
+      }
+    ],
+    "devFeedback": [],
+    "lastContact": "2026-04-23"
+  },
+  "ML_002-r40": {
+    "pipeline": "En negociación",
+    "interacciones": [],
+    "prospectos": [
+      {
+        "nombre": "JORGE ZARAGOZA",
+        "empresa": "",
+        "telefono": "",
+        "email": "",
+        "pipeline": "En negociación",
+        "nota": "Asignado manualmente — 23/4/2026",
+        "actividades": [
+          {
+            "id": "act-1776954323669-auto",
+            "tipo": "Visita al terreno",
+            "descripcion": "Agendar visita al terreno",
+            "fecha": "2026-04-28",
+            "hora": "",
+            "completada": false,
+            "creadaEn": "2026-04-23",
+            "autoGenerada": true
+          }
+        ]
+      }
+    ],
+    "devFeedback": [],
+    "lastContact": "2026-04-23"
+  },
+  "ML_068-r49": {
+    "pipeline": "Prospecto",
+    "interacciones": [],
+    "prospectos": [],
+    "devFeedback": [],
+    "seguimientoAsesor": {
+      "asesor": "PATRICIA SANCHEZ",
+      "pipeline": "Prospecto",
+      "temperatura": "Tibio",
+      "notas": "ME SOLICITO TERRENO COMERCIAL",
+      "fechaInicio": "2026-04-23",
+      "actividades": [],
+      "interacciones": []
+    }
+  }
+}
