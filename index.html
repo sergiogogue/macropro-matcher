@@ -389,12 +389,117 @@ async function contarEnSupabase(tabla) {
   }
 }
 
+// Descargar todo desde Supabase al localStorage (para sincronizar dispositivos)
+async function descargarDeSupabase(onProgress) {
+  const ok = await waitForSupabase();
+  if (!ok) return { success: false, message: 'Supabase no disponible' };
+
+  try {
+    // 1. Descargar lotes
+    if (onProgress) onProgress({ step: 'lotes', status: 'Descargando inventario...' });
+    const { data: lotesDb, error: errLotes } = await sb.from('lotes').select('*');
+    if (errLotes) return { success: false, message: 'Error lotes: ' + errLotes.message };
+
+    // Convertir lotes de Supabase al formato del localStorage
+    const lotesLocal = (lotesDb || []).map(l => ({
+      id: l.id_macrolote || l.clave_unica || l.id,
+      clave_unica: l.clave_unica,
+      id_macrolote: l.id_macrolote,
+      nombre: l.nombre,
+      desarrollo: l.desarrollo,
+      desarrollador: l.desarrollador,
+      ciudad: l.ciudad,
+      estado: l.estado,
+      sup_m2: l.sup_m2,
+      precio_m2: l.precio_m2,
+      precio_total: l.precio_total,
+      precio_pendiente: l.precio_pendiente,
+      uso: l.uso,
+      usos_todos: l.usos_todos || [],
+      status_inventario: l.status_inventario,
+      fecha_ingreso: l.fecha_ingreso,
+      descripcion: l.descripcion,
+      latitud: l.latitud,
+      longitud: l.longitud,
+    }));
+    localStorage.setItem('macropro_inventory_v1', JSON.stringify(lotesLocal));
+
+    // 2. Descargar clientes
+    if (onProgress) onProgress({ step: 'clientes', status: 'Descargando clientes...' });
+    const { data: clientesDb, error: errClientes } = await sb.from('clientes').select('*');
+    if (errClientes) return { success: false, message: 'Error clientes: ' + errClientes.message };
+
+    const clientesLocal = (clientesDb || []).map(c => ({
+      id: c.id,
+      nombre: c.nombre,
+      empresa: c.empresa,
+      asesor: c.asesor,
+      email: c.email,
+      telefono: c.telefono,
+      tipo_comprador: c.tipo_comprador,
+      ciudad_interes: c.ciudad_interes || [],
+      uso_interes: c.uso_interes || [],
+      presupuesto_min: c.presupuesto_min,
+      presupuesto_max: c.presupuesto_max,
+      precio_max_m2: c.precio_max_m2,
+      sup_min: c.sup_min,
+      sup_max: c.sup_max,
+      plazo_cierre: c.plazo_cierre,
+      temperatura: c.temperatura,
+      status: c.status,
+      notas: c.notas,
+      deal_breakers: c.deal_breakers || [],
+    }));
+    localStorage.setItem('macropro_clients_v1', JSON.stringify(clientesLocal));
+
+    // 3. Descargar CRM (crm_lotes)
+    if (onProgress) onProgress({ step: 'crm', status: 'Descargando CRM...' });
+    const { data: crmDb, error: errCrm } = await sb.from('crm_lotes').select('*');
+    if (errCrm) return { success: false, message: 'Error CRM: ' + errCrm.message };
+
+    // Reconstruir crmData indexado por ID local del lote (mismo formato que usa la app)
+    // Para eso, mapear lote_id (UUID Supabase) de vuelta al id local
+    const idSbToLocal = {};
+    (lotesDb || []).forEach(l => {
+      idSbToLocal[l.id] = l.id_macrolote || l.clave_unica;
+    });
+
+    const crmLocal = {};
+    (crmDb || []).forEach(c => {
+      const localId = idSbToLocal[c.lote_id];
+      if (!localId) return;
+      crmLocal[localId] = {
+        pipeline: c.pipeline || 'Prospecto',
+        asesorResponsable: c.asesor_asignado || null,
+        prospectos: c.prospectos || [],
+        interacciones: c.interacciones || [],
+        devFeedback: c.dev_feedback || [],
+        seguimientosAsesor: c.seguimientos_asesor || [],
+      };
+    });
+    localStorage.setItem('macropro_crm_v1', JSON.stringify(crmLocal));
+
+    return {
+      success: true,
+      counts: {
+        lotes: lotesLocal.length,
+        clientes: clientesLocal.length,
+        crm: Object.keys(crmLocal).length,
+      },
+      message: 'Descarga completa. Recarga la página para ver los datos.',
+    };
+  } catch (err) {
+    return { success: false, message: 'Error: ' + (err.message || err) };
+  }
+}
+
 // Exponer helpers globalmente para uso en consola/debug
 if (typeof window !== 'undefined') {
   window.sbHelpers = {
     migrarLotes: migrarLotesASupabase,
     migrarClientes: migrarClientesASupabase,
     migrarCRM: migrarCRMASupabase,
+    descargar: descargarDeSupabase,
     contar: contarEnSupabase,
     loteKey: loteKey
   };
@@ -5623,9 +5728,51 @@ function MacroProMatcher() {
           </div>
 
           {/* Info box */}
-          <div style={{background:"#fef3c7", borderRadius:9, padding:"10px 14px", marginBottom:18, fontSize:11, color:"#92400e", lineHeight:1.5}}>
+          <div style={{background:"#fef3c7", borderRadius:9, padding:"10px 14px", marginBottom:12, fontSize:11, color:"#92400e", lineHeight:1.5}}>
             💡 <strong>Primera vez:</strong> ejecuta primero el SQL de <code>supabase_schema_v2.sql</code> en Supabase Dashboard → SQL Editor.
           </div>
+
+          {/* Separador visual */}
+          <div style={{textAlign:"center",fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,margin:"14px 0 10px"}}>
+            — Sincronizar otro dispositivo —
+          </div>
+
+          {/* Botón Descargar */}
+          <button
+            onClick={async ()=>{
+              if(running) return;
+              const confirm=window.confirm("⬇️ DESCARGAR DE LA NUBE\n\nEsto reemplazará los datos locales de este dispositivo con los datos de Supabase.\n\nÚtil para sincronizar un nuevo dispositivo (ej. iPhone) con los datos actuales.\n\n¿Continuar?");
+              if(!confirm) return;
+              setRunning(true);
+              try{
+                const result=await descargarDeSupabase();
+                setRunning(false);
+                if(result.success){
+                  toast(`✅ Descargado: ${result.counts.lotes} lotes, ${result.counts.clientes} clientes, ${result.counts.crm} CRM. Recargando...`);
+                  setTimeout(()=>window.location.reload(),1500);
+                }else{
+                  toast("⚠ "+result.message);
+                }
+              }catch(err){
+                setRunning(false);
+                toast("⚠ Error: "+err.message);
+              }
+            }}
+            disabled={running || !sb}
+            style={{
+              width:"100%",padding:"12px",
+              background: (running||!sb) ? B.grey1 : "#ecfdf5",
+              color: (running||!sb) ? B.grey3 : "#065f46",
+              border:"1.5px solid "+((running||!sb)?B.grey2:"#10b981"),
+              borderRadius:9,
+              cursor:(running||!sb)?"not-allowed":"pointer",
+              fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif",
+              marginBottom:14
+            }}
+            title="Descarga lotes, clientes y CRM desde Supabase al localStorage de este dispositivo"
+          >
+            ⬇️ Descargar de la nube a este dispositivo
+          </button>
 
           {/* Cerrar */}
           <button
