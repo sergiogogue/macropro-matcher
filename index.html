@@ -326,7 +326,7 @@ async function migrarCRMASupabase(crmData, onProgress) {
     // El CRM usa el "ID" del lote como clave (ej: "KU-17-r119")
     // Necesitamos reconstruir la clave_unica real a partir del lote
     // Buscamos en el inventario el lote correspondiente
-    const lotesInv = JSON.parse(localStorage.getItem('macropro_inventario') || '[]');
+    const lotesInv = JSON.parse(localStorage.getItem('macropro_inventory_v1') || '[]');
     const loteInv = lotesInv.find(l => l.id === loteClaveOriginal || loteKey(l) === loteClaveOriginal);
     if (!loteInv) {
       skippedKeys.push(loteClaveOriginal);
