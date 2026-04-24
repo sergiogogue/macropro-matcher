@@ -149,6 +149,258 @@ if (!sb) {
   }, 300);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// SUPABASE HELPERS — Funciones utilitarias para migración
+// Todas retornan { success: bool, count: num, errors: [], message: str }
+// ═══════════════════════════════════════════════════════════════════
+
+// Espera hasta que el cliente Supabase esté listo (o timeout)
+async function waitForSupabase(timeoutMs = 10000) {
+  const start = Date.now();
+  while (!sb && (Date.now() - start) < timeoutMs) {
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return !!sb;
+}
+
+// Genera clave única para un lote: ID Macrolote limpio (sin sufijo -rN interno)
+function loteKey(lote) {
+  // El ID interno tiene formato "ML_001-r5" — quitamos el "-rN"
+  const idRaw = (lote.id || lote.id_macrolote || "").toString().trim();
+  const idLimpio = idRaw.replace(/-r\d+$/, '').trim();
+  if (idLimpio) return idLimpio.toLowerCase().replace(/\s+/g, '_');
+  // Fallback: nombre+desarrollo
+  const nombre = (lote.nombre_lote || lote.nombre || "").toString().trim();
+  const desarrollo = (lote.desarrollo || "").toString().trim();
+  return `${nombre}__${desarrollo}`.toLowerCase().replace(/\s+/g, '_');
+}
+
+// Transforma un lote del localStorage al formato de la tabla Supabase 'lotes'
+function loteToSupabase(lote) {
+  const nombre = (lote.nombre_lote || lote.nombre || "").toString().trim();
+  const desarrollo = (lote.desarrollo || "").toString().trim();
+  const idRaw = (lote.id || lote.id_macrolote || "").toString().trim();
+  const idLimpio = idRaw.replace(/-r\d+$/, '').trim();
+  // precio_total = null si es 0 o no viene (acordado: lotes sin precio visibles con flag)
+  const precioTotalRaw = Number(lote.precio_total);
+  const precioM2Raw = Number(lote.precio_m2);
+  const precioTotal = (precioTotalRaw > 0) ? precioTotalRaw : null;
+  const precioM2 = (precioM2Raw > 0) ? precioM2Raw : null;
+  return {
+    clave_unica: loteKey(lote),
+    id_macrolote: idLimpio || null,
+    nombre: nombre,
+    desarrollo: desarrollo || null,
+    desarrollador: lote.desarrollador || null,
+    ciudad: lote.ciudad || null,
+    estado: lote.estado || null,
+    sup_m2: Number(lote.sup_m2) || null,
+    precio_m2: precioM2,
+    precio_total: precioTotal,
+    precio_pendiente: (precioTotal === null),  // flag para UI
+    uso: lote.uso || null,
+    usos_todos: Array.isArray(lote.usos_todos) ? lote.usos_todos : (lote.uso ? [lote.uso] : []),
+    status_inventario: lote.status || lote.status_inventario || 'Disponible',
+    fecha_ingreso: lote.fecha_ingreso || null  // null permitido (acordado)
+  };
+}
+
+// Transforma un cliente del localStorage al formato de la tabla Supabase 'clientes'
+function clienteToSupabase(cliente) {
+  const email = (cliente.email || "").toString().trim().toLowerCase();
+  if (!email) return null; // Sin email no se puede migrar (clave única acordada)
+  return {
+    email: email,
+    id_cliente: (cliente.id || cliente.id_cliente || "").toString().trim() || null,
+    nombre: cliente.nombre || null,
+    empresa: cliente.empresa || null,
+    telefono: cliente.telefono ? cliente.telefono.toString() : null,
+    asesor: cliente.asesor || null,
+    tipo_comprador: cliente.tipo_comprador || null,
+    ciudad_interes: Array.isArray(cliente.ciudad_interes) ? cliente.ciudad_interes : [],
+    uso_interes: Array.isArray(cliente.uso_interes) ? cliente.uso_interes : [],
+    presupuesto_min: Number(cliente.presupuesto_min) || null,
+    presupuesto_max: Number(cliente.presupuesto_max) || null,
+    sup_min: Number(cliente.sup_min) || null,
+    sup_max: Number(cliente.sup_max) || null,
+    temperatura: cliente.temperatura || null,
+    status: cliente.status || null,
+    plazo_cierre: cliente.plazo_cierre || null,
+    deal_breakers: Array.isArray(cliente.deal_breakers) ? cliente.deal_breakers : [],
+    activo: cliente.activo !== false
+  };
+}
+
+// Subir lotes en lotes (batch) a Supabase — upsert por clave_unica
+async function migrarLotesASupabase(lotes, onProgress) {
+  const ok = await waitForSupabase();
+  if (!ok) return { success: false, count: 0, errors: ['Supabase no disponible'], message: 'Timeout esperando Supabase' };
+  
+  const BATCH_SIZE = 50;
+  // Filtrar: requerimos nombre y clave_unica válida (desarrollo puede venir vacío)
+  const rows = lotes.map(loteToSupabase).filter(r => r.nombre && r.clave_unica && r.clave_unica.length > 1);
+  const skipped = lotes.length - rows.length;
+  let uploaded = 0;
+  const errors = [];
+  
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
+    try {
+      const { data, error } = await sb.from('lotes').upsert(batch, { onConflict: 'clave_unica' }).select('id');
+      if (error) {
+        errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${error.message}`);
+      } else {
+        uploaded += (data?.length || batch.length);
+      }
+    } catch (err) {
+      errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${err.message}`);
+    }
+    if (onProgress) onProgress(uploaded, rows.length);
+  }
+  
+  return {
+    success: errors.length === 0,
+    count: uploaded,
+    skipped: skipped,
+    errors: errors,
+    message: errors.length === 0
+      ? `✓ ${uploaded} lotes migrados${skipped ? ` (${skipped} omitidos por datos incompletos)` : ''}`
+      : `⚠ ${uploaded}/${rows.length} migrados. ${errors.length} errores.`
+  };
+}
+
+// Subir clientes en batch a Supabase — upsert por email
+async function migrarClientesASupabase(clientes, onProgress) {
+  const ok = await waitForSupabase();
+  if (!ok) return { success: false, count: 0, errors: ['Supabase no disponible'], message: 'Timeout esperando Supabase' };
+  
+  const BATCH_SIZE = 50;
+  const rows = clientes.map(clienteToSupabase).filter(r => r !== null);
+  const skipped = clientes.length - rows.length;
+  let uploaded = 0;
+  const errors = [];
+  
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
+    try {
+      const { data, error } = await sb.from('clientes').upsert(batch, { onConflict: 'email' }).select('id');
+      if (error) {
+        errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${error.message}`);
+      } else {
+        uploaded += (data?.length || batch.length);
+      }
+    } catch (err) {
+      errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${err.message}`);
+    }
+    if (onProgress) onProgress(uploaded, rows.length);
+  }
+  
+  return {
+    success: errors.length === 0,
+    count: uploaded,
+    skipped: skipped,
+    errors: errors,
+    message: errors.length === 0
+      ? `✓ ${uploaded} clientes migrados${skipped ? ` (${skipped} omitidos — sin email)` : ''}`
+      : `⚠ ${uploaded}/${rows.length} migrados. ${errors.length} errores.`
+  };
+}
+
+// Migrar CRM (seguimientos por lote) a tabla crm_lotes
+// Requiere que los lotes ya estén migrados para obtener sus IDs
+async function migrarCRMASupabase(crmData, onProgress) {
+  const ok = await waitForSupabase();
+  if (!ok) return { success: false, count: 0, errors: ['Supabase no disponible'], message: 'Timeout esperando Supabase' };
+  
+  // 1. Traer todos los lotes de Supabase para mapear clave_unica -> id
+  const { data: lotesDb, error: errLotes } = await sb.from('lotes').select('id, clave_unica');
+  if (errLotes) return { success: false, count: 0, errors: [errLotes.message], message: 'Error leyendo lotes de Supabase' };
+  
+  const claveToId = {};
+  lotesDb.forEach(l => { claveToId[l.clave_unica] = l.id; });
+  
+  // 2. Construir filas crm_lotes
+  const rows = [];
+  const skippedKeys = [];
+  Object.entries(crmData || {}).forEach(([loteClaveOriginal, info]) => {
+    // El CRM usa el "ID" del lote como clave (ej: "KU-17-r119")
+    // Necesitamos reconstruir la clave_unica real a partir del lote
+    // Buscamos en el inventario el lote correspondiente
+    const lotesInv = JSON.parse(localStorage.getItem('macropro_inventario') || '[]');
+    const loteInv = lotesInv.find(l => l.id === loteClaveOriginal || loteKey(l) === loteClaveOriginal);
+    if (!loteInv) {
+      skippedKeys.push(loteClaveOriginal);
+      return;
+    }
+    const clave = loteKey(loteInv);
+    const loteId = claveToId[clave];
+    if (!loteId) {
+      skippedKeys.push(loteClaveOriginal);
+      return;
+    }
+    rows.push({
+      lote_id: loteId,
+      pipeline: info.pipeline || 'Prospecto',
+      asesor_asignado: info.asesorResponsable || null,
+      prospectos: info.prospectos || [],
+      interacciones: info.interacciones || [],
+      dev_feedback: info.devFeedback || [],
+      seguimientos_asesor: info.seguimientosAsesor || []
+    });
+  });
+  
+  // 3. Upsert en batches
+  const BATCH_SIZE = 25; // menor porque tienen JSONB pesado
+  let uploaded = 0;
+  const errors = [];
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
+    try {
+      const { data, error } = await sb.from('crm_lotes').upsert(batch, { onConflict: 'lote_id' }).select('lote_id');
+      if (error) errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${error.message}`);
+      else uploaded += (data?.length || batch.length);
+    } catch (err) {
+      errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${err.message}`);
+    }
+    if (onProgress) onProgress(uploaded, rows.length);
+  }
+  
+  return {
+    success: errors.length === 0,
+    count: uploaded,
+    skipped: skippedKeys.length,
+    errors: errors,
+    message: errors.length === 0
+      ? `✓ ${uploaded} seguimientos CRM migrados${skippedKeys.length ? ` (${skippedKeys.length} omitidos — lote no encontrado en nube)` : ''}`
+      : `⚠ ${uploaded}/${rows.length} migrados. ${errors.length} errores.`
+  };
+}
+
+// Contar registros en una tabla (para verificar migración)
+async function contarEnSupabase(tabla) {
+  const ok = await waitForSupabase();
+  if (!ok) return { count: 0, error: 'Supabase no disponible' };
+  try {
+    const { count, error } = await sb.from(tabla).select('*', { count: 'exact', head: true });
+    if (error) return { count: 0, error: error.message };
+    return { count: count || 0, error: null };
+  } catch (err) {
+    return { count: 0, error: err.message };
+  }
+}
+
+// Exponer helpers globalmente para uso en consola/debug
+if (typeof window !== 'undefined') {
+  window.sbHelpers = {
+    migrarLotes: migrarLotesASupabase,
+    migrarClientes: migrarClientesASupabase,
+    migrarCRM: migrarCRMASupabase,
+    contar: contarEnSupabase,
+    loteKey: loteKey
+  };
+}
+
+
 // ─── BRAND TOKENS ─────────────────────────────────────────────────
 const B = {
   navy:"#002B49", navyD:"#001a2e", navyL:"#0a3d5c",
@@ -688,6 +940,70 @@ function MacroProMatcher() {
     };
     r.readAsText(file);
   };
+
+  // ═══════════════════════════════════════════════════════════════
+  // HANDLERS DE MIGRACIÓN A SUPABASE
+  // ═══════════════════════════════════════════════════════════════
+  const runMigrationLotes = async () => {
+    setMigrateState(s => ({ ...s, running: true, stage: 'lotes', progress: { current: 0, total: inventory.length }, error: null }));
+    try {
+      const result = await window.sbHelpers.migrarLotes(inventory, (cur, tot) => {
+        setMigrateState(s => ({ ...s, progress: { current: cur, total: tot } }));
+      });
+      setMigrateState(s => ({ ...s, running: false, stage: null, results: { ...(s.results || {}), lotes: result } }));
+      toast(result.message);
+      return result;
+    } catch(err) {
+      setMigrateState(s => ({ ...s, running: false, stage: null, error: err.message }));
+      toast("❌ Error migrando lotes: " + err.message);
+      return { success: false };
+    }
+  };
+
+  const runMigrationClientes = async () => {
+    setMigrateState(s => ({ ...s, running: true, stage: 'clientes', progress: { current: 0, total: clients.length }, error: null }));
+    try {
+      const result = await window.sbHelpers.migrarClientes(clients, (cur, tot) => {
+        setMigrateState(s => ({ ...s, progress: { current: cur, total: tot } }));
+      });
+      setMigrateState(s => ({ ...s, running: false, stage: null, results: { ...(s.results || {}), clientes: result } }));
+      toast(result.message);
+      return result;
+    } catch(err) {
+      setMigrateState(s => ({ ...s, running: false, stage: null, error: err.message }));
+      toast("❌ Error migrando clientes: " + err.message);
+      return { success: false };
+    }
+  };
+
+  const runMigrationCRM = async () => {
+    const totalCRM = Object.keys(crmData || {}).length;
+    setMigrateState(s => ({ ...s, running: true, stage: 'crm', progress: { current: 0, total: totalCRM }, error: null }));
+    try {
+      const result = await window.sbHelpers.migrarCRM(crmData, (cur, tot) => {
+        setMigrateState(s => ({ ...s, progress: { current: cur, total: tot } }));
+      });
+      setMigrateState(s => ({ ...s, running: false, stage: null, results: { ...(s.results || {}), crm: result } }));
+      toast(result.message);
+      return result;
+    } catch(err) {
+      setMigrateState(s => ({ ...s, running: false, stage: null, error: err.message }));
+      toast("❌ Error migrando CRM: " + err.message);
+      return { success: false };
+    }
+  };
+
+  const runMigrationTodo = async () => {
+    // Orden obligatorio: lotes → clientes → crm (CRM depende de lotes existiendo)
+    setMigrateState(s => ({ ...s, results: null, error: null }));
+    const r1 = await runMigrationLotes();
+    if (!r1.success) return;
+    const r2 = await runMigrationClientes();
+    if (!r2.success) return;
+    const r3 = await runMigrationCRM();
+    if (!r3.success) return;
+    toast("🎉 Migración completa: " + r1.count + " lotes, " + r2.count + " clientes, " + r3.count + " seguimientos CRM");
+  };
   // ── Semáforo de tiempo en inventario ────────────────────────
   const INV_SEMAFORO=[
     {max:30,   label:"Nuevo",       col:"#22c55e", bg:"#dcfce7", icon:"🟢"},
@@ -724,6 +1040,15 @@ function MacroProMatcher() {
   const [showApiModal, setShowApiModal] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [apiKey, setApiKey] = useState(()=>localStorage.getItem("macropro_api_key")||"");
+  // ═ Modal de migración a Supabase ═
+  const [showMigrateModal, setShowMigrateModal] = useState(false);
+  const [migrateState, setMigrateState] = useState({
+    running: false,       // ¿Está corriendo una migración?
+    stage: null,          // 'lotes' | 'clientes' | 'crm' | null
+    progress: { current: 0, total: 0 },
+    results: null,        // { lotes: {...}, clientes: {...}, crm: {...} }
+    error: null
+  });
   const [selectedLotDetail, setSelectedLotDetail] = useState(null);
   const [quickSearchResults, setQuickSearchResults] = useState([]);
   const [quickSearchDone, setQuickSearchDone] = useState(false);
@@ -4405,6 +4730,7 @@ function MacroProMatcher() {
             <label style={{padding:"8px 13px",background:B.offW,color:B.grey4,border:"1px solid "+B.grey1,borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",gap:4,fontFamily:"'DM Sans',sans-serif"}}>
               ⬆ Importar<input type="file" accept=".json" onChange={importCRMJson} style={{display:"none"}}/>
             </label>
+            <button onClick={()=>setShowMigrateModal(true)} style={{padding:"8px 13px",background:"linear-gradient(135deg,#3b82f6,#1d4ed8)",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 8px rgba(59,130,246,0.3)"}} title="Subir inventario, clientes y CRM a Supabase (nube)">☁️ Migrar a nube</button>
           </div>
         </div>
 
@@ -5163,6 +5489,143 @@ function MacroProMatcher() {
   );
 
 
+  // ─── MODAL MIGRACIÓN A SUPABASE ───────────────────────────────────
+  const ModalMigrate = () => {
+    if(!showMigrateModal) return null;
+    const { running, stage, progress, results, error } = migrateState;
+    const stageLabel = { lotes: "Inventario", clientes: "Clientes", crm: "CRM (seguimientos)" };
+    const pct = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+    const totalLotes = inventory.length;
+    const totalClientes = clients.length;
+    const totalCRM = Object.keys(crmData || {}).length;
+
+    return (
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:560,boxShadow:"0 25px 60px rgba(0,43,73,0.45)",maxHeight:"90vh",overflowY:"auto"}}>
+          {/* Header */}
+          <div style={{textAlign:"center",marginBottom:22}}>
+            <div style={{fontSize:38,marginBottom:8}}>☁️</div>
+            <div style={{fontSize:21,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif",marginBottom:6}}>Migrar a la nube</div>
+            <div style={{fontSize:13,color:B.grey4,lineHeight:1.5}}>Sube tus datos de MacroPro a Supabase para sincronizar entre Mac e iPhone</div>
+          </div>
+
+          {/* Status de conexión */}
+          <div style={{background: sb ? "#dcfce7" : "#fee2e2", borderRadius:9, padding:"10px 14px", marginBottom:18, fontSize:12, color: sb ? "#166534" : "#991b1b", display:"flex", alignItems:"center", gap:8}}>
+            <span style={{fontSize:16}}>{sb ? "✅" : "⚠️"}</span>
+            <span style={{fontWeight:600}}>{sb ? "Conectado a Supabase" : "Sin conexión — espera unos segundos y recarga"}</span>
+          </div>
+
+          {/* Resumen de datos locales */}
+          <div style={{background:B.offW, borderRadius:10, padding:14, marginBottom:18, border:"1px solid "+B.grey1}}>
+            <div style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Datos a migrar</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:22,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{totalLotes}</div>
+                <div style={{fontSize:10,color:B.grey4}}>📦 Lotes</div>
+              </div>
+              <div style={{textAlign:"center",borderLeft:"1px solid "+B.grey1,borderRight:"1px solid "+B.grey1}}>
+                <div style={{fontSize:22,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{totalClientes}</div>
+                <div style={{fontSize:10,color:B.grey4}}>👥 Clientes</div>
+              </div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:22,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{totalCRM}</div>
+                <div style={{fontSize:10,color:B.grey4}}>📊 Seguimientos CRM</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Barra de progreso (solo si running) */}
+          {running && (
+            <div style={{marginBottom:18}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:B.grey4,marginBottom:6}}>
+                <span style={{fontWeight:600}}>Migrando {stageLabel[stage] || stage}...</span>
+                <span>{progress.current} / {progress.total} ({pct}%)</span>
+              </div>
+              <div style={{height:8,background:B.grey1,borderRadius:4,overflow:"hidden"}}>
+                <div style={{height:"100%",width:pct+"%",background:"linear-gradient(90deg,#3b82f6,#1d4ed8)",transition:"width 300ms ease"}}/>
+              </div>
+            </div>
+          )}
+
+          {/* Resultados (si hay) */}
+          {results && !running && (
+            <div style={{marginBottom:18, background:"#f0f9ff", borderRadius:10, padding:14, border:"1px solid #bae6fd"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#075985",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Resultados</div>
+              {results.lotes && (
+                <div style={{fontSize:12,color:results.lotes.success?"#166534":"#991b1b",marginBottom:4}}>
+                  {results.lotes.success ? "✓" : "⚠"} Lotes: {results.lotes.message}
+                </div>
+              )}
+              {results.clientes && (
+                <div style={{fontSize:12,color:results.clientes.success?"#166534":"#991b1b",marginBottom:4}}>
+                  {results.clientes.success ? "✓" : "⚠"} Clientes: {results.clientes.message}
+                </div>
+              )}
+              {results.crm && (
+                <div style={{fontSize:12,color:results.crm.success?"#166534":"#991b1b"}}>
+                  {results.crm.success ? "✓" : "⚠"} CRM: {results.crm.message}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Error general */}
+          {error && (
+            <div style={{background:"#fee2e2", borderRadius:9, padding:"10px 14px", marginBottom:18, fontSize:12, color:"#991b1b"}}>
+              ❌ Error: {error}
+            </div>
+          )}
+
+          {/* Botón principal: Migrar TODO */}
+          <button
+            onClick={runMigrationTodo}
+            disabled={running || !sb}
+            style={{
+              width:"100%",padding:"14px",
+              background: (running||!sb) ? B.grey2 : "linear-gradient(135deg,#3b82f6,#1d4ed8)",
+              color:"#fff",border:"none",borderRadius:10,
+              cursor:(running||!sb)?"not-allowed":"pointer",
+              fontSize:15,fontWeight:800,fontFamily:"'DM Sans',sans-serif",marginBottom:12,
+              boxShadow:(running||!sb)?"none":"0 4px 14px rgba(59,130,246,0.35)"
+            }}
+          >
+            {running ? "⏳ Migrando..." : "☁️ Migrar TODO a la nube"}
+          </button>
+
+          {/* Botones granulares */}
+          <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:8,textAlign:"center"}}>
+            — o migrar por partes —
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:18}}>
+            <button onClick={runMigrationLotes} disabled={running || !sb} style={{padding:"10px",background:(running||!sb)?B.grey1:"#fff",color:B.navy,border:"1.5px solid "+B.navy,borderRadius:9,cursor:(running||!sb)?"not-allowed":"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",opacity:(running||!sb)?0.5:1}}>
+              📦 Solo Lotes
+            </button>
+            <button onClick={runMigrationClientes} disabled={running || !sb} style={{padding:"10px",background:(running||!sb)?B.grey1:"#fff",color:B.navy,border:"1.5px solid "+B.navy,borderRadius:9,cursor:(running||!sb)?"not-allowed":"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",opacity:(running||!sb)?0.5:1}}>
+              👥 Solo Clientes
+            </button>
+            <button onClick={runMigrationCRM} disabled={running || !sb} style={{padding:"10px",background:(running||!sb)?B.grey1:"#fff",color:B.navy,border:"1.5px solid "+B.navy,borderRadius:9,cursor:(running||!sb)?"not-allowed":"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",opacity:(running||!sb)?0.5:1}}>
+              📊 Solo CRM
+            </button>
+          </div>
+
+          {/* Info box */}
+          <div style={{background:"#fef3c7", borderRadius:9, padding:"10px 14px", marginBottom:18, fontSize:11, color:"#92400e", lineHeight:1.5}}>
+            💡 <strong>Primera vez:</strong> ejecuta primero el SQL de <code>supabase_schema_v2.sql</code> en Supabase Dashboard → SQL Editor.
+          </div>
+
+          {/* Cerrar */}
+          <button
+            onClick={()=>setShowMigrateModal(false)}
+            disabled={running}
+            style={{width:"100%",padding:"10px",background:"transparent",color:B.grey3,border:"1px solid "+B.grey1,borderRadius:9,cursor:running?"not-allowed":"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",opacity:running?0.5:1}}
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // ─── MODAL API KEY ────────────────────────────────────────────────
   const ModalApiKey = () => {
     if(!showApiModal) return null;
@@ -5259,6 +5722,7 @@ function MacroProMatcher() {
       {view==="clients"&&<ViewClients/>}
       {view==="lots"&&<ViewLots/>}
       <ModalApiKey/>
+      <ModalMigrate/>
       {showAddClient&&<ModalAddClient/>}
       {selectedLotDetail&&<ModalFichaTecnica lot={selectedLotDetail} onClose={()=>setSelectedLotDetail(null)}/>}
       {/* Modal rápido: Asignar asesor a lote desde cualquier vista */}
