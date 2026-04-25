@@ -240,6 +240,31 @@ async function migrarLotesASupabase(lotes, onProgress) {
   // Filtrar: requerimos nombre y clave_unica válida (desarrollo puede venir vacío)
   const rows = lotes.map(loteToSupabase).filter(r => r.nombre && r.clave_unica && r.clave_unica.length > 1);
   const skipped = lotes.length - rows.length;
+  
+  // DEDUPLICACIÓN DEFENSIVA: si hay 2+ lotes con misma clave_unica,
+  // agregar sufijo del id_macrolote completo para diferenciarlos
+  const claveCount = {};
+  rows.forEach(r => { claveCount[r.clave_unica] = (claveCount[r.clave_unica] || 0) + 1; });
+  const claveYaUsada = {};
+  let dedupCount = 0;
+  rows.forEach(r => {
+    if (claveCount[r.clave_unica] > 1) {
+      // Usar id_macrolote completo (con -rN) como diferenciador
+      const idCompleto = (r.id_macrolote || '').toString().trim().toLowerCase().replace(/\s+/g, '_');
+      if (idCompleto && idCompleto !== r.clave_unica) {
+        const claveOriginal = r.clave_unica;
+        r.clave_unica = idCompleto;
+        if (!claveYaUsada[claveOriginal]) {
+          claveYaUsada[claveOriginal] = true;
+          dedupCount++;
+        }
+      }
+    }
+  });
+  if (dedupCount > 0) {
+    console.warn(`⚠ Deduplicación: ${dedupCount} clave(s) duplicada(s) renombradas con id_macrolote completo`);
+  }
+  
   let uploaded = 0;
   const errors = [];
   
@@ -264,7 +289,7 @@ async function migrarLotesASupabase(lotes, onProgress) {
     skipped: skipped,
     errors: errors,
     message: errors.length === 0
-      ? `✓ ${uploaded} lotes migrados${skipped ? ` (${skipped} omitidos por datos incompletos)` : ''}`
+      ? `✓ ${uploaded} lotes migrados${skipped ? ` (${skipped} omitidos por datos incompletos)` : ''}${dedupCount > 0 ? ` (${dedupCount} duplicado renombrado)` : ''}`
       : `⚠ ${uploaded}/${rows.length} migrados. ${errors.length} errores.`
   };
 }
@@ -5743,10 +5768,10 @@ function MacroProMatcher() {
               if(running) return;
               const confirm=window.confirm("⬇️ DESCARGAR DE LA NUBE\n\nEsto reemplazará los datos locales de este dispositivo con los datos de Supabase.\n\nÚtil para sincronizar un nuevo dispositivo (ej. iPhone) con los datos actuales.\n\n¿Continuar?");
               if(!confirm) return;
-              setRunning(true);
+              setMigrateState(s => ({ ...s, running: true, stage: 'download', error: null }));
               try{
                 const result=await descargarDeSupabase();
-                setRunning(false);
+                setMigrateState(s => ({ ...s, running: false, stage: null }));
                 if(result.success){
                   toast(`✅ Descargado: ${result.counts.lotes} lotes, ${result.counts.clientes} clientes, ${result.counts.crm} CRM. Recargando...`);
                   setTimeout(()=>window.location.reload(),1500);
@@ -5754,7 +5779,7 @@ function MacroProMatcher() {
                   toast("⚠ "+result.message);
                 }
               }catch(err){
-                setRunning(false);
+                setMigrateState(s => ({ ...s, running: false, stage: null, error: err.message }));
                 toast("⚠ Error: "+err.message);
               }
             }}
