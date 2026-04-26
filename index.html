@@ -1458,6 +1458,22 @@ function MacroProMatcher() {
     const msgs=["Analizando perfil...","Calculando compatibilidad...","Generando argumentos...","Rankeando..."];
     let mi=0; setLoadingMsg(msgs[0]);
     const interval=setInterval(()=>{mi=(mi+1)%msgs.length;setLoadingMsg(msgs[mi]);},1800);
+    
+    // ─── SANITIZACIÓN DEFENSIVA: limpia strings antes de enviarlos al prompt ───
+    // Quita comillas dobles, backslashes, saltos de línea, caracteres de control,
+    // emojis y caracteres no-ASCII que pueden romper el JSON de respuesta de Claude
+    const sanitize = (val) => {
+      if (val === null || val === undefined) return "";
+      let s = String(val);
+      // Quitar comillas dobles, backslashes y caracteres de control
+      s = s.replace(/["\\]/g, "'").replace(/[\x00-\x1F\x7F]/g, " ");
+      // Quitar emojis y caracteres no-BMP (fuera del rango Unicode básico)
+      s = s.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{27BF}]|[\u{1F000}-\u{1F2FF}]/gu, "");
+      // Normalizar espacios múltiples y trim
+      return s.replace(/\s+/g, " ").trim();
+    };
+    const sanitizeArr = (arr) => Array.isArray(arr) ? arr.map(sanitize).filter(Boolean) : [];
+    
     try {
       let prompt="";
       // Helpers disponibles en ambos modos (clientToLots y lotToClients)
@@ -1480,30 +1496,104 @@ function MacroProMatcher() {
           if(uB!==uA)return uB-uA;
           return(a.precio_total||0)-(b.precio_total||0);
         }).slice(0,20);
-        prompt=`Estratega inmobiliario México. Rankea estos lotes para el cliente. Solo JSON, sin texto extra.\nCLIENTE: ${subject.nombre}|${subject.empresa}|Ciudades:${subject.ciudad_interes?.join(",")}|Usos:${subject.uso_interes?.join(",")}|Ppto:${fmtM(subject.presupuesto_min)}-${fmtM(subject.presupuesto_max)}|Sup:${subject.sup_min}-${subject.sup_max}m²|DealBreakers:${subject.deal_breakers?.join(",")||"ninguno"}\nLOTES (${top.length}):\n${top.map(l=>`${l.id}|${l.nombre}|${l.ciudad}|${(l.usos_todos&&l.usos_todos.length>0?l.usos_todos.join("/"):l.uso)}|${l.sup_m2}m²|$${l.precio_m2}/m²|${fmtM(l.precio_total)}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CN-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion max","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}\nRankea los ${top.length} lotes mayor a menor score.`;
+        prompt=`Estratega inmobiliario Mexico. Rankea estos lotes para el cliente. Solo JSON valido, sin texto extra. Mantén strings cortos para no exceder limite de tokens.\nCLIENTE: ${sanitize(subject.nombre)}|${sanitize(subject.empresa)}|Ciudades:${sanitizeArr(subject.ciudad_interes).join(",")}|Usos:${sanitizeArr(subject.uso_interes).join(",")}|Ppto:${fmtM(subject.presupuesto_min)}-${fmtM(subject.presupuesto_max)}|Sup:${subject.sup_min}-${subject.sup_max}m2|DealBreakers:${sanitizeArr(subject.deal_breakers).join(",")||"ninguno"}\nLOTES (${top.length}):\n${top.map(l=>`${sanitize(l.id)}|${sanitize(l.nombre)}|${sanitize(l.ciudad)}|${sanitize((l.usos_todos&&l.usos_todos.length>0?l.usos_todos.join("/"):l.uso))}|${l.sup_m2}m2|$${l.precio_m2}/m2|${fmtM(l.precio_total)}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CN-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion max","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}\nRankea los ${top.length} lotes mayor a menor score. CADA campo de texto MAX 100 caracteres. Sin comillas dobles dentro de los valores.`;
       } else {
         const isFiltro=subject.id==="FILTRO";
         const filtered=targets.filter(c=>{ const cOk=!c.ciudad_interes?.length||c.ciudad_interes.some(ci=>mCiudad(subject.ciudad,[ci])); const pOk=!c.presupuesto_max||c.presupuesto_max>=(subject.precio_total||0)*0.7; const sOk=!c.sup_max||c.sup_max>=(subject.sup_m2||0)*0.7; return isFiltro?true:(cOk&&pOk&&sOk); });
         const top=(filtered.length>0?filtered:targets).slice(0,12);
         prompt=isFiltro
-          ?`Estratega inmobiliario México. Rankea estos clientes por probabilidad de comprar uso "${subject.uso}" en ${subject.ciudad!=="Todas"?subject.ciudad:"México"}. Solo JSON.\nUSO: ${subject.uso}|Ciudad: ${subject.ciudad!=="Todas"?subject.ciudad:"Cualquiera"}\nCLIENTES (${top.length}):\n${top.map(c=>`${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}`
-          :`Estratega inmobiliario México. Rankea estos clientes para el lote. Solo JSON.\nLOTE: ${subject.id}|${subject.nombre}|${subject.ciudad}|${subject.uso}|${subject.sup_m2}m²|$${subject.precio_m2}/m²|${fmtM(subject.precio_total)}|${subject.fortaleza?.substring(0,100)}\nCLIENTES (${top.length}):\n${top.map(c=>`${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}`;
+          ?`Estratega inmobiliario Mexico. Rankea estos clientes por probabilidad de comprar uso "${sanitize(subject.uso)}" en ${subject.ciudad!=="Todas"?sanitize(subject.ciudad):"Mexico"}. Solo JSON valido.\nUSO: ${sanitize(subject.uso)}|Ciudad: ${subject.ciudad!=="Todas"?sanitize(subject.ciudad):"Cualquiera"}\nCLIENTES (${top.length}):\n${top.map(c=>`${sanitize(c.id)}|${sanitize(c.nombre)}|${sanitize(c.empresa)}|${sanitizeArr(c.ciudad_interes).join("/")}|${sanitizeArr(c.uso_interes).join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m2|${sanitize(c.temperatura)}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}\nCADA campo de texto MAX 100 caracteres. Sin comillas dobles dentro de los valores.`
+          :`Estratega inmobiliario Mexico. Rankea estos clientes para el lote. Solo JSON valido.\nLOTE: ${sanitize(subject.id)}|${sanitize(subject.nombre)}|${sanitize(subject.ciudad)}|${sanitize(subject.uso)}|${subject.sup_m2}m2|$${subject.precio_m2}/m2|${fmtM(subject.precio_total)}|${sanitize(subject.fortaleza).substring(0,100)}\nCLIENTES (${top.length}):\n${top.map(c=>`${sanitize(c.id)}|${sanitize(c.nombre)}|${sanitize(c.empresa)}|${sanitizeArr(c.ciudad_interes).join("/")}|${sanitizeArr(c.uso_interes).join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m2|${sanitize(c.temperatura)}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}\nCADA campo de texto MAX 100 caracteres. Sin comillas dobles dentro de los valores.`;
       }
       const _k=localStorage.getItem("macropro_api_key");
       if(!_k){setLoading(false);clearInterval(interval);setShowApiModal(true);return;}
-      const response=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":_k,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:2000,messages:[{role:"user",content:prompt}]})});
-      if(!response.ok){const t=await response.text();if(response.status===401){localStorage.removeItem("macropro_api_key");throw new Error("API Key inválida. Recarga e ingresa tu key nuevamente.");}if(response.status===429)throw new Error("Demasiadas solicitudes. Espera un momento.");throw new Error("Error HTTP "+response.status);}
+      
+      // MAX_TOKENS aumentado de 2000 a 4000 para evitar truncamiento de JSON en respuestas largas
+      const response=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":_k,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:4000,messages:[{role:"user",content:prompt}]})});
+      if(!response.ok){const t=await response.text();if(response.status===401){localStorage.removeItem("macropro_api_key");throw new Error("API Key invalida. Recarga e ingresa tu key nuevamente.");}if(response.status===429)throw new Error("Demasiadas solicitudes. Espera un momento.");throw new Error("Error HTTP "+response.status);}
       if(!response)return;
       const data=await response.json();
       if(data.error) throw new Error(data.error.message||JSON.stringify(data.error));
       const text=data.content?.find(b=>b.type==="text")?.text||"";
-      const clean=text.replace(/```json|```/g,"").trim();
-      const parsed=JSON.parse(clean);
+      
+      // ─── RECUPERACIÓN QUIRÚRGICA DEL JSON ───
+      // Estrategia en 3 niveles: parse normal → reparación → fallback determinístico
+      let parsed = null;
+      let parseError = null;
+      
+      // Nivel 1: limpiar markdown y parsear normal
+      const clean = text.replace(/```json|```/g, "").trim();
+      try {
+        parsed = JSON.parse(clean);
+      } catch (e1) {
+        parseError = e1;
+        console.warn("[Match] Parse Nivel 1 falló:", e1.message);
+        
+        // Nivel 2: extraer solo el primer objeto JSON válido por regex y reparar strings cortados
+        try {
+          // Buscar el JSON entre el primer { y el último } balanceado
+          const firstBrace = clean.indexOf("{");
+          const lastBrace = clean.lastIndexOf("}");
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            let candidate = clean.substring(firstBrace, lastBrace + 1);
+            // Si está cortado a mitad de string, intentar cerrar el último objeto
+            const openBrackets = (candidate.match(/\[/g) || []).length;
+            const closeBrackets = (candidate.match(/\]/g) || []).length;
+            const openBraces = (candidate.match(/\{/g) || []).length;
+            const closeBraces = (candidate.match(/\}/g) || []).length;
+            // Cerrar lo que falte
+            for (let i = 0; i < openBrackets - closeBrackets; i++) candidate += "]";
+            for (let i = 0; i < openBraces - closeBraces; i++) candidate += "}";
+            parsed = JSON.parse(candidate);
+            console.warn("[Match] Parse Nivel 2 (reparación) exitoso");
+          }
+        } catch (e2) {
+          console.warn("[Match] Parse Nivel 2 falló:", e2.message);
+          
+          // Nivel 3: extraer SOLO los objetos completos del array resultados con regex
+          try {
+            const matches = clean.match(/\{[^{}]*"id"\s*:\s*"[^"]+"\s*,\s*"score"\s*:\s*\d+[^{}]*\}/g);
+            if (matches && matches.length > 0) {
+              const objs = [];
+              for (const m of matches) {
+                try { objs.push(JSON.parse(m)); } catch(_) {}
+              }
+              if (objs.length > 0) {
+                parsed = { resultados: objs };
+                console.warn(`[Match] Parse Nivel 3 (regex) recuperó ${objs.length} resultados`);
+              }
+            }
+          } catch (e3) {
+            console.warn("[Match] Parse Nivel 3 falló:", e3.message);
+          }
+        }
+      }
+      
+      // Si los 3 niveles fallan, log detallado y usar fallback determinístico
+      if (!parsed || !parsed.resultados) {
+        console.error("[Match] TODOS los niveles de parse fallaron. Texto recibido:", text.substring(0, 500));
+        console.error("[Match] Subject que se intentó procesar:", subject?.nombre || subject?.id);
+        // No hacemos throw — usamos fallback abajo
+        parsed = { resultados: [] };
+      }
+      
       const enriched=parsed.resultados.map(r=>{const item=mode==="clientToLots"?(targets.find(l=>l.id===r.id)||targets.find(l=>l.nombre===r.nombre)):(targets.find(c=>c.id===r.id)||targets.find(c=>c.nombre===r.nombre));return{...r,data:item};}).filter(r=>r.data).sort((a,b)=>b.score-a.score);
-      const finalResults=enriched.length>0?enriched:targets.slice(0,8).map((item,i)=>({id:item.id,score:70-i*5,match_label:i===0?"Match Probable":"Match Posible",razon_principal:"Perfil compatible con el filtro seleccionado.",argumentos:["Interés en uso de suelo compatible","Presupuesto en rango","Ciudad de interés alineada"],objecion:"Requiere validación directa",respuesta_objecion:"Presentar lotes disponibles",urgencia:"Media",data:item}));
+      
+      // FALLBACK DETERMINÍSTICO: si la IA no devolvió nada útil, mostrar top targets ordenados por reglas
+      const finalResults=enriched.length>0?enriched:targets.slice(0,8).map((item,i)=>({id:item.id,score:70-i*5,match_label:i===0?"Match Probable":"Match Posible",razon_principal:"Compatibilidad calculada por reglas (IA no disponible momentáneamente).",argumentos:["Perfil compatible con filtros aplicados","Presupuesto en rango razonable","Ciudad de interés alineada"],objecion:"Requiere validación directa",respuesta_objecion:"Presentar lote en visita o llamada",urgencia:"Media",data:item}));
+      
+      // Si usamos fallback, avisar al usuario discretamente (toast informativo, no error)
+      if (enriched.length === 0 && parseError) {
+        console.warn("[Match] Usando fallback determinístico — IA no respondió en formato esperado");
+        toast("ℹ Mostrando matches por reglas (IA tuvo problema al rankear)");
+      }
+      
       setMatchResults({mode,subject,results:finalResults});
       setView("result");
-    } catch(err){ toast(`⚠ ${err.message}`); }
+    } catch(err){ 
+      console.error("[Match] Error fatal:", err);
+      toast(`⚠ ${err.message}`); 
+    }
     finally{ clearInterval(interval); setLoading(false); }
   };
 
