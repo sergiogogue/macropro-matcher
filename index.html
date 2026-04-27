@@ -47,8 +47,8 @@
     (function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';s.onerror=function(){var s2=document.createElement('script');s2.src='https://unpkg.com/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';document.head.appendChild(s2);};document.head.appendChild(s);})();
     // jsPDF + autoTable para reportes ejecutivos en PDF
     (function(){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';s.onload=function(){var s2=document.createElement('script');s2.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js';document.head.appendChild(s2);};document.head.appendChild(s);})();
-    // Google Identity Services + Google API Client (para sincronización con Calendar)
-    (function(){var s1=document.createElement('script');s1.src='https://accounts.google.com/gsi/client';s1.async=true;s1.defer=true;document.head.appendChild(s1);var s2=document.createElement('script');s2.src='https://apis.google.com/js/api.js';s2.async=true;s2.defer=true;document.head.appendChild(s2);})();
+    // Google Identity Services (solo GIS - sin gapi para evitar problemas COOP en GitHub Pages)
+    (function(){var s1=document.createElement('script');s1.src='https://accounts.google.com/gsi/client';s1.async=true;s1.defer=true;document.head.appendChild(s1);})();
   </script>
 
   <!-- Registro del Service Worker para funcionamiento offline -->
@@ -882,6 +882,20 @@ function MacroProMatcher() {
       window.removeEventListener('appinstalled',installedHandler);
     };
   },[]);
+  
+  // Detectar si acabamos de regresar del redirect de Google Calendar
+  React.useEffect(()=>{
+    try {
+      const justConnected = sessionStorage.getItem("macropro_gcal_just_connected");
+      if (justConnected === "1") {
+        sessionStorage.removeItem("macropro_gcal_just_connected");
+        // Pequeño delay para que la app cargue antes del toast
+        setTimeout(() => {
+          toast("✅ Google Calendar conectado correctamente");
+        }, 800);
+      }
+    } catch(e) {}
+  }, []);
   const triggerPWAInstall=()=>{
     if(window.__triggerPWAInstall){
       window.__triggerPWAInstall().then(accepted=>{
@@ -1059,17 +1073,26 @@ function MacroProMatcher() {
   const exportCRMJson=()=>{const b=new Blob([JSON.stringify(crmData,null,2)],{type:"application/json"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download="CRM_MacroPro_"+new Date().toISOString().slice(0,10)+".json";a.click();};
   
   // ─── HANDLERS GOOGLE CALENDAR ───
-  const handleConnectCalendar = async () => {
+  const handleConnectCalendar = () => {
+    // Con redirect flow, esto redirige a Google y la página se va.
+    // No es async porque no hay promesa que esperar.
     try {
-      await gcalConnect();
-      toast("✅ Google Calendar conectado");
+      toast("Redirigiendo a Google...");
+      // Pequeño delay para que el toast se vea antes de irse
+      setTimeout(() => {
+        gcalConnect();
+      }, 300);
       return true;
     } catch (err) {
-      console.error("[Calendar] Conexión falló:", err);
-      const msg = err.message || "Error desconocido";
-      toast("❌ " + msg);
+      console.error("[Calendar] Error al iniciar conexión:", err);
+      toast("❌ " + (err.message || "Error desconocido"));
       return false;
     }
+  };
+  
+  const handleDisconnectCalendar = () => {
+    gcalDisconnect();
+    toast("Desconectado de Google Calendar");
   };
   
   // PULL: Sincronizar eventos de Calendar hacia MacroPro
@@ -5795,10 +5818,12 @@ function MacroProMatcher() {
                 {/* Tip si no conectado */}
                 {!gcalConnected && (
                   <div style={{background:"#FFFBEB",border:"1px solid #FCD34D",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:11,color:"#92400E"}}>
-                    <div style={{fontWeight:700,marginBottom:4}}>💡 Antes de conectar:</div>
-                    <div>1. Configura tu Client ID arriba (de Google Cloud Console)</div>
-                    <div>2. Click "Conectar" para autorizar</div>
-                    <div>3. Selecciona tu cuenta de Google y acepta los permisos</div>
+                    <div style={{fontWeight:700,marginBottom:4}}>💡 Cómo conectar:</div>
+                    <div>1. Click <strong>"🔗 Conectar Google"</strong> abajo</div>
+                    <div>2. Te <strong>redirigirá a Google</strong> (la página se va a recargar - es normal)</div>
+                    <div>3. Selecciona tu cuenta y acepta los permisos</div>
+                    <div>4. Google te traerá de regreso a MacroPro automáticamente</div>
+                    <div style={{marginTop:6,fontStyle:"italic"}}>⚠ Si Google muestra "App no verificada" → click "Configuración avanzada" → "Ir a MacroPro (no seguro)"</div>
                   </div>
                 )}
               </div>
@@ -5828,16 +5853,14 @@ function MacroProMatcher() {
                 )}
                 
                 <button 
-                  onClick={async () => {
+                  onClick={() => {
                     if (!gcalClientIdInput || !gcalClientIdInput.includes(".apps.googleusercontent.com")) {
                       toast("⚠ Pega un Client ID válido primero");
                       return;
                     }
                     gcalSetClientId(gcalClientIdInput.trim());
-                    const ok = await handleConnectCalendar();
-                    if (ok) {
-                      setGcalConnected(true);
-                    }
+                    // Esto redirige a Google - la página se va a recargar
+                    handleConnectCalendar();
                   }}
                   style={{padding:"10px 22px",background:`linear-gradient(135deg, ${B.navy}, ${B.navyL})`,color:B.gold,border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 8px rgba(0,43,73,0.2)"}}
                 >
@@ -5856,27 +5879,19 @@ function MacroProMatcher() {
 
 
   // ═══════════════════════════════════════════════════════════════
-  // GOOGLE CALENDAR SYNC v1.0 — PUSH automático + PULL manual
-  // - Auth: Google Identity Services (GIS) - solo client side
-  // - PUSH: actividades nuevas/editadas → Calendar automáticamente
-  // - PULL: botón "Sincronizar" lee Calendar y reconcilia
-  // - Token de 1 hora; re-autenticar después
+  // GOOGLE CALENDAR SYNC v3.0 — REDIRECT FLOW (sin popup, GitHub Pages)
+  // - No usa popup (que falla por COOP en GitHub Pages)
+  // - Usa OAuth 2.0 Implicit Flow con redirect a la misma URL
+  // - Token llega en el hash de la URL (#access_token=...)
+  // - Lo extraemos al cargar y lo guardamos en sessionStorage
   // ═══════════════════════════════════════════════════════════════
   const GCAL_CLIENT_ID_KEY = "macropro_gcal_client_id";
-  const GCAL_TOKEN_KEY = "macropro_gcal_token";
+  const GCAL_TOKEN_KEY = "macropro_gcal_token_data";
   const GCAL_SCOPES = "https://www.googleapis.com/auth/calendar.events";
-  const GCAL_TAG = "[MacroPro]"; // tag para identificar eventos creados por la app
+  const GCAL_TAG = "[MacroPro]";
+  const GCAL_REDIRECT_URI = "https://sergiogogue.github.io/macropro-matcher/";
   
-  // Estado global del módulo (fuera de React, simple)
-  const gcalState = {
-    tokenClient: null,      // referencia al GIS token client
-    accessToken: null,      // token actual
-    tokenExpiresAt: 0,      // timestamp de expiración
-    initialized: false,     // si ya se inicializó GIS
-    initializing: false     // para evitar inicializaciones dobles
-  };
-  
-  // Cargar Client ID desde localStorage (si nunca se configuró, usar el default de Grupo Guía)
+  // Cargar Client ID
   const GCAL_DEFAULT_CLIENT_ID = "740603360793-lb14qbkj5e4quajaagkuauvhhva5lg80.apps.googleusercontent.com";
   const gcalGetClientId = () => {
     try { 
@@ -5888,107 +5903,128 @@ function MacroProMatcher() {
     try { localStorage.setItem(GCAL_CLIENT_ID_KEY, id); } catch(e) {}
   };
   
-  // Verificar si GIS y gapi están listos
-  const gcalLibsReady = () => {
-    return typeof window.google !== "undefined" && 
-           typeof window.google.accounts !== "undefined" &&
-           typeof window.gapi !== "undefined";
+  // ─── Manejo del token: en sessionStorage para que sobreviva navegación ───
+  const gcalLoadToken = () => {
+    try {
+      const raw = sessionStorage.getItem(GCAL_TOKEN_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (data && data.expiresAt && Date.now() < data.expiresAt) return data;
+      sessionStorage.removeItem(GCAL_TOKEN_KEY);
+      return null;
+    } catch(e) { return null; }
+  };
+  const gcalSaveToken = (accessToken, expiresIn) => {
+    try {
+      const data = {
+        accessToken,
+        expiresAt: Date.now() + ((expiresIn || 3600) * 1000)
+      };
+      sessionStorage.setItem(GCAL_TOKEN_KEY, JSON.stringify(data));
+      return data;
+    } catch(e) { return null; }
+  };
+  const gcalClearToken = () => {
+    try { sessionStorage.removeItem(GCAL_TOKEN_KEY); } catch(e) {}
   };
   
-  // Inicializar gapi.client (Google API Client)
-  const gcalInitGapi = () => {
-    return new Promise((resolve, reject) => {
-      if (!window.gapi) { reject(new Error("gapi no cargado")); return; }
-      window.gapi.load("client", async () => {
-        try {
-          await window.gapi.client.init({
-            discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"]
-          });
-          resolve();
-        } catch (e) { reject(e); }
-      });
-    });
-  };
-  
-  // Inicializar el token client de GIS
-  const gcalInitTokenClient = (clientId) => {
-    if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
-      throw new Error("Google Identity Services no cargado");
+  // ─── Detectar token en URL al cargar ───
+  // Si venimos del redirect de Google, la URL tendrá #access_token=...
+  // Lo extraemos, guardamos, y limpiamos el hash
+  (function detectTokenFromHash() {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (!hash || !hash.includes("access_token=")) return;
+    try {
+      // Parsear el hash (formato: #access_token=XYZ&token_type=Bearer&expires_in=3599&scope=...)
+      const params = new URLSearchParams(hash.substring(1));
+      const accessToken = params.get("access_token");
+      const expiresIn = parseInt(params.get("expires_in") || "3600", 10);
+      if (accessToken) {
+        gcalSaveToken(accessToken, expiresIn);
+        // Limpiar hash de la URL para que no quede expuesto
+        const cleanUrl = window.location.pathname + window.location.search;
+        window.history.replaceState(null, "", cleanUrl);
+        // Marcar que acabamos de conectar para mostrar mensaje
+        try { sessionStorage.setItem("macropro_gcal_just_connected", "1"); } catch(e) {}
+      }
+    } catch(e) {
+      console.warn("[Calendar] Error parseando hash:", e);
     }
-    return window.google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: GCAL_SCOPES,
-      callback: "" // se asigna dinámicamente al llamar requestAccessToken
-    });
-  };
+  })();
   
-  // Solicitar token de acceso (abre popup de Google)
-  const gcalRequestAccess = (clientId) => {
-    return new Promise((resolve, reject) => {
-      try {
-        if (!gcalState.tokenClient) {
-          gcalState.tokenClient = gcalInitTokenClient(clientId);
-        }
-        gcalState.tokenClient.callback = (resp) => {
-          if (resp.error) { reject(new Error(resp.error)); return; }
-          gcalState.accessToken = resp.access_token;
-          gcalState.tokenExpiresAt = Date.now() + (resp.expires_in * 1000);
-          // Configurar gapi con el token
-          if (window.gapi && window.gapi.client) {
-            window.gapi.client.setToken({ access_token: resp.access_token });
-          }
-          resolve(resp.access_token);
-        };
-        // Forzar prompt siempre la primera vez para que pida permisos
-        gcalState.tokenClient.requestAccessToken({ prompt: "" });
-      } catch (e) { reject(e); }
-    });
-  };
-  
-  // Inicialización completa (libs + token client)
-  const gcalConnect = async () => {
-    const clientId = gcalGetClientId();
-    if (!clientId) throw new Error("Client ID no configurado. Ve a Configuración de Calendar primero.");
-    if (!gcalLibsReady()) {
-      // Intentar esperar 2 segundos a que carguen
-      await new Promise(r => setTimeout(r, 2000));
-      if (!gcalLibsReady()) throw new Error("Librerías de Google no cargaron. Recarga la página.");
-    }
-    if (!gcalState.initialized) {
-      await gcalInitGapi();
-      gcalState.initialized = true;
-    }
-    return await gcalRequestAccess(clientId);
-  };
-  
-  // Verificar si hay token válido
+  // ─── Verificar token válido ───
   const gcalHasValidToken = () => {
-    return gcalState.accessToken && Date.now() < gcalState.tokenExpiresAt;
+    const data = gcalLoadToken();
+    return data !== null;
   };
   
-  // Asegurar conexión (si no hay token, conectar)
-  const gcalEnsureConnected = async () => {
-    if (gcalHasValidToken()) return true;
-    await gcalConnect();
-    return true;
+  const gcalGetAccessToken = () => {
+    const data = gcalLoadToken();
+    return data ? data.accessToken : null;
   };
   
-  // Construir el evento para Calendar a partir de una actividad
+  // ─── Conectar: redirige a Google (sin popup) ───
+  const gcalConnect = () => {
+    const clientId = gcalGetClientId();
+    if (!clientId) throw new Error("Client ID no configurado");
+    
+    // Construir URL de auth
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: GCAL_REDIRECT_URI,
+      response_type: "token",
+      scope: GCAL_SCOPES,
+      include_granted_scopes: "true",
+      prompt: "consent"
+    });
+    const authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" + params.toString();
+    
+    // Redirigir (en la misma pestaña, sin popup)
+    window.location.href = authUrl;
+  };
+  
+  // Desconectar
+  const gcalDisconnect = () => {
+    gcalClearToken();
+  };
+  
+  // ─── Helper fetch a Calendar API ───
+  const gcalFetch = async (url, options = {}) => {
+    const token = gcalGetAccessToken();
+    if (!token) throw new Error("No conectado a Calendar - reconecta");
+    const headers = {
+      "Authorization": "Bearer " + token,
+      "Content-Type": "application/json",
+      ...options.headers
+    };
+    const resp = await fetch(url, {...options, headers});
+    if (!resp.ok && resp.status !== 404) {
+      const errBody = await resp.text();
+      // Si es 401, el token expiró - limpiar
+      if (resp.status === 401) {
+        gcalClearToken();
+        throw new Error("Token expirado - reconecta Google Calendar");
+      }
+      throw new Error("Error " + resp.status + ": " + errBody.substring(0, 200));
+    }
+    return resp;
+  };
+  
+  // ─── Construir evento ───
   const gcalBuildEvent = (actividad, contexto) => {
-    // contexto: { cliente, lote, desarrollo, asesor }
-    const titulo = `${GCAL_TAG} ${actividad.tipo || "Actividad"} — ${contexto.cliente || "Cliente"}`;
-    const desc = [
-      actividad.descripcion ? `📝 ${actividad.descripcion}` : "",
-      contexto.lote ? `📍 Lote: ${contexto.lote}` : "",
-      contexto.desarrollo ? `🏗 Desarrollo: ${contexto.desarrollo}` : "",
-      contexto.asesor ? `👤 Asesor: ${contexto.asesor}` : "",
-      "",
-      "— Generado por MacroPro CRM"
-    ].filter(Boolean).join("\n");
+    const titulo = GCAL_TAG + " " + (actividad.tipo || "Actividad") + " — " + (contexto.cliente || "Cliente");
+    const descLines = [];
+    if (actividad.descripcion) descLines.push("📝 " + actividad.descripcion);
+    if (contexto.lote) descLines.push("📍 Lote: " + contexto.lote);
+    if (contexto.desarrollo) descLines.push("🏗 Desarrollo: " + contexto.desarrollo);
+    if (contexto.asesor) descLines.push("👤 Asesor: " + contexto.asesor);
+    descLines.push("");
+    descLines.push("— Generado por MacroPro CRM");
     
     const event = {
       summary: titulo,
-      description: desc,
+      description: descLines.join("\n"),
       extendedProperties: {
         private: {
           macroproActId: String(actividad.id || ""),
@@ -5998,19 +6034,16 @@ function MacroProMatcher() {
       }
     };
     
-    // Si tiene hora específica → evento timed (1 hora por defecto)
-    // Si no → evento todo el día
     if (actividad.hora) {
       const [hh, mm] = actividad.hora.split(":").map(Number);
-      const startDate = new Date(actividad.fecha);
+      const startDate = new Date(actividad.fecha + "T00:00:00");
       startDate.setHours(hh || 9, mm || 0, 0, 0);
       const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
       event.start = { dateTime: startDate.toISOString(), timeZone: "America/Mexico_City" };
       event.end = { dateTime: endDate.toISOString(), timeZone: "America/Mexico_City" };
     } else {
-      // Todo el día
-      const dateStr = actividad.fecha; // "YYYY-MM-DD"
-      const next = new Date(dateStr);
+      const dateStr = actividad.fecha;
+      const next = new Date(dateStr + "T00:00:00");
       next.setDate(next.getDate() + 1);
       const nextStr = next.toISOString().slice(0, 10);
       event.start = { date: dateStr };
@@ -6019,60 +6052,55 @@ function MacroProMatcher() {
     return event;
   };
   
-  // PUSH: Crear evento en Calendar
+  // PUSH
   const gcalPushEvent = async (actividad, contexto) => {
-    await gcalEnsureConnected();
     const event = gcalBuildEvent(actividad, contexto);
-    const resp = await window.gapi.client.calendar.events.insert({
-      calendarId: "primary",
-      resource: event
+    const resp = await gcalFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+      method: "POST",
+      body: JSON.stringify(event)
     });
-    return resp.result.id; // googleEventId
+    const data = await resp.json();
+    return data.id;
   };
   
-  // UPDATE: Actualizar evento existente en Calendar
+  // UPDATE
   const gcalUpdateEvent = async (googleEventId, actividad, contexto) => {
-    await gcalEnsureConnected();
     const event = gcalBuildEvent(actividad, contexto);
-    const resp = await window.gapi.client.calendar.events.update({
-      calendarId: "primary",
-      eventId: googleEventId,
-      resource: event
+    const resp = await gcalFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events/" + encodeURIComponent(googleEventId), {
+      method: "PUT",
+      body: JSON.stringify(event)
     });
-    return resp.result.id;
+    const data = await resp.json();
+    return data.id;
   };
   
-  // DELETE: Eliminar evento en Calendar
+  // DELETE
   const gcalDeleteEvent = async (googleEventId) => {
     if (!googleEventId) return;
-    await gcalEnsureConnected();
     try {
-      await window.gapi.client.calendar.events.delete({
-        calendarId: "primary",
-        eventId: googleEventId
+      await gcalFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events/" + encodeURIComponent(googleEventId), {
+        method: "DELETE"
       });
     } catch (e) {
-      // Si ya no existe, ignorar (404)
-      if (e.status !== 404 && e.result?.error?.code !== 404) throw e;
+      if (!String(e.message).includes("404")) throw e;
     }
   };
   
-  // PULL: Listar eventos de MacroPro del calendar (para reconciliar)
+  // PULL: listar eventos
   const gcalListMacroProEvents = async (daysAhead = 90) => {
-    await gcalEnsureConnected();
-    const timeMin = new Date(Date.now() - 7 * 86400000).toISOString(); // últimos 7 días
+    const timeMin = new Date(Date.now() - 7 * 86400000).toISOString();
     const timeMax = new Date(Date.now() + daysAhead * 86400000).toISOString();
-    const resp = await window.gapi.client.calendar.events.list({
-      calendarId: "primary",
+    const params = new URLSearchParams({
       timeMin: timeMin,
       timeMax: timeMax,
-      singleEvents: true,
+      singleEvents: "true",
       orderBy: "startTime",
-      maxResults: 250,
-      privateExtendedProperty: "macroproActId=*" // solo nuestros eventos (filtro server-side limitado)
+      maxResults: "250",
+      privateExtendedProperty: "macroproActId=*"
     });
-    // Filtrar adicionalmente por tag en summary (más confiable)
-    const items = (resp.result.items || []).filter(e => {
+    const resp = await gcalFetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?" + params.toString());
+    const data = await resp.json();
+    const items = (data.items || []).filter(e => {
       return (e.summary && e.summary.includes(GCAL_TAG)) ||
              (e.extendedProperties && e.extendedProperties.private && e.extendedProperties.private.macroproActId);
     });
