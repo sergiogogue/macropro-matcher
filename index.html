@@ -45,6 +45,10 @@
   </script>
   <script>
     (function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';s.onerror=function(){var s2=document.createElement('script');s2.src='https://unpkg.com/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';document.head.appendChild(s2);};document.head.appendChild(s);})();
+    // jsPDF + autoTable para reportes ejecutivos en PDF
+    (function(){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';s.onload=function(){var s2=document.createElement('script');s2.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js';document.head.appendChild(s2);};document.head.appendChild(s);})();
+    // Google Identity Services + Google API Client (para sincronización con Calendar)
+    (function(){var s1=document.createElement('script');s1.src='https://accounts.google.com/gsi/client';s1.async=true;s1.defer=true;document.head.appendChild(s1);var s2=document.createElement('script');s2.src='https://apis.google.com/js/api.js';s2.async=true;s2.defer=true;document.head.appendChild(s2);})();
   </script>
 
   <!-- Registro del Service Worker para funcionamiento offline -->
@@ -1053,6 +1057,89 @@ function MacroProMatcher() {
     return tplCuerpo.replace(/\{(\w+)\}/g,(m,k)=>vars[k]!==undefined?vars[k]:m);
   };
   const exportCRMJson=()=>{const b=new Blob([JSON.stringify(crmData,null,2)],{type:"application/json"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download="CRM_MacroPro_"+new Date().toISOString().slice(0,10)+".json";a.click();};
+  
+  // ─── HANDLERS GOOGLE CALENDAR ───
+  const handleConnectCalendar = async () => {
+    try {
+      await gcalConnect();
+      toast("✅ Google Calendar conectado");
+      return true;
+    } catch (err) {
+      console.error("[Calendar] Conexión falló:", err);
+      const msg = err.message || "Error desconocido";
+      toast("❌ " + msg);
+      return false;
+    }
+  };
+  
+  // PULL: Sincronizar eventos de Calendar hacia MacroPro
+  const handlePullCalendar = async () => {
+    try {
+      const events = await gcalListMacroProEvents(120);
+      if (events.length === 0) {
+        toast("ℹ️ Sin eventos de MacroPro en Calendar");
+        return { added: 0, updated: 0 };
+      }
+      // Indexar actividades locales por googleEventId
+      const localByEventId = {};
+      Object.keys(crmData || {}).forEach(lotId => {
+        const entry = crmData[lotId];
+        (entry.prospectos || []).forEach((p, pIdx) => {
+          (p.actividades || []).forEach((a, aIdx) => {
+            if (a.googleEventId) localByEventId[a.googleEventId] = { lotId, pIdx, aIdx, act: a, prosp: p };
+          });
+        });
+      });
+      
+      let updated = 0;
+      let nuevoCrmData = JSON.parse(JSON.stringify(crmData || {}));
+      
+      events.forEach(evt => {
+        const localMatch = localByEventId[evt.id];
+        if (!localMatch) return; // Si fue creado fuera y no tenemos referencia, ignorar
+        
+        // Comparar fecha/hora — si cambió en Calendar, actualizar local
+        const evtStart = evt.start.dateTime || evt.start.date;
+        const isAllDay = !!evt.start.date;
+        const newFecha = (evt.start.dateTime || evt.start.date).slice(0, 10);
+        let newHora = "";
+        if (!isAllDay && evt.start.dateTime) {
+          const d = new Date(evt.start.dateTime);
+          newHora = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+        }
+        
+        const localAct = localMatch.act;
+        if (localAct.fecha !== newFecha || localAct.hora !== newHora) {
+          const entry = nuevoCrmData[localMatch.lotId];
+          const prosp = {...entry.prospectos[localMatch.pIdx]};
+          prosp.actividades = [...prosp.actividades];
+          prosp.actividades[localMatch.aIdx] = {
+            ...prosp.actividades[localMatch.aIdx],
+            fecha: newFecha,
+            hora: newHora
+          };
+          const prospArr = [...entry.prospectos];
+          prospArr[localMatch.pIdx] = prosp;
+          nuevoCrmData[localMatch.lotId] = {...entry, prospectos: prospArr};
+          updated++;
+        }
+      });
+      
+      if (updated > 0) {
+        setCrmData(nuevoCrmData);
+        saveCRM(nuevoCrmData);
+        toast("✅ " + updated + " actividad(es) actualizada(s) desde Calendar");
+      } else {
+        toast("✅ Calendar ya estaba sincronizado");
+      }
+      return { added: 0, updated };
+    } catch (err) {
+      console.error("[Calendar] PULL falló:", err);
+      toast("❌ Error sincronizando: " + (err.message || "desconocido"));
+      return null;
+    }
+  };
+  
   const importCRMJson=(e)=>{
     const file=e.target.files[0];if(!file)return;
     const r=new FileReader();
@@ -2575,6 +2662,11 @@ function MacroProMatcher() {
     const [noteText, setNoteText] = React.useState("");
     const [drawerLotes, setDrawerLotes] = React.useState(null); // {titulo, lotes, diasMin}
     const [drawerInventario, setDrawerInventario] = React.useState(null); // {titulo, lotes, semColor}
+    // Google Calendar
+    const [showCalendarModal, setShowCalendarModal] = React.useState(false);
+    const [gcalConnected, setGcalConnected] = React.useState(() => gcalHasValidToken());
+    const [gcalSyncing, setGcalSyncing] = React.useState(false);
+    const [gcalClientIdInput, setGcalClientIdInput] = React.useState(() => gcalGetClientId());
     // Modales de seguimiento por asesor
     const [showSeguimientoModal, setShowSeguimientoModal] = React.useState(null); // {lotId, lot}
     const [seguimientoForm, setSeguimientoForm] = React.useState({asesor:"",notas:""});
@@ -3777,6 +3869,8 @@ function MacroProMatcher() {
     };
     // Crear actividad
     const createActivity=(lotId,prospectoIdx,actData)=>{
+      let actividadCreada = null;
+      let contextoActividad = null;
       preserveScroll(()=>{
         setCrmData(prev=>{
           const entry=prev[lotId]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
@@ -3784,7 +3878,7 @@ function MacroProMatcher() {
           if(prospectos[prospectoIdx]){
             const p={...prospectos[prospectoIdx]};
             const actividades=[...(p.actividades||[])];
-            actividades.push({
+            const nuevaAct = {
               id:"act-"+Date.now()+"-"+Math.floor(Math.random()*1000),
               tipo:actData.tipo||"Seguimiento",
               descripcion:actData.descripcion||"",
@@ -3792,25 +3886,66 @@ function MacroProMatcher() {
               hora:actData.hora||"",
               completada:false,
               creadaEn:new Date().toISOString().slice(0,10)
-            });
+            };
+            actividades.push(nuevaAct);
             p.actividades=actividades;
             prospectos[prospectoIdx]=p;
+            actividadCreada = nuevaAct;
+            // Construir contexto para sync con Calendar
+            const lote = srcInv.find(l => l.id === lotId);
+            contextoActividad = {
+              lotId: lotId,
+              cliente: p.nombre,
+              lote: lote?.nombre || "",
+              desarrollo: lote?.desarrollo || "",
+              asesor: p.asesor || ""
+            };
           }
           const next={...prev,[lotId]:{...entry,prospectos}};
           saveCRM(next);
           return next;
         });
       });
+      // PUSH a Google Calendar (asíncrono, no bloquea UI)
+      if (actividadCreada && contextoActividad && gcalHasValidToken()) {
+        gcalPushEvent(actividadCreada, contextoActividad).then(eventId => {
+          // Guardar el googleEventId en la actividad
+          setCrmData(prev=>{
+            const entry=prev[lotId];
+            if (!entry) return prev;
+            const prospectos=[...(entry.prospectos||[])];
+            if (prospectos[prospectoIdx]) {
+              const p={...prospectos[prospectoIdx]};
+              p.actividades = (p.actividades||[]).map(a => a.id === actividadCreada.id ? {...a, googleEventId: eventId} : a);
+              prospectos[prospectoIdx]=p;
+            }
+            const next={...prev,[lotId]:{...entry,prospectos}};
+            saveCRM(next);
+            return next;
+          });
+          toast("📅 Evento creado en Google Calendar");
+        }).catch(err => {
+          console.warn("[Calendar] PUSH falló:", err);
+          // Silencioso — no rompemos UX si Calendar falla
+        });
+      }
     };
     // Completar actividad
     const completeActivity=(lotId,prospectoIdx,actId,resultado,nota)=>{
+      let actividadParaSync = null;
       preserveScroll(()=>{
         setCrmData(prev=>{
           const entry=prev[lotId]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
           const prospectos=[...(entry.prospectos||[])];
           if(prospectos[prospectoIdx]){
             const p={...prospectos[prospectoIdx]};
-            p.actividades=(p.actividades||[]).map(a=>a.id===actId?{...a,completada:true,fechaCompletada:new Date().toISOString().slice(0,10),resultado:resultado||"Positivo",notaResultado:nota||""}:a);
+            p.actividades=(p.actividades||[]).map(a=>{
+              if (a.id === actId) {
+                actividadParaSync = a; // capturar para borrar de Calendar
+                return {...a,completada:true,fechaCompletada:new Date().toISOString().slice(0,10),resultado:resultado||"Positivo",notaResultado:nota||""};
+              }
+              return a;
+            });
             prospectos[prospectoIdx]=p;
           }
           const next={...prev,[lotId]:{...entry,prospectos,lastContact:new Date().toISOString().slice(0,10)}};
@@ -3818,17 +3953,25 @@ function MacroProMatcher() {
           return next;
         });
       });
+      // Borrar evento de Calendar (la actividad ya se completó, no debe seguir agendada)
+      if (actividadParaSync && actividadParaSync.googleEventId && gcalHasValidToken()) {
+        gcalDeleteEvent(actividadParaSync.googleEventId).catch(err => {
+          console.warn("[Calendar] DELETE falló:", err);
+        });
+      }
       toast("✅ Actividad completada");
     };
     // Eliminar actividad
     const deleteActivity=(lotId,prospectoIdx,actId)=>{
       if(!window.confirm("¿Eliminar esta actividad?")) return;
+      let actividadParaSync = null;
       preserveScroll(()=>{
         setCrmData(prev=>{
           const entry=prev[lotId]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
           const prospectos=[...(entry.prospectos||[])];
           if(prospectos[prospectoIdx]){
             const p={...prospectos[prospectoIdx]};
+            actividadParaSync = (p.actividades||[]).find(a => a.id === actId);
             p.actividades=(p.actividades||[]).filter(a=>a.id!==actId);
             prospectos[prospectoIdx]=p;
           }
@@ -3837,9 +3980,17 @@ function MacroProMatcher() {
           return next;
         });
       });
+      // Borrar evento de Calendar
+      if (actividadParaSync && actividadParaSync.googleEventId && gcalHasValidToken()) {
+        gcalDeleteEvent(actividadParaSync.googleEventId).catch(err => {
+          console.warn("[Calendar] DELETE falló:", err);
+        });
+      }
     };
     // Actualizar actividad (editar fecha, hora, descripción)
     const updateActivity=(lotId,prospectoIdx,actId,patch)=>{
+      let actividadActualizada = null;
+      let contextoActividad = null;
       preserveScroll(()=>{
         setCrmData(prev=>{
           const entry=prev[lotId]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
@@ -3848,14 +3999,55 @@ function MacroProMatcher() {
             const p={...prospectos[prospectoIdx]};
             const fixedPatch={...patch};
             if(fixedPatch.fecha) fixedPatch.fecha=ensureWeekday(fixedPatch.fecha);
-            p.actividades=(p.actividades||[]).map(a=>a.id===actId?{...a,...fixedPatch}:a);
+            p.actividades=(p.actividades||[]).map(a=>{
+              if (a.id === actId) {
+                const updated = {...a,...fixedPatch};
+                actividadActualizada = updated;
+                return updated;
+              }
+              return a;
+            });
             prospectos[prospectoIdx]=p;
+            const lote = srcInv.find(l => l.id === lotId);
+            contextoActividad = {
+              lotId: lotId,
+              cliente: p.nombre,
+              lote: lote?.nombre || "",
+              desarrollo: lote?.desarrollo || "",
+              asesor: p.asesor || ""
+            };
           }
           const next={...prev,[lotId]:{...entry,prospectos}};
           saveCRM(next);
           return next;
         });
       });
+      // Sincronizar cambio con Calendar
+      if (actividadActualizada && contextoActividad && gcalHasValidToken()) {
+        if (actividadActualizada.googleEventId) {
+          // Update existente
+          gcalUpdateEvent(actividadActualizada.googleEventId, actividadActualizada, contextoActividad).catch(err => {
+            console.warn("[Calendar] UPDATE falló:", err);
+          });
+        } else {
+          // No tenía evento, crearlo ahora
+          gcalPushEvent(actividadActualizada, contextoActividad).then(eventId => {
+            setCrmData(prev=>{
+              const entry=prev[lotId];
+              if (!entry) return prev;
+              const prospectos=[...(entry.prospectos||[])];
+              if (prospectos[prospectoIdx]) {
+                const p={...prospectos[prospectoIdx]};
+                p.actividades = (p.actividades||[]).map(a => a.id === actId ? {...a, googleEventId: eventId} : a);
+                prospectos[prospectoIdx]=p;
+              }
+              const next={...prev,[lotId]:{...entry,prospectos}};
+              saveCRM(next);
+              return next;
+            });
+          }).catch(err => console.warn("[Calendar] PUSH retroactivo falló:", err));
+        }
+      }
     };
     // Estados de modales de actividad
     const [showActivityModal,setShowActivityModal]=React.useState(null); // {mode:'create'|'edit'|'complete', lotId, prospectoIdx, activity?}
@@ -4965,6 +5157,7 @@ function MacroProMatcher() {
               ⬆ Importar<input type="file" accept=".json" onChange={importCRMJson} style={{display:"none"}}/>
             </label>
             <button onClick={()=>setShowMigrateModal(true)} style={{padding:"8px 13px",background:"linear-gradient(135deg,#3b82f6,#1d4ed8)",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 8px rgba(59,130,246,0.3)"}} title="Subir inventario, clientes y CRM a Supabase (nube)">☁️ Migrar a nube</button>
+            <button onClick={()=>setShowCalendarModal(true)} style={{padding:"8px 13px",background: gcalConnected ? "linear-gradient(135deg,#22c55e,#15803d)" : "linear-gradient(135deg,#ef4444,#991b1b)",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 8px rgba(0,0,0,0.15)"}} title={gcalConnected ? "Calendar conectado - click para sincronizar o desconectar" : "Conectar Google Calendar"}>📅 {gcalConnected ? "Calendar ✓" : "Calendar"}</button>
           </div>
         </div>
 
@@ -5532,11 +5725,2213 @@ function MacroProMatcher() {
         )}
         {ModalInteraccion()}
         {ModalFichaCliente()}
+        
+        {/* ─── MODAL: Google Calendar Configuración / Sincronización ─── */}
+        {showCalendarModal && (
+          <div 
+            onClick={() => setShowCalendarModal(false)}
+            style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20}}
+          >
+            <div 
+              onClick={e => e.stopPropagation()}
+              style={{background:"#fff",borderRadius:18,maxWidth:560,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.3)",overflow:"hidden",maxHeight:"90vh",overflowY:"auto"}}
+            >
+              {/* Header */}
+              <div style={{background:`linear-gradient(135deg, ${B.navy}, ${B.navyL})`,padding:"24px 28px",color:"#fff"}}>
+                <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:2,color:B.gold,marginBottom:6}}>📅 GOOGLE CALENDAR</div>
+                <div style={{fontSize:22,fontWeight:800,fontFamily:"'Playfair Display',serif"}}>Sincronización</div>
+                <div style={{fontSize:12,opacity:0.85,marginTop:4}}>
+                  {gcalConnected ? "✓ Conectado — Las actividades se sincronizan automáticamente" : "Conecta tu calendario para sincronizar actividades"}
+                </div>
+              </div>
+              
+              {/* Body */}
+              <div style={{padding:"24px 28px"}}>
+                {/* Configuración: Client ID */}
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:12,fontWeight:700,color:B.navy,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+                    🔑 Client ID de Google Cloud
+                    {gcalGetClientId() && <span style={{background:"#22C55E",color:"#fff",padding:"2px 8px",borderRadius:6,fontSize:10}}>configurado</span>}
+                  </div>
+                  <input
+                    type="text"
+                    value={gcalClientIdInput}
+                    onChange={e => setGcalClientIdInput(e.target.value)}
+                    placeholder="123456789-abcxyz.apps.googleusercontent.com"
+                    style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${B.grey2}`,fontSize:12,fontFamily:"'DM Sans',sans-serif",color:B.navy,background:"#fff"}}
+                  />
+                  <div style={{fontSize:11,color:B.grey4,marginTop:4}}>
+                    Pega el Client ID que generaste en Google Cloud Console.
+                  </div>
+                </div>
+                
+                {/* Estado de conexión */}
+                <div style={{background:gcalConnected?"#F0FDF4":B.offW,border:`1px solid ${gcalConnected?"#86EFAC":B.grey1}`,borderRadius:10,padding:"14px 16px",marginBottom:16}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:18}}>{gcalConnected?"🟢":"🔴"}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:700,color:gcalConnected?"#166534":B.navy}}>
+                        {gcalConnected ? "Conectado a Google Calendar" : "No conectado"}
+                      </div>
+                      <div style={{fontSize:11,color:B.grey4,marginTop:2}}>
+                        {gcalConnected 
+                          ? "Las actividades nuevas se enviarán automáticamente a tu calendario."
+                          : "Click en 'Conectar' abajo para autorizar acceso a tu Google Calendar."}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Información sobre sync */}
+                {gcalConnected && (
+                  <div style={{background:B.offW,borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:11,color:B.grey5,border:`1px solid ${B.grey1}`}}>
+                    <div style={{fontWeight:700,color:B.navy,marginBottom:6}}>📋 Cómo funciona el sync:</div>
+                    <div style={{marginBottom:3}}>• <strong>PUSH automático:</strong> agendas actividad en MacroPro → aparece en Calendar al instante</div>
+                    <div style={{marginBottom:3}}>• <strong>PULL manual:</strong> click "🔄 Sincronizar" para traer cambios de Calendar</div>
+                    <div>• Token expira cada hora — re-conectar si falla</div>
+                  </div>
+                )}
+                
+                {/* Tip si no conectado */}
+                {!gcalConnected && (
+                  <div style={{background:"#FFFBEB",border:"1px solid #FCD34D",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:11,color:"#92400E"}}>
+                    <div style={{fontWeight:700,marginBottom:4}}>💡 Antes de conectar:</div>
+                    <div>1. Configura tu Client ID arriba (de Google Cloud Console)</div>
+                    <div>2. Click "Conectar" para autorizar</div>
+                    <div>3. Selecciona tu cuenta de Google y acepta los permisos</div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Footer */}
+              <div style={{padding:"16px 28px",borderTop:`1px solid ${B.grey1}`,display:"flex",gap:10,justifyContent:"flex-end",background:B.offW,flexWrap:"wrap"}}>
+                <button 
+                  onClick={() => setShowCalendarModal(false)}
+                  style={{padding:"10px 18px",background:"transparent",color:B.grey4,border:`1px solid ${B.grey2}`,borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}
+                >
+                  Cerrar
+                </button>
+                
+                {gcalConnected && (
+                  <button 
+                    onClick={async () => {
+                      setGcalSyncing(true);
+                      const r = await handlePullCalendar();
+                      setGcalSyncing(false);
+                      if (r) setShowCalendarModal(false);
+                    }}
+                    disabled={gcalSyncing}
+                    style={{padding:"10px 18px",background:gcalSyncing?B.grey2:"#3b82f6",color:"#fff",border:"none",borderRadius:8,cursor:gcalSyncing?"wait":"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}
+                  >
+                    {gcalSyncing ? "⏳ Sincronizando..." : "🔄 Sincronizar"}
+                  </button>
+                )}
+                
+                <button 
+                  onClick={async () => {
+                    if (!gcalClientIdInput || !gcalClientIdInput.includes(".apps.googleusercontent.com")) {
+                      toast("⚠ Pega un Client ID válido primero");
+                      return;
+                    }
+                    gcalSetClientId(gcalClientIdInput.trim());
+                    const ok = await handleConnectCalendar();
+                    if (ok) {
+                      setGcalConnected(true);
+                    }
+                  }}
+                  style={{padding:"10px 22px",background:`linear-gradient(135deg, ${B.navy}, ${B.navyL})`,color:B.gold,border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 8px rgba(0,43,73,0.2)"}}
+                >
+                  {gcalConnected ? "🔄 Reconectar" : "🔗 Conectar Google"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
 
 
+
+
+
+  // ═══════════════════════════════════════════════════════════════
+  // GOOGLE CALENDAR SYNC v1.0 — PUSH automático + PULL manual
+  // - Auth: Google Identity Services (GIS) - solo client side
+  // - PUSH: actividades nuevas/editadas → Calendar automáticamente
+  // - PULL: botón "Sincronizar" lee Calendar y reconcilia
+  // - Token de 1 hora; re-autenticar después
+  // ═══════════════════════════════════════════════════════════════
+  const GCAL_CLIENT_ID_KEY = "macropro_gcal_client_id";
+  const GCAL_TOKEN_KEY = "macropro_gcal_token";
+  const GCAL_SCOPES = "https://www.googleapis.com/auth/calendar.events";
+  const GCAL_TAG = "[MacroPro]"; // tag para identificar eventos creados por la app
+  
+  // Estado global del módulo (fuera de React, simple)
+  const gcalState = {
+    tokenClient: null,      // referencia al GIS token client
+    accessToken: null,      // token actual
+    tokenExpiresAt: 0,      // timestamp de expiración
+    initialized: false,     // si ya se inicializó GIS
+    initializing: false     // para evitar inicializaciones dobles
+  };
+  
+  // Cargar Client ID desde localStorage (si nunca se configuró, usar el default de Grupo Guía)
+  const GCAL_DEFAULT_CLIENT_ID = "740603360793-lb14qbkj5e4quajaagkuauvhhva5lg80.apps.googleusercontent.com";
+  const gcalGetClientId = () => {
+    try { 
+      const saved = localStorage.getItem(GCAL_CLIENT_ID_KEY);
+      return saved || GCAL_DEFAULT_CLIENT_ID;
+    } catch(e) { return GCAL_DEFAULT_CLIENT_ID; }
+  };
+  const gcalSetClientId = (id) => {
+    try { localStorage.setItem(GCAL_CLIENT_ID_KEY, id); } catch(e) {}
+  };
+  
+  // Verificar si GIS y gapi están listos
+  const gcalLibsReady = () => {
+    return typeof window.google !== "undefined" && 
+           typeof window.google.accounts !== "undefined" &&
+           typeof window.gapi !== "undefined";
+  };
+  
+  // Inicializar gapi.client (Google API Client)
+  const gcalInitGapi = () => {
+    return new Promise((resolve, reject) => {
+      if (!window.gapi) { reject(new Error("gapi no cargado")); return; }
+      window.gapi.load("client", async () => {
+        try {
+          await window.gapi.client.init({
+            discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"]
+          });
+          resolve();
+        } catch (e) { reject(e); }
+      });
+    });
+  };
+  
+  // Inicializar el token client de GIS
+  const gcalInitTokenClient = (clientId) => {
+    if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+      throw new Error("Google Identity Services no cargado");
+    }
+    return window.google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: GCAL_SCOPES,
+      callback: "" // se asigna dinámicamente al llamar requestAccessToken
+    });
+  };
+  
+  // Solicitar token de acceso (abre popup de Google)
+  const gcalRequestAccess = (clientId) => {
+    return new Promise((resolve, reject) => {
+      try {
+        if (!gcalState.tokenClient) {
+          gcalState.tokenClient = gcalInitTokenClient(clientId);
+        }
+        gcalState.tokenClient.callback = (resp) => {
+          if (resp.error) { reject(new Error(resp.error)); return; }
+          gcalState.accessToken = resp.access_token;
+          gcalState.tokenExpiresAt = Date.now() + (resp.expires_in * 1000);
+          // Configurar gapi con el token
+          if (window.gapi && window.gapi.client) {
+            window.gapi.client.setToken({ access_token: resp.access_token });
+          }
+          resolve(resp.access_token);
+        };
+        // Forzar prompt siempre la primera vez para que pida permisos
+        gcalState.tokenClient.requestAccessToken({ prompt: "" });
+      } catch (e) { reject(e); }
+    });
+  };
+  
+  // Inicialización completa (libs + token client)
+  const gcalConnect = async () => {
+    const clientId = gcalGetClientId();
+    if (!clientId) throw new Error("Client ID no configurado. Ve a Configuración de Calendar primero.");
+    if (!gcalLibsReady()) {
+      // Intentar esperar 2 segundos a que carguen
+      await new Promise(r => setTimeout(r, 2000));
+      if (!gcalLibsReady()) throw new Error("Librerías de Google no cargaron. Recarga la página.");
+    }
+    if (!gcalState.initialized) {
+      await gcalInitGapi();
+      gcalState.initialized = true;
+    }
+    return await gcalRequestAccess(clientId);
+  };
+  
+  // Verificar si hay token válido
+  const gcalHasValidToken = () => {
+    return gcalState.accessToken && Date.now() < gcalState.tokenExpiresAt;
+  };
+  
+  // Asegurar conexión (si no hay token, conectar)
+  const gcalEnsureConnected = async () => {
+    if (gcalHasValidToken()) return true;
+    await gcalConnect();
+    return true;
+  };
+  
+  // Construir el evento para Calendar a partir de una actividad
+  const gcalBuildEvent = (actividad, contexto) => {
+    // contexto: { cliente, lote, desarrollo, asesor }
+    const titulo = `${GCAL_TAG} ${actividad.tipo || "Actividad"} — ${contexto.cliente || "Cliente"}`;
+    const desc = [
+      actividad.descripcion ? `📝 ${actividad.descripcion}` : "",
+      contexto.lote ? `📍 Lote: ${contexto.lote}` : "",
+      contexto.desarrollo ? `🏗 Desarrollo: ${contexto.desarrollo}` : "",
+      contexto.asesor ? `👤 Asesor: ${contexto.asesor}` : "",
+      "",
+      "— Generado por MacroPro CRM"
+    ].filter(Boolean).join("\n");
+    
+    const event = {
+      summary: titulo,
+      description: desc,
+      extendedProperties: {
+        private: {
+          macroproActId: String(actividad.id || ""),
+          macroproLotId: String(contexto.lotId || ""),
+          macroproProspectName: String(contexto.cliente || "")
+        }
+      }
+    };
+    
+    // Si tiene hora específica → evento timed (1 hora por defecto)
+    // Si no → evento todo el día
+    if (actividad.hora) {
+      const [hh, mm] = actividad.hora.split(":").map(Number);
+      const startDate = new Date(actividad.fecha);
+      startDate.setHours(hh || 9, mm || 0, 0, 0);
+      const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+      event.start = { dateTime: startDate.toISOString(), timeZone: "America/Mexico_City" };
+      event.end = { dateTime: endDate.toISOString(), timeZone: "America/Mexico_City" };
+    } else {
+      // Todo el día
+      const dateStr = actividad.fecha; // "YYYY-MM-DD"
+      const next = new Date(dateStr);
+      next.setDate(next.getDate() + 1);
+      const nextStr = next.toISOString().slice(0, 10);
+      event.start = { date: dateStr };
+      event.end = { date: nextStr };
+    }
+    return event;
+  };
+  
+  // PUSH: Crear evento en Calendar
+  const gcalPushEvent = async (actividad, contexto) => {
+    await gcalEnsureConnected();
+    const event = gcalBuildEvent(actividad, contexto);
+    const resp = await window.gapi.client.calendar.events.insert({
+      calendarId: "primary",
+      resource: event
+    });
+    return resp.result.id; // googleEventId
+  };
+  
+  // UPDATE: Actualizar evento existente en Calendar
+  const gcalUpdateEvent = async (googleEventId, actividad, contexto) => {
+    await gcalEnsureConnected();
+    const event = gcalBuildEvent(actividad, contexto);
+    const resp = await window.gapi.client.calendar.events.update({
+      calendarId: "primary",
+      eventId: googleEventId,
+      resource: event
+    });
+    return resp.result.id;
+  };
+  
+  // DELETE: Eliminar evento en Calendar
+  const gcalDeleteEvent = async (googleEventId) => {
+    if (!googleEventId) return;
+    await gcalEnsureConnected();
+    try {
+      await window.gapi.client.calendar.events.delete({
+        calendarId: "primary",
+        eventId: googleEventId
+      });
+    } catch (e) {
+      // Si ya no existe, ignorar (404)
+      if (e.status !== 404 && e.result?.error?.code !== 404) throw e;
+    }
+  };
+  
+  // PULL: Listar eventos de MacroPro del calendar (para reconciliar)
+  const gcalListMacroProEvents = async (daysAhead = 90) => {
+    await gcalEnsureConnected();
+    const timeMin = new Date(Date.now() - 7 * 86400000).toISOString(); // últimos 7 días
+    const timeMax = new Date(Date.now() + daysAhead * 86400000).toISOString();
+    const resp = await window.gapi.client.calendar.events.list({
+      calendarId: "primary",
+      timeMin: timeMin,
+      timeMax: timeMax,
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 250,
+      privateExtendedProperty: "macroproActId=*" // solo nuestros eventos (filtro server-side limitado)
+    });
+    // Filtrar adicionalmente por tag en summary (más confiable)
+    const items = (resp.result.items || []).filter(e => {
+      return (e.summary && e.summary.includes(GCAL_TAG)) ||
+             (e.extendedProperties && e.extendedProperties.private && e.extendedProperties.private.macroproActId);
+    });
+    return items;
+  };
+
+
+  // ═══════════════════════════════════════════════════════════════
+  // GENERADOR DE REPORTES PDF EJECUTIVOS v2.0 — Detallado por Desarrollo
+  // - Plantilla CEO: Por desarrollador → por desarrollo
+  // - Plantilla Cliente: Detalle individual de cada uno de sus desarrollos
+  // - Inventario completo + prospectos + actividades + perdidos POR DESARROLLO
+  // - Branding Grupo Guía (Navy + Gold)
+  // ═══════════════════════════════════════════════════════════════
+  const LOGO_GRUPO_GUIA_B64 = "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";
+  
+  const generarReportePDF = (config) => {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      toast("Cargando libreria PDF... intenta de nuevo en 2 segundos");
+      return;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
+    
+    // ─── COLORES MARCA ───
+    const NAVY = [0, 43, 75];
+    const NAVY_L = [10, 61, 92];
+    const GOLD = [245, 179, 53];
+    const GOLD_D = [212, 149, 42];
+    const GOLD_LIGHT = [255, 251, 235];
+    const GREY1 = [232, 237, 242];
+    const GREY3 = [143, 163, 180];
+    const GREY4 = [101, 122, 142];
+    const GREY5 = [62, 82, 100];
+    const RED = [239, 68, 68];
+    const RED_LIGHT = [254, 242, 242];
+    const GREEN = [34, 197, 94];
+    const GREEN_LIGHT = [240, 253, 244];
+    const BLUE = [59, 130, 246];
+    const BLUE_LIGHT = [239, 246, 255];
+    const PURPLE = [139, 92, 246];
+    
+    // ─── DIMENSIONES ───
+    const PAGE_W = 215.9;
+    const PAGE_H = 279.4;
+    const MARGIN = 15;
+    const CONTENT_W = PAGE_W - 2 * MARGIN;
+    
+    // ─── DATOS ───
+    const data = config.dashboardData;
+    const audiencia = config.audiencia;
+    const desarrollador = config.desarrollador || "Todos";
+    const fechaReporte = new Date();
+    const fechaTexto = fechaReporte.toLocaleDateString("es-MX", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    
+    // ─── HELPERS ───
+    const setColor = (rgb) => doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+    const setFill = (rgb) => doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+    const setStroke = (rgb) => doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+    const fmtMoney = (n) => {
+      if (!n || n === 0) return "$0";
+      if (n >= 1e9) return "$" + (n/1e9).toFixed(1) + " MMP";
+      if (n >= 1e6) return "$" + (n/1e6).toFixed(1) + " MDP";
+      if (n >= 1e3) return "$" + (n/1e3).toFixed(0) + "K";
+      return "$" + n.toFixed(0);
+    };
+    const fmtNum = (n) => (n || 0).toLocaleString("es-MX");
+    
+    const drawFooter = () => {
+      setFill(NAVY);
+      doc.rect(0, PAGE_H - 12, PAGE_W, 12, "F");
+      setColor(GOLD);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.text("MACROPRO - GRUPO GUIA", MARGIN, PAGE_H - 6);
+      setColor([255, 255, 255]);
+      doc.setFont("helvetica", "normal");
+      const pn = doc.internal.getNumberOfPages();
+      doc.text("Pagina " + pn, PAGE_W - MARGIN, PAGE_H - 6, { align: "right" });
+      doc.setFontSize(7);
+      doc.text("grupoguia.mx - CRM Ejecutivo", PAGE_W / 2, PAGE_H - 6, { align: "center" });
+    };
+    
+    const drawHeaderInternal = (subtitulo) => {
+      setFill(NAVY);
+      doc.rect(0, 0, PAGE_W, 18, "F");
+      setColor(GOLD);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.text("REPORTE EJECUTIVO", MARGIN, 11);
+      setColor([255, 255, 255]);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      const tipoAud = audiencia === "ceo" ? "CEO / Interno" : ("Cliente: " + desarrollador);
+      doc.text(subtitulo ? (tipoAud + " - " + subtitulo) : tipoAud, PAGE_W - MARGIN, 11, { align: "right" });
+    };
+    
+    const newPage = (subtitulo) => {
+      drawFooter();
+      doc.addPage();
+      drawHeaderInternal(subtitulo);
+    };
+    
+    const checkPageBreak = (yNeeded, subtitulo) => {
+      if (yNeeded > PAGE_H - 25) {
+        newPage(subtitulo);
+        return 28;
+      }
+      return null;
+    };
+    
+    // ─────────────────────────────────────────────
+    // PÁGINA 1: PORTADA
+    // ─────────────────────────────────────────────
+    setFill(NAVY);
+    doc.rect(0, 0, PAGE_W, PAGE_H, "F");
+    
+    setFill(GOLD);
+    doc.rect(PAGE_W - 70, 25, 50, 28, "F");
+    
+    try {
+      doc.addImage(LOGO_GRUPO_GUIA_B64, "PNG", MARGIN + 20, 95, 110, 16);
+    } catch (e) {
+      setColor(GOLD);
+      doc.setFontSize(28);
+      doc.setFont("helvetica", "bold");
+      doc.text("grupoguia - macrolotes", PAGE_W / 2, 105, { align: "center" });
+    }
+    
+    setColor([255, 255, 255]);
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    doc.text("REPORTE EJECUTIVO COMERCIAL", PAGE_W / 2, 135, { align: "center" });
+    
+    setColor(GOLD);
+    doc.setFontSize(28);
+    doc.setFont("helvetica", "bold");
+    const tituloAud = audiencia === "ceo" ? "Analisis Interno Global" : desarrollador;
+    doc.text(tituloAud, PAGE_W / 2, 152, { align: "center" });
+    
+    setColor([255, 255, 255]);
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "normal");
+    doc.text(audiencia === "ceo" ? "Vision completa del portafolio" : "Estado de comercializacion", PAGE_W / 2, 165, { align: "center" });
+    
+    setStroke(GOLD);
+    doc.setLineWidth(0.5);
+    doc.line(MARGIN + 50, 180, PAGE_W - MARGIN - 50, 180);
+    
+    setColor([255, 255, 255]);
+    doc.setFontSize(11);
+    doc.text(fechaTexto, PAGE_W / 2, 192, { align: "center" });
+    
+    // KPIs en portada
+    const kpisPortada = [
+      ["PIPELINE TOTAL", fmtMoney(data.pipelineTotal)],
+      ["FORECAST", fmtMoney(data.forecastPonderado)],
+      ["LOTES ACTIVOS", String(data.lotesActivos) + " / " + String(data.lotesActivos + data.lotesVendidos)],
+      ["CONVERSION", data.conversionRate.toFixed(1) + "%"]
+    ];
+    
+    kpisPortada.forEach((kpi, i) => {
+      const x = MARGIN + 10 + (i % 2) * 90;
+      const y = 215 + Math.floor(i / 2) * 28;
+      setFill(NAVY_L);
+      doc.roundedRect(x, y, 75, 22, 2, 2, "F");
+      setColor(GOLD);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.text(kpi[0], x + 4, y + 7);
+      setColor([255, 255, 255]);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text(kpi[1], x + 4, y + 17);
+    });
+    
+    setColor(GOLD);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.text("CONFIDENCIAL - USO INTERNO", PAGE_W / 2, PAGE_H - 25, { align: "center" });
+    setColor([255, 255, 255]);
+    doc.setFont("helvetica", "normal");
+    doc.text("grupoguia.mx", PAGE_W / 2, PAGE_H - 18, { align: "center" });
+    
+    // ─────────────────────────────────────────────
+    // PÁGINA 2: RESUMEN EJECUTIVO
+    // ─────────────────────────────────────────────
+    doc.addPage();
+    drawHeaderInternal("Resumen");
+    let y = 28;
+    
+    setColor(NAVY);
+    doc.setFontSize(18);
+    doc.setFont("helvetica", "bold");
+    doc.text("Resumen Ejecutivo", MARGIN, y + 8);
+    setColor(GOLD);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.text("INDICADORES CLAVE DE PERFORMANCE", MARGIN, y + 14);
+    y += 22;
+    
+    // 6 KPIs
+    const kpis6 = [
+      ["Pipeline Total", fmtMoney(data.pipelineTotal), data.lotesEnPipelineCount + " lotes activos", GOLD],
+      ["Forecast Ponderado", fmtMoney(data.forecastPonderado), "Probabilidad ajustada", BLUE],
+      ["Cierres del Mes", String(data.cierresMesCount), fmtMoney(data.cierresMesValor), GREEN],
+      ["Lotes Activos / Vendidos", data.lotesActivos + " / " + data.lotesVendidos, data.totalLotesCartera + " en cartera", NAVY],
+      ["Conversion Rate", data.conversionRate.toFixed(1) + "%", data.prospectosCerrados + " de " + data.totalProspectos, GOLD_D],
+      ["Dias en Propuesta", data.diasEnPropuesta + "d", "Promedio - clave para cierre", PURPLE]
+    ];
+    
+    const kpiW = (CONTENT_W - 8) / 3;
+    const kpiH = 30;
+    kpis6.forEach((kpi, i) => {
+      const col = i % 3;
+      const row = Math.floor(i / 3);
+      const x = MARGIN + col * (kpiW + 4);
+      const yk = y + row * (kpiH + 4);
+      setFill([255, 255, 255]);
+      setStroke(GREY1);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, yk, kpiW, kpiH, 2, 2, "FD");
+      setColor(GREY3);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.text(kpi[0].toUpperCase(), x + 3, yk + 6);
+      setColor(NAVY);
+      doc.setFontSize(15);
+      doc.setFont("helvetica", "bold");
+      doc.text(kpi[1], x + 3, yk + 17);
+      setColor(GREY4);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.text(kpi[2], x + 3, yk + 24);
+      setFill(kpi[3]);
+      doc.rect(x, yk + kpiH - 1.2, kpiW, 1.2, "F");
+    });
+    
+    y += 2 * (kpiH + 4) + 10;
+    
+    // ─── ALERTAS ─── (sin emojis problemáticos)
+    setColor(NAVY);
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Alertas y Oportunidades", MARGIN, y);
+    y += 8;
+    
+    if (data.alertas && data.alertas.length > 0) {
+      data.alertas.forEach(a => {
+        const colorMap = { "warning": GOLD, "danger": RED, "success": GREEN, "info": BLUE };
+        const bgMap = { "warning": GOLD_LIGHT, "danger": RED_LIGHT, "success": GREEN_LIGHT, "info": BLUE_LIGHT };
+        const c = colorMap[a.tipo] || BLUE;
+        const bg = bgMap[a.tipo] || BLUE_LIGHT;
+        const labelMap = { "warning": "[ATENCION]", "danger": "[CRITICO]", "success": "[OK]", "info": "[INFO]" };
+        const label = labelMap[a.tipo] || "[INFO]";
+        
+        const altura = a.detalle ? 18 : 12;
+        const yCheck = checkPageBreak(y + altura, "Resumen");
+        if (yCheck !== null) y = yCheck;
+        
+        setFill(bg);
+        doc.roundedRect(MARGIN, y, CONTENT_W, altura, 1.5, 1.5, "F");
+        setFill(c);
+        doc.rect(MARGIN, y, 1.5, altura, "F");
+        
+        setColor(c);
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.text(label + " " + a.titulo, MARGIN + 5, y + 6);
+        if (a.detalle) {
+          setColor(GREY5);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "normal");
+          const lines = doc.splitTextToSize(a.detalle, CONTENT_W - 10);
+          doc.text(lines.slice(0, 1), MARGIN + 5, y + 12);
+        }
+        y += altura + 2;
+      });
+    } else {
+      setColor(GREY3);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "italic");
+      doc.text("Sin alertas para este periodo.", MARGIN, y + 5);
+    }
+    
+    // ─────────────────────────────────────────────
+    // PÁGINA 3: COMPARATIVA ENTRE DESARROLLOS
+    // ─────────────────────────────────────────────
+    if (data.tablaDesarrollos && data.tablaDesarrollos.length > 0) {
+      doc.addPage();
+      drawHeaderInternal("Comparativa");
+      y = 28;
+      
+      setColor(NAVY);
+      doc.setFontSize(18);
+      doc.setFont("helvetica", "bold");
+      doc.text("Comparativa entre Desarrollos", MARGIN, y + 8);
+      setColor(GOLD);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text("VISION GLOBAL DEL PORTAFOLIO", MARGIN, y + 14);
+      y += 22;
+      
+      doc.autoTable({
+        startY: y,
+        head: [["Desarrollo", "Lotes", "Vendidos", "Pipeline", "Sup. Total", "Sin mov. 60d", "Sin mov. 120d"]],
+        body: data.tablaDesarrollos.map(d => [
+          d.desarrollo,
+          String(d.totalLotes),
+          String(d.vendidos),
+          fmtMoney(d.pipelineValor),
+          d.supTotal ? (fmtNum(Math.round(d.supTotal)) + " m2") : "-",
+          d.sinMovimiento60 > 0 ? String(d.sinMovimiento60) : "-",
+          d.sinMovimiento120 > 0 ? String(d.sinMovimiento120) : "-"
+        ]),
+        theme: "grid",
+        headStyles: { fillColor: NAVY, textColor: GOLD, fontSize: 9, fontStyle: "bold", halign: "center" },
+        styles: { fontSize: 9, cellPadding: 3, lineColor: GREY1, lineWidth: 0.2 },
+        columnStyles: {
+          0: { fontStyle: "bold", textColor: NAVY },
+          1: { halign: "right" },
+          2: { halign: "right", textColor: GREEN },
+          3: { halign: "right", textColor: GOLD_D, fontStyle: "bold" },
+          4: { halign: "right" },
+          5: { halign: "center" },
+          6: { halign: "center" }
+        },
+        margin: { left: MARGIN, right: MARGIN }
+      });
+      y = doc.lastAutoTable.finalY + 10;
+      
+      // Pipeline por etapa global
+      if (data.pipelinePorEtapa) {
+        const yCheck = checkPageBreak(y + 80, "Comparativa");
+        if (yCheck !== null) y = yCheck;
+        
+        setColor(NAVY);
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.text("Pipeline por Etapa - Global", MARGIN, y);
+        y += 8;
+        
+        const stagesActive = ["Prospecto", "Contactado", "En negociacion", "Propuesta", "Contrato"];
+        const stageColors = {
+          "Prospecto": [100, 116, 139],
+          "Contactado": BLUE,
+          "En negociacion": GOLD,
+          "Propuesta": PURPLE,
+          "Contrato": [6, 182, 212]
+        };
+        const maxValor = Math.max(...stagesActive.map(s => (data.pipelinePorEtapa[s] && data.pipelinePorEtapa[s].valor) || 0), 1);
+        
+        stagesActive.forEach(stage => {
+          const e = data.pipelinePorEtapa[stage] || { count: 0, valor: 0, valorPond: 0 };
+          setColor(NAVY);
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "bold");
+          doc.text(stage, MARGIN, y);
+          setColor(GREY4);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.text(e.count + " prospecto(s)", MARGIN + 50, y);
+          setColor(NAVY);
+          doc.setFont("helvetica", "bold");
+          doc.text(fmtMoney(e.valor), PAGE_W - MARGIN - 50, y);
+          setColor(GOLD_D);
+          doc.text("-> " + fmtMoney(e.valorPond), PAGE_W - MARGIN, y, { align: "right" });
+          
+          setFill([240, 240, 240]);
+          doc.roundedRect(MARGIN, y + 2, CONTENT_W, 3, 1, 1, "F");
+          const barW = (e.valor / maxValor) * CONTENT_W;
+          if (barW > 0) {
+            setFill(stageColors[stage]);
+            doc.roundedRect(MARGIN, y + 2, barW, 3, 1, 1, "F");
+          }
+          y += 10;
+        });
+      }
+    }
+    
+    // ─────────────────────────────────────────────
+    // PÁGINAS 4+: DETALLE POR CADA DESARROLLO
+    // ─────────────────────────────────────────────
+    if (data.detallePorDesarrollo && data.detallePorDesarrollo.length > 0) {
+      data.detallePorDesarrollo.forEach((dev, devIdx) => {
+        doc.addPage();
+        drawHeaderInternal(dev.nombre);
+        y = 25;
+        
+        // Header del desarrollo (banner navy con gold)
+        setFill(NAVY);
+        doc.roundedRect(MARGIN, y, CONTENT_W, 24, 3, 3, "F");
+        setFill(GOLD);
+        doc.rect(MARGIN, y, 4, 24, "F");
+        
+        setColor(GOLD);
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.text("DESARROLLO " + (devIdx + 1) + " DE " + data.detallePorDesarrollo.length, MARGIN + 8, y + 7);
+        
+        setColor([255, 255, 255]);
+        doc.setFontSize(20);
+        doc.setFont("helvetica", "bold");
+        doc.text(dev.nombre, MARGIN + 8, y + 16);
+        
+        if (dev.ciudad) {
+          setColor(GOLD);
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "normal");
+          doc.text(dev.ciudad + (dev.estado ? ", " + dev.estado : ""), MARGIN + 8, y + 22);
+        }
+        
+        y += 30;
+        
+        // KPIs del desarrollo (grid 4)
+        const kpisDev = [
+          ["LOTES TOTALES", String(dev.totalLotes), GOLD],
+          ["SUPERFICIE", fmtNum(Math.round(dev.supTotal)) + " m2", BLUE],
+          ["VALOR INVENTARIO", fmtMoney(dev.valorTotal), GOLD_D],
+          ["PROSPECTOS ACTIVOS", String(dev.prospectosActivos.length), GREEN]
+        ];
+        const kpiDevW = (CONTENT_W - 9) / 4;
+        const kpiDevH = 22;
+        kpisDev.forEach((kpi, i) => {
+          const x = MARGIN + i * (kpiDevW + 3);
+          setFill([255, 255, 255]);
+          setStroke(GREY1);
+          doc.setLineWidth(0.3);
+          doc.roundedRect(x, y, kpiDevW, kpiDevH, 2, 2, "FD");
+          setColor(GREY3);
+          doc.setFontSize(6.5);
+          doc.setFont("helvetica", "bold");
+          doc.text(kpi[0], x + 3, y + 5);
+          setColor(NAVY);
+          doc.setFontSize(13);
+          doc.setFont("helvetica", "bold");
+          doc.text(kpi[1], x + 3, y + 14);
+          setFill(kpi[2]);
+          doc.rect(x, y + kpiDevH - 1, kpiDevW, 1, "F");
+        });
+        y += kpiDevH + 8;
+        
+        // ─── INVENTARIO DE LOTES ───
+        if (dev.lotes && dev.lotes.length > 0) {
+          const yCheck = checkPageBreak(y + 30, dev.nombre);
+          if (yCheck !== null) y = yCheck;
+          
+          setColor(NAVY);
+          doc.setFontSize(13);
+          doc.setFont("helvetica", "bold");
+          doc.text("Inventario de Lotes", MARGIN, y);
+          setColor(GREY4);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "normal");
+          doc.text("(" + dev.lotes.length + " lote" + (dev.lotes.length > 1 ? "s" : "") + ")", MARGIN + 50, y);
+          y += 5;
+          
+          doc.autoTable({
+            startY: y,
+            head: [["#", "Lote", "Uso", "m2", "Precio", "$/m2", "Estado"]],
+            body: dev.lotes.map((l, i) => [
+              String(i + 1),
+              l.nombre || "-",
+              l.uso || "-",
+              l.sup_m2 ? fmtNum(l.sup_m2) : "-",
+              fmtMoney(l.precio_total),
+              l.precio_m2 ? "$" + fmtNum(Math.round(l.precio_m2)) : "-",
+              l.estadoPipeline || "Disponible"
+            ]),
+            theme: "striped",
+            headStyles: { fillColor: NAVY, textColor: GOLD, fontSize: 8, fontStyle: "bold", halign: "center" },
+            styles: { fontSize: 7.5, cellPadding: 2, lineColor: GREY1, lineWidth: 0.1 },
+            alternateRowStyles: { fillColor: [248, 250, 252] },
+            columnStyles: {
+              0: { halign: "center", cellWidth: 8, fontStyle: "bold" },
+              1: { fontStyle: "bold", textColor: NAVY, cellWidth: 38 },
+              2: { cellWidth: 35 },
+              3: { halign: "right", cellWidth: 18 },
+              4: { halign: "right", textColor: GOLD_D, fontStyle: "bold", cellWidth: 25 },
+              5: { halign: "right", cellWidth: 22 },
+              6: { cellWidth: 28, fontSize: 7 }
+            },
+            margin: { left: MARGIN, right: MARGIN },
+            didDrawPage: function(d) {
+              if (d.pageNumber > 1 && d.cursor.y < 25) {
+                drawHeaderInternal(dev.nombre);
+              }
+            }
+          });
+          y = doc.lastAutoTable.finalY + 8;
+        }
+        
+        // ─── PROSPECTOS ACTIVOS DEL DESARROLLO ───
+        if (dev.prospectosActivos && dev.prospectosActivos.length > 0) {
+          const yCheck = checkPageBreak(y + 30, dev.nombre);
+          if (yCheck !== null) y = yCheck;
+          
+          setColor(NAVY);
+          doc.setFontSize(13);
+          doc.setFont("helvetica", "bold");
+          doc.text("Prospectos Activos", MARGIN, y);
+          setColor(GREY4);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "normal");
+          doc.text("(" + dev.prospectosActivos.length + " cliente" + (dev.prospectosActivos.length > 1 ? "s" : "") + " en proceso)", MARGIN + 42, y);
+          y += 5;
+          
+          // Para CEO incluye notas; para cliente las omite
+          const headersP = audiencia === "ceo"
+            ? ["Cliente", "Lote", "Etapa", "Asesor", "Ult. act.", "Valor", "Prox. paso"]
+            : ["Cliente", "Empresa", "Lote", "Etapa", "Asesor", "Valor"];
+          
+          const bodyP = dev.prospectosActivos.map(p => audiencia === "ceo" ? [
+            p.nombre || "-",
+            p.lote || "-",
+            p.pipeline || "-",
+            p.asesor || "-",
+            p.ultimaAct || "-",
+            fmtMoney(p.valor),
+            p.proximoPaso || "-"
+          ] : [
+            p.nombre || "-",
+            p.empresa || "-",
+            p.lote || "-",
+            p.pipeline || "-",
+            p.asesor || "-",
+            fmtMoney(p.valor)
+          ]);
+          
+          doc.autoTable({
+            startY: y,
+            head: [headersP],
+            body: bodyP,
+            theme: "grid",
+            headStyles: { fillColor: NAVY, textColor: GOLD, fontSize: 8, fontStyle: "bold" },
+            styles: { fontSize: 7.5, cellPadding: 2, lineColor: GREY1, lineWidth: 0.1 },
+            columnStyles: audiencia === "ceo" ? {
+              0: { fontStyle: "bold", textColor: NAVY, cellWidth: 32 },
+              1: { cellWidth: 30 },
+              2: { cellWidth: 24, fontStyle: "bold", fontSize: 7 },
+              3: { cellWidth: 25 },
+              4: { cellWidth: 18 },
+              5: { halign: "right", textColor: GOLD_D, fontStyle: "bold", cellWidth: 22 }
+            } : {
+              0: { fontStyle: "bold", textColor: NAVY, cellWidth: 35 },
+              1: { cellWidth: 32 },
+              2: { cellWidth: 32 },
+              3: { cellWidth: 25, fontStyle: "bold" },
+              4: { cellWidth: 25 },
+              5: { halign: "right", textColor: GOLD_D, fontStyle: "bold", cellWidth: 25 }
+            },
+            margin: { left: MARGIN, right: MARGIN }
+          });
+          y = doc.lastAutoTable.finalY + 8;
+        } else {
+          const yCheck = checkPageBreak(y + 18, dev.nombre);
+          if (yCheck !== null) y = yCheck;
+          
+          setColor(NAVY);
+          doc.setFontSize(13);
+          doc.setFont("helvetica", "bold");
+          doc.text("Prospectos Activos", MARGIN, y);
+          y += 6;
+          setColor(GREY3);
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "italic");
+          doc.text("Sin prospectos activos en este desarrollo actualmente.", MARGIN, y);
+          y += 8;
+        }
+        
+        // ─── PRÓXIMAS ACTIVIDADES DEL DESARROLLO ───
+        if (dev.proximasActividades && dev.proximasActividades.length > 0) {
+          const yCheck = checkPageBreak(y + 30, dev.nombre);
+          if (yCheck !== null) y = yCheck;
+          
+          setColor(NAVY);
+          doc.setFontSize(13);
+          doc.setFont("helvetica", "bold");
+          doc.text("Proximas Actividades", MARGIN, y);
+          setColor(GREY4);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "normal");
+          doc.text("(" + dev.proximasActividades.length + " programada" + (dev.proximasActividades.length > 1 ? "s" : "") + ")", MARGIN + 50, y);
+          y += 6;
+          
+          dev.proximasActividades.forEach(a => {
+            const yCheck2 = checkPageBreak(y + 14, dev.nombre);
+            if (yCheck2 !== null) y = yCheck2;
+            
+            const bg = a.vencida ? RED_LIGHT : [248, 250, 252];
+            const borderColor = a.vencida ? RED : GREY1;
+            
+            setFill(bg);
+            setStroke(borderColor);
+            doc.setLineWidth(a.vencida ? 0.4 : 0.2);
+            doc.roundedRect(MARGIN, y, CONTENT_W, 12, 1, 1, "FD");
+            
+            setFill(a.vencida ? RED : NAVY);
+            doc.roundedRect(MARGIN + 1.5, y + 1.5, 16, 9, 1, 1, "F");
+            setColor([255, 255, 255]);
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "bold");
+            doc.text(String(a.dia), MARGIN + 9.5, y + 6, { align: "center" });
+            doc.setFontSize(6);
+            doc.text(a.mes.toUpperCase(), MARGIN + 9.5, y + 9, { align: "center" });
+            
+            setColor(a.vencida ? [153, 27, 27] : NAVY);
+            doc.setFontSize(9);
+            doc.setFont("helvetica", "bold");
+            const titulo = a.vencida ? "[VENCIDA] " + a.tipo : a.tipo;
+            doc.text(titulo, MARGIN + 20, y + 5);
+            
+            setColor(GREY5);
+            doc.setFontSize(7.5);
+            doc.setFont("helvetica", "normal");
+            doc.text((a.cliente || "") + " - " + (a.lote || "") + " - " + (a.asesor || "Sin asesor"), MARGIN + 20, y + 9);
+            
+            y += 14;
+          });
+          y += 4;
+        }
+        
+        // ─── DEALS PERDIDOS DEL DESARROLLO ───
+        if (dev.perdidos && dev.perdidos.length > 0) {
+          const yCheck = checkPageBreak(y + 30, dev.nombre);
+          if (yCheck !== null) y = yCheck;
+          
+          setColor(NAVY);
+          doc.setFontSize(13);
+          doc.setFont("helvetica", "bold");
+          doc.text("Deals Perdidos", MARGIN, y);
+          setColor(RED);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "normal");
+          doc.text("(" + dev.perdidos.length + " perdido" + (dev.perdidos.length > 1 ? "s" : "") + ")", MARGIN + 35, y);
+          y += 6;
+          
+          doc.autoTable({
+            startY: y,
+            head: [["Cliente", "Lote", "Asesor", "Motivo", "Fecha", "Valor"]],
+            body: dev.perdidos.map(p => [
+              p.nombre || "-",
+              p.lote || "-",
+              p.asesor || "-",
+              p.motivo || "Sin motivo registrado",
+              p.fecha || "Sin fecha",
+              fmtMoney(p.valor)
+            ]),
+            theme: "grid",
+            headStyles: { fillColor: RED, textColor: [255, 255, 255], fontSize: 8, fontStyle: "bold" },
+            styles: { fontSize: 7.5, cellPadding: 2, lineColor: GREY1, lineWidth: 0.1 },
+            alternateRowStyles: { fillColor: RED_LIGHT },
+            columnStyles: {
+              0: { fontStyle: "bold", textColor: [153, 27, 27], cellWidth: 35 },
+              1: { cellWidth: 30 },
+              2: { cellWidth: 25 },
+              3: { cellWidth: 40, fontSize: 7 },
+              4: { cellWidth: 22 },
+              5: { halign: "right", textColor: [153, 27, 27], fontStyle: "bold" }
+            },
+            margin: { left: MARGIN, right: MARGIN }
+          });
+          y = doc.lastAutoTable.finalY + 8;
+        }
+      });
+    }
+    
+    // ─────────────────────────────────────────────
+    // PÁGINA FINAL: PIE DE REPORTE
+    // ─────────────────────────────────────────────
+    doc.addPage();
+    setFill(NAVY);
+    doc.rect(0, 0, PAGE_W, PAGE_H, "F");
+    
+    // Logo en pie
+    try {
+      doc.addImage(LOGO_GRUPO_GUIA_B64, "PNG", MARGIN + 30, 90, 90, 13);
+    } catch (e) {}
+    
+    setColor(GOLD);
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text("FIN DEL REPORTE", PAGE_W / 2, 130, { align: "center" });
+    
+    setColor([255, 255, 255]);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    const lineas = [
+      "Este reporte fue generado automaticamente por MacroPro,",
+      "el sistema de gestion comercial de Grupo Guia.",
+      "",
+      "Los datos reflejan la informacion al momento de generacion",
+      "y se actualizan en tiempo real conforme avanza la operacion.",
+      "",
+      "Las probabilidades de cierre son estandar de industria",
+      "inmobiliaria mexicana (5%, 15%, 35%, 55%, 80%)."
+    ];
+    let yPie = 145;
+    lineas.forEach(linea => {
+      doc.text(linea, PAGE_W / 2, yPie, { align: "center" });
+      yPie += 6;
+    });
+    
+    setStroke(GOLD);
+    doc.setLineWidth(0.3);
+    doc.line(MARGIN + 60, 215, PAGE_W - MARGIN - 60, 215);
+    
+    setColor(GOLD);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.text("CONTACTO", PAGE_W / 2, 225, { align: "center" });
+    setColor([255, 255, 255]);
+    doc.setFont("helvetica", "normal");
+    doc.text("grupoguia.mx", PAGE_W / 2, 232, { align: "center" });
+    
+    setColor(GOLD);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.text("CONFIDENCIAL", PAGE_W / 2, PAGE_H - 25, { align: "center" });
+    setColor([255, 255, 255]);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.text("Reporte generado el " + fechaReporte.toLocaleString("es-MX"), PAGE_W / 2, PAGE_H - 18, { align: "center" });
+    
+    // Aplicar footer a todas las páginas excepto portada y final
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let p = 2; p < totalPages; p++) {
+      doc.setPage(p);
+      drawFooter();
+    }
+    
+    // ─── DESCARGAR ───
+    const fechaFile = new Date().toISOString().slice(0, 10);
+    const nombreAud = audiencia === "ceo" ? "CEO" : desarrollador.replace(/\s+/g, "_");
+    const nombreArchivo = "Reporte_MacroPro_" + nombreAud + "_" + fechaFile + ".pdf";
+    doc.save(nombreArchivo);
+    toast("PDF generado: " + nombreArchivo);
+  };
+  
+  // ═══════════════════════════════════════════════════════════════
+  // DASHBOARD EJECUTIVO v2.0 — Reporte premium para CEO y desarrolladores
+  // - Filtros aplicados a TODA la información mostrada
+  // - Renombrado "Insights" → "Alertas y Oportunidades"
+  // - Sección de Prospectos Activos detallados
+  // - Top 5 prospectos por valor
+  // - Cierres recientes y Deals perdidos
+  // ═══════════════════════════════════════════════════════════════
+  const ViewDashboardEjecutivo = () => {
+    // ─── ESTADO LOCAL (filtros + colapsables) ───
+    // PERSISTIDOS en localStorage para que sobrevivan al cambio de pestaña
+    const loadFiltro = (key, def) => {
+      try { return localStorage.getItem("dashEjec_" + key) || def; } catch(e) { return def; }
+    };
+    const saveFiltro = (key, val) => {
+      try { localStorage.setItem("dashEjec_" + key, val); } catch(e) {}
+    };
+    const [filtroDesarrollador, _setFiltroDesarrollador] = useState(() => loadFiltro("desarrollador", "Todos"));
+    const [filtroDesarrollo, _setFiltroDesarrollo] = useState(() => loadFiltro("desarrollo", "Todos"));
+    const [filtroPeriodo, _setFiltroPeriodo] = useState(() => loadFiltro("periodo", "Mes actual"));
+    const [filtroAsesor, _setFiltroAsesor] = useState(() => loadFiltro("asesor", "Todos"));
+    const [filtroEtapa, _setFiltroEtapa] = useState(() => loadFiltro("etapa", "Todas"));
+    const [filtroTemperatura, _setFiltroTemperatura] = useState(() => loadFiltro("temperatura", "Todas"));
+    const [etapaActiva, _setEtapaActiva] = useState(() => loadFiltro("etapaActiva", "Todas"));
+    // Wrappers que persisten
+    const setFiltroDesarrollador = (v) => { _setFiltroDesarrollador(v); saveFiltro("desarrollador", v); };
+    const setFiltroDesarrollo = (v) => { _setFiltroDesarrollo(v); saveFiltro("desarrollo", v); };
+    const setFiltroPeriodo = (v) => { _setFiltroPeriodo(v); saveFiltro("periodo", v); };
+    const setFiltroAsesor = (v) => { _setFiltroAsesor(v); saveFiltro("asesor", v); };
+    const setFiltroEtapa = (v) => { _setFiltroEtapa(v); saveFiltro("etapa", v); };
+    const setFiltroTemperatura = (v) => { _setFiltroTemperatura(v); saveFiltro("temperatura", v); };
+    const setEtapaActiva = (v) => { _setEtapaActiva(v); saveFiltro("etapaActiva", v); };
+    const [openVelocity, setOpenVelocity] = useState(false);
+    const [openCierres, setOpenCierres] = useState(false);
+    const [openProximas, setOpenProximas] = useState(false);
+    const [openPerdidos, setOpenPerdidos] = useState(false);
+    
+    // Estado del modal de generación de PDF
+    const [showPdfModal, setShowPdfModal] = useState(false);
+    const [pdfAudiencia, setPdfAudiencia] = useState("ceo");
+    const [pdfDesarrollador, setPdfDesarrollador] = useState("Todos");
+    
+    // ─── ACTUALIZAR PIPELINE DESDE EL DASHBOARD ───
+    // Permite modificar el pipeline de un prospecto directamente desde aquí
+    // y mantiene sincronizado el CRM (Kanban, Mi día, etc.)
+    const updatePipelineDesdeDash = (lotId, prospectoIdx, newStage) => {
+      setCrmData(prev => {
+        const entry = prev[lotId] || {pipeline: "Disponible", interacciones: [], prospectos: [], devFeedback: []};
+        const prospectos = [...(entry.prospectos || [])];
+        if (prospectos[prospectoIdx]) {
+          prospectos[prospectoIdx] = {
+            ...prospectos[prospectoIdx],
+            pipeline: newStage,
+            lastContact: new Date().toISOString().slice(0,10)
+          };
+        }
+        const next = {...prev, [lotId]: {...entry, prospectos, lastContact: new Date().toISOString().slice(0,10)}};
+        saveCRM(next);
+        return next;
+      });
+      toast(`✓ Pipeline actualizado a "${newStage}"`);
+    };
+
+    // ─── DATOS BASE ───
+    const cliSrc = clients.length > 0 ? clients : DEMO_CLIENTS;
+    const invSrc = srcInv;
+
+    // Aplicar filtros de DESARROLLADOR / DESARROLLO al inventario primero
+    const lotesFiltrados = invSrc.filter(l => {
+      if (filtroDesarrollador !== "Todos" && (l.desarrollador || "Sin desarrollador") !== filtroDesarrollador) return false;
+      if (filtroDesarrollo !== "Todos" && (l.desarrollo || "Sin desarrollo") !== filtroDesarrollo) return false;
+      return true;
+    });
+    const idsLotesFiltrados = new Set(lotesFiltrados.map(l => l.id));
+
+    // Construir todos los prospectos (planos), pero solo de lotes filtrados
+    const todosProspectos = [];
+    invSrc.forEach(lote => {
+      if (!idsLotesFiltrados.has(lote.id)) return;
+      const crm = crmData[lote.id];
+      if (crm && Array.isArray(crm.prospectos)) {
+        crm.prospectos.forEach(p => {
+          // Buscar cliente para temperatura/empresa
+          const cliente = cliSrc.find(c => c.nombre === p.nombre);
+          todosProspectos.push({
+            ...p,
+            lotId: lote.id,
+            lote,
+            cliente,
+            temperatura: cliente?.temperatura || "Sin dato",
+            empresa: cliente?.empresa || "—"
+          });
+        });
+      }
+    });
+
+    // Aplicar filtros adicionales (asesor, etapa, temperatura, periodo)
+    const ahora = new Date();
+    const prospectosFiltrados = todosProspectos.filter(p => {
+      if (filtroAsesor !== "Todos" && (p.asesor || "Sin asesor") !== filtroAsesor) return false;
+      if (filtroEtapa !== "Todas" && p.pipeline !== filtroEtapa) return false;
+      if (filtroTemperatura !== "Todas" && p.temperatura !== filtroTemperatura) return false;
+      if (filtroPeriodo !== "Todo") {
+        const lc = p.lastContact ? new Date(p.lastContact) : null;
+        if (lc) {
+          const dias = Math.floor((ahora - lc) / 86400000);
+          if (filtroPeriodo === "Mes actual" && dias > 30) return false;
+          if (filtroPeriodo === "Trimestre actual" && dias > 90) return false;
+          if (filtroPeriodo === "Año actual" && dias > 365) return false;
+        }
+      }
+      return true;
+    });
+
+    // Para tabla de prospectos: aplicar filtro visual etapaActiva
+    const prospectosTabla = etapaActiva === "Todas"
+      ? prospectosFiltrados
+      : prospectosFiltrados.filter(p => p.pipeline === etapaActiva);
+
+    // ─── KPIs EJECUTIVOS ───
+    const lotesEnPipeline = new Set(prospectosFiltrados.filter(p => p.pipeline !== "Perdido" && p.pipeline !== "Disponible" && p.pipeline !== "Cierre").map(p => p.lotId));
+    const pipelineTotal = invSrc.filter(l => lotesEnPipeline.has(l.id)).reduce((a, l) => a + (l.precio_total || 0), 0);
+
+    let forecastPonderado = 0;
+    prospectosFiltrados.forEach(p => {
+      const prob = STAGE_PROBABILITY[p.pipeline] || 0;
+      forecastPonderado += (p.lote.precio_total || 0) * prob;
+    });
+
+    const cierresMes = prospectosFiltrados.filter(p => {
+      if (p.pipeline !== "Cierre") return false;
+      if (!p.lastContact) return false;
+      const dias = Math.floor((ahora - new Date(p.lastContact)) / 86400000);
+      return dias <= 30;
+    });
+    const cierresMesValor = cierresMes.reduce((a, p) => a + (p.lote.precio_total || 0), 0);
+
+    const lotesVendidos = lotesFiltrados.filter(l => {
+      const crm = crmData[l.id];
+      if (!crm) return false;
+      return (crm.prospectos || []).some(p => p.pipeline === "Cierre");
+    }).length;
+    const lotesActivos = lotesFiltrados.length - lotesVendidos;
+
+    const totalProspectos = prospectosFiltrados.length;
+    const prospectosCerrados = prospectosFiltrados.filter(p => p.pipeline === "Cierre").length;
+    const conversionRate = totalProspectos > 0 ? (prospectosCerrados / totalProspectos) * 100 : 0;
+
+    const diasPorEtapa = {};
+    PIPELINE_STAGES.forEach(stage => {
+      const ps = prospectosFiltrados.filter(p => p.pipeline === stage);
+      if (ps.length === 0) return;
+      const sum = ps.reduce((a, p) => {
+        if (!p.lastContact) return a;
+        const dias = Math.floor((ahora - new Date(p.lastContact)) / 86400000);
+        return a + Math.max(dias, 0);
+      }, 0);
+      diasPorEtapa[stage] = Math.round(sum / ps.length);
+    });
+
+    // ─── TABLA POR DESARROLLO (respeta filtros) ───
+    const tablaDesarrollos = {};
+    lotesFiltrados.forEach(l => {
+      const dev = l.desarrollo || "Sin desarrollo";
+      if (!tablaDesarrollos[dev]) {
+        tablaDesarrollos[dev] = { desarrollo: dev, totalLotes: 0, vendidos: 0, pipelineValor: 0, sinMovimiento60: 0, sinMovimiento120: 0 };
+      }
+      tablaDesarrollos[dev].totalLotes++;
+      const crm = crmData[l.id];
+      const ps = crm ? (crm.prospectos || []) : [];
+      const tieneCierre = ps.some(p => p.pipeline === "Cierre");
+      if (tieneCierre) tablaDesarrollos[dev].vendidos++;
+      const tieneActivo = ps.some(p => p.pipeline !== "Disponible" && p.pipeline !== "Perdido" && p.pipeline !== "Cierre");
+      if (tieneActivo) tablaDesarrollos[dev].pipelineValor += (l.precio_total || 0);
+      if (ps.length > 0) {
+        const ult = ps.reduce((m, p) => {
+          if (!p.lastContact) return m;
+          const t = new Date(p.lastContact).getTime();
+          return t > m ? t : m;
+        }, 0);
+        if (ult > 0) {
+          const dias = Math.floor((Date.now() - ult) / 86400000);
+          if (dias > 120) tablaDesarrollos[dev].sinMovimiento120++;
+          else if (dias > 60) tablaDesarrollos[dev].sinMovimiento60++;
+        }
+      }
+    });
+    const tablaDesarrollosArr = Object.values(tablaDesarrollos).sort((a, b) => b.pipelineValor - a.pipelineValor);
+
+    // ─── ALERTAS Y OPORTUNIDADES ───
+    const alertas = [];
+    const sin120 = tablaDesarrollosArr.reduce((a, d) => a + d.sinMovimiento120, 0);
+    if (sin120 > 0) alertas.push({ tipo: "warning", icono: "⚠", titulo: `${sin120} lote${sin120 > 1 ? "s" : ""} sin movimiento >120 días`, detalle: tablaDesarrollosArr.filter(d => d.sinMovimiento120 > 0).map(d => `${d.desarrollo} (${d.sinMovimiento120})`).join(", ") });
+
+    const propuestaSinAvance = prospectosFiltrados.filter(p => {
+      if (p.pipeline !== "Propuesta") return false;
+      if (!p.lastContact) return true;
+      const dias = Math.floor((ahora - new Date(p.lastContact)) / 86400000);
+      return dias > 30;
+    });
+    if (propuestaSinAvance.length > 0) alertas.push({ tipo: "danger", icono: "🔥", titulo: `${propuestaSinAvance.length} deal${propuestaSinAvance.length > 1 ? "s" : ""} en Propuesta >30 días — riesgo de pérdida`, detalle: propuestaSinAvance.slice(0, 3).map(p => `${p.nombre} (${p.lote.nombre})`).join(", ") });
+
+    if (totalProspectos > 5) {
+      if (conversionRate < 10) alertas.push({ tipo: "warning", icono: "📉", titulo: `Conversion rate bajo: ${conversionRate.toFixed(1)}%`, detalle: "Industria inmobiliaria mexicana: 15-25% es saludable. Revisar calificación de prospectos." });
+      else if (conversionRate >= 25) alertas.push({ tipo: "success", icono: "🎯", titulo: `Conversion rate excelente: ${conversionRate.toFixed(1)}%`, detalle: "Por encima del benchmark de industria. Mantener proceso actual." });
+    }
+
+    const hotDeals = prospectosFiltrados.filter(p => {
+      if (p.pipeline !== "Contrato" && p.pipeline !== "Propuesta") return false;
+      if (!p.lastContact) return false;
+      const dias = Math.floor((ahora - new Date(p.lastContact)) / 86400000);
+      return dias <= 14;
+    });
+    if (hotDeals.length > 0) {
+      const valorHot = hotDeals.reduce((a, p) => a + (p.lote.precio_total || 0), 0);
+      alertas.push({ tipo: "info", icono: "🚀", titulo: `${hotDeals.length} deal${hotDeals.length > 1 ? "s" : ""} caliente${hotDeals.length > 1 ? "s" : ""} (${fmtM(valorHot)})`, detalle: "Etapa Propuesta o Contrato con actividad <14 días. Priorizar cierres." });
+    }
+
+    if (alertas.length === 0) alertas.push({ tipo: "success", icono: "✓", titulo: "Operación saludable", detalle: "Sin alertas críticas en este período." });
+
+    // ─── TOP 5 PROSPECTOS POR VALOR ───
+    const top5Prospectos = [...prospectosFiltrados]
+      .filter(p => p.pipeline !== "Perdido" && p.pipeline !== "Cierre")
+      .sort((a, b) => (b.lote.precio_total || 0) - (a.lote.precio_total || 0))
+      .slice(0, 5);
+
+    // ─── VELOCITY: prospectos que avanzaron de etapa este mes ───
+    // Aproximación: prospectos con lastContact en últimos 30d Y en etapas avanzadas
+    const velocityList = prospectosFiltrados.filter(p => {
+      if (!p.lastContact) return false;
+      const dias = Math.floor((ahora - new Date(p.lastContact)) / 86400000);
+      if (dias > 30) return false;
+      return ["Contactado", "En negociación", "Propuesta", "Contrato"].includes(p.pipeline);
+    });
+
+    // ─── CIERRES RECIENTES (últimos 60d) ───
+    const cierresRecientes = prospectosFiltrados.filter(p => {
+      if (p.pipeline !== "Cierre") return false;
+      if (!p.lastContact) return false;
+      const dias = Math.floor((ahora - new Date(p.lastContact)) / 86400000);
+      return dias <= 60;
+    }).sort((a, b) => new Date(b.lastContact) - new Date(a.lastContact));
+
+    // ─── PRÓXIMAS ACTIVIDADES (de Mi día) ───
+    // Se leen del array p.actividades de cada prospecto (estructura real del CRM)
+    const proximasActividades = [];
+    const hoy0 = new Date(); hoy0.setHours(0,0,0,0);
+    invSrc.forEach(lote => {
+      if (!idsLotesFiltrados.has(lote.id)) return;
+      const crm = crmData[lote.id];
+      if (!crm || !Array.isArray(crm.prospectos)) return;
+      crm.prospectos.forEach(p => {
+        // Aplicar filtros adicionales (asesor, etapa, temperatura)
+        if (filtroAsesor !== "Todos" && (p.asesor || "Sin asesor") !== filtroAsesor) return;
+        if (filtroEtapa !== "Todas" && p.pipeline !== filtroEtapa) return;
+        const cliente = cliSrc.find(c => c.nombre === p.nombre);
+        const temp = cliente?.temperatura || "Sin dato";
+        if (filtroTemperatura !== "Todas" && temp !== filtroTemperatura) return;
+        // Procesar actividades del prospecto
+        const acts = p.actividades || [];
+        acts.forEach(a => {
+          if (a.completada) return; // Solo pendientes
+          if (!a.fecha) return;
+          const fechaAct = new Date(a.fecha);
+          // Mostrar futuras y vencidas (vencidas son críticas)
+          proximasActividades.push({
+            nombre: p.nombre,
+            lote: lote.nombre,
+            desarrollo: lote.desarrollo,
+            asesor: p.asesor,
+            tipo: a.tipo || "Actividad",
+            descripcion: a.descripcion || "",
+            fecha: fechaAct,
+            hora: a.hora || "",
+            vencida: fechaAct < hoy0,
+            actId: a.id
+          });
+        });
+      });
+    });
+    // Ordenar: vencidas primero (más críticas), luego por fecha ascendente
+    proximasActividades.sort((a, b) => {
+      if (a.vencida && !b.vencida) return -1;
+      if (!a.vencida && b.vencida) return 1;
+      return a.fecha - b.fecha;
+    });
+
+    // ─── PERDIDOS RECIENTES ───
+    // Mostrar TODOS los perdidos (no requiere lastContact)
+    // Los perdidos son histórico, no se filtran por período
+    const perdidosRecientes = todosProspectos.filter(p => p.pipeline === "Perdido")
+      .sort((a, b) => {
+        // Ordenar: con fecha más reciente primero, sin fecha al final
+        if (!a.lastContact && !b.lastContact) return 0;
+        if (!a.lastContact) return 1;
+        if (!b.lastContact) return -1;
+        return new Date(b.lastContact) - new Date(a.lastContact);
+      })
+      .slice(0, 30);
+
+    // ─── LISTAS PARA FILTROS ───
+    const desarrolladoresUnicos = ["Todos", ...new Set(invSrc.map(l => l.desarrollador).filter(Boolean))].sort();
+    const desarrollosUnicos = ["Todos", ...new Set(invSrc.filter(l => filtroDesarrollador === "Todos" || (l.desarrollador || "Sin desarrollador") === filtroDesarrollador).map(l => l.desarrollo).filter(Boolean))].sort();
+    const asesoresUnicos = ["Todos", ...new Set(todosProspectos.map(p => p.asesor).filter(Boolean))].sort();
+
+    // ─── HELPERS DE ESTILO ───
+    const cardStyle = { background: B.white, borderRadius: 16, padding: "22px 24px", boxShadow: "0 2px 16px rgba(0,43,73,0.08)", border: `1px solid ${B.grey1}` };
+    const sectionTitle = (icon, title, count) => (
+      <div style={{ fontSize: 13, fontWeight: 700, color: B.navy, marginBottom: 14, paddingBottom: 8, borderBottom: `2px solid ${B.grey1}`, display: "flex", alignItems: "center", gap: 8 }}>
+        <span>{icon}</span> {title}
+        {count !== undefined && <span style={{ marginLeft: "auto", fontSize: 11, color: B.grey3, background: B.offW, padding: "2px 8px", borderRadius: 8 }}>{count}</span>}
+      </div>
+    );
+    const collapsibleHeader = (icon, title, count, isOpen, onClick) => (
+      <div onClick={onClick} style={{ cursor: "pointer", fontSize: 13, fontWeight: 700, color: B.navy, padding: "16px 20px", display: "flex", alignItems: "center", gap: 8, background: B.white, borderRadius: 14, boxShadow: "0 2px 12px rgba(0,43,73,0.06)", border: `1px solid ${B.grey1}`, marginBottom: isOpen ? 0 : 14, borderBottomLeftRadius: isOpen ? 0 : 14, borderBottomRightRadius: isOpen ? 0 : 14, userSelect: "none" }}>
+        <span style={{ fontSize: 16, transform: isOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▶</span>
+        <span>{icon}</span> {title}
+        {count !== undefined && <span style={{ fontSize: 11, color: B.grey3, background: B.offW, padding: "2px 8px", borderRadius: 8 }}>{count}</span>}
+        <span style={{ marginLeft: "auto", fontSize: 11, color: B.grey3 }}>{isOpen ? "Click para ocultar" : "Click para ver detalle"}</span>
+      </div>
+    );
+    const kpiCard = (label, valor, sub, accent, icono) => (
+      <div style={{ background: B.white, borderRadius: 16, padding: "20px 22px", boxShadow: "0 2px 16px rgba(0,43,73,0.08)", border: `1px solid ${B.grey1}`, display: "flex", flexDirection: "column", gap: 6, position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: 14, right: 16, fontSize: 22, opacity: 0.5 }}>{icono}</div>
+        <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, color: B.grey3 }}>{label}</div>
+        <div style={{ fontSize: 28, fontWeight: 800, color: B.navy, lineHeight: 1.1, fontFamily: "'Playfair Display',serif" }}>{valor}</div>
+        {sub && <div style={{ fontSize: 11, color: B.grey4, marginTop: 2 }}>{sub}</div>}
+        <div style={{ position: "absolute", bottom: 0, left: 0, height: 3, width: "100%", background: accent || B.gold }} />
+      </div>
+    );
+    const alertColor = (tipo) => {
+      if (tipo === "danger") return { bg: "#FEF2F2", border: "#EF4444", text: "#991B1B" };
+      if (tipo === "warning") return { bg: "#FFFBEB", border: B.gold, text: "#92400E" };
+      if (tipo === "success") return { bg: "#F0FDF4", border: "#22C55E", text: "#166534" };
+      return { bg: "#EFF6FF", border: "#3B82F6", text: "#1E40AF" };
+    };
+    const tempColorEjec = (t) => {
+      if (t === "Caliente") return { bg: "#FEE2E2", text: "#991B1B" };
+      if (t === "Tibio") return { bg: "#FEF3C7", text: "#92400E" };
+      if (t === "Frío") return { bg: "#DBEAFE", text: "#1E40AF" };
+      return { bg: "#F3F4F6", text: "#4B5563" };
+    };
+    const fmtFecha = (d) => { if (!d) return "—"; const dt = new Date(d); return dt.toLocaleDateString("es-MX", { day: "2-digit", month: "short" }); };
+    const diasDesde = (d) => { if (!d) return "—"; const dias = Math.floor((ahora - new Date(d)) / 86400000); if (dias === 0) return "hoy"; if (dias === 1) return "ayer"; return `hace ${dias}d`; };
+
+    const titleAudiencia = filtroDesarrollador !== "Todos" ? filtroDesarrollador : (filtroDesarrollo !== "Todos" ? filtroDesarrollo : "Operación Total");
+    
+    // ─── GENERAR PDF — arma el payload con todos los datos detallados por desarrollo ───
+    const handleGenerarPDF = () => {
+      const desarrolladorPdf = pdfAudiencia === "ceo" ? "Todos" : pdfDesarrollador;
+      
+      // Conjunto de lotes que aplican según audiencia
+      let lotesPdf = invSrc;
+      if (pdfAudiencia === "cliente" && desarrolladorPdf !== "Todos") {
+        lotesPdf = invSrc.filter(l => (l.desarrollador || "Sin desarrollador") === desarrolladorPdf);
+      }
+      const idsLotesPdf = new Set(lotesPdf.map(l => l.id));
+      
+      // Todos los prospectos del scope (incluido perdidos)
+      const prospectosScopeCompleto = [];
+      lotesPdf.forEach(lote => {
+        const crm = crmData[lote.id];
+        if (crm && Array.isArray(crm.prospectos)) {
+          crm.prospectos.forEach((p, idx) => {
+            const cliente = cliSrc.find(c => c.nombre === p.nombre);
+            prospectosScopeCompleto.push({
+              ...p,
+              lotId: lote.id,
+              lote,
+              cliente,
+              empresa: cliente?.empresa || "—",
+              prospectoIdx: idx
+            });
+          });
+        }
+      });
+      
+      // Prospectos activos (no perdidos, no disponibles)
+      const prospectosActivosScope = prospectosScopeCompleto.filter(p => p.pipeline !== "Perdido" && p.pipeline !== "Disponible");
+      
+      // ─── KPIs GLOBALES ───
+      const lotesEnPipelinePdf = new Set(prospectosActivosScope.filter(p => p.pipeline !== "Cierre").map(p => p.lotId));
+      const pipelineTotalPdf = invSrc.filter(l => lotesEnPipelinePdf.has(l.id)).reduce((a, l) => a + (l.precio_total || 0), 0);
+      let forecastPdf = 0;
+      prospectosActivosScope.forEach(p => { forecastPdf += (p.lote.precio_total || 0) * (STAGE_PROBABILITY[p.pipeline] || 0); });
+      const cierresMesPdf = prospectosActivosScope.filter(p => {
+        if (p.pipeline !== "Cierre" || !p.lastContact) return false;
+        return Math.floor((ahora - new Date(p.lastContact)) / 86400000) <= 30;
+      });
+      const lotesVendidosPdf = lotesPdf.filter(l => {
+        const crm = crmData[l.id];
+        return crm && (crm.prospectos || []).some(p => p.pipeline === "Cierre");
+      }).length;
+      const totalProspectosPdf = prospectosActivosScope.length;
+      const prospectosCerradosPdf = prospectosActivosScope.filter(p => p.pipeline === "Cierre").length;
+      const conversionRatePdf = totalProspectosPdf > 0 ? (prospectosCerradosPdf / totalProspectosPdf) * 100 : 0;
+      const dpePdf = {};
+      ACTIVE_STAGES.forEach(s => {
+        const ps = prospectosActivosScope.filter(p => p.pipeline === s);
+        if (ps.length === 0) return;
+        const sum = ps.reduce((a, p) => { if (!p.lastContact) return a; return a + Math.max(Math.floor((ahora - new Date(p.lastContact)) / 86400000), 0); }, 0);
+        dpePdf[s] = Math.round(sum / ps.length);
+      });
+      
+      // Pipeline por etapa global
+      const pipelinePorEtapaPdf = {};
+      ACTIVE_STAGES.forEach(s => {
+        const ps = prospectosActivosScope.filter(p => p.pipeline === s);
+        const valor = ps.reduce((a, p) => a + (p.lote.precio_total || 0), 0);
+        pipelinePorEtapaPdf[s] = { count: ps.length, valor, valorPond: valor * (STAGE_PROBABILITY[s] || 0) };
+      });
+      
+      // ─── TABLA COMPARATIVA POR DESARROLLO ───
+      const tablaDevsTmp = {};
+      lotesPdf.forEach(l => {
+        const dev = l.desarrollo || "Sin desarrollo";
+        if (!tablaDevsTmp[dev]) tablaDevsTmp[dev] = { desarrollo: dev, totalLotes: 0, vendidos: 0, pipelineValor: 0, supTotal: 0, sinMovimiento60: 0, sinMovimiento120: 0 };
+        tablaDevsTmp[dev].totalLotes++;
+        tablaDevsTmp[dev].supTotal += (l.sup_m2 || 0);
+        const crm = crmData[l.id];
+        const ps = crm ? (crm.prospectos || []) : [];
+        if (ps.some(p => p.pipeline === "Cierre")) tablaDevsTmp[dev].vendidos++;
+        if (ps.some(p => p.pipeline !== "Disponible" && p.pipeline !== "Perdido" && p.pipeline !== "Cierre")) {
+          tablaDevsTmp[dev].pipelineValor += (l.precio_total || 0);
+        }
+        if (ps.length > 0) {
+          const ult = ps.reduce((m, p) => { if (!p.lastContact) return m; const t = new Date(p.lastContact).getTime(); return t > m ? t : m; }, 0);
+          if (ult > 0) {
+            const dias = Math.floor((Date.now() - ult) / 86400000);
+            if (dias > 120) tablaDevsTmp[dev].sinMovimiento120++;
+            else if (dias > 60) tablaDevsTmp[dev].sinMovimiento60++;
+          }
+        }
+      });
+      const tablaDevPdf = Object.values(tablaDevsTmp).sort((a, b) => b.pipelineValor - a.pipelineValor);
+      
+      // ─── DETALLE POR CADA DESARROLLO (lo nuevo crítico) ───
+      // Agrupar lotes por desarrollo
+      const desarrollosUnicos = [...new Set(lotesPdf.map(l => l.desarrollo).filter(Boolean))].sort();
+      const detallePorDesarrollo = desarrollosUnicos.map(devNombre => {
+        // Lotes del desarrollo
+        const lotesDelDev = lotesPdf.filter(l => l.desarrollo === devNombre);
+        // Ciudad/Estado (tomar del primer lote)
+        const primerLote = lotesDelDev[0] || {};
+        // Valor inventario
+        const valorTotalDev = lotesDelDev.reduce((a, l) => a + (l.precio_total || 0), 0);
+        const supTotalDev = lotesDelDev.reduce((a, l) => a + (l.sup_m2 || 0), 0);
+        
+        // Lotes con estado pipeline (derivado del prospecto más avanzado)
+        const lotesConEstado = lotesDelDev.map(l => {
+          const crm = crmData[l.id];
+          const ps = crm ? (crm.prospectos || []) : [];
+          let estadoPipeline = "Disponible";
+          if (ps.length > 0) {
+            // Encontrar el prospecto más avanzado
+            const orden = { "Cierre": 7, "Contrato": 6, "Propuesta": 5, "En negociación": 4, "Contactado": 3, "Prospecto": 2, "Perdido": 1, "Disponible": 0 };
+            const mas = ps.reduce((max, p) => (orden[p.pipeline] || 0) > (orden[max?.pipeline] || 0) ? p : max, ps[0]);
+            estadoPipeline = mas.pipeline || "Disponible";
+          }
+          return {
+            id: l.id,
+            nombre: l.nombre || "—",
+            uso: (l.usos_todos && l.usos_todos.length > 0) ? l.usos_todos.join(" / ") : (l.uso || "Sin uso"),
+            sup_m2: l.sup_m2,
+            precio_total: l.precio_total,
+            precio_m2: l.precio_m2 || (l.sup_m2 > 0 ? l.precio_total / l.sup_m2 : 0),
+            estadoPipeline
+          };
+        }).sort((a, b) => (b.precio_total || 0) - (a.precio_total || 0));
+        
+        // Prospectos activos del desarrollo (no perdidos)
+        const prospectosActivosDev = prospectosActivosScope
+          .filter(p => p.lote.desarrollo === devNombre && p.pipeline !== "Cierre")
+          .map(p => ({
+            nombre: p.nombre,
+            empresa: p.empresa,
+            lote: p.lote.nombre,
+            pipeline: p.pipeline,
+            asesor: p.asesor || "—",
+            ultimaAct: p.lastContact ? new Date(p.lastContact).toLocaleDateString("es-MX", {day: "2-digit", month: "short"}) : "—",
+            valor: p.lote.precio_total,
+            proximoPaso: p.proximoPaso || "—"
+          }));
+        
+        // Próximas actividades del desarrollo
+        const proximasActividadesDev = [];
+        lotesDelDev.forEach(lote => {
+          const crm = crmData[lote.id];
+          if (!crm || !Array.isArray(crm.prospectos)) return;
+          crm.prospectos.forEach(p => {
+            const acts = p.actividades || [];
+            acts.forEach(a => {
+              if (a.completada || !a.fecha) return;
+              const fechaAct = new Date(a.fecha);
+              proximasActividadesDev.push({
+                dia: fechaAct.getDate(),
+                mes: fechaAct.toLocaleDateString("es-MX", { month: "short" }),
+                tipo: a.tipo || "Actividad",
+                descripcion: a.descripcion || "",
+                cliente: p.nombre,
+                lote: lote.nombre,
+                asesor: p.asesor || "—",
+                vencida: fechaAct < new Date(new Date().setHours(0,0,0,0))
+              });
+            });
+          });
+        });
+        proximasActividadesDev.sort((a, b) => {
+          if (a.vencida && !b.vencida) return -1;
+          if (!a.vencida && b.vencida) return 1;
+          return 0;
+        });
+        
+        // Deals perdidos del desarrollo
+        const perdidosDev = prospectosScopeCompleto
+          .filter(p => p.pipeline === "Perdido" && p.lote.desarrollo === devNombre)
+          .map(p => ({
+            nombre: p.nombre,
+            lote: p.lote.nombre,
+            asesor: p.asesor || "—",
+            motivo: p.motivoPerdida || "Sin motivo registrado",
+            fecha: p.lastContact ? new Date(p.lastContact).toLocaleDateString("es-MX", {day: "2-digit", month: "short", year: "2-digit"}) : "Sin fecha",
+            valor: p.lote.precio_total
+          }));
+        
+        return {
+          nombre: devNombre,
+          ciudad: primerLote.ciudad || "",
+          estado: primerLote.estado || "",
+          totalLotes: lotesDelDev.length,
+          supTotal: supTotalDev,
+          valorTotal: valorTotalDev,
+          lotes: lotesConEstado,
+          prospectosActivos: prospectosActivosDev,
+          proximasActividades: proximasActividadesDev,
+          perdidos: perdidosDev
+        };
+      });
+      
+      // Ordenar desarrollos: los con prospectos activos primero, luego los demás por valor
+      detallePorDesarrollo.sort((a, b) => {
+        if (a.prospectosActivos.length > 0 && b.prospectosActivos.length === 0) return -1;
+        if (a.prospectosActivos.length === 0 && b.prospectosActivos.length > 0) return 1;
+        return b.valorTotal - a.valorTotal;
+      });
+      
+      // ─── LLAMAR AL GENERADOR ───
+      generarReportePDF({
+        audiencia: pdfAudiencia,
+        desarrollador: desarrolladorPdf,
+        dashboardData: {
+          pipelineTotal: pipelineTotalPdf,
+          forecastPonderado: forecastPdf,
+          cierresMesCount: cierresMesPdf.length,
+          cierresMesValor: cierresMesPdf.reduce((a, p) => a + (p.lote.precio_total || 0), 0),
+          lotesActivos: lotesPdf.length - lotesVendidosPdf,
+          lotesVendidos: lotesVendidosPdf,
+          totalLotesCartera: lotesPdf.length,
+          conversionRate: conversionRatePdf,
+          prospectosCerrados: prospectosCerradosPdf,
+          totalProspectos: totalProspectosPdf,
+          diasEnPropuesta: dpePdf["Propuesta"] || 0,
+          lotesEnPipelineCount: lotesEnPipelinePdf.size,
+          alertas: alertas,
+          tablaDesarrollos: tablaDevPdf,
+          pipelinePorEtapa: pipelinePorEtapaPdf,
+          detallePorDesarrollo: detallePorDesarrollo
+        }
+      });
+      setShowPdfModal(false);
+    };
+
+    return (
+      <div style={{ ...s.page, maxWidth: 1280, margin: "0 auto" }}>
+        {/* ─── ENCABEZADO EJECUTIVO ─── */}
+        <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 280 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, color: B.gold, marginBottom: 4 }}>⬡ DASHBOARD EJECUTIVO · GRUPO GUÍA</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: B.navy, fontFamily: "'Playfair Display',serif", marginBottom: 4 }}>{titleAudiencia} — Reporte de Performance</div>
+            <div style={{ fontSize: 13, color: B.grey3 }}>{new Date().toLocaleDateString("es-MX", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} · {totalProspectos} prospectos analizados · {lotesFiltrados.length} lotes en cartera</div>
+          </div>
+          <button
+            onClick={() => {
+              // Pre-llenar dropdown del modal con desarrollador del filtro actual si aplica
+              if (filtroDesarrollador !== "Todos") {
+                setPdfAudiencia("cliente");
+                setPdfDesarrollador(filtroDesarrollador);
+              } else {
+                setPdfAudiencia("ceo");
+                setPdfDesarrollador("Todos");
+              }
+              setShowPdfModal(true);
+            }}
+            style={{
+              padding: "12px 20px",
+              background: `linear-gradient(135deg, ${B.navy}, ${B.navyL})`,
+              color: B.gold,
+              border: `1px solid ${B.gold}`,
+              borderRadius: 10,
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 700,
+              fontFamily: "'DM Sans',sans-serif",
+              boxShadow: "0 2px 12px rgba(0,43,73,0.15)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              whiteSpace: "nowrap"
+            }}
+          >
+            📄 Generar PDF
+          </button>
+        </div>
+
+        {/* ─── BARRA DE FILTROS (6) ─── */}
+        <div style={{ background: B.white, borderRadius: 14, padding: "16px 20px", marginBottom: 22, boxShadow: "0 2px 12px rgba(0,43,73,0.06)", border: `1px solid ${B.grey1}`, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8 }}>Desarrollador</span>
+            <select style={s.select} value={filtroDesarrollador} onChange={e => { setFiltroDesarrollador(e.target.value); setFiltroDesarrollo("Todos"); }}>{desarrolladoresUnicos.map(d => <option key={d}>{d}</option>)}</select>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8 }}>Desarrollo</span>
+            <select style={s.select} value={filtroDesarrollo} onChange={e => setFiltroDesarrollo(e.target.value)}>{desarrollosUnicos.map(d => <option key={d}>{d}</option>)}</select>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8 }}>Período</span>
+            <select style={s.select} value={filtroPeriodo} onChange={e => setFiltroPeriodo(e.target.value)}>{["Mes actual", "Trimestre actual", "Año actual", "Todo"].map(p => <option key={p}>{p}</option>)}</select>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8 }}>Asesor</span>
+            <select style={s.select} value={filtroAsesor} onChange={e => setFiltroAsesor(e.target.value)}>{asesoresUnicos.map(a => <option key={a}>{a}</option>)}</select>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8 }}>Etapa</span>
+            <select style={s.select} value={filtroEtapa} onChange={e => setFiltroEtapa(e.target.value)}><option>Todas</option>{PIPELINE_STAGES.map(s => <option key={s}>{s}</option>)}</select>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8 }}>Temperatura</span>
+            <select style={s.select} value={filtroTemperatura} onChange={e => setFiltroTemperatura(e.target.value)}>{["Todas", "Caliente", "Tibio", "Frío", "Inactivo"].map(t => <option key={t}>{t}</option>)}</select>
+          </div>
+          <button style={{ padding: "8px 14px", borderRadius: 8, background: B.grey1, color: B.navy, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", marginLeft: "auto" }} onClick={() => { setFiltroDesarrollador("Todos"); setFiltroDesarrollo("Todos"); setFiltroPeriodo("Mes actual"); setFiltroAsesor("Todos"); setFiltroEtapa("Todas"); setFiltroTemperatura("Todas"); setEtapaActiva("Todas"); }}>↺ Limpiar filtros</button>
+        </div>
+
+        {/* ─── KPIs PRINCIPALES (6) ─── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
+          {kpiCard("Pipeline Total", fmtM(pipelineTotal), `${lotesEnPipeline.size} lotes activos en negociación`, B.gold, "💰")}
+          {kpiCard("Forecast Ponderado", fmtM(forecastPonderado), "Σ (valor × probabilidad por etapa)", B.blue, "📈")}
+          {kpiCard("Cierres del Mes", `${cierresMes.length}`, fmtM(cierresMesValor), "#22C55E", "🎯")}
+          {kpiCard("Lotes Activos / Vendidos", `${lotesActivos} / ${lotesVendidos}`, `${lotesFiltrados.length} en cartera`, B.navy, "📦")}
+          {kpiCard("Conversion Rate", `${conversionRate.toFixed(1)}%`, `${prospectosCerrados} de ${totalProspectos} prospectos`, B.goldD, "📊")}
+          {kpiCard("Días en Propuesta", `${diasPorEtapa["Propuesta"] || 0}d`, "Promedio · clave para cierre", "#8B5CF6", "⏱")}
+        </div>
+
+        {/* ─── ALERTAS Y OPORTUNIDADES ─── */}
+        <div style={{ ...cardStyle, marginBottom: 22 }}>
+          {sectionTitle("⚡", "Alertas y Oportunidades", alertas.length)}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {alertas.map((a, i) => {
+              const c = alertColor(a.tipo);
+              return (
+                <div key={i} style={{ background: c.bg, borderLeft: `4px solid ${c.border}`, borderRadius: 10, padding: "12px 16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                    <span style={{ fontSize: 18 }}>{a.icono}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: c.text }}>{a.titulo}</span>
+                  </div>
+                  {a.detalle && <div style={{ fontSize: 12, color: c.text, opacity: 0.85, marginLeft: 28 }}>{a.detalle}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ─── TOP 5 PROSPECTOS POR VALOR ─── */}
+        <div style={{ ...cardStyle, marginBottom: 22 }}>
+          {sectionTitle("🏆", "Top 5 Prospectos por Valor", top5Prospectos.length)}
+          {top5Prospectos.length === 0 ? <div style={{ fontSize: 13, color: B.grey3, textAlign: "center", padding: 18 }}>Sin prospectos activos en este período/filtro</div> : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {top5Prospectos.map((p, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 14px", background: B.offW, borderRadius: 10, border: `1px solid ${B.grey1}` }}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: i === 0 ? B.gold : B.grey2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: i === 0 ? B.navy : B.white, flexShrink: 0 }}>{i + 1}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: B.navy, marginBottom: 2 }}>{p.nombre} <span style={{ fontWeight: 400, color: B.grey3 }}>· {p.empresa}</span></div>
+                    <div style={{ fontSize: 12, color: B.grey4 }}>{p.lote.nombre} · {p.lote.desarrollo} · {p.asesor || "Sin asesor"} · <span style={{ color: PIPELINE_COLORS[p.pipeline] || B.grey3, fontWeight: 600 }}>{p.pipeline}</span></div>
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: B.gold, fontFamily: "'Playfair Display',serif", flexShrink: 0 }}>{fmtM(p.lote.precio_total)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ─── TABLA POR DESARROLLO (filtrada correctamente) ─── */}
+        <div style={{ ...cardStyle, marginBottom: 22 }}>
+          {sectionTitle("🏗", "Performance por Desarrollo", tablaDesarrollosArr.length)}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: B.offW }}>
+                  <th style={{ padding: "10px 12px", textAlign: "left", fontSize: 11, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8, borderBottom: `1px solid ${B.grey1}` }}>Desarrollo</th>
+                  <th style={{ padding: "10px 12px", textAlign: "right", fontSize: 11, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8, borderBottom: `1px solid ${B.grey1}` }}>Lotes</th>
+                  <th style={{ padding: "10px 12px", textAlign: "right", fontSize: 11, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8, borderBottom: `1px solid ${B.grey1}` }}>Vendidos</th>
+                  <th style={{ padding: "10px 12px", textAlign: "right", fontSize: 11, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8, borderBottom: `1px solid ${B.grey1}` }}>Pipeline</th>
+                  <th style={{ padding: "10px 12px", textAlign: "center", fontSize: 11, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8, borderBottom: `1px solid ${B.grey1}` }}>Sin movim. 60d</th>
+                  <th style={{ padding: "10px 12px", textAlign: "center", fontSize: 11, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8, borderBottom: `1px solid ${B.grey1}` }}>Sin movim. 120d</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tablaDesarrollosArr.map((d, i) => (
+                  <tr key={d.desarrollo} style={{ borderBottom: `1px solid ${B.grey1}` }}>
+                    <td style={{ padding: "12px", fontWeight: 700, color: B.navy }}>{d.desarrollo}</td>
+                    <td style={{ padding: "12px", textAlign: "right", color: B.grey4 }}>{d.totalLotes}</td>
+                    <td style={{ padding: "12px", textAlign: "right", color: d.vendidos > 0 ? "#22C55E" : B.grey3, fontWeight: d.vendidos > 0 ? 700 : 400 }}>{d.vendidos}</td>
+                    <td style={{ padding: "12px", textAlign: "right", color: B.gold, fontWeight: 700 }}>{fmtM(d.pipelineValor)}</td>
+                    <td style={{ padding: "12px", textAlign: "center" }}>{d.sinMovimiento60 > 0 ? <span style={{ background: "#FFFBEB", color: "#92400E", padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 700 }}>{d.sinMovimiento60}</span> : <span style={{ color: B.grey3 }}>—</span>}</td>
+                    <td style={{ padding: "12px", textAlign: "center" }}>{d.sinMovimiento120 > 0 ? <span style={{ background: "#FEF2F2", color: "#991B1B", padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 700 }}>{d.sinMovimiento120}</span> : <span style={{ color: B.grey3 }}>—</span>}</td>
+                  </tr>
+                ))}
+                {tablaDesarrollosArr.length === 0 && <tr><td colSpan={6} style={{ padding: "24px", textAlign: "center", color: B.grey3 }}>Sin datos para los filtros aplicados</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ─── PIPELINE POR ETAPA ─── */}
+        <div style={{ ...cardStyle, marginBottom: 22 }}>
+          {sectionTitle("📊", "Pipeline por Etapa")}
+          {ACTIVE_STAGES.map(stage => {
+            const ps = prospectosFiltrados.filter(p => p.pipeline === stage);
+            const valor = ps.reduce((a, p) => a + (p.lote.precio_total || 0), 0);
+            const valorPond = valor * (STAGE_PROBABILITY[stage] || 0);
+            const max = Math.max(...ACTIVE_STAGES.map(s => prospectosFiltrados.filter(p => p.pipeline === s).reduce((a, p) => a + (p.lote.precio_total || 0), 0)), 1);
+            return (
+              <div key={stage} style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: 12 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: PIPELINE_COLORS[stage] }}></span>
+                    <span style={{ fontWeight: 700, color: B.navy }}>{stage}</span>
+                    <span style={{ color: B.grey3, fontSize: 11 }}>· {ps.length} prospecto{ps.length !== 1 ? "s" : ""}</span>
+                    <span style={{ color: B.grey4, fontSize: 11 }}>· prob {(STAGE_PROBABILITY[stage] * 100).toFixed(0)}%</span>
+                  </span>
+                  <span><span style={{ color: B.navy, fontWeight: 700 }}>{fmtM(valor)}</span><span style={{ color: B.grey3, marginLeft: 10, fontSize: 11 }}>→ Forecast: <strong style={{ color: B.gold }}>{fmtM(valorPond)}</strong></span></span>
+                </div>
+                <div style={{ background: B.grey1, borderRadius: 6, height: 10, overflow: "hidden" }}>
+                  <div style={{ width: `${(valor / max) * 100}%`, height: "100%", background: `linear-gradient(90deg, ${PIPELINE_COLORS[stage]}, ${PIPELINE_COLORS[stage]}dd)`, borderRadius: 6, transition: "width 0.6s ease" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ─── PROSPECTOS ACTIVOS — TABLA 12 COLUMNAS ─── */}
+        <div style={{ ...cardStyle, marginBottom: 22 }}>
+          {sectionTitle("👥", "Prospectos Activos", prospectosTabla.length)}
+          {/* Píldoras de filtro visual por etapa */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+            {["Todas", ...PIPELINE_STAGES].map(stage => {
+              const count = stage === "Todas" ? prospectosFiltrados.length : prospectosFiltrados.filter(p => p.pipeline === stage).length;
+              const isActive = etapaActiva === stage;
+              return (
+                <button key={stage} onClick={() => setEtapaActiva(stage)} style={{ padding: "6px 12px", borderRadius: 16, border: `1px solid ${isActive ? B.navy : B.grey1}`, background: isActive ? B.navy : B.white, color: isActive ? B.white : B.navy, cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
+                  {stage !== "Todas" && <span style={{ width: 8, height: 8, borderRadius: "50%", background: PIPELINE_COLORS[stage] }}></span>}
+                  {stage} <span style={{ background: isActive ? "rgba(255,255,255,0.2)" : B.offW, color: isActive ? "#fff" : B.grey3, padding: "1px 7px", borderRadius: 8, fontSize: 11 }}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+          {prospectosTabla.length === 0 ? <div style={{ fontSize: 13, color: B.grey3, textAlign: "center", padding: 24 }}>Sin prospectos en {etapaActiva === "Todas" ? "ninguna etapa" : etapaActiva} con los filtros aplicados</div> : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: B.offW }}>
+                    {["Cliente", "Empresa", "Lote", "Desarrollo", "Ciudad", "Etapa", "Temp.", "Asesor", "Última act.", "Valor", "Próx. paso", "Notas", "Acción"].map(h => (
+                      <th key={h} style={{ padding: "10px 8px", textAlign: "left", fontSize: 10, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.6, borderBottom: `1px solid ${B.grey1}`, whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {prospectosTabla.map((p, i) => {
+                    const tc = tempColorEjec(p.temperatura);
+                    return (
+                      <tr key={i} style={{ borderBottom: `1px solid ${B.grey1}` }}>
+                        <td style={{ padding: "10px 8px", fontWeight: 700, color: B.navy, whiteSpace: "nowrap" }}>{p.nombre}</td>
+                        <td style={{ padding: "10px 8px", color: B.grey4, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.empresa}</td>
+                        <td style={{ padding: "10px 8px", color: B.navy, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.lote.nombre}</td>
+                        <td style={{ padding: "10px 8px", color: B.grey4, whiteSpace: "nowrap" }}>{p.lote.desarrollo}</td>
+                        <td style={{ padding: "10px 8px", color: B.grey4, whiteSpace: "nowrap" }}>{p.lote.ciudad}</td>
+                        <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
+                          <select 
+                            value={p.pipeline || "Prospecto"} 
+                            onChange={e => {
+                              // Encontrar el prospectoIdx en el array original del lote
+                              const crmLote = crmData[p.lotId];
+                              const idx = (crmLote?.prospectos || []).findIndex(pr => pr.nombre === p.nombre && pr.pipeline === p.pipeline);
+                              if (idx >= 0) updatePipelineDesdeDash(p.lotId, idx, e.target.value);
+                            }}
+                            style={{ 
+                              padding: "4px 8px", 
+                              borderRadius: 6, 
+                              border: `1px solid ${PIPELINE_COLORS[p.pipeline] || B.grey3}`,
+                              background: "#fff",
+                              color: PIPELINE_COLORS[p.pipeline] || B.grey3,
+                              fontWeight: 700,
+                              fontSize: 11,
+                              cursor: "pointer",
+                              fontFamily: "'DM Sans', sans-serif"
+                            }}
+                          >
+                            {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </td>
+                        <td style={{ padding: "10px 8px" }}><span style={{ background: tc.bg, color: tc.text, padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{p.temperatura}</span></td>
+                        <td style={{ padding: "10px 8px", color: B.grey4, whiteSpace: "nowrap" }}>{p.asesor || "—"}</td>
+                        <td style={{ padding: "10px 8px", color: B.grey4, whiteSpace: "nowrap", fontSize: 11 }}>{diasDesde(p.lastContact)}</td>
+                        <td style={{ padding: "10px 8px", color: B.gold, fontWeight: 700, whiteSpace: "nowrap", textAlign: "right" }}>{fmtM(p.lote.precio_total)}</td>
+                        <td style={{ padding: "10px 8px", color: B.grey4, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>{p.proximoPaso || "—"}</td>
+                        <td style={{ padding: "10px 8px", color: B.grey4, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11 }}>{p.notas || "—"}</td>
+                        <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
+                          <button 
+                            onClick={() => { setView("crm"); }}
+                            style={{ 
+                              padding: "4px 10px", 
+                              borderRadius: 6, 
+                              background: B.navy, 
+                              color: B.gold, 
+                              border: "none", 
+                              fontSize: 11, 
+                              fontWeight: 700, 
+                              cursor: "pointer",
+                              fontFamily: "'DM Sans', sans-serif"
+                            }}
+                          >Ver CRM</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* ─── SECCIONES COLAPSABLES ─── */}
+        {/* Velocity */}
+        {collapsibleHeader("🚀", "Velocity — Deals con actividad este mes", velocityList.length, openVelocity, () => setOpenVelocity(!openVelocity))}
+        {openVelocity && (
+          <div style={{ ...cardStyle, marginBottom: 14, borderTopLeftRadius: 0, borderTopRightRadius: 0, borderTop: "none" }}>
+            {velocityList.length === 0 ? <div style={{ fontSize: 13, color: B.grey3, textAlign: "center", padding: 18 }}>Sin deals con actividad reciente</div> : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {velocityList.map((p, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: B.offW, borderRadius: 8 }}>
+                    <span style={{ fontSize: 16 }}>📈</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: B.navy }}>{p.nombre} <span style={{ color: B.grey3, fontWeight: 400 }}>· {p.lote.nombre}</span></div>
+                      <div style={{ fontSize: 11, color: B.grey4 }}>Etapa: <span style={{ color: PIPELINE_COLORS[p.pipeline], fontWeight: 600 }}>{p.pipeline}</span> · {p.asesor || "Sin asesor"} · {diasDesde(p.lastContact)}</div>
+                    </div>
+                    <div style={{ fontSize: 13, color: B.gold, fontWeight: 700 }}>{fmtM(p.lote.precio_total)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Cierres recientes */}
+        {collapsibleHeader("✅", "Cierres recientes (últimos 60 días)", cierresRecientes.length, openCierres, () => setOpenCierres(!openCierres))}
+        {openCierres && (
+          <div style={{ ...cardStyle, marginBottom: 14, borderTopLeftRadius: 0, borderTopRightRadius: 0, borderTop: "none" }}>
+            {cierresRecientes.length === 0 ? <div style={{ fontSize: 13, color: B.grey3, textAlign: "center", padding: 18 }}>Sin cierres en los últimos 60 días</div> : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {cierresRecientes.map((p, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: "#F0FDF4", borderRadius: 8, border: "1px solid #BBF7D0" }}>
+                    <span style={{ fontSize: 18 }}>🎉</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#166534" }}>{p.nombre} <span style={{ color: B.grey3, fontWeight: 400 }}>· {p.lote.nombre}</span></div>
+                      <div style={{ fontSize: 11, color: B.grey4 }}>{p.lote.desarrollo} · {p.asesor || "Sin asesor"} · cerrado {diasDesde(p.lastContact)}</div>
+                    </div>
+                    <div style={{ fontSize: 14, color: "#166534", fontWeight: 800 }}>{fmtM(p.lote.precio_total)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Próximas actividades */}
+        {collapsibleHeader("📅", "Próximas actividades agendadas", proximasActividades.length, openProximas, () => setOpenProximas(!openProximas))}
+        {openProximas && (
+          <div style={{ ...cardStyle, marginBottom: 14, borderTopLeftRadius: 0, borderTopRightRadius: 0, borderTop: "none" }}>
+            {proximasActividades.length === 0 ? <div style={{ fontSize: 13, color: B.grey3, textAlign: "center", padding: 18 }}>Sin actividades agendadas para los filtros aplicados</div> : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {proximasActividades.slice(0, 30).map((a, i) => (
+                  <div key={i} style={{ 
+                    display: "flex", 
+                    alignItems: "center", 
+                    gap: 12, 
+                    padding: "10px 12px", 
+                    background: a.vencida ? "#FEF2F2" : B.offW, 
+                    borderRadius: 8,
+                    border: a.vencida ? "1px solid #FECACA" : "1px solid transparent"
+                  }}>
+                    <div style={{ 
+                      width: 56, 
+                      textAlign: "center", 
+                      flexShrink: 0, 
+                      background: a.vencida ? "#EF4444" : B.navy, 
+                      color: "#fff", 
+                      borderRadius: 8, 
+                      padding: "6px 0" 
+                    }}>
+                      <div style={{ fontSize: 18, fontWeight: 800 }}>{a.fecha.getDate()}</div>
+                      <div style={{ fontSize: 9, textTransform: "uppercase", fontWeight: 700, opacity: 0.9 }}>{a.fecha.toLocaleDateString("es-MX", { month: "short" })}</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: a.vencida ? "#991B1B" : B.navy, display: "flex", alignItems: "center", gap: 6 }}>
+                        {a.vencida && <span style={{ background: "#EF4444", color: "#fff", padding: "1px 6px", borderRadius: 4, fontSize: 9, fontWeight: 800, textTransform: "uppercase" }}>VENCIDA</span>}
+                        <span>{a.tipo}</span>
+                        {a.descripcion && <span style={{ color: B.grey4, fontWeight: 400 }}>· {a.descripcion}</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: B.grey4, marginTop: 2 }}>{a.nombre} · {a.lote} · {a.desarrollo} · {a.asesor || "Sin asesor"}{a.hora ? ` · ${a.hora}` : ""}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Perdidos recientes */}
+        {collapsibleHeader("🔍", "Deals perdidos (análisis)", perdidosRecientes.length, openPerdidos, () => setOpenPerdidos(!openPerdidos))}
+        {openPerdidos && (
+          <div style={{ ...cardStyle, marginBottom: 14, borderTopLeftRadius: 0, borderTopRightRadius: 0, borderTop: "none" }}>
+            {perdidosRecientes.length === 0 ? <div style={{ fontSize: 13, color: B.grey3, textAlign: "center", padding: 18 }}>Sin deals perdidos registrados</div> : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {perdidosRecientes.map((p, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: "#FEF2F2", borderRadius: 8, border: "1px solid #FECACA" }}>
+                    <span style={{ fontSize: 16 }}>❌</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#991B1B" }}>{p.nombre} <span style={{ color: B.grey3, fontWeight: 400 }}>· {p.lote.nombre}</span></div>
+                      <div style={{ fontSize: 11, color: B.grey4 }}>
+                        {p.lote.desarrollo} · {p.asesor || "Sin asesor"} · {p.lastContact ? `perdido ${diasDesde(p.lastContact)}` : "sin fecha registrada"}
+                        {p.motivoPerdida && <span style={{ marginLeft: 6, color: "#991B1B", fontWeight: 600 }}>· Motivo: {p.motivoPerdida}</span>}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12, color: "#991B1B", fontWeight: 700 }}>{fmtM(p.lote.precio_total)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── PIE DE PÁGINA ─── */}
+        <div style={{ textAlign: "center", padding: "20px", fontSize: 11, color: B.grey4, borderTop: `1px solid ${B.grey1}`, marginTop: 20 }}>
+          MacroPro · Grupo Guía · Reporte generado {new Date().toLocaleString("es-MX")} · Probabilidades de cierre estándar de industria inmobiliaria mexicana
+        </div>
+        
+        {/* ─── MODAL: Generar Reporte PDF ─── */}
+        {showPdfModal && (
+          <div 
+            onClick={() => setShowPdfModal(false)}
+            style={{
+              position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+              background: "rgba(0,43,73,0.7)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              zIndex: 9999, padding: 20
+            }}
+          >
+            <div 
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: "#fff",
+                borderRadius: 18,
+                padding: 0,
+                maxWidth: 520,
+                width: "100%",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+                overflow: "hidden"
+              }}
+            >
+              {/* Header del modal */}
+              <div style={{ background: `linear-gradient(135deg, ${B.navy}, ${B.navyL})`, padding: "24px 28px", color: "#fff" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, color: B.gold, marginBottom: 6 }}>📄 GENERAR REPORTE</div>
+                <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Playfair Display',serif" }}>Exportar a PDF</div>
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>Diseño profesional con branding Grupo Guía</div>
+              </div>
+              
+              {/* Body */}
+              <div style={{ padding: "24px 28px" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: B.navy, marginBottom: 12 }}>¿Para quién es este reporte?</div>
+                
+                {/* Opción CEO */}
+                <label 
+                  style={{
+                    display: "block",
+                    padding: "14px 16px",
+                    border: `2px solid ${pdfAudiencia === "ceo" ? B.gold : B.grey1}`,
+                    borderRadius: 10,
+                    marginBottom: 10,
+                    cursor: "pointer",
+                    background: pdfAudiencia === "ceo" ? "#FFFBEB" : "#fff",
+                    transition: "all 0.15s"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <input 
+                      type="radio" 
+                      checked={pdfAudiencia === "ceo"} 
+                      onChange={() => setPdfAudiencia("ceo")} 
+                      style={{ accentColor: B.gold, width: 18, height: 18 }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, color: B.navy, fontSize: 14 }}>👔 CEO / Interno</div>
+                      <div style={{ fontSize: 11, color: B.grey4, marginTop: 2 }}>Reporte completo con todos los desarrollos, prospectos, notas internas y próximos pasos.</div>
+                    </div>
+                  </div>
+                </label>
+                
+                {/* Opción Cliente */}
+                <label 
+                  style={{
+                    display: "block",
+                    padding: "14px 16px",
+                    border: `2px solid ${pdfAudiencia === "cliente" ? B.gold : B.grey1}`,
+                    borderRadius: 10,
+                    marginBottom: 10,
+                    cursor: "pointer",
+                    background: pdfAudiencia === "cliente" ? "#FFFBEB" : "#fff",
+                    transition: "all 0.15s"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <input 
+                      type="radio" 
+                      checked={pdfAudiencia === "cliente"} 
+                      onChange={() => setPdfAudiencia("cliente")} 
+                      style={{ accentColor: B.gold, width: 18, height: 18 }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, color: B.navy, fontSize: 14 }}>🏢 Cliente Desarrollador</div>
+                      <div style={{ fontSize: 11, color: B.grey4, marginTop: 2 }}>Reporte filtrado solo a sus desarrollos. Sin notas internas (privacidad).</div>
+                    </div>
+                  </div>
+                </label>
+                
+                {/* Dropdown de desarrollador (solo si Cliente) */}
+                {pdfAudiencia === "cliente" && (
+                  <div style={{ marginLeft: 30, marginTop: 12, marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Desarrollador</div>
+                    <select 
+                      value={pdfDesarrollador} 
+                      onChange={e => setPdfDesarrollador(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: 8,
+                        border: `1px solid ${B.grey2}`,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: B.navy,
+                        background: "#fff",
+                        fontFamily: "'DM Sans',sans-serif"
+                      }}
+                    >
+                      {desarrolladoresUnicos.filter(d => d !== "Todos").map(d => <option key={d}>{d}</option>)}
+                    </select>
+                    <div style={{ fontSize: 10, color: B.grey4, marginTop: 6, fontStyle: "italic" }}>
+                      Solo se incluirán los lotes y prospectos de este desarrollador.
+                    </div>
+                  </div>
+                )}
+                
+                {/* Info del reporte */}
+                <div style={{ background: B.offW, borderRadius: 10, padding: "12px 14px", marginTop: 12, fontSize: 11, color: B.grey5 }}>
+                  <div style={{ fontWeight: 700, color: B.navy, marginBottom: 4 }}>📋 El reporte incluye:</div>
+                  Portada con branding · 6 KPIs ejecutivos · Alertas estratégicas · Performance por desarrollo · Pipeline por etapa · Top 5 prospectos · Tabla de prospectos activos{pdfAudiencia === "ceo" ? " (con notas internas)" : ""} · Próximas actividades
+                </div>
+              </div>
+              
+              {/* Footer del modal */}
+              <div style={{ padding: "16px 28px", borderTop: `1px solid ${B.grey1}`, display: "flex", gap: 10, justifyContent: "flex-end", background: B.offW }}>
+                <button 
+                  onClick={() => setShowPdfModal(false)}
+                  style={{
+                    padding: "10px 20px",
+                    background: "transparent",
+                    color: B.grey4,
+                    border: `1px solid ${B.grey2}`,
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    fontFamily: "'DM Sans',sans-serif"
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={handleGenerarPDF}
+                  style={{
+                    padding: "10px 24px",
+                    background: `linear-gradient(135deg, ${B.navy}, ${B.navyL})`,
+                    color: B.gold,
+                    border: "none",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    fontFamily: "'DM Sans',sans-serif",
+                    boxShadow: "0 2px 8px rgba(0,43,73,0.2)"
+                  }}
+                >
+                  📄 Generar PDF
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const ViewDashboard = () => {
     const cliSrc=clients.length>0?clients:DEMO_CLIENTS;
@@ -5968,7 +8363,7 @@ function MacroProMatcher() {
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["dashboard","📊 Dashboard"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["dashboard","📊 Dashboard"],["dashboardEjec","⬡ Ejecutivo"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <button onClick={()=>{setApiKeyInput(localStorage.getItem("macropro_api_key")||"");setShowApiModal(true);}} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:apiKey?"#22c55e":"#ef4444",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title={apiKey?"API Key configurada ✓":"Sin API Key — click para configurar"}>{apiKey?"🔑":"⚠️"}</button>
@@ -5991,6 +8386,7 @@ function MacroProMatcher() {
       {view==="home"&&<ViewHome/>}
       {view==="crm"&&<ViewCRM/>}
       {view==="dashboard"&&<ViewDashboard/>}
+      {view==="dashboardEjec"&&<ViewDashboardEjecutivo/>}
       {view==="matchClient"&&<ViewMatchClient/>}
       {view==="matchLot"&&<ViewMatchLot/>}
       {view==="result"&&<ViewResults/>}
