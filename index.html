@@ -444,21 +444,71 @@ const METAS_SEED = {
     "Capital Sur":{desarrollador:"TYA",plan:{uds:[0,0,0,0,0,0,1,1,0,0,0,0],monto:[0,0,0,0,0,0,17290,17810,0,0,0,0]},real:{uds:[0,0,0,0,0,0,0,0,0,0,0,0],monto:[0,0,0,0,0,0,0,0,0,0,0,0]}},
     "Alva":{desarrollador:"TYA",plan:{uds:[0,0,0,0,0,1,0,0,0,0,0,0],monto:[0,0,0,0,0,29680,0,0,0,0,0,0]},real:{uds:[0,0,0,0,0,0,0,0,0,0,0,0],monto:[0,0,0,0,0,0,0,0,0,0,0,0]}},
     "Punto Sur":{desarrollador:"TYA",plan:{uds:[0,0,0,0,0,0,0,0,0,0,0,0],monto:[0,0,0,0,0,0,0,0,0,0,0,0]},real:{uds:[1,0,0,0,0,0,0,0,0,0,0,0],monto:[58771,0,0,0,0,0,0,0,0,0,0,0]}},
-    "Capital Norte":{desarrollador:"Capital Norte",plan:{uds:[0,0,1,0,0,1,0,1,0,0,1,0],monto:[0,0,8750,0,0,8210,0,9120,0,0,29930,0]},real:{uds:[0,0,1,0,0,0,0,0,0,0,0,0],monto:[0,0,9012,0,0,0,0,0,0,0,0,0]}},
-    "Corretaje":{desarrollador:"Corretaje",plan:{uds:[0,0,1,2,1,0,1,1,1,1,2,0],monto:[0,0,16000,45610,81500,0,57130,31260,26190,45760,86160,0]},real:{uds:[0,0,0,0,0,0,0,0,0,0,0,0],monto:[0,0,0,0,0,0,0,0,0,0,0,0]}}
+    "Capital Norte":{desarrollador:"HITO",plan:{uds:[0,0,1,0,0,1,0,1,0,0,1,0],monto:[0,0,8750,0,0,8210,0,9120,0,0,29930,0]},real:{uds:[0,0,1,0,0,0,0,0,0,0,0,0],monto:[0,0,9012,0,0,0,0,0,0,0,0,0]}},
+    "Corretaje":{desarrollador:"Corretaje",plan:{uds:[0,0,1,2,1,0,1,1,1,1,2,0],monto:[0,0,16000,45610,81500,0,57130,31260,26190,45760,86160,0]},real:{uds:[0,0,0,0,0,0,0,0,0,0,0,0],monto:[0,0,0,0,0,0,0,0,0,0,0,0]}},
+    "Garvi":{desarrollador:"Garvi",plan:{uds:[0,0,0,0,0,1,0,0,0,1,0,0],monto:[0,0,0,0,0,38000,0,0,0,43000,0,0]},real:{uds:[0,0,0,0,0,0,0,0,0,0,0,0],monto:[0,0,0,0,0,0,0,0,0,0,0,0]}}
   };
+// Migración silenciosa: corrige desarrolladores residuales "Otros" si ahora hay mapeo conocido
+// También corrige cualquier desarrollador que NO esté en la lista oficial pero coincida con un mapeo
+function migrarMetasResiduales(metas){
+  if(!metas||typeof metas!=="object") return metas;
+  let cambios = 0;
+  const mapeo = (typeof loadMapeoDesarrollador==="function")?loadMapeoDesarrollador():{};
+  Object.entries(metas).forEach(([nombre, d])=>{
+    if(!d||typeof d!=="object") return;
+    const actual = d.desarrollador;
+    const sugerido = inferirDesarrollador(nombre, mapeo);
+    // Reasignar si: actual es "Otros"/vacío, O actual no está en lista oficial y sugerido sí
+    const actualEsOficial = DESARROLLADORES_OFICIALES.includes(actual);
+    const sugeridoEsOficial = DESARROLLADORES_OFICIALES.includes(sugerido);
+    if((!actual||actual==="Otros"||(!actualEsOficial&&sugeridoEsOficial))&&sugerido&&sugerido!==actual){
+      d.desarrollador = sugerido;
+      cambios++;
+    }
+  });
+  if(cambios>0) console.log("Migración Metas: "+cambios+" desarrollos reasignados a desarrollador correcto");
+  return metas;
+}
+
+// Auto-popular Metas con desarrollos detectados en inventario que no están en metas
+// Crea entradas con valores en cero, listas para que el usuario las llene
+function autoPopularMetasDesdeInventario(metas, inventory){
+  if(!metas||!Array.isArray(inventory)||inventory.length===0) return { metas, agregados:[] };
+  const desarrollosEnInventario = new Set();
+  inventory.forEach(lot=>{
+    if(lot&&lot.desarrollo) desarrollosEnInventario.add(String(lot.desarrollo).trim());
+  });
+  const agregados = [];
+  desarrollosEnInventario.forEach(desarrollo=>{
+    if(!desarrollo) return;
+    if(!metas[desarrollo]){
+      // Inferir desarrollador desde mapeo (que ya fue enriquecido por aprenderMapeoDesdeInventario)
+      const desarrollador = inferirDesarrollador(desarrollo);
+      metas[desarrollo] = {
+        desarrollador,
+        plan: { uds:new Array(12).fill(0), monto:new Array(12).fill(0) },
+        real: { uds:new Array(12).fill(0), monto:new Array(12).fill(0) }
+      };
+      agregados.push({ desarrollo, desarrollador });
+    }
+  });
+  if(agregados.length>0) console.log("Auto-popular Metas: "+agregados.length+" desarrollos agregados desde inventario:", agregados.map(a=>`${a.desarrollo} (${a.desarrollador})`).join(", "));
+  return { metas, agregados };
+}
+
 // Defensive load: si localStorage tiene datos los usa, si no inicializa con seed
 function loadMetas(){
   try{
     const raw=localStorage.getItem(METAS_KEY);
-    if(!raw) return JSON.parse(JSON.stringify(METAS_SEED));
+    if(!raw) return migrarMetasResiduales(JSON.parse(JSON.stringify(METAS_SEED)));
     const parsed=JSON.parse(raw);
-    // Validar estructura mínima
-    if(typeof parsed!=="object"||parsed===null) return JSON.parse(JSON.stringify(METAS_SEED));
-    return parsed;
+    if(typeof parsed!=="object"||parsed===null) return migrarMetasResiduales(JSON.parse(JSON.stringify(METAS_SEED)));
+    const migrado = migrarMetasResiduales(parsed);
+    try{ localStorage.setItem(METAS_KEY, JSON.stringify(migrado)); }catch(e){}
+    return migrado;
   }catch(e){
     console.warn("Error cargando metas, usando seed:",e);
-    return JSON.parse(JSON.stringify(METAS_SEED));
+    return migrarMetasResiduales(JSON.parse(JSON.stringify(METAS_SEED)));
   }
 }
 function saveMetas(d){ try{localStorage.setItem(METAS_KEY,JSON.stringify(d));}catch(e){console.warn("Error guardando metas:",e);} }
@@ -500,19 +550,148 @@ function getEstatusMeta(cumpl, planTotal, realTotal){
 function fmtMiles(n){ if(!n&&n!==0) return "$0"; return "$"+new Intl.NumberFormat("es-MX",{maximumFractionDigits:0}).format(n||0); }
 
 // ─── METAS · MOMENTUM DESDE KANBAN ────────────────────────────────
-// Mapeo conocido desarrollo → desarrollador (auto-asignación al crear desarrollos nuevos)
-const MAPEO_DESARROLLADOR_DEFAULT = {
-  "Kulkana":"TYA","Terrasoles":"TYA","Capital Sur":"TYA","Alva":"TYA","Punto Sur":"TYA",
-  "Capital Norte":"Capital Norte","Corretaje":"Corretaje"
+// Mapeo BASE desarrollo → desarrollador (extraído del inventario real, fuente de verdad)
+// Reglas: el INVENTARIO manda. Si un lote tiene desarrollador X, ese lote pertenece a X
+// independientemente del mapeo. Para desarrollos sin lotes en inventario (o ambiguos)
+// se usa este mapeo de respaldo.
+const MAPEO_DESARROLLADOR_BASE = {
+  // === Desarrollos TYA ===
+  "Kulkana":"TYA","Terrasoles":"TYA","Capital Sur":"TYA","Alva":"TYA",
+  "Punto Sur":"TYA","Las Rosas":"TYA",
+  // === Desarrollos HITO ===
+  "Capital Norte":"HITO",  // Capital Norte mayoritariamente es HITO (split real con Corretaje a nivel de lote)
+  // === Desarrollos Corretaje ===
+  "Corretaje":"Corretaje","Corretaje Norte":"Corretaje",
+  // === Desarrollos Garvi ===
+  "Garvi":"Garvi","Altika":"Garvi","Esenika Boreales":"Garvi","Luxia Amado Nervo":"Garvi",
+  // === Desarrollos Favier ===
+  "Tare":"Favier",
+  // === Desarrollos GyG ===
+  "Valle Imperial":"GyG"
 };
-function inferirDesarrollador(nombreDesarrollo){
+// Lista canónica de desarrolladores reales (del inventario)
+const DESARROLLADORES_OFICIALES = ["TYA","HITO","Corretaje","Garvi","Favier","GyG"];
+const MAPEO_DESARROLLADOR_KEY = "macropro_mapeo_desarrolladores_v1";
+
+// Carga el mapeo desde localStorage (enriquecido por imports + auto-aprendizaje)
+function loadMapeoDesarrollador(){
+  try{
+    const stored = localStorage.getItem(MAPEO_DESARROLLADOR_KEY);
+    if(stored){
+      const parsed = JSON.parse(stored);
+      return { ...MAPEO_DESARROLLADOR_BASE, ...parsed };
+    }
+  }catch(e){ console.warn("Error cargando mapeo:",e); }
+  return { ...MAPEO_DESARROLLADOR_BASE };
+}
+function saveMapeoDesarrollador(mapeo){
+  try{ localStorage.setItem(MAPEO_DESARROLLADOR_KEY, JSON.stringify(mapeo)); }catch(e){}
+}
+
+// Auto-aprende mapeo desde el inventario (la fuente de verdad real)
+// Devuelve un mapeo desarrollo→desarrollador donde TODOS los desarrollos vienen de lotes reales.
+// Si un desarrollo tiene múltiples desarrolladores (split), gana el MAYORITARIO.
+// Devuelve también los splits detectados como advertencia.
+function aprenderMapeoDesdeInventario(inventory){
+  const conteo = {}; // {desarrollo: {desarrollador: count}}
+  if(!Array.isArray(inventory)) return { mapeo:{}, splits:[] };
+  inventory.forEach(lot=>{
+    if(!lot) return;
+    const desarrollo = (lot.desarrollo||"").trim();
+    const desarrollador = (lot.desarrollador||"").trim();
+    if(!desarrollo||!desarrollador) return;
+    if(!conteo[desarrollo]) conteo[desarrollo] = {};
+    conteo[desarrollo][desarrollador] = (conteo[desarrollo][desarrollador]||0)+1;
+  });
+  const mapeo = {};
+  const splits = [];
+  Object.entries(conteo).forEach(([desarrollo, devs])=>{
+    const entries = Object.entries(devs).sort((a,b)=>b[1]-a[1]);
+    if(entries.length===0) return;
+    mapeo[desarrollo] = entries[0][0]; // gana el mayoritario
+    if(entries.length>1){
+      splits.push({
+        desarrollo,
+        desarrolladorPrincipal: entries[0][0],
+        countPrincipal: entries[0][1],
+        otros: entries.slice(1).map(([d,c])=>({desarrollador:d, count:c}))
+      });
+    }
+  });
+  return { mapeo, splits };
+}
+
+// Sincroniza el mapeo persistido con el aprendido del inventario
+// Esto se ejecuta una vez al cargar la app si hay inventario disponible
+function sincronizarMapeoConInventario(inventory){
+  if(!Array.isArray(inventory)||inventory.length===0) return null;
+  const { mapeo:aprendido, splits } = aprenderMapeoDesdeInventario(inventory);
+  if(Object.keys(aprendido).length===0) return null;
+  // Fusionar: lo aprendido del inventario tiene MÁS PRIORIDAD que lo persistido
+  const actual = loadMapeoDesarrollador();
+  const fusionado = { ...actual, ...aprendido };
+  saveMapeoDesarrollador(fusionado);
+  return { aprendido, splits, total:Object.keys(aprendido).length };
+}
+
+// Función inteligente: orden de prioridad
+// 1. Mapeo activo (que incluye lo aprendido del inventario + base + storage)
+// 2. Heurísticas por substring (para desarrollos no registrados)
+// 3. Fallback: el nombre como desarrollador propio
+function inferirDesarrollador(nombreDesarrollo, mapeoActivo){
   if(!nombreDesarrollo) return "Otros";
-  const known = MAPEO_DESARROLLADOR_DEFAULT[nombreDesarrollo];
-  if(known) return known;
-  const lc=nombreDesarrollo.toLowerCase();
-  if(lc.includes("capital norte")||lc.includes("cn ")||lc.startsWith("cn-")) return "Capital Norte";
+  const mapeo = mapeoActivo || loadMapeoDesarrollador();
+  // 1. Match exacto
+  if(mapeo[nombreDesarrollo]) return mapeo[nombreDesarrollo];
+  // 2. Match case-insensitive
+  const lc = nombreDesarrollo.toLowerCase().trim();
+  for(const [k,v] of Object.entries(mapeo)){
+    if(k.toLowerCase().trim()===lc) return v;
+  }
+  // 3. Heurísticas por substring
+  if(lc.includes("capital norte")||lc.startsWith("cn-")||lc.startsWith("cn ")) return "HITO";
   if(lc.includes("corretaje")) return "Corretaje";
-  return "Otros";
+  if(lc.includes("garvi")) return "Garvi";
+  if(lc.includes("hito")) return "HITO";
+  if(lc.includes("favier")) return "Favier";
+  if(lc.includes("gyg")||lc==="g&g"||lc==="g y g") return "GyG";
+  if(["kulkana","terrasoles","capital sur","alva","punto sur","las rosas"].includes(lc)) return "TYA";
+  // 4. Fallback razonable: tratar el nombre como desarrollador propio
+  // (mejor que "Otros" — el usuario puede corregirlo)
+  return nombreDesarrollo;
+}
+
+// Lista dinámica de desarrolladores activos (en metas + oficiales)
+function getDesarrolladoresActivos(metasData, inventory){
+  const set = new Set();
+  Object.values(metasData||{}).forEach(d=>{ if(d&&d.desarrollador) set.add(d.desarrollador); });
+  DESARROLLADORES_OFICIALES.forEach(d=>set.add(d));
+  if(Array.isArray(inventory)){
+    inventory.forEach(lot=>{ if(lot&&lot.desarrollador) set.add(lot.desarrollador); });
+  }
+  return [...set].sort();
+}
+// Lista de desarrollos que pertenecen a un desarrollador (filtro inteligente)
+// Combina: metas existentes + mapeo + inventario real
+function getDesarrollosPorDesarrollador(desarrollador, metasData, inventory, mapeoActivo){
+  if(!desarrollador||desarrollador==="Todos") return null; // null = mostrar todos
+  const set = new Set();
+  const mapeo = mapeoActivo || loadMapeoDesarrollador();
+  // 1. Desde metasData
+  Object.entries(metasData||{}).forEach(([nombre, d])=>{
+    if(d&&d.desarrollador===desarrollador) set.add(nombre);
+  });
+  // 2. Desde mapeo
+  Object.entries(mapeo).forEach(([des, dev])=>{
+    if(dev===desarrollador) set.add(des);
+  });
+  // 3. Desde inventario (fuente de verdad)
+  if(Array.isArray(inventory)){
+    inventory.forEach(lot=>{
+      if(lot&&lot.desarrollador===desarrollador && lot.desarrollo) set.add(lot.desarrollo);
+    });
+  }
+  return [...set].sort();
 }
 // Calcula momentum desde el CRM Kanban: lotes en Apartado o Contrato
 // Devuelve estructura: { porDesarrollo:{[nombre]:{uds:[12], monto:[12], lotes:[...]}}, totalUds:[12], totalMonto:[12], allLotes:[...] }
@@ -580,22 +759,91 @@ function calcularMomentumKanban(crmData, inventory, filtroDesarrollador, filtroD
 }
 
 // ─── METAS · PARSER DE EXCEL ──────────────────────────────────────
-// Parsea la hoja "📋 Captura Ventas" y devuelve un objeto compatible con metasData
-// Estructura del Excel: bloques de 8 filas por desarrollo, comenzando en R4, R14, R24...
-// R+0: header (B=nombre)
-// R+1: Plan Desarr Uds (col D-O = Ene-Dic)
+// Parsea el Excel completo:
+// 1. Lee la hoja "⚙️ Catálogos" (cols D-E) para enriquecer el mapeo desarrollo→desarrollador
+// 2. Lee la hoja "📋 Captura Ventas" para extraer Plan y Real mensuales
+// Estructura del bloque en Captura Ventas: 8 filas por desarrollo
+// R+0: header (B=nombre, C="Inv: N", D-O=Ene-Dic)
+// R+1: Plan Desarr Uds (col D-O)
 // R+2: Plan Desarr $ (col D-O)
-// R+3: Meta SGG Uds (ignorado — solo Plan)
-// R+4: Meta SGG $ (ignorado)
+// R+3,4: Meta SGG (ignorado — solo manejamos Plan)
 // R+5: VENTA REAL Uds (col D-O)
 // R+6: VENTA REAL $ (col D-O)
 // R+7: Diferencia (calculada, ignorada)
 function parseExcelMetas(arrayBuffer){
-  const result = { ok:false, metas:{}, advertencias:[], desarrollosNuevos:[], desarrollosActualizados:[], errores:[] };
+  const result = {
+    ok:false, metas:{}, mapeoNuevo:{}, advertencias:[],
+    desarrollosNuevos:[], desarrollosActualizados:[], errores:[],
+    desarrolladoresEnExcel:new Set()
+  };
   try{
     if(typeof XLSX==="undefined"){ result.errores.push("Librería XLSX no disponible"); return result; }
     const wb = XLSX.read(arrayBuffer, {type:"array"});
-    // Buscar la hoja Captura Ventas (case-insensitive, con o sin emoji)
+
+    // ── PASO 1: Leer hoja Catálogos (si existe) para construir mapeo desarrollo→desarrollador ──
+    let catName = null;
+    for(const n of wb.SheetNames){
+      const norm = n.toLowerCase().replace(/[^a-z]/g,"");
+      if(norm.includes("catalogo")||norm.includes("catalog")){ catName=n; break; }
+    }
+    let mapeoFromExcel = {};
+    if(catName){
+      try{
+        const wsCat = wb.Sheets[catName];
+        const catRows = XLSX.utils.sheet_to_json(wsCat, {defval:"", header:1});
+        // Buscar columnas de mapeo: típicamente "DESARROLLO" + "DESARROLLADOR" en algún par de columnas
+        // Estructura observada: col D="MAPEO DESARROLLO→DESARROLLADOR" + col E=desarrollador
+        // Pero tambien la col A puede tener "DESARROLLADOR CEO" como lista de desarrolladores
+        // Procesamiento defensivo: buscar el header
+        let mapeoCol = -1, devCol = -1;
+        let desarrolladorCEOCol = -1;
+        for(let r=0;r<Math.min(catRows.length,3);r++){
+          const row = catRows[r]||[];
+          for(let c=0;c<row.length;c++){
+            const cell = String(row[c]||"").toLowerCase();
+            if(cell.includes("mapeo")&&cell.includes("desarrollo")){ mapeoCol=c; devCol=c+1; }
+            if(cell.includes("desarrollador")&&cell.includes("ceo")){ desarrolladorCEOCol=c; }
+          }
+        }
+        // Extraer mapeo desarrollo → desarrollador
+        if(mapeoCol>=0&&devCol>=0){
+          for(let r=1;r<catRows.length;r++){
+            const row = catRows[r]||[];
+            const desarrollo = String(row[mapeoCol]||"").trim();
+            const desarrollador = String(row[devCol]||"").trim();
+            if(desarrollo&&desarrollador&&desarrollo.toLowerCase()!=="todos"){
+              mapeoFromExcel[desarrollo] = desarrollador;
+              result.desarrolladoresEnExcel.add(desarrollador);
+            }
+          }
+        }
+        // Extraer también los desarrolladores oficiales de la columna "DESARROLLADOR CEO"
+        if(desarrolladorCEOCol>=0){
+          for(let r=1;r<catRows.length;r++){
+            const row = catRows[r]||[];
+            const dev = String(row[desarrolladorCEOCol]||"").trim();
+            if(dev&&dev.toLowerCase()!=="todos"){
+              result.desarrolladoresEnExcel.add(dev);
+              // Auto-asignar: cualquier desarrollador propio que sea también nombre de desarrollo
+              if(!mapeoFromExcel[dev]) mapeoFromExcel[dev] = dev;
+            }
+          }
+        }
+        result.mapeoNuevo = mapeoFromExcel;
+        if(Object.keys(mapeoFromExcel).length>0){
+          // Persistir el mapeo enriquecido
+          const mapeoActual = loadMapeoDesarrollador();
+          const mapeoFusionado = { ...mapeoActual, ...mapeoFromExcel };
+          saveMapeoDesarrollador(mapeoFusionado);
+        }
+      }catch(e){
+        result.advertencias.push("No se pudo leer hoja Catálogos: "+e.message);
+      }
+    } else {
+      result.advertencias.push("No se encontró hoja 'Catálogos' (no crítico, se usarán heurísticas)");
+    }
+
+    // ── PASO 2: Leer hoja Captura Ventas ──
     let shName = null;
     for(const n of wb.SheetNames){
       if(n.toLowerCase().replace(/[^a-z]/g,"").includes("capturaventas")){ shName=n; break; }
@@ -604,31 +852,29 @@ function parseExcelMetas(arrayBuffer){
     const ws = wb.Sheets[shName];
     const rows = XLSX.utils.sheet_to_json(ws, {defval:"", header:1});
     // Recorrer en busca de bloques: cualquier fila cuya columna B tenga nombre y siguiente columna C contenga "Inv:"
-    // Bloques esperados cada 10 filas (4, 14, 24...) pero somos defensivos
     const detected = [];
     for(let i=0;i<rows.length;i++){
       const r = rows[i]||[];
       const colB = String(r[1]||"").trim();
       const colC = String(r[2]||"").trim();
-      // Detectar header de bloque: "Nombre" en B + "Inv: N" en C + "Ene"/Mes en D
       if(colB&&colC.toLowerCase().startsWith("inv")&&String(r[3]||"").toLowerCase().startsWith("ene")){
         detected.push({nombre:colB, headerRow:i});
       }
     }
     if(detected.length===0){ result.errores.push("No se detectaron bloques de desarrollo en la hoja"); return result; }
+    // Mapeo activo combinado: base + storage previo + mapeo del Excel actual
+    const mapeoActivo = { ...loadMapeoDesarrollador(), ...mapeoFromExcel };
     detected.forEach(({nombre, headerRow})=>{
       try{
         const planUdsRow = rows[headerRow+1]||[];
         const planMontoRow = rows[headerRow+2]||[];
         const realUdsRow = rows[headerRow+5]||[];
         const realMontoRow = rows[headerRow+6]||[];
-        // Validación: la fila de Plan Desarr debe tener "Plan Desarr" en B
         const planLabel = String(planUdsRow[1]||"").trim().toLowerCase();
         if(!planLabel.includes("plan")){
           result.advertencias.push(`'${nombre}': estructura inesperada en R${headerRow+2} (esperaba 'Plan Desarr.', encontró '${planLabel}')`);
           return;
         }
-        // Cols D-O = índices 3-14
         const toNumArr = (row)=>{
           const arr = new Array(12).fill(0);
           for(let m=0;m<12;m++){
@@ -640,7 +886,7 @@ function parseExcelMetas(arrayBuffer){
           return arr;
         };
         result.metas[nombre] = {
-          desarrollador: inferirDesarrollador(nombre),
+          desarrollador: inferirDesarrollador(nombre, mapeoActivo),
           plan: { uds:toNumArr(planUdsRow), monto:toNumArr(planMontoRow) },
           real: { uds:toNumArr(realUdsRow), monto:toNumArr(realMontoRow) }
         };
@@ -1215,6 +1461,34 @@ function MacroProMatcher() {
   const [metasModoVista, setMetasModoVista] = React.useState("uds"); // "uds" | "monto"
   const [showImportModal, setShowImportModal] = React.useState(false);
   const [importPreview, setImportPreview] = React.useState(null); // {ok, metas, desarrollosNuevos, desarrollosActualizados, advertencias, errores}
+  const [splitsDetectados, setSplitsDetectados] = React.useState([]); // {desarrollo, desarrolladores:[]} para advertir splits
+
+  // Sincronización automática mapeo ← inventario
+  // Cada vez que cambia inventario, aprendemos el mapeo real desde los lotes,
+  // migramos desarrolladores residuales y auto-populamos desarrollos faltantes
+  React.useEffect(()=>{
+    if(!inventory||inventory.length===0) return;
+    const sync = sincronizarMapeoConInventario(inventory);
+    if(sync){
+      if(sync.splits&&sync.splits.length>0){
+        setSplitsDetectados(sync.splits);
+      }
+      // Re-migrar metas con el mapeo nuevo
+      let metasActualizadas = migrarMetasResiduales({...metasData});
+      // Auto-popular desarrollos del inventario que NO están en metas (con valores cero)
+      const autopop = autoPopularMetasDesdeInventario(metasActualizadas, inventory);
+      metasActualizadas = autopop.metas;
+      const agregados = autopop.agregados;
+      if(agregados.length>0){
+        // Notificar de forma sutil (solo console + toast suave)
+        console.log("📋 Auto-populados desde inventario:", agregados.length, "desarrollos:", agregados.map(a=>a.nombre).join(", "));
+      }
+      setMetasData(metasActualizadas);
+      saveMetas(metasActualizadas);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[inventory.length]);
+
   // Filtros persistentes para vista Metas
   const [metasFiltroDesarrollador, setMetasFiltroDesarrollador] = React.useState(()=>localStorage.getItem("macropro_metas_filtro_dev")||"Todos");
   const [metasFiltroDesarrollo, setMetasFiltroDesarrollo] = React.useState(()=>localStorage.getItem("macropro_metas_filtro_desarrollo")||"Todos");
@@ -6219,11 +6493,22 @@ function MacroProMatcher() {
   // VIEW: 🎯 METAS — Objetivos Plan vs Real por desarrollo
   // ═══════════════════════════════════════════════════════════════
   const ViewMetas = () => {
-    const desarrolladoresMetas = [...new Set(Object.values(metasData).map(d=>d.desarrollador).filter(Boolean))].sort();
-    const desarrollosMetas = Object.entries(metasData)
-      .filter(([_,d])=>metasFiltroDesarrollador==="Todos"||d.desarrollador===metasFiltroDesarrollador)
-      .map(([n,_])=>n)
-      .sort();
+    // Desarrolladores: combinación de metas + inventario + oficiales (siempre completos)
+    const desarrolladoresMetas = getDesarrolladoresActivos(metasData, inventory);
+    // Desarrollos: si hay filtro de desarrollador, solo los suyos (filtro inteligente)
+    const desarrollosMetas = (() => {
+      if(metasFiltroDesarrollador==="Todos"){
+        // Todos los desarrollos conocidos: metas + mapeo + inventario
+        const set = new Set(Object.keys(metasData||{}));
+        const mapeo = loadMapeoDesarrollador();
+        Object.keys(mapeo).forEach(d=>set.add(d));
+        if(Array.isArray(inventory)) inventory.forEach(l=>{ if(l&&l.desarrollo) set.add(l.desarrollo); });
+        return [...set].sort();
+      }
+      // Filtro inteligente: solo desarrollos del desarrollador seleccionado
+      const list = getDesarrollosPorDesarrollador(metasFiltroDesarrollador, metasData, inventory);
+      return list || [];
+    })();
 
     const resumen = calcularMetasResumen(metasData, metasFiltroDesarrollador, metasFiltroDesarrollo);
     const mesActualIdx = new Date().getMonth(); // 0-11
@@ -6292,6 +6577,28 @@ function MacroProMatcher() {
             🧹 Limpiar
           </button>
         </div>
+
+        {/* Aviso de splits detectados en inventario */}
+        {splitsDetectados&&splitsDetectados.length>0&&(
+          <div style={{background:"#fef3c7", borderRadius:10, padding:"12px 16px", marginBottom:16, borderLeft:"4px solid #f59e0b"}}>
+            <div style={{fontSize:11, fontWeight:800, color:"#92400e", textTransform:"uppercase", letterSpacing:0.8, marginBottom:6}}>
+              ⚠ Inconsistencias detectadas en inventario
+            </div>
+            <div style={{fontSize:11, color:"#78350f", lineHeight:1.6, marginBottom:6}}>
+              {splitsDetectados.length} desarrollo(s) tienen lotes asignados a múltiples desarrolladores:
+            </div>
+            <div style={{display:"flex", flexDirection:"column", gap:4}}>
+              {splitsDetectados.map((s,i)=>(
+                <div key={i} style={{fontSize:11, color:"#92400e"}}>
+                  · <strong>{s.desarrollo}</strong>: {s.countPrincipal} lote(s) en <strong>{s.desarrolladorPrincipal}</strong>{s.otros.map(o=>" + "+o.count+" en "+o.desarrollador).join("")}
+                </div>
+              ))}
+            </div>
+            <div style={{fontSize:10, color:"#78350f", marginTop:6, fontStyle:"italic"}}>
+              💡 El sistema usa el desarrollador mayoritario. Para corregir splits no deseados, edita los lotes individualmente en el inventario.
+            </div>
+          </div>
+        )}
 
         {/* KPIs anuales: Plan / Real / % Cumplimiento / Estatus */}
         <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))", gap:14, marginBottom:24}}>
@@ -6384,10 +6691,22 @@ function MacroProMatcher() {
                   const cumU=d.planUds>0?(d.realUds/d.planUds):(d.realUds>0?1.5:0);
                   const cumM=d.planMonto>0?(d.realMonto/d.planMonto):(d.realMonto>0?1.5:0);
                   const est=getEstatusMeta(cumM, d.planMonto, d.realMonto);
+                  // Tag de color por desarrollador
+                  const tagColors = {
+                    "TYA":          { bg:"#dbeafe", color:"#1e40af" },
+                    "HITO":         { bg:"#dcfce7", color:"#15803d" },
+                    "Corretaje":    { bg:"#fef3c7", color:"#92400e" },
+                    "Garvi":        { bg:"#fce7f3", color:"#be185d" },
+                    "Favier":       { bg:"#e0e7ff", color:"#4338ca" },
+                    "GyG":          { bg:"#ccfbf1", color:"#0f766e" }
+                  };
+                  const tag = tagColors[d.desarrollador]||{bg:B.grey1, color:B.grey4};
                   return (
                     <tr key={d.nombre} style={{borderBottom:"1px solid "+B.grey1, background:i%2===0?B.white:B.offW}}>
                       <td style={{padding:"11px 8px", fontWeight:800, color:B.navy}}>{d.nombre}</td>
-                      <td style={{padding:"11px 8px", color:B.grey4, fontSize:11}}>{d.desarrollador}</td>
+                      <td style={{padding:"11px 8px"}}>
+                        <span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:tag.bg, color:tag.color, whiteSpace:"nowrap"}}>{d.desarrollador}</span>
+                      </td>
                       <td style={{padding:"11px 8px", textAlign:"center", fontWeight:700, color:B.navy}}>{d.planUds}</td>
                       <td style={{padding:"11px 8px", textAlign:"center", fontWeight:800, color:d.realUds>=d.planUds&&d.planUds>0?"#16a34a":B.navy}}>{d.realUds}</td>
                       <td style={{padding:"11px 8px", textAlign:"center", fontWeight:700, color:cumU>=1?"#16a34a":cumU>=0.85?"#1e40af":cumU>=0.5?"#b45309":"#b91c1c"}}>{d.planUds===0?"—":(cumU*100).toFixed(0)+"%"}</td>
