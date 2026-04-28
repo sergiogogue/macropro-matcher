@@ -6493,11 +6493,11 @@ function MacroProMatcher() {
                     <tr style={{borderBottom:"1px solid "+B.grey1}}>
                       <td style={{padding:"11px 8px", fontWeight:800, color:B.navy, position:"sticky", left:0, background:B.white, fontSize:12}}>🎯 Plan</td>
                       {planMes.map((v,i)=>(
-                        <td key={i} style={{padding:"11px 6px", textAlign:"center", color:i>mesActualIdx2?B.grey3:B.navy, fontWeight:600, background:i===mesActualIdx2?B.gold+"08":"transparent"}}>
-                          {v||"—"}
+                        <td key={i} style={{padding:"11px 6px", textAlign:"center", color:i>mesActualIdx2?B.grey3:B.navy, fontWeight:600, background:i===mesActualIdx2?B.gold+"08":"transparent", whiteSpace:"nowrap"}}>
+                          {v?fmtVal(v):"—"}
                         </td>
                       ))}
-                      <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:B.navy, background:B.navy+"08", fontSize:12}}>{fmtVal(planTotal)}</td>
+                      <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:B.navy, background:B.navy+"08", fontSize:12, whiteSpace:"nowrap"}}>{fmtVal(planTotal)}</td>
                     </tr>
                     {/* Fila Real */}
                     <tr style={{borderBottom:"1px solid "+B.grey1, background:"#f0fdf4"}}>
@@ -6508,12 +6508,12 @@ function MacroProMatcher() {
                         const cumple = !isFuture&&v>=planV&&planV>0;
                         const incumple = !isFuture&&v<planV&&planV>0;
                         return (
-                          <td key={i} style={{padding:"11px 6px", textAlign:"center", color:cumple?"#15803d":incumple?"#b91c1c":(isFuture?B.grey3:B.navy), fontWeight:cumple||incumple?800:600, background:i===mesActualIdx2?B.gold+"15":"transparent"}}>
-                            {isFuture?"—":(v||"0")}
+                          <td key={i} style={{padding:"11px 6px", textAlign:"center", color:cumple?"#15803d":incumple?"#b91c1c":(isFuture?B.grey3:B.navy), fontWeight:cumple||incumple?800:600, background:i===mesActualIdx2?B.gold+"15":"transparent", whiteSpace:"nowrap"}}>
+                            {isFuture?"—":fmtVal(v||0)}
                           </td>
                         );
                       })}
-                      <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:"#15803d", background:"#dcfce7", fontSize:12}}>{fmtVal(realTotal)}</td>
+                      <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:"#15803d", background:"#dcfce7", fontSize:12, whiteSpace:"nowrap"}}>{fmtVal(realTotal)}</td>
                     </tr>
                     {/* Fila Momentum (CRM) — solo si hay datos */}
                     {momentumTotal>0&&(
@@ -6523,12 +6523,12 @@ function MacroProMatcher() {
                           const lotesDelMes = momentum.allLotes.filter(l=>l.mesIdx===i);
                           const tooltip = lotesDelMes.length>0?lotesDelMes.map(l=>`${l.nombre} (${l.desarrollo}) · ${l.etapa} · ${l.prospecto}`).join(" | "):"";
                           return (
-                            <td key={i} title={tooltip} style={{padding:"11px 6px", textAlign:"center", color:v>0?"#92400e":B.grey3, fontWeight:v>0?800:500, cursor:v>0?"help":"default", background:i===mesActualIdx2?B.gold+"15":"transparent"}}>
-                              {v>0?v:"—"}
+                            <td key={i} title={tooltip} style={{padding:"11px 6px", textAlign:"center", color:v>0?"#92400e":B.grey3, fontWeight:v>0?800:500, cursor:v>0?"help":"default", background:i===mesActualIdx2?B.gold+"15":"transparent", whiteSpace:"nowrap"}}>
+                              {v>0?fmtVal(v):"—"}
                             </td>
                           );
                         })}
-                        <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:"#92400e", background:"#fde68a", fontSize:12}}>{fmtVal(momentumTotal)}</td>
+                        <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:"#92400e", background:"#fde68a", fontSize:12, whiteSpace:"nowrap"}}>{fmtVal(momentumTotal)}</td>
                       </tr>
                     )}
                     {/* Fila Diferencia Real vs Plan */}
@@ -6538,8 +6538,8 @@ function MacroProMatcher() {
                         const planV = planMes[i]||0;
                         const delta = (i>mesActualIdx2)?null:(v-planV);
                         return (
-                          <td key={i} style={{padding:"11px 6px", textAlign:"center", color:delta===null?B.grey3:colorDelta(delta), fontWeight:700, fontSize:11, background:i===mesActualIdx2?B.gold+"08":"transparent"}}>
-                            {delta===null?"—":(delta>0?"+":"")+delta}
+                          <td key={i} style={{padding:"11px 6px", textAlign:"center", color:delta===null?B.grey3:colorDelta(delta), fontWeight:700, fontSize:11, background:i===mesActualIdx2?B.gold+"08":"transparent", whiteSpace:"nowrap"}}>
+                            {delta===null?"—":(delta>0?"+":"")+(metasModoVista==="uds"?delta:fmtMiles(delta).replace("$",""))}
                           </td>
                         );
                       })}
