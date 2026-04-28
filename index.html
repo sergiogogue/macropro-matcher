@@ -960,8 +960,8 @@ function MacroProMatcher() {
   const [showIOSInstallHint,setShowIOSInstallHint]=React.useState(false);
   // ─── CRM STATE ────────────────────────────────────────────────────
   const CRM_KEY="macropro_crm_v1";
-  const STAGE_MIGRATION={"Prospectado":"Prospecto","Propuesta formal":"Propuesta","Baja":"Perdido","Disponible":"Prospecto"};
-  const VALID_STAGES_SET=new Set(["Prospecto","Contactado","En negociación","Propuesta","Contrato","Cierre","Perdido"]);
+  const STAGE_MIGRATION={"Prospectado":"Prospecto","Propuesta formal":"Propuesta","Baja":"Perdido","Disponible":"Prospecto","Vendido":"Vendido"};
+  const VALID_STAGES_SET=new Set(["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato","Vendido","Perdido"]);
   const migrateCRM=(d)=>{
     try{
       Object.keys(d||{}).forEach(id=>{
@@ -1221,15 +1221,15 @@ function MacroProMatcher() {
     if(dias===null) return null;
     return INV_SEMAFORO.find(s=>dias<=s.max)||INV_SEMAFORO[INV_SEMAFORO.length-1];
   };
-  const getSemaforo=(id)=>{const e=crmData[id];if(!e||e.pipeline==="Perdido"||e.pipeline==="Cierre")return "grey";if(!e.lastContact)return "yellow";const d=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));if(d<=30)return "green";if(d<=60)return "yellow";return "red";};
+  const getSemaforo=(id)=>{const e=crmData[id];if(!e||e.pipeline==="Perdido"||e.pipeline==="Vendido")return "grey";if(!e.lastContact)return "yellow";const d=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));if(d<=30)return "green";if(d<=60)return "yellow";return "red";};
   const semaforoColor={green:"#22c55e",yellow:"#f59e0b",red:"#ef4444",grey:"#9ca3af"};
   const semaforoLabel={green:"Activo",yellow:"Tibio",red:"Frío — Acción requerida",grey:"Sin seguimiento"};
-  const PIPELINE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Contrato","Cierre","Perdido"];
-  const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Contactado":"#3B82F6","En negociación":B.gold,"Propuesta":"#8B5CF6","Contrato":"#06B6D4","Cierre":"#22c55e","Perdido":"#ef4444"};
+  const PIPELINE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato","Vendido","Perdido"];
+  const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Contactado":"#3B82F6","En negociación":B.gold,"Propuesta":"#8B5CF6","Apartado":"#F59E0B","Contrato":"#06B6D4","Vendido":"#22c55e","Perdido":"#ef4444"};
   // Probabilidades estándar industria para forecast ponderado
-  const STAGE_PROBABILITY={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"Propuesta":0.55,"Contrato":0.80,"Cierre":1.00,"Perdido":0.00,"Disponible":0.00};
+  const STAGE_PROBABILITY={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
   // Etapas activas (excluye terminales)
-  const ACTIVE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Contrato"];
+  const ACTIVE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
   const CANAL_OPTS=["Llamada","WhatsApp","Visita al terreno","Reunión presencial","Presentación virtual","Email","Otro"];
   const REACCION_OPTS=["Muy interesado","Interesado","Pendiente de info","Objeción de precio","Objeción técnica","No aplica","Archivado"];
 
@@ -2599,7 +2599,7 @@ function MacroProMatcher() {
     const totalFrios=srcInvCRM.filter(l=>getSemaforo(l.id)==="red").length;
     const totalFriosF=srcInvFiltrado.filter(l=>getSemaforo(l.id)==="red").length;
     const totalPropuesta=srcInvFiltrado.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Propuesta").length;
-    const totalCerrado=srcInvCRM.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Cierre").length;
+    const totalCerrado=srcInvCRM.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Vendido").length;
     const totalInteracciones=Object.values(crmData).reduce((a,v)=>a+(v.interacciones?v.interacciones.length:0),0);
     const totalProspActivos=allProspectos.filter(p=>p.pipeline!=="Perdido"&&p.pipeline!=="Disponible").length;
 
@@ -2630,7 +2630,7 @@ function MacroProMatcher() {
       },0);
       const valorPropuestas=srcInvFiltrado.reduce((acc,l)=>{
         const pip=(crmData[l.id]&&crmData[l.id].pipeline)||"Disponible";
-        if(pip!=="Propuesta"&&pip!=="Cierre") return acc;
+        if(pip!=="Propuesta"&&pip!=="Vendido") return acc;
         const precio=l.precio_total||(l.sup_m2&&l.precio_m2?l.sup_m2*l.precio_m2:0);
         return acc+precio;
       },0);
@@ -2639,19 +2639,19 @@ function MacroProMatcher() {
       const now=Date.now();
       const lotesSinContacto60=srcInvFiltrado.filter(l=>{
         const crm=crmData[l.id]||{}; const pip=crm.pipeline||"Disponible";
-        if(pip==="Perdido"||pip==="Cierre") return false;
+        if(pip==="Perdido"||pip==="Vendido") return false;
         const dias=crm.lastContact?Math.floor((now-new Date(crm.lastContact).getTime())/864e5):999;
         return dias>60;
       });
       const lotesSinContacto120=srcInvFiltrado.filter(l=>{
         const crm=crmData[l.id]||{}; const pip=crm.pipeline||"Disponible";
-        if(pip==="Perdido"||pip==="Cierre") return false;
+        if(pip==="Perdido"||pip==="Vendido") return false;
         const dias=crm.lastContact?Math.floor((now-new Date(crm.lastContact).getTime())/864e5):999;
         return dias>120;
       });
       const lotesSinContacto180=srcInvFiltrado.filter(l=>{
         const crm=crmData[l.id]||{}; const pip=crm.pipeline||"Disponible";
-        if(pip==="Perdido"||pip==="Cierre") return false;
+        if(pip==="Perdido"||pip==="Vendido") return false;
         const dias=crm.lastContact?Math.floor((now-new Date(crm.lastContact).getTime())/864e5):999;
         return dias>180;
       });
@@ -2662,27 +2662,27 @@ function MacroProMatcher() {
       srcInvFiltrado.forEach(l=>{
         const d=l.desarrollo||"?";
         const precio=l.precio_total||(l.sup_m2&&l.precio_m2?l.sup_m2*l.precio_m2:0);
-        if(!byDev[d]) byDev[d]={total:0,interacciones:0,prospectos:0,enPipeline:0,propuesta:0,cierre:0,valorPipeline:0,valorPropuesta:0,sinMovimiento:0,sinMovimientoValor:0};
+        if(!byDev[d]) byDev[d]={total:0,interacciones:0,prospectos:0,enPipeline:0,propuesta:0,vendido:0,valorPipeline:0,valorPropuesta:0,sinMovimiento:0,sinMovimientoValor:0};
         byDev[d].total++;
         byDev[d].interacciones+=(crmData[l.id]&&crmData[l.id].interacciones?crmData[l.id].interacciones.length:0);
         byDev[d].prospectos+=(crmData[l.id]&&crmData[l.id].prospectos?crmData[l.id].prospectos.length:0);
         const pip=(crmData[l.id]&&crmData[l.id].pipeline)||"Disponible";
         if(pip!=="Disponible"&&pip!=="Perdido"){byDev[d].enPipeline++;byDev[d].valorPipeline+=precio;}
         if(pip==="Propuesta"){byDev[d].propuesta++;byDev[d].valorPropuesta+=precio;}
-        if(pip==="Cierre") byDev[d].cierre++;
+        if(pip==="Vendido") byDev[d].vendido++;
         const dias2=crmData[l.id]&&crmData[l.id].lastContact?Math.floor((now-new Date(crmData[l.id].lastContact).getTime())/864e5):999;
-        if(dias2>60&&pip!=="Perdido"&&pip!=="Cierre"){byDev[d].sinMovimiento++;byDev[d].sinMovimientoValor+=precio;}
+        if(dias2>60&&pip!=="Perdido"&&pip!=="Vendido"){byDev[d].sinMovimiento++;byDev[d].sinMovimientoValor+=precio;}
         // Acumular por desarrollador (para banner TYA, etc.)
         const devName=l.desarrollador||l.desarrollo||"?";
-        if(!byDesarrollador[devName]) byDesarrollador[devName]={total:0,enPipeline:0,prospectos:0,propuesta:0,cierre:0,valorPipeline:0,valorPropuesta:0,sinMovimiento:0,sinMovimientoValor:0,desarrollos:new Set()};
+        if(!byDesarrollador[devName]) byDesarrollador[devName]={total:0,enPipeline:0,prospectos:0,propuesta:0,vendido:0,valorPipeline:0,valorPropuesta:0,sinMovimiento:0,sinMovimientoValor:0,desarrollos:new Set()};
         byDesarrollador[devName].total++;
         byDesarrollador[devName].desarrollos.add(d);
         byDesarrollador[devName].enPipeline+=byDev[d].enPipeline>0&&pip!=="Disponible"&&pip!=="Perdido"?1:0;
         byDesarrollador[devName].prospectos+=(crmData[l.id]&&crmData[l.id].prospectos?crmData[l.id].prospectos.length:0);
         if(pip==="Propuesta"){byDesarrollador[devName].propuesta++;byDesarrollador[devName].valorPropuesta+=precio;}
-        if(pip==="Cierre") byDesarrollador[devName].cierre++;
+        if(pip==="Vendido") byDesarrollador[devName].vendido++;
         if(pip!=="Disponible"&&pip!=="Perdido"){byDesarrollador[devName].valorPipeline+=precio;}
-        if(dias2>60&&pip!=="Perdido"&&pip!=="Cierre"){byDesarrollador[devName].sinMovimiento++;byDesarrollador[devName].sinMovimientoValor+=precio;}
+        if(dias2>60&&pip!=="Perdido"&&pip!=="Vendido"){byDesarrollador[devName].sinMovimiento++;byDesarrollador[devName].sinMovimientoValor+=precio;}
       });
 
       // Asesores: combina prospectos asignados + lotes con asesor en inventario
@@ -2690,25 +2690,25 @@ function MacroProMatcher() {
       // Fuente 1: prospectos CRM registrados
       allProspectos.forEach(item=>{
         const asesor=(item.cli&&item.cli.asesor)||"Sin asignar";
-        if(!byAsesor[asesor]) byAsesor[asesor]={prospectos:0,interacciones:0,propuestas:0,cierres:0,sinMovimiento:0};
+        if(!byAsesor[asesor]) byAsesor[asesor]={prospectos:0,interacciones:0,propuestas:0,vendidos:0,sinMovimiento:0};
         byAsesor[asesor].prospectos++;
         byAsesor[asesor].interacciones+=item.interacciones;
         if(item.pipeline==="Propuesta") byAsesor[asesor].propuestas++;
-        if(item.pipeline==="Cierre") byAsesor[asesor].cierres++;
+        if(item.pipeline==="Vendido") byAsesor[asesor].vendidos++;
         if(item.semaforo==="red") byAsesor[asesor].sinMovimiento++;
       });
       // Fuente 2: lotes con campo asesor en inventario (aunque no tengan prospecto CRM)
       srcInvFiltrado.forEach(l=>{
         if(!l.asesor||!l.asesor.trim()) return;
         const asesor=l.asesor.trim();
-        if(!byAsesor[asesor]) byAsesor[asesor]={prospectos:0,interacciones:0,propuestas:0,cierres:0,sinMovimiento:0};
+        if(!byAsesor[asesor]) byAsesor[asesor]={prospectos:0,interacciones:0,propuestas:0,vendidos:0,sinMovimiento:0};
         // Contar solo si no ya está en byAsesor via prospectos
       });
 
       // KPIs recalculados sobre srcInvFiltrado (respetan filtro global de desarrollo)
       const totalEnPipelineF=srcInvFiltrado.filter(l=>{const p=crmData[l.id]&&crmData[l.id].pipeline;return p&&p!=="Disponible"&&p!=="Perdido";}).length;
       const totalPropuestaF=srcInvFiltrado.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Propuesta").length;
-      const totalCerradoF=srcInvFiltrado.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Cierre").length;
+      const totalCerradoF=srcInvFiltrado.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Vendido").length;
       const totalInteraccionesF=srcInvFiltrado.reduce((a,l)=>a+(crmData[l.id]&&crmData[l.id].interacciones?crmData[l.id].interacciones.length:0),0);
       const totalProspActivosF=allProspectos.filter(p=>srcInvFiltrado.find(l=>l.id===p.lotId)&&p.pipeline!=="Perdido"&&p.pipeline!=="Disponible").length;
       const allProspF=allProspectos.filter(p=>srcInvFiltrado.find(l=>l.id===p.lotId));
@@ -2724,7 +2724,7 @@ function MacroProMatcher() {
       let forecastTotal=0;       // Σ(precio × probabilidad) de todos los activos
       let pipelineTotalReal=0;   // Suma total de precios activos (sin ponderar)
       let compromisoAlto=0;      // Propuesta + Contrato + Cierre (>= 55% prob)
-      ACTIVE_STAGES.concat("Cierre").forEach(s=>{forecastByStage[s]={count:0,valor:0,ponderado:0};});
+      ACTIVE_STAGES.concat("Vendido").forEach(s=>{forecastByStage[s]={count:0,valor:0,ponderado:0};});
 
       allProspF.forEach(item=>{
         const pip=item.pipeline;
@@ -2743,7 +2743,7 @@ function MacroProMatcher() {
         // Totales
         forecastTotal+=ponderado;
         pipelineTotalReal+=precio;
-        if(pip==="Propuesta"||pip==="Contrato"||pip==="Cierre") compromisoAlto+=precio;
+        if(pip==="Propuesta"||pip==="Contrato"||pip==="Vendido") compromisoAlto+=precio;
 
         // Por desarrollador
         const devRaw=item.lot.desarrollador||item.lot.desarrollo||"Sin asignar";
@@ -2763,7 +2763,7 @@ function MacroProMatcher() {
         // Timeline: proyección por etapa (estimación de días a cierre según etapa)
         // Prospecto->90d+, Contactado->90d+, Negociación->90d, Propuesta->60d, Contrato->30d, Cierre->30d
         let bucket="90d+";
-        if(pip==="Cierre"||pip==="Contrato") bucket="30d";
+        if(pip==="Vendido"||pip==="Contrato") bucket="30d";
         else if(pip==="Propuesta") bucket="60d";
         else if(pip==="En negociación") bucket="90d";
         forecastByTimeline[bucket]+=ponderado;
@@ -2799,7 +2799,7 @@ function MacroProMatcher() {
                 <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",marginTop:3}}>Cada deal ponderado por probabilidad de cierre según su etapa</div>
               </div>
               <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-                {ACTIVE_STAGES.concat("Cierre").map(s=>(
+                {ACTIVE_STAGES.concat("Vendido").map(s=>(
                   <span key={s} style={{padding:"2px 7px",borderRadius:10,fontSize:9,fontWeight:700,background:PIPELINE_COLORS[s]+"44",color:"#fff",border:"1px solid "+PIPELINE_COLORS[s]}}>{s}: {Math.round(STAGE_PROBABILITY[s]*100)}%</span>
                 ))}
               </div>
@@ -2837,7 +2837,7 @@ function MacroProMatcher() {
           <div style={{background:B.white,borderRadius:12,padding:"16px 20px",marginBottom:16,boxShadow:"0 2px 12px rgba(0,43,73,0.07)"}}>
             <div style={{fontSize:11,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>📈 Forecast por Etapa</div>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {ACTIVE_STAGES.concat("Cierre").map(s=>{
+              {ACTIVE_STAGES.concat("Vendido").map(s=>{
                 const d=forecastByStage[s]||{count:0,valor:0,ponderado:0};
                 const maxPond=Math.max(...Object.values(forecastByStage).map(x=>x.ponderado),1);
                 const pct=maxPond>0?(d.ponderado/maxPond)*100:0;
@@ -2935,7 +2935,7 @@ function MacroProMatcher() {
           {/* ── BANNER DESARROLLADOR (si hay filtro activo) ── */}
           {(filterDevCompania!=="Todos"||filterDesarrolloGlobal!=="Todos")&&(()=>{
             const bannerKey=filterDesarrolloGlobal!=="Todos"?filterDesarrolloGlobal:filterDevCompania;
-            const devData=(byDesarrollador[bannerKey]||byDev[bannerKey])||{total:0,enPipeline:0,prospectos:0,propuesta:0,cierre:0,valorPipeline:0,valorPropuesta:0,sinMovimiento:0,sinMovimientoValor:0};
+            const devData=(byDesarrollador[bannerKey]||byDev[bannerKey])||{total:0,enPipeline:0,prospectos:0,propuesta:0,vendido:0,valorPipeline:0,valorPropuesta:0,sinMovimiento:0,sinMovimientoValor:0};
             return (
               <div style={{background:"linear-gradient(135deg,"+B.navy+",#1a4a6b)",borderRadius:14,padding:"18px 20px",marginBottom:14,color:"#fff"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
@@ -2945,7 +2945,7 @@ function MacroProMatcher() {
                   </div>
                   <div style={{display:"flex",gap:6}}>
                     {devData.propuesta>0&&<span style={{background:"#8B5CF6",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700}}>🎯 {devData.propuesta} en propuesta</span>}
-                    {devData.cierre>0&&<span style={{background:"#22c55e",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700}}>✅ {devData.cierre} cerrado{devData.cierre!==1?"s":""}</span>}
+                    {devData.vendido>0&&<span style={{background:"#22c55e",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700}}>✅ {devData.vendido} vendido{devData.vendido!==1?"s":""}</span>}
                     {devData.sinMovimiento>0&&<span style={{background:"#ef4444",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700}}>⚠ {devData.sinMovimiento} sin movimiento</span>}
                   </div>
                 </div>
@@ -3053,7 +3053,7 @@ function MacroProMatcher() {
                       <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:d.enPipeline>0?B.gold:B.grey3}}>{d.enPipeline}</td>
                       <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:d.prospectos>0?"#3B82F6":B.grey3}}>{d.prospectos}</td>
                       <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:d.propuesta>0?"#8B5CF6":B.grey3}}>{d.propuesta}</td>
-                      <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:d.cierre>0?"#22c55e":B.grey3}}>{d.cierre}</td>
+                      <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:d.vendido>0?"#22c55e":B.grey3}}>{d.vendido}</td>
                       <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:d.valorPipeline>0?B.gold:B.grey3}}>{fmtMDP(d.valorPipeline)}</td>
                       <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:d.valorPropuesta>0?"#8B5CF6":B.grey3}}>{fmtMDP(d.valorPropuesta)}</td>
                       <td style={{padding:"8px",textAlign:"center"}}>
@@ -3105,7 +3105,7 @@ function MacroProMatcher() {
                         <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:d.prospectos>0?"#3B82F6":B.grey3}}>{d.prospectos}</td>
                         <td style={{padding:"8px",textAlign:"center",color:d.interacciones>0?B.navy:B.grey3}}>{d.interacciones}</td>
                         <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:d.propuestas>0?"#8B5CF6":B.grey3}}>{d.propuestas}</td>
-                        <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:d.cierres>0?"#22c55e":B.grey3}}>{d.cierres}</td>
+                        <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:d.vendidos>0?"#22c55e":B.grey3}}>{d.vendidos}</td>
                         <td style={{padding:"8px",textAlign:"center"}}>
                           {d.sinMovimiento>0?<span style={{background:"#fee2e2",color:"#dc2626",borderRadius:8,padding:"2px 7px",fontSize:10,fontWeight:700}}>{d.sinMovimiento} ⚠</span>:<span style={{color:"#22c55e",fontSize:10,fontWeight:600}}>✓ al día</span>}
                         </td>
@@ -3724,7 +3724,7 @@ function MacroProMatcher() {
           const copy={...entry,prospectos,interacciones};
           delete copy.seguimientoAsesor;
           // Actualizar pipeline del lote si hace falta
-          const stageOrder={"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Contrato":5,"Cierre":6,"Perdido":0,"Disponible":0};
+          const stageOrder={"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Vendido":7,"Perdido":0,"Disponible":0};
           const lotePipeline=prospectos.reduce((max,p)=>{
             const ord=stageOrder[p.pipeline]||0;
             return ord>stageOrder[max]?p.pipeline:max;
@@ -3875,7 +3875,7 @@ function MacroProMatcher() {
             }
             prospectos[prospectoIdx]=updated;
           }
-          const stageOrder={"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Contrato":5,"Cierre":6,"Perdido":0,"Disponible":0};
+          const stageOrder={"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Vendido":7,"Perdido":0,"Disponible":0};
           const lotePipeline=prospectos.reduce((max,p)=>{
             const ord=stageOrder[p.pipeline]||0;
             return ord>stageOrder[max]?p.pipeline:max;
@@ -3908,7 +3908,7 @@ function MacroProMatcher() {
               fechaPerdida:new Date().toISOString().slice(0,10)
             };
           }
-          const stageOrder={"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Contrato":5,"Cierre":6,"Perdido":0,"Disponible":0};
+          const stageOrder={"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Vendido":7,"Perdido":0,"Disponible":0};
           const lotePipeline=prospectos.reduce((max,p)=>{
             const ord=stageOrder[p.pipeline]||0;
             return ord>stageOrder[max]?p.pipeline:max;
@@ -4607,7 +4607,7 @@ function MacroProMatcher() {
         const lotes=asesorMap[nombre]||[];
         const frios=lotes.filter(x=>x.diasSinContacto===null||x.diasSinContacto>60).length;
         const enPipeline=lotes.filter(x=>x.pipeline!=="Disponible"&&x.pipeline!=="Perdido").length;
-        const cierres=lotes.filter(x=>x.pipeline==="Cierre").length;
+        const vendidos=lotes.filter(x=>x.pipeline==="Vendido").length;
         const isSelected=selectedAsesorLotes===nombre;
         const avatarBg=getAvatarColor(nombre);
         return (
@@ -4633,7 +4633,7 @@ function MacroProMatcher() {
             <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
               <span style={{fontSize:10,fontWeight:700,color:isSelected?"#fff":B.grey4,background:isSelected?"rgba(255,255,255,0.1)":B.grey1,borderRadius:6,padding:"2px 7px"}}>{lotes.length} lote{lotes.length!==1?"s":""}</span>
               {enPipeline>0&&<span style={{fontSize:10,fontWeight:700,color:isSelected?B.gold:"#d97706",background:isSelected?"rgba(255,255,255,0.1)":"#fef3c7",borderRadius:6,padding:"2px 7px"}}>{enPipeline} activo{enPipeline!==1?"s":""}</span>}
-              {cierres>0&&<span style={{fontSize:10,fontWeight:700,color:isSelected?"#4ade80":"#15803d",background:isSelected?"rgba(255,255,255,0.1)":"#dcfce7",borderRadius:6,padding:"2px 7px"}}>🏆 {cierres}</span>}
+              {vendidos>0&&<span style={{fontSize:10,fontWeight:700,color:isSelected?"#4ade80":"#15803d",background:isSelected?"rgba(255,255,255,0.1)":"#dcfce7",borderRadius:6,padding:"2px 7px"}}>🏆 {vendidos}</span>}
               {frios>0&&<span style={{fontSize:10,fontWeight:700,color:"#fff",background:"#ef4444",borderRadius:6,padding:"2px 7px"}}>⚠ {frios} frío{frios!==1?"s":""}</span>}
             </div>
             {/* Acciones */}
