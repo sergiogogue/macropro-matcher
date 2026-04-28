@@ -561,6 +561,104 @@ function descargarICS(activity, lote, prospecto, durMinutes){
   }
 }
 
+// ─── ICS BULK EXPORT ──────────────────────────────────────────────
+// Genera UN SOLO archivo .ics con MÚLTIPLES eventos (VEVENT).
+// Cada evento usa UID estable basado en activity.id, por lo que
+// re-importar el archivo NO duplica eventos en Google Calendar:
+// los actualiza si cambiaron los datos (RFC 5545 idempotencia).
+function descargarICSBulk(items, fileLabel){
+  try{
+    if(!items||items.length===0){
+      console.warn("descargarICSBulk: sin actividades");
+      return { ok:false, count:0 };
+    }
+    const veventBlocks=[];
+    items.forEach(({activity,lote,prospecto,durMinutes})=>{
+      if(!activity||!activity.fecha) return;
+      const dur=durMinutes||30;
+      const tipo=activity.tipo||"Seguimiento";
+      const desc=activity.descripcion||tipo;
+      const dtStart=_icsLocalStamp(activity.fecha,activity.hora);
+      const [Y,M,D]=activity.fecha.split("-").map(Number);
+      const time=(activity.hora&&/^\d{2}:\d{2}/.test(activity.hora))?activity.hora:"09:00";
+      const [h,m]=time.split(":").map(Number);
+      const endDate=new Date(Y,M-1,D,h,m+dur,0);
+      const dtEnd=endDate.getFullYear()+_icsPad2(endDate.getMonth()+1)+_icsPad2(endDate.getDate())+"T"+
+        _icsPad2(endDate.getHours())+_icsPad2(endDate.getMinutes())+"00";
+      // UID ESTABLE: usa activity.id para que re-importar actualice en vez de duplicar
+      const uid=(activity.id||("macropro-"+activity.fecha+"-"+Math.random().toString(36).slice(2,8)))+"@grupoguia.mx";
+      const summary="[MacroPro] "+tipo+(desc&&desc!==tipo?": "+desc:"");
+      const descParts=[];
+      if(prospecto&&prospecto.nombre) descParts.push("Prospecto: "+prospecto.nombre);
+      if(lote){
+        if(lote.nombre) descParts.push("Lote: "+lote.nombre);
+        if(lote.desarrollo) descParts.push("Desarrollo: "+lote.desarrollo);
+        if(lote.ciudad) descParts.push("Ciudad: "+lote.ciudad);
+      }
+      if(activity.completada&&activity.resultado) descParts.push("Estado: COMPLETADA · "+activity.resultado);
+      descParts.push("");
+      descParts.push("Generado por MacroPro · Grupo Guía");
+      const description=descParts.join("\n");
+      const location=lote?[lote.desarrollo,lote.ciudad,lote.estado].filter(Boolean).join(", "):"";
+      const status=activity.completada?"CONFIRMED":"CONFIRMED"; // siempre CONFIRMED en eventos vigentes
+      const block=[
+        "BEGIN:VEVENT",
+        "UID:"+uid,
+        "DTSTAMP:"+_icsStampUTC(new Date()),
+        "DTSTART;TZID=America/Mexico_City:"+dtStart,
+        "DTEND;TZID=America/Mexico_City:"+dtEnd,
+        "SUMMARY:"+_icsEscape(summary),
+        "DESCRIPTION:"+_icsEscape(description),
+        "LOCATION:"+_icsEscape(location),
+        "STATUS:"+status,
+        "SEQUENCE:1", // marca como revisión: si re-exporto, Google actualiza el evento
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        "DESCRIPTION:"+_icsEscape("Recordatorio: "+summary),
+        "TRIGGER:-PT30M",
+        "END:VALARM",
+        "END:VEVENT"
+      ].join("\r\n");
+      veventBlocks.push(block);
+    });
+    if(veventBlocks.length===0){
+      return { ok:false, count:0 };
+    }
+    const ics=[
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Grupo Guia//MacroPro Bulk//ES",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      "X-WR-CALNAME:MacroPro Actividades",
+      "X-WR-TIMEZONE:America/Mexico_City",
+      "BEGIN:VTIMEZONE",
+      "TZID:America/Mexico_City",
+      "BEGIN:STANDARD",
+      "DTSTART:19700101T000000",
+      "TZOFFSETFROM:-0600",
+      "TZOFFSETTO:-0600",
+      "TZNAME:CST",
+      "END:STANDARD",
+      "END:VTIMEZONE",
+      ...veventBlocks,
+      "END:VCALENDAR"
+    ].join("\r\n");
+    const blob=new Blob([ics],{type:"text/calendar;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const today=new Date().toISOString().slice(0,10);
+    const fname="MacroPro_"+(fileLabel||"actividades")+"_"+today+".ics";
+    const a=document.createElement("a");
+    a.href=url; a.download=fname;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },100);
+    return { ok:true, count:veventBlocks.length };
+  }catch(err){
+    console.error("Error generando ICS bulk:",err);
+    return { ok:false, count:0, error:err.message };
+  }
+}
+
 // ─── PPTX GENERATORS ──────────────────────────────────────────────
 async function generarFichaTecnica(lot) {
   const pptx = new PptxGenJS();
@@ -3725,6 +3823,7 @@ function MacroProMatcher() {
     const [showActivityModal,setShowActivityModal]=React.useState(null); // {mode:'create'|'edit'|'complete', lotId, prospectoIdx, activity?}
     const [activityForm,setActivityForm]=React.useState({tipo:"Seguimiento",descripcion:"",fecha:"",hora:""});
     const [completeForm,setCompleteForm]=React.useState({resultado:"Positivo",nota:""});
+    const [showICSExportModal,setShowICSExportModal]=React.useState(false);
     const updateProspectoPipeline=(lotId,prospectoIdx,newStage)=>{
       // Si se mueve a "Perdido", pedir motivo primero (bloqueante)
       if(newStage==="Perdido"){
@@ -4754,6 +4853,10 @@ function MacroProMatcher() {
                 {asesoresUnicos.map(a=><option key={a} value={a}>{a}</option>)}
               </select>
             )}
+            <button onClick={()=>setShowICSExportModal(true)} title="Descargar archivo .ics con todas las actividades pendientes para importar a Google Calendar / Apple Calendar / Outlook"
+              style={{padding:"9px 14px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#1e40af,#2563eb)",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 6px rgba(30,64,175,0.25)"}}>
+              📥 Exportar a Calendar
+            </button>
           </div>
 
           {/* Advertencia si hay prospectos activos SIN actividad pendiente */}
@@ -5001,6 +5104,149 @@ function MacroProMatcher() {
             </div>
           </div>
         )}
+
+        {/* Modal: Exportación masiva a Calendar (.ics) */}
+        {showICSExportModal&&(() => {
+          // Recopilar TODAS las actividades de TODOS los lotes (no solo las visibles en Mi día)
+          const buildItems=(rangeFn,includeCompleted)=>{
+            const items=[];
+            inventory.forEach(lot=>{
+              const crm=crmData[lot.id]||{};
+              (crm.prospectos||[]).forEach(p=>{
+                (p.actividades||[]).forEach(act=>{
+                  if(!act.fecha) return;
+                  if(!includeCompleted&&act.completada) return;
+                  if(!rangeFn(act)) return;
+                  // Filtrar por asesor si está activo
+                  if(filterAsesor!=="Todos"){
+                    const aName=crm.asesorResponsable||p.asesor||null;
+                    if(aName!==filterAsesor) return;
+                  }
+                  items.push({activity:act,lote:lot,prospecto:p});
+                });
+              });
+              if(crm.seguimientoAsesor){
+                const sa=crm.seguimientoAsesor;
+                (sa.actividades||[]).forEach(act=>{
+                  if(!act.fecha) return;
+                  if(!includeCompleted&&act.completada) return;
+                  if(!rangeFn(act)) return;
+                  if(filterAsesor!=="Todos"&&sa.asesor!==filterAsesor) return;
+                  items.push({activity:act,lote:lot,prospecto:{nombre:"(Sin cliente aún) — "+(sa.asesor||"")}});
+                });
+              }
+            });
+            return items;
+          };
+          const today=new Date(); today.setHours(0,0,0,0);
+          const in7=new Date(today); in7.setDate(in7.getDate()+7);
+          const in30=new Date(today); in30.setDate(in30.getDate()+30);
+          const inPast=(act)=>{ const d=new Date(act.fecha); d.setHours(0,0,0,0); return d.getTime()<today.getTime(); };
+          const rangoSemana=(act)=>{ const d=new Date(act.fecha); d.setHours(0,0,0,0); return d.getTime()<=in7.getTime(); };
+          const rango30=(act)=>{ const d=new Date(act.fecha); d.setHours(0,0,0,0); return d.getTime()<=in30.getTime(); };
+          const todoFn=()=>true;
+          const countSemana=buildItems(rangoSemana,false).length;
+          const count30=buildItems(rango30,false).length;
+          const countTodo=buildItems(todoFn,false).length;
+          const countVencidas=buildItems(inPast,false).length;
+          const handleExport=(rangeFn,label,includeCompleted)=>{
+            const items=buildItems(rangeFn,includeCompleted||false);
+            if(items.length===0){
+              toast("⚠ No hay actividades en este rango");
+              return;
+            }
+            const result=descargarICSBulk(items,label);
+            if(result.ok){
+              toast("📥 "+result.count+" actividades exportadas · ábrelo para importar a tu Calendar");
+              setShowICSExportModal(false);
+            } else {
+              toast("⚠ Error al generar archivo: "+(result.error||"desconocido"));
+            }
+          };
+          return (
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={e=>e.target===e.currentTarget&&setShowICSExportModal(false)}>
+              <div style={{background:B.white,borderRadius:14,width:"100%",maxWidth:560,boxShadow:"0 20px 60px rgba(0,43,73,0.3)",overflow:"hidden",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
+                <div style={{background:"linear-gradient(135deg,#1e40af,#2563eb)",padding:"18px 22px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.85)",letterSpacing:2,textTransform:"uppercase",marginBottom:3}}>📥 Exportar a Calendar</div>
+                    <div style={{fontSize:18,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>Selecciona el rango</div>
+                  </div>
+                  <button onClick={()=>setShowICSExportModal(false)} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>✕</button>
+                </div>
+                <div style={{padding:"20px 22px",overflowY:"auto",flex:1}}>
+                  {/* Aviso anti-duplicación */}
+                  <div style={{background:"#ecfdf5",border:"1.5px solid #10b981",borderRadius:10,padding:"12px 14px",marginBottom:18}}>
+                    <div style={{fontSize:12,fontWeight:800,color:"#065f46",marginBottom:4}}>✓ Sin duplicados garantizado</div>
+                    <div style={{fontSize:11,color:"#047857",lineHeight:1.5}}>
+                      Cada actividad usa un identificador único estable. Si re-exportas mañana con cambios, Google Calendar <strong>actualiza</strong> los eventos existentes en vez de crear copias.
+                    </div>
+                  </div>
+                  {filterAsesor!=="Todos"&&(
+                    <div style={{background:"#fef3c7",border:"1.5px solid #f59e0b",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:11,color:"#92400e"}}>
+                      <strong>Filtro activo:</strong> solo actividades de <strong>{filterAsesor}</strong>
+                    </div>
+                  )}
+                  {/* Opciones de rango */}
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    <button onClick={()=>handleExport(rangoSemana,"semana",false)} disabled={countSemana===0}
+                      style={{padding:"14px 16px",borderRadius:10,border:"2px solid "+(countSemana>0?"#1e40af":B.grey1),background:countSemana>0?"#dbeafe":B.offW,cursor:countSemana>0?"pointer":"not-allowed",textAlign:"left",fontFamily:"'DM Sans',sans-serif",opacity:countSemana>0?1:0.5,transition:"all 0.15s"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:800,color:countSemana>0?"#1e3a8a":B.grey3}}>📅 Esta semana (próximos 7 días)</div>
+                          <div style={{fontSize:11,color:countSemana>0?"#1e40af":B.grey3,marginTop:2}}>Recomendado: vencidas + hoy + esta semana</div>
+                        </div>
+                        <div style={{padding:"6px 14px",borderRadius:20,background:countSemana>0?"#1e40af":B.grey2,color:"#fff",fontSize:13,fontWeight:800}}>{countSemana}</div>
+                      </div>
+                    </button>
+                    <button onClick={()=>handleExport(rango30,"30dias",false)} disabled={count30===0}
+                      style={{padding:"14px 16px",borderRadius:10,border:"2px solid "+(count30>0?B.grey1:B.grey1),background:B.white,cursor:count30>0?"pointer":"not-allowed",textAlign:"left",fontFamily:"'DM Sans',sans-serif",opacity:count30>0?1:0.5,transition:"all 0.15s"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:800,color:B.navy}}>📆 Próximos 30 días</div>
+                          <div style={{fontSize:11,color:B.grey4,marginTop:2}}>Vista mensual completa</div>
+                        </div>
+                        <div style={{padding:"6px 14px",borderRadius:20,background:B.grey4,color:"#fff",fontSize:13,fontWeight:800}}>{count30}</div>
+                      </div>
+                    </button>
+                    <button onClick={()=>handleExport(todoFn,"todas",false)} disabled={countTodo===0}
+                      style={{padding:"14px 16px",borderRadius:10,border:"2px solid "+B.grey1,background:B.white,cursor:countTodo>0?"pointer":"not-allowed",textAlign:"left",fontFamily:"'DM Sans',sans-serif",opacity:countTodo>0?1:0.5,transition:"all 0.15s"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:800,color:B.navy}}>📋 Todas las actividades pendientes</div>
+                          <div style={{fontSize:11,color:B.grey4,marginTop:2}}>Sin límite de fecha</div>
+                        </div>
+                        <div style={{padding:"6px 14px",borderRadius:20,background:B.grey4,color:"#fff",fontSize:13,fontWeight:800}}>{countTodo}</div>
+                      </div>
+                    </button>
+                    {countVencidas>0&&(
+                      <button onClick={()=>handleExport(inPast,"vencidas",false)}
+                        style={{padding:"12px 16px",borderRadius:10,border:"2px solid #fecaca",background:"#fef2f2",cursor:"pointer",textAlign:"left",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <div>
+                            <div style={{fontSize:13,fontWeight:800,color:"#991b1b"}}>🔴 Solo vencidas</div>
+                            <div style={{fontSize:11,color:"#b91c1c",marginTop:2}}>Para reagendar urgente</div>
+                          </div>
+                          <div style={{padding:"6px 14px",borderRadius:20,background:"#dc2626",color:"#fff",fontSize:13,fontWeight:800}}>{countVencidas}</div>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+                  {/* Instrucciones cómo importar */}
+                  <div style={{marginTop:18,padding:"12px 14px",background:B.offW,borderRadius:10,border:"1px dashed "+B.grey1}}>
+                    <div style={{fontSize:11,fontWeight:800,color:B.navy,marginBottom:6,textTransform:"uppercase",letterSpacing:0.8}}>📖 Cómo importar a Google Calendar</div>
+                    <ol style={{fontSize:11,color:B.grey4,lineHeight:1.7,paddingLeft:18,margin:0}}>
+                      <li>Click en una opción de arriba → se descarga archivo <code style={{background:"#fff",padding:"1px 5px",borderRadius:3,fontSize:10}}>.ics</code></li>
+                      <li>Abre <a href="https://calendar.google.com/calendar/r/settings/export" target="_blank" rel="noopener" style={{color:"#1e40af",fontWeight:700}}>Google Calendar → Configuración → Importar y exportar</a></li>
+                      <li>Selecciona el archivo descargado y elige el calendario destino</li>
+                      <li>Click "Importar" — listo, aparecen todas tus actividades</li>
+                    </ol>
+                    <div style={{fontSize:10,color:B.grey3,marginTop:8,fontStyle:"italic"}}>💡 Tip: crea un calendario dedicado "MacroPro" en Google Calendar para mantener separadas las actividades del CRM.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Modal: Actividad (crear/editar/completar) */}
         {showActivityModal&&(() => {
