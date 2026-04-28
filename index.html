@@ -554,6 +554,148 @@ function fmtMiles(n){ if(!n&&n!==0) return "$0"; return "$"+new Intl.NumberForma
 // Reglas: el INVENTARIO manda. Si un lote tiene desarrollador X, ese lote pertenece a X
 // independientemente del mapeo. Para desarrollos sin lotes en inventario (o ambiguos)
 // se usa este mapeo de respaldo.
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO ASESORES · Seguimiento de solicitudes de brokers/intermediarios
+// Estos asesores externos traen requisitos de sus clientes finales
+// y nosotros buscamos matches en nuestro inventario.
+// ═══════════════════════════════════════════════════════════════
+const SOLICITUDES_ASESOR_KEY = "macropro_solicitudes_asesor_v1";
+const SOLICITUDES_PIPELINE = [
+  "Nueva solicitud",
+  "Buscando opciones",
+  "Opciones enviadas",
+  "En revisión",
+  "Visita agendada",
+  "Match",
+  "Cerrado sin match"
+];
+const SOLICITUDES_PIPELINE_COLORS = {
+  "Nueva solicitud":     { bg:"#dbeafe", color:"#1e40af", border:"#3b82f6" },
+  "Buscando opciones":   { bg:"#e0e7ff", color:"#4338ca", border:"#6366f1" },
+  "Opciones enviadas":   { bg:"#fef3c7", color:"#92400e", border:"#f59e0b" },
+  "En revisión":         { bg:"#fed7aa", color:"#9a3412", border:"#ea580c" },
+  "Visita agendada":     { bg:"#fce7f3", color:"#be185d", border:"#ec4899" },
+  "Match":               { bg:"#dcfce7", color:"#15803d", border:"#16a34a" },
+  "Cerrado sin match":   { bg:"#f1f5f9", color:"#475569", border:"#94a3b8" }
+};
+const SOLICITUDES_PIPELINE_ICONS = {
+  "Nueva solicitud":"🆕",
+  "Buscando opciones":"🔍",
+  "Opciones enviadas":"📤",
+  "En revisión":"👀",
+  "Visita agendada":"🚗",
+  "Match":"✅",
+  "Cerrado sin match":"🔒"
+};
+const TIPOS_CLIENTE_FINAL = ["Usuario final","Inversionista","Desarrollador","Retailer","Otro"];
+const USOS_SUELO_OPCIONES = ["H1","H2","H3","H4","Comercial","Mixto","Industrial","Habitacional","Reserva","Sin definir"];
+const FORMAS_PAGO = ["Contado","Crédito bancario","Financiamiento desarrollador","Mixto","Por definir"];
+const PLAZOS_DECISION = ["Urgente (< 30 días)","Mediano (30-90 días)","Largo (> 90 días)","Sin definir"];
+
+function loadSolicitudesAsesor(){
+  try{
+    const raw = localStorage.getItem(SOLICITUDES_ASESOR_KEY);
+    if(!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)?parsed:[];
+  }catch(e){ console.warn("Error cargando asesores:",e); return []; }
+}
+function saveSolicitudesAsesor(arr){
+  try{ localStorage.setItem(SOLICITUDES_ASESOR_KEY, JSON.stringify(arr||[])); }catch(e){ console.warn("Error guardando asesores:",e); }
+}
+function nuevaSolicitudAsesor(){
+  return {
+    id: "asesor-"+Date.now()+"-"+Math.floor(Math.random()*1000),
+    pipeline: "Nueva solicitud",
+    fechaCreacion: new Date().toISOString(),
+    fechaUltimaActividad: new Date().toISOString(),
+    asesorResponsableGG: "", // asesor de Grupo Guía
+    // Bloque 1: Identificación del asesor externo
+    asesorNombre: "",
+    asesorTelefono: "",
+    asesorEmpresa: "",
+    asesorEmail: "",
+    // Bloque 2: Cliente final
+    clienteNombre: "",
+    clienteGiro: "",
+    clienteTipo: "",
+    // Bloque 3: Requerimiento técnico
+    superficieMin: "",
+    superficieMax: "",
+    frenteMinimo: "",
+    alturaLibre: "",
+    usoSuelo: "",
+    estado: "",
+    ciudad: "",
+    // Bloque 4: Comercial
+    precioMaximo: "",
+    formaPago: "",
+    plazoDecision: "",
+    // Bloque 5: Adicional
+    notas: "",
+    // Bloque 6: Auto
+    historial: [], // [{fecha, tipo, descripcion}]
+    matchesEncontrados: [], // ids de lotes
+    lotesEnviados: [], // ids de lotes que se le mandaron al asesor
+    loteMatch: null, // id del lote que finalmente cerró
+    convertidoAProspecto: false // bandera de integración con CRM
+  };
+}
+// Match automático: busca lotes del inventario que cumplan con los criterios
+function buscarMatchesParaSolicitud(solicitud, inventory){
+  if(!solicitud||!Array.isArray(inventory)) return [];
+  const supMin = parseFloat(solicitud.superficieMin)||0;
+  const supMax = parseFloat(solicitud.superficieMax)||Infinity;
+  const frenteMin = parseFloat(solicitud.frenteMinimo)||0;
+  const precioMax = parseFloat(solicitud.precioMaximo)||Infinity;
+  const estado = (solicitud.estado||"").trim().toLowerCase();
+  const ciudad = (solicitud.ciudad||"").trim().toLowerCase();
+  const usoSuelo = (solicitud.usoSuelo||"").trim().toLowerCase();
+  return inventory.map(lot=>{
+    if(!lot) return null;
+    const sup = parseFloat(lot.superficie)||0;
+    const frente = parseFloat(lot.frente)||0;
+    const precio = parseFloat(lot.precio_total)||0;
+    const lotEstado = (lot.estado||"").trim().toLowerCase();
+    const lotCiudad = (lot.ciudad||"").trim().toLowerCase();
+    const lotUso = (lot.uso_suelo||"").trim().toLowerCase();
+    let score = 0;
+    let razones = [];
+    let descalificadores = [];
+    // Filtros duros (obligatorios)
+    if(supMin>0 && sup<supMin){ descalificadores.push(`Superficie ${sup}m² < mínimo ${supMin}m²`); }
+    else if(sup>=supMin) { score+=20; razones.push(`Superficie ${sup}m² ✓`); }
+    if(supMax<Infinity && sup>supMax){ descalificadores.push(`Superficie ${sup}m² > máximo ${supMax}m²`); }
+    if(frenteMin>0 && frente>0 && frente<frenteMin){ descalificadores.push(`Frente ${frente}m < mínimo ${frenteMin}m`); }
+    else if(frenteMin>0&&frente>=frenteMin){ score+=15; razones.push(`Frente ${frente}m ✓`); }
+    if(precioMax<Infinity && precio>precioMax){ descalificadores.push(`Precio $${precio.toLocaleString()} > máximo $${precioMax.toLocaleString()}`); }
+    else if(precio>0&&precio<=precioMax){ score+=20; razones.push(`Precio en rango ✓`); }
+    // Filtros suaves (suman puntos)
+    if(estado&&lotEstado){
+      // Normalización Cancún/Cancun
+      const norm = (s)=>s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+      if(norm(lotEstado).includes(norm(estado))||norm(estado).includes(norm(lotEstado))){
+        score+=15; razones.push(`Estado coincide ✓`);
+      }
+    }
+    if(ciudad&&lotCiudad){
+      const norm = (s)=>s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+      if(norm(lotCiudad).includes(norm(ciudad))||norm(ciudad).includes(norm(lotCiudad))){
+        score+=15; razones.push(`Ciudad coincide ✓`);
+      }
+    }
+    if(usoSuelo&&lotUso){
+      if(lotUso.includes(usoSuelo)||usoSuelo.includes(lotUso)){
+        score+=15; razones.push(`Uso de suelo compatible ✓`);
+      }
+    }
+    return { lot, score, razones, descalificadores, descalificado:descalificadores.length>0 };
+  })
+  .filter(m=>m!==null)
+  .sort((a,b)=>b.score-a.score);
+}
+// ═══════════════════════════════════════════════════════════════
+
 const MAPEO_DESARROLLADOR_BASE = {
   // === Desarrollos TYA ===
   "Kulkana":"TYA","Terrasoles":"TYA","Capital Sur":"TYA","Alva":"TYA",
@@ -1321,6 +1463,164 @@ async function generarMatchLoteClientes(lote, resultados) {
   await pptx.writeFile({ fileName:`Match_${(lote.nombre||lote.id||"lote").replace(/\s/g,"_")}_Clientes.pptx`});
 }
 
+// ═══════════════════════════════════════════════════════════════
+// COMPONENTE: ModalAsesorForm — captura/edita solicitud de asesor
+// Diseñado con 6 bloques colapsables para flujo rápido del asistente
+// ═══════════════════════════════════════════════════════════════
+function ModalAsesorForm({ initial, isEdit, inventory, onClose, onSave, onDelete, onBuscarMatches, onChangePipeline, B }) {
+  const [data, setData] = React.useState(initial||{});
+  const upd = (k,v) => setData(prev=>({...prev, [k]:v}));
+  const handleSubmit = () => {
+    if(!data.asesorNombre||!data.asesorTelefono){ alert("Por favor captura al menos nombre y teléfono del asesor."); return; }
+    onSave(data);
+  };
+  // Estados de ciudades comunes en México
+  const ESTADOS_MX = ["Jalisco","Querétaro","Quintana Roo","Nuevo León","CDMX","Estado de México","Puebla","Veracruz","Yucatán","Guanajuato","Aguascalientes","Otro"];
+  // Input field genérico
+  const Field = ({label, k, type, options, placeholder, required, full})=>{
+    if(type==="select"){
+      return (
+        <div style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
+          <label style={{fontSize:10, fontWeight:700, color:B.grey4, textTransform:"uppercase", letterSpacing:0.8, display:"block", marginBottom:4}}>{label}{required&&<span style={{color:"#dc2626"}}> *</span>}</label>
+          <select value={data[k]||""} onChange={e=>upd(k, e.target.value)}
+            style={{width:"100%", padding:"8px 10px", borderRadius:6, border:"1px solid "+B.grey1, fontSize:12, fontFamily:"'DM Sans',sans-serif", background:"#fff", color:B.navy}}>
+            <option value="">— Seleccionar —</option>
+            {(options||[]).map(o=><option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+      );
+    }
+    if(type==="textarea"){
+      return (
+        <div style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
+          <label style={{fontSize:10, fontWeight:700, color:B.grey4, textTransform:"uppercase", letterSpacing:0.8, display:"block", marginBottom:4}}>{label}</label>
+          <textarea value={data[k]||""} onChange={e=>upd(k, e.target.value)} rows={4} placeholder={placeholder||""}
+            style={{width:"100%", padding:"8px 10px", borderRadius:6, border:"1px solid "+B.grey1, fontSize:12, fontFamily:"'DM Sans',sans-serif", resize:"vertical", color:B.navy}}/>
+        </div>
+      );
+    }
+    return (
+      <div style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
+        <label style={{fontSize:10, fontWeight:700, color:B.grey4, textTransform:"uppercase", letterSpacing:0.8, display:"block", marginBottom:4}}>{label}{required&&<span style={{color:"#dc2626"}}> *</span>}</label>
+        <input type={type||"text"} value={data[k]||""} onChange={e=>upd(k, e.target.value)} placeholder={placeholder||""}
+          style={{width:"100%", padding:"8px 10px", borderRadius:6, border:"1px solid "+B.grey1, fontSize:12, fontFamily:"'DM Sans',sans-serif", color:B.navy}}/>
+      </div>
+    );
+  };
+  return (
+    <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:2200, display:"flex", alignItems:"center", justifyContent:"center", padding:20}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:"#fff", borderRadius:14, width:"100%", maxWidth:760, boxShadow:"0 20px 60px rgba(0,43,73,0.3)", overflow:"hidden", maxHeight:"92vh", display:"flex", flexDirection:"column"}}>
+        <div style={{background:"linear-gradient(135deg,#1e3a8a,#1e40af)", padding:"16px 22px", display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.85)", letterSpacing:2, textTransform:"uppercase", marginBottom:3}}>🤝 {isEdit?"Editar":"Nueva"} solicitud</div>
+            <div style={{fontSize:18, fontWeight:800, color:"#fff", fontFamily:"'Playfair Display',serif"}}>{isEdit?(data.asesorNombre||"Solicitud"):"Asesor externo"}</div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.2)", border:"none", color:"#fff", borderRadius:8, padding:"6px 10px", cursor:"pointer", fontSize:14, fontWeight:700}}>✕</button>
+        </div>
+        <div style={{padding:"18px 24px", overflowY:"auto", flex:1}}>
+          {/* Pipeline (solo en edición) */}
+          {isEdit&&(
+            <div style={{marginBottom:18, padding:"10px 12px", background:B.offW, borderRadius:8}}>
+              <label style={{fontSize:10, fontWeight:700, color:B.grey4, textTransform:"uppercase", letterSpacing:0.8, display:"block", marginBottom:6}}>📊 Estado del pipeline</label>
+              <select value={data.pipeline||"Nueva solicitud"} onChange={e=>{upd("pipeline", e.target.value); onChangePipeline(data.id, e.target.value);}}
+                style={{width:"100%", padding:"8px 10px", borderRadius:6, border:"1px solid "+B.grey1, fontSize:12, fontWeight:700, background:"#fff", color:B.navy, fontFamily:"'DM Sans',sans-serif"}}>
+                {ASESORES_PIPELINE.map(s=><option key={s} value={s}>{ASESORES_PIPELINE_ICONS[s]} {s}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Bloque 1: Asesor externo */}
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1, marginBottom:8, paddingBottom:4, borderBottom:"2px solid "+B.gold}}>👤 1. Identificación del asesor</div>
+            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
+              <Field label="Nombre del asesor" k="asesorNombre" required/>
+              <Field label="Teléfono / WhatsApp" k="asesorTelefono" required/>
+              <Field label="Empresa o broker" k="asesorEmpresa" placeholder="Coldwell, C21, Independiente..."/>
+              <Field label="Email" k="asesorEmail" type="email"/>
+            </div>
+          </div>
+
+          {/* Bloque 2: Cliente final */}
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1, marginBottom:8, paddingBottom:4, borderBottom:"2px solid "+B.gold}}>🎯 2. Cliente final del asesor</div>
+            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
+              <Field label="Nombre del cliente" k="clienteNombre" required/>
+              <Field label="Giro del cliente" k="clienteGiro" placeholder="Farmacia, oficinas, plaza, vivienda..." required/>
+              <Field label="Tipo de cliente" k="clienteTipo" type="select" options={TIPOS_CLIENTE_FINAL} full/>
+            </div>
+          </div>
+
+          {/* Bloque 3: Requerimiento técnico */}
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1, marginBottom:8, paddingBottom:4, borderBottom:"2px solid "+B.gold}}>📐 3. Requerimiento técnico</div>
+            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
+              <Field label="Superficie mínima (m²)" k="superficieMin" type="number" required/>
+              <Field label="Superficie máxima (m²)" k="superficieMax" type="number"/>
+              <Field label="Frente mínimo (m)" k="frenteMinimo" type="number"/>
+              <Field label="Altura libre mín. (m)" k="alturaLibre" type="number"/>
+              <Field label="Uso de suelo" k="usoSuelo" type="select" options={USOS_SUELO_OPCIONES}/>
+              <Field label="Estado" k="estado" type="select" options={ESTADOS_MX}/>
+              <Field label="Ciudad / Zona" k="ciudad" required full/>
+            </div>
+          </div>
+
+          {/* Bloque 4: Comercial */}
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1, marginBottom:8, paddingBottom:4, borderBottom:"2px solid "+B.gold}}>💰 4. Información comercial</div>
+            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
+              <Field label="Precio máximo (MXN)" k="precioMaximo" type="number" required/>
+              <Field label="Forma de pago" k="formaPago" type="select" options={FORMAS_PAGO}/>
+              <Field label="Plazo para decidir" k="plazoDecision" type="select" options={PLAZOS_DECISION} full/>
+            </div>
+          </div>
+
+          {/* Bloque 5: Notas */}
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1, marginBottom:8, paddingBottom:4, borderBottom:"2px solid "+B.gold}}>📝 5. Notas y requisitos especiales</div>
+            <Field label="Notas (visibilidad, accesos, zona específica, etc.)" k="notas" type="textarea" placeholder="Pega aquí el mensaje original del asesor o anota requisitos especiales..."/>
+          </div>
+
+          {/* Historial de cambios (solo en edición) */}
+          {isEdit&&data.historial&&data.historial.length>0&&(
+            <div style={{marginBottom:14, padding:"10px 12px", background:B.offW, borderRadius:8}}>
+              <div style={{fontSize:10, fontWeight:800, color:B.grey4, textTransform:"uppercase", letterSpacing:0.8, marginBottom:6}}>📋 Historial</div>
+              <div style={{maxHeight:120, overflowY:"auto"}}>
+                {[...data.historial].reverse().slice(0,10).map((h,i)=>(
+                  <div key={i} style={{fontSize:10, color:B.grey4, marginBottom:3, paddingLeft:6, borderLeft:"2px solid "+B.gold}}>
+                    <span style={{color:B.grey3}}>{new Date(h.fecha).toLocaleDateString("es-MX")}</span> · {h.descripcion}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{padding:"12px 22px", borderTop:"1px solid "+B.grey1, background:B.offW, display:"flex", gap:8, justifyContent:"space-between", flexWrap:"wrap"}}>
+          <div style={{display:"flex", gap:8}}>
+            {isEdit&&<button onClick={()=>onDelete(data.id)}
+              style={{padding:"9px 14px", borderRadius:8, border:"1.5px solid #dc2626", background:"#fff", color:"#dc2626", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+              🗑 Eliminar
+            </button>}
+            <button onClick={()=>onBuscarMatches(data)}
+              style={{padding:"9px 14px", borderRadius:8, border:"none", background:B.gold, color:B.navy, fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+              ⚡ Buscar matches en inventario
+            </button>
+          </div>
+          <div style={{display:"flex", gap:8}}>
+            <button onClick={onClose}
+              style={{padding:"9px 14px", borderRadius:8, border:"1.5px solid "+B.grey1, background:B.white, color:B.navy, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+              Cancelar
+            </button>
+            <button onClick={handleSubmit}
+              style={{padding:"9px 22px", borderRadius:8, border:"none", background:"linear-gradient(135deg,#1e3a8a,#1e40af)", color:"#fff", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+              {isEdit?"💾 Guardar cambios":"✓ Crear solicitud"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────────────
 function MacroProMatcher() {
   // ═══════════════════════════════════════════════════════════
@@ -1457,6 +1757,118 @@ function MacroProMatcher() {
 
   // ═ METAS · estado y persistencia ═
   const [metasData, setMetasData] = React.useState(()=>loadMetas());
+  // ═══ MÓDULO ASESORES ═══
+  const [solicitudesAsesor, setSolicitudesAsesor] = React.useState(()=>loadSolicitudesAsesor());
+  const [showSolicitudModal, setShowSolicitudModal] = React.useState(false);
+  const [editingSolicitud, setEditingSolicitud] = React.useState(null);
+  const [solicitudActiva, setSolicitudActiva] = React.useState(null);
+  const [showMatchesModal, setShowMatchesModal] = React.useState(false);
+  const [matchesActuales, setMatchesActuales] = React.useState([]);
+  const [solicitudFiltroPipeline, setSolicitudFiltroPipeline] = React.useState(()=>localStorage.getItem("macropro_solicitud_filtro_pipeline")||"Todos");
+  React.useEffect(()=>{ localStorage.setItem("macropro_solicitud_filtro_pipeline", solicitudFiltroPipeline); },[solicitudFiltroPipeline]);
+  React.useEffect(()=>{ saveSolicitudesAsesor(solicitudesAsesor); },[solicitudesAsesor]);
+
+  // Helpers para CRUD de asesores
+  const guardarAsesor = (data) => {
+    if(data.id&&solicitudesAsesor.some(a=>a.id===data.id)){
+      setSolicitudesAsesor(prev=>prev.map(a=>a.id===data.id?{...a,...data,fechaUltimaActividad:new Date().toISOString()}:a));
+      toast("✓ Solicitud actualizada");
+    } else {
+      const nueva = { ...nuevaSolicitudAsesor(), ...data };
+      setSolicitudesAsesor(prev=>[nueva, ...prev]);
+      toast("✓ Nueva solicitud creada");
+    }
+  };
+  const eliminarAsesor = (id) => {
+    if(!window.confirm("¿Eliminar esta solicitud? Esta acción no se puede deshacer.")) return;
+    setSolicitudesAsesor(prev=>prev.filter(a=>a.id!==id));
+    toast("✓ Solicitud eliminada");
+  };
+  const cambiarPipelineAsesor = (id, nuevoPipeline) => {
+    setSolicitudesAsesor(prev=>prev.map(a=>{
+      if(a.id!==id) return a;
+      const historial = [...(a.historial||[]), {
+        fecha: new Date().toISOString(),
+        tipo: "pipeline",
+        descripcion: `Pipeline: ${a.pipeline} → ${nuevoPipeline}`
+      }];
+      return { ...a, pipeline:nuevoPipeline, fechaUltimaActividad:new Date().toISOString(), historial };
+    }));
+  };
+  const buscarMatchesAsesor = (solicitud) => {
+    const inv = inventory.length>0?inventory:DEMO_LOTS;
+    const matches = buscarMatchesParaSolicitud(solicitud, inv);
+    setMatchesActuales(matches);
+    setSolicitudActiva(solicitud);
+    setShowMatchesModal(true);
+  };
+  // Convertir solicitud Match → Cliente del CRM (integración)
+  const convertirAsesorAProspecto = (solicitud, loteId) => {
+    if(!solicitud||!loteId){ toast("⚠ Datos insuficientes para convertir"); return; }
+    const inv = inventory.length>0?inventory:DEMO_LOTS;
+    const lote = inv.find(l=>l.id===loteId);
+    if(!lote){ toast("⚠ Lote no encontrado"); return; }
+    // 1. Crear cliente nuevo si no existe
+    const nombreCliente = solicitud.clienteNombre||solicitud.asesorNombre||"Cliente referido";
+    const nuevoCliente = {
+      id: "cli-"+Date.now(),
+      nombre: nombreCliente,
+      empresa: solicitud.clienteGiro||"",
+      telefono: solicitud.asesorTelefono||"",
+      email: solicitud.asesorEmail||"",
+      ubicacion: [solicitud.ciudad,solicitud.estado].filter(Boolean).join(", "),
+      presupuesto_min: 0,
+      presupuesto_max: parseFloat(solicitud.precioMaximo)||0,
+      uso_suelo: solicitud.usoSuelo||"",
+      superficie_min: parseFloat(solicitud.superficieMin)||0,
+      superficie_max: parseFloat(solicitud.superficieMax)||0,
+      notas: `Referido por asesor ${solicitud.asesorNombre} (${solicitud.asesorEmpresa||"Independiente"}). ${solicitud.notas||""}`.trim()
+    };
+    setClients(prev=>[nuevoCliente, ...prev]);
+    // 2. Crear prospecto en el lote
+    const ahora = new Date().toISOString();
+    const nuevoProspecto = {
+      nombre: nombreCliente,
+      empresa: solicitud.clienteGiro||"",
+      telefono: solicitud.asesorTelefono||"",
+      email: solicitud.asesorEmail||"",
+      nota: `Match desde solicitud de asesor ${solicitud.asesorNombre} — ${new Date().toLocaleDateString("es-MX")}`,
+      pipeline: "En negociación",
+      temperatura: "Caliente",
+      actividades: [{
+        id: "act-"+Date.now(),
+        tipo: "Seguimiento",
+        descripcion: `Cliente referido por ${solicitud.asesorNombre}`,
+        fecha: new Date().toISOString().slice(0,10),
+        hora: "10:00",
+        completada: false,
+        creadaEn: ahora
+      }]
+    };
+    setCrmData(prev=>{
+      const next = {...prev};
+      if(!next[loteId]) next[loteId] = { pipeline:"En negociación", interacciones:[], prospectos:[], devFeedback:[], lastContact:ahora };
+      next[loteId].prospectos = [...(next[loteId].prospectos||[]), nuevoProspecto];
+      next[loteId].pipeline = "En negociación";
+      next[loteId].lastContact = ahora;
+      return next;
+    });
+    // 3. Marcar la solicitud como Match + convertida
+    setSolicitudesAsesor(prev=>prev.map(a=>a.id===solicitud.id?{
+      ...a,
+      pipeline:"Match",
+      loteMatch:loteId,
+      convertidoAProspecto:true,
+      fechaUltimaActividad:ahora,
+      historial:[...(a.historial||[]), {
+        fecha:ahora,
+        tipo:"conversion",
+        descripcion:`Convertido a prospecto del CRM en lote ${lote.nombre||loteId}`
+      }]
+    }:a));
+    toast("✅ Convertido a prospecto del CRM");
+    setShowMatchesModal(false);
+  };
   // Estados de UI para Vista Metas
   const [metasModoVista, setMetasModoVista] = React.useState("uds"); // "uds" | "monto"
   const [showImportModal, setShowImportModal] = React.useState(false);
@@ -6920,6 +7332,169 @@ function MacroProMatcher() {
     );
   };
 
+  // ═══════════════════════════════════════════════════════════════
+  // VIEW: 🤝 ASESORES — Seguimiento de solicitudes de brokers/intermediarios
+  // ═══════════════════════════════════════════════════════════════
+  const ViewAsesores = () => {
+    // Filtrar por pipeline (si filtro activo)
+    const listaFiltrada = solicitudesAsesor.filter(a=>{
+      if(solicitudFiltroPipeline==="Todos") return true;
+      return a.pipeline===solicitudFiltroPipeline;
+    });
+    // KPIs
+    const totalActivas = solicitudesAsesor.filter(a=>a.pipeline!=="Match"&&a.pipeline!=="Cerrado sin match").length;
+    const totalNuevas = solicitudesAsesor.filter(a=>a.pipeline==="Nueva solicitud").length;
+    const totalEnviadas = solicitudesAsesor.filter(a=>a.pipeline==="Opciones enviadas").length;
+    const totalVisita = solicitudesAsesor.filter(a=>a.pipeline==="Visita agendada").length;
+    const totalMatch = solicitudesAsesor.filter(a=>a.pipeline==="Match").length;
+    // Detectar solicitudes "stale" (sin movimiento +5 días)
+    const ahora = new Date();
+    const isStale = (a) => {
+      if(a.pipeline==="Match"||a.pipeline==="Cerrado sin match") return false;
+      const ult = new Date(a.fechaUltimaActividad||a.fechaCreacion||0);
+      const dias = (ahora-ult)/(1000*60*60*24);
+      return dias>5;
+    };
+    const totalStale = solicitudesAsesor.filter(isStale).length;
+    // Agrupar por pipeline para Kanban
+    const porPipeline = {};
+    SOLICITUDES_PIPELINE.forEach(p=>{ porPipeline[p] = []; });
+    solicitudesAsesor.forEach(a=>{
+      if(porPipeline[a.pipeline]) porPipeline[a.pipeline].push(a);
+      else porPipeline["Nueva solicitud"].push(a);
+    });
+    // Función para mostrar fecha relativa
+    const fechaRelativa = (iso) => {
+      if(!iso) return "—";
+      const d = new Date(iso);
+      const dias = Math.floor((ahora-d)/(1000*60*60*24));
+      if(dias===0) return "Hoy";
+      if(dias===1) return "Ayer";
+      if(dias<7) return `Hace ${dias}d`;
+      if(dias<30) return `Hace ${Math.floor(dias/7)}sem`;
+      return `Hace ${Math.floor(dias/30)}m`;
+    };
+    return (
+      <div style={{padding:"24px 28px", maxWidth:1600, margin:"0 auto"}}>
+        {/* Header */}
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24, flexWrap:"wrap", gap:14}}>
+          <div>
+            <div style={{fontSize:11, fontWeight:700, color:B.gold, letterSpacing:2, textTransform:"uppercase"}}>🤝 Asesores externos</div>
+            <h1 style={{fontSize:34, fontWeight:800, color:B.navy, margin:"4px 0 0 0", fontFamily:"'Playfair Display',serif"}}>Solicitudes de Macrolotes</h1>
+            <div style={{fontSize:12, color:B.grey4, marginTop:6}}>Brokers / intermediarios que traen requerimientos de sus clientes finales</div>
+          </div>
+          <button onClick={()=>{setEditingSolicitud(null); setShowSolicitudModal(true);}}
+            style={{padding:"12px 22px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#1e40af,#3b82f6)", color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 14px rgba(30,64,175,0.35)"}}>
+            ➕ Nueva solicitud
+          </button>
+        </div>
+
+        {/* KPIs */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))", gap:12, marginBottom:24}}>
+          <div style={{background:B.navy, padding:"14px 16px", borderRadius:10, color:"#fff"}}>
+            <div style={{fontSize:9, color:B.gold, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase"}}>Activas</div>
+            <div style={{fontSize:28, fontWeight:800, color:B.gold, fontFamily:"'Playfair Display',serif", marginTop:4}}>{totalActivas}</div>
+            <div style={{fontSize:10, color:"rgba(255,255,255,0.7)", marginTop:2}}>en seguimiento</div>
+          </div>
+          <div style={{background:"#dbeafe", padding:"14px 16px", borderRadius:10, borderLeft:"3px solid #3b82f6"}}>
+            <div style={{fontSize:9, color:"#1e40af", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase"}}>🆕 Nuevas</div>
+            <div style={{fontSize:24, fontWeight:800, color:"#1e3a8a", fontFamily:"'Playfair Display',serif", marginTop:4}}>{totalNuevas}</div>
+            <div style={{fontSize:10, color:"#1e40af", marginTop:2}}>por trabajar</div>
+          </div>
+          <div style={{background:"#fef3c7", padding:"14px 16px", borderRadius:10, borderLeft:"3px solid #f59e0b"}}>
+            <div style={{fontSize:9, color:"#92400e", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase"}}>📤 Enviadas</div>
+            <div style={{fontSize:24, fontWeight:800, color:"#78350f", fontFamily:"'Playfair Display',serif", marginTop:4}}>{totalEnviadas}</div>
+            <div style={{fontSize:10, color:"#92400e", marginTop:2}}>esperando respuesta</div>
+          </div>
+          <div style={{background:"#fce7f3", padding:"14px 16px", borderRadius:10, borderLeft:"3px solid #ec4899"}}>
+            <div style={{fontSize:9, color:"#be185d", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase"}}>🚗 Visitas</div>
+            <div style={{fontSize:24, fontWeight:800, color:"#9f1239", fontFamily:"'Playfair Display',serif", marginTop:4}}>{totalVisita}</div>
+            <div style={{fontSize:10, color:"#be185d", marginTop:2}}>agendadas</div>
+          </div>
+          <div style={{background:"#dcfce7", padding:"14px 16px", borderRadius:10, borderLeft:"3px solid #16a34a"}}>
+            <div style={{fontSize:9, color:"#15803d", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase"}}>✅ Match</div>
+            <div style={{fontSize:24, fontWeight:800, color:"#14532d", fontFamily:"'Playfair Display',serif", marginTop:4}}>{totalMatch}</div>
+            <div style={{fontSize:10, color:"#15803d", marginTop:2}}>cerrados</div>
+          </div>
+          {totalStale>0&&(
+            <div style={{background:"#fee2e2", padding:"14px 16px", borderRadius:10, borderLeft:"3px solid #dc2626"}}>
+              <div style={{fontSize:9, color:"#991b1b", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase"}}>⚠ Sin movimiento</div>
+              <div style={{fontSize:24, fontWeight:800, color:"#7f1d1d", fontFamily:"'Playfair Display',serif", marginTop:4}}>{totalStale}</div>
+              <div style={{fontSize:10, color:"#991b1b", marginTop:2}}>+5 días</div>
+            </div>
+          )}
+        </div>
+
+        {/* Kanban */}
+        <div style={{background:B.white, borderRadius:14, padding:18, border:"1px solid "+B.grey1, marginBottom:20, boxShadow:"0 2px 10px rgba(0,43,73,0.04)"}}>
+          <div style={{display:"flex", gap:12, overflowX:"auto", paddingBottom:8}}>
+            {SOLICITUDES_PIPELINE.map(stage=>{
+              const colors = SOLICITUDES_PIPELINE_COLORS[stage];
+              const items = porPipeline[stage]||[];
+              const icon = SOLICITUDES_PIPELINE_ICONS[stage]||"";
+              return (
+                <div key={stage} style={{minWidth:280, maxWidth:280, flexShrink:0}}>
+                  <div style={{padding:"10px 12px", borderRadius:8, background:colors.bg, borderTop:"3px solid "+colors.border, marginBottom:10}}>
+                    <div style={{fontSize:10, fontWeight:800, color:colors.color, textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
+                      <span>{icon} {stage}</span>
+                      <span style={{background:colors.color, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{items.length}</span>
+                    </div>
+                  </div>
+                  <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:600, overflowY:"auto"}}>
+                    {items.map(a=>{
+                      const stale = isStale(a);
+                      return (
+                        <div key={a.id} onClick={()=>{setEditingSolicitud(a); setShowSolicitudModal(true);}}
+                          style={{padding:"11px 12px", background:B.white, borderRadius:8, border:"1px solid "+(stale?"#dc2626":B.grey1), cursor:"pointer", boxShadow:"0 1px 3px rgba(0,0,0,0.05)", transition:"transform 0.1s, box-shadow 0.1s", borderLeft:stale?"3px solid #dc2626":"3px solid "+colors.border}}
+                          onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-1px)"; e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,0.1)";}}
+                          onMouseLeave={e=>{e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="0 1px 3px rgba(0,0,0,0.05)";}}>
+                          <div style={{fontSize:13, fontWeight:800, color:B.navy, marginBottom:2}}>{a.asesorNombre||"Sin nombre"}</div>
+                          <div style={{fontSize:10, color:B.grey4, marginBottom:6}}>{a.asesorEmpresa||"Independiente"}{a.asesorTelefono?" · "+a.asesorTelefono:""}</div>
+                          {a.clienteNombre&&<div style={{fontSize:10, color:B.grey4, marginBottom:4}}>Cliente: <strong style={{color:B.navy}}>{a.clienteNombre}</strong></div>}
+                          {a.clienteGiro&&<div style={{fontSize:10, color:B.grey4, marginBottom:4}}>Giro: <strong>{a.clienteGiro}</strong></div>}
+                          <div style={{fontSize:10, color:B.grey4, lineHeight:1.5}}>
+                            {a.superficieMin&&<>📐 {a.superficieMin}{a.superficieMax?"-"+a.superficieMax:""}m² </>}
+                            {a.frenteMinimo&&<>· 📏 {a.frenteMinimo}m frente </>}
+                          </div>
+                          <div style={{fontSize:10, color:B.grey4, lineHeight:1.5}}>
+                            {a.ciudad&&<>📍 {a.ciudad}{a.estado?", "+a.estado:""} </>}
+                          </div>
+                          {a.precioMaximo&&<div style={{fontSize:10, color:"#15803d", fontWeight:700, marginTop:3}}>💰 Max: ${parseFloat(a.precioMaximo).toLocaleString("es-MX")}</div>}
+                          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, paddingTop:6, borderTop:"1px dashed "+B.grey1}}>
+                            <span style={{fontSize:9, color:stale?"#dc2626":B.grey3, fontWeight:stale?700:500}}>{stale?"⚠ ":""}{fechaRelativa(a.fechaUltimaActividad||a.fechaCreacion)}</span>
+                            <button onClick={(e)=>{e.stopPropagation(); buscarMatchesAsesor(a);}}
+                              style={{padding:"3px 8px", borderRadius:6, border:"none", background:B.gold, color:B.navy, fontSize:9, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+                              ⚡ Matches
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {items.length===0&&(
+                      <div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Sin solicitudes</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {solicitudesAsesor.length===0&&(
+          <div style={{background:B.offW, padding:"40px 30px", borderRadius:12, textAlign:"center", border:"1px dashed "+B.grey1}}>
+            <div style={{fontSize:48, marginBottom:12}}>🤝</div>
+            <div style={{fontSize:16, fontWeight:800, color:B.navy, marginBottom:4}}>Sin solicitudes registradas</div>
+            <div style={{fontSize:12, color:B.grey4, marginBottom:16, lineHeight:1.6}}>Cuando un asesor externo te traiga un requerimiento de macrolote,<br/>captúralo aquí para darle seguimiento profesional.</div>
+            <button onClick={()=>{setEditingSolicitud(null); setShowSolicitudModal(true);}}
+              style={{padding:"10px 22px", borderRadius:8, border:"none", background:B.navy, color:B.gold, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+              ➕ Crear primera solicitud
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const ViewDashboard = () => {
     const cliSrc=clients.length>0?clients:DEMO_CLIENTS;
     const totalLotes=srcInv.length, totalClientes=cliSrc.length;
@@ -7288,7 +7863,7 @@ function MacroProMatcher() {
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["dashboard","📊 Dashboard"],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["dashboard","📊 Dashboard"],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["asesores","🤝 Asesores"+(solicitudesAsesor.filter(a=>a.pipeline!=="Match"&&a.pipeline!=="Cerrado sin match").length>0?" ("+solicitudesAsesor.filter(a=>a.pipeline!=="Match"&&a.pipeline!=="Cerrado sin match").length+")":"")],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <button onClick={()=>{setApiKeyInput(localStorage.getItem("macropro_api_key")||"");setShowApiModal(true);}} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:apiKey?"#22c55e":"#ef4444",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title={apiKey?"API Key configurada ✓":"Sin API Key — click para configurar"}>{apiKey?"🔑":"⚠️"}</button>
@@ -7313,6 +7888,7 @@ function MacroProMatcher() {
       {view==="dashboard"&&<ViewDashboard/>}
       {view==="ejecutivo"&&<ViewEjecutivo/>}
       {view==="metas"&&<ViewMetas/>}
+      {view==="asesores"&&<ViewAsesores/>}
       {view==="matchClient"&&<ViewMatchClient/>}
       {view==="matchLot"&&<ViewMatchLot/>}
       {view==="result"&&<ViewResults/>}
@@ -7321,6 +7897,120 @@ function MacroProMatcher() {
       {view==="lots"&&<ViewLots/>}
       <ModalApiKey/>
       <ModalMigrate/>
+
+      {/* ═══════════════════════════════════════════════════════════════
+          MODAL: Nueva/Editar solicitud de asesor
+          ═══════════════════════════════════════════════════════════════ */}
+      {showSolicitudModal&&(() => {
+        const isEdit = editingSolicitud!==null;
+        const initial = isEdit?editingSolicitud:nuevaSolicitudAsesor();
+        return <ModalAsesorForm
+          initial={initial}
+          isEdit={isEdit}
+          inventory={inventory.length>0?inventory:DEMO_LOTS}
+          onClose={()=>{setShowSolicitudModal(false); setEditingSolicitud(null);}}
+          onSave={(data)=>{ guardarAsesor(data); setShowSolicitudModal(false); setEditingSolicitud(null); }}
+          onDelete={(id)=>{ eliminarAsesor(id); setShowSolicitudModal(false); setEditingSolicitud(null); }}
+          onBuscarMatches={(data)=>{ buscarMatchesAsesor(data); }}
+          onChangePipeline={(id, p)=>{ cambiarPipelineAsesor(id, p); setEditingSolicitud(prev=>prev?{...prev,pipeline:p}:prev); }}
+          B={B}
+        />;
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          MODAL: Matches encontrados en inventario
+          ═══════════════════════════════════════════════════════════════ */}
+      {showMatchesModal&&solicitudActiva&&(
+        <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:2200, display:"flex", alignItems:"center", justifyContent:"center", padding:20}} onClick={e=>e.target===e.currentTarget&&setShowMatchesModal(false)}>
+          <div style={{background:"#fff", borderRadius:14, width:"100%", maxWidth:900, boxShadow:"0 20px 60px rgba(0,43,73,0.3)", overflow:"hidden", maxHeight:"90vh", display:"flex", flexDirection:"column"}}>
+            <div style={{background:"linear-gradient(135deg,#1e40af,#3b82f6)", padding:"18px 22px"}}>
+              <div style={{fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.85)", letterSpacing:2, textTransform:"uppercase", marginBottom:3}}>⚡ Matches en inventario</div>
+              <div style={{fontSize:18, fontWeight:800, color:"#fff", fontFamily:"'Playfair Display',serif"}}>{solicitudActiva.asesorNombre} → {solicitudActiva.clienteNombre||"Cliente"}</div>
+              <div style={{fontSize:11, color:"rgba(255,255,255,0.85)", marginTop:4}}>
+                Buscando: {solicitudActiva.superficieMin}m²+ {solicitudActiva.frenteMinimo?"· "+solicitudActiva.frenteMinimo+"m frente ":""}· {solicitudActiva.ciudad||""} {solicitudActiva.estado||""} · Max ${parseFloat(solicitudActiva.precioMaximo||0).toLocaleString("es-MX")}
+              </div>
+            </div>
+            <div style={{padding:"16px 22px", overflowY:"auto", flex:1}}>
+              {(() => {
+                const calificados = matchesActuales.filter(m=>!m.descalificado).slice(0,15);
+                const descalificados = matchesActuales.filter(m=>m.descalificado).slice(0,5);
+                if(matchesActuales.length===0) return <div style={{padding:"30px", textAlign:"center", color:B.grey4}}>No hay lotes en el inventario para evaluar.</div>;
+                return (
+                  <>
+                    <div style={{marginBottom:14, padding:"10px 14px", background:"#dcfce7", borderRadius:8, borderLeft:"3px solid #16a34a"}}>
+                      <strong style={{color:"#15803d"}}>✅ {calificados.length} lote(s) cumplen los criterios</strong>
+                      {descalificados.length>0&&<span style={{color:"#92400e", marginLeft:10}}>· {descalificados.length} descalificado(s)</span>}
+                    </div>
+                    {calificados.length>0&&calificados.map(m=>(
+                      <div key={m.lot.id} style={{background:B.white, border:"1px solid "+B.grey1, borderRadius:10, padding:"12px 14px", marginBottom:10, borderLeft:"3px solid #16a34a"}}>
+                        <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6, gap:10}}>
+                          <div style={{flex:1, minWidth:0}}>
+                            <div style={{fontSize:14, fontWeight:800, color:B.navy}}>{m.lot.nombre||m.lot.id}</div>
+                            <div style={{fontSize:10, color:B.grey4, marginTop:2}}>{m.lot.desarrollo||""} · {m.lot.desarrollador||""}</div>
+                          </div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontSize:9, color:B.grey4, fontWeight:700, textTransform:"uppercase", letterSpacing:1}}>Score</div>
+                            <div style={{fontSize:18, fontWeight:800, color:"#15803d", fontFamily:"'Playfair Display',serif"}}>{m.score}</div>
+                          </div>
+                        </div>
+                        <div style={{fontSize:11, color:B.grey4, lineHeight:1.7, marginBottom:6}}>
+                          {m.lot.superficie&&<>📐 {parseFloat(m.lot.superficie).toLocaleString("es-MX")}m² </>}
+                          {m.lot.frente&&<>· 📏 {m.lot.frente}m </>}
+                          {m.lot.ciudad&&<>· 📍 {m.lot.ciudad}</>}
+                          {m.lot.estado&&<>, {m.lot.estado} </>}
+                          {m.lot.precio_total&&<>· 💰 ${parseFloat(m.lot.precio_total).toLocaleString("es-MX")}</>}
+                          {m.lot.uso_suelo&&<> · Uso: {m.lot.uso_suelo}</>}
+                        </div>
+                        {m.razones.length>0&&<div style={{fontSize:10, color:"#15803d", marginBottom:6}}>{m.razones.join(" · ")}</div>}
+                        <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+                          <button onClick={()=>{
+                            const newId = m.lot.id;
+                            setSolicitudesAsesor(prev=>prev.map(a=>{
+                              if(a.id!==solicitudActiva.id) return a;
+                              const enviados = [...(a.lotesEnviados||[])];
+                              if(!enviados.includes(newId)) enviados.push(newId);
+                              return {...a, lotesEnviados:enviados, fechaUltimaActividad:new Date().toISOString(), historial:[...(a.historial||[]),{fecha:new Date().toISOString(),tipo:"envio",descripcion:`Lote ${m.lot.nombre||newId} agregado a opciones enviadas`}]};
+                            }));
+                            toast("✓ Lote marcado como enviado");
+                          }}
+                            style={{padding:"6px 12px", borderRadius:6, border:"1px solid "+B.grey1, background:B.white, color:B.navy, fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+                            📤 Marcar enviado
+                          </button>
+                          <button onClick={()=>convertirAsesorAProspecto(solicitudActiva, m.lot.id)}
+                            style={{padding:"6px 12px", borderRadius:6, border:"none", background:"linear-gradient(135deg,#15803d,#16a34a)", color:"#fff", fontSize:10, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+                            ✅ Match → CRM
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {calificados.length===0&&(
+                      <div style={{padding:"18px", textAlign:"center", color:B.grey4, background:B.offW, borderRadius:8}}>
+                        Ningún lote cumple con todos los criterios obligatorios. Revisa los descalificados abajo o ajusta el requerimiento.
+                      </div>
+                    )}
+                    {descalificados.length>0&&(
+                      <details style={{marginTop:14}}>
+                        <summary style={{cursor:"pointer", fontSize:11, fontWeight:700, color:B.grey4, padding:"6px 0"}}>Ver {descalificados.length} descalificado(s)</summary>
+                        {descalificados.map(m=>(
+                          <div key={m.lot.id} style={{background:B.offW, border:"1px solid "+B.grey1, borderRadius:8, padding:"10px 12px", marginTop:6, borderLeft:"3px solid #dc2626"}}>
+                            <div style={{fontSize:12, fontWeight:700, color:B.navy}}>{m.lot.nombre||m.lot.id}</div>
+                            <div style={{fontSize:10, color:"#991b1b", marginTop:3}}>{m.descalificadores.join(" · ")}</div>
+                          </div>
+                        ))}
+                      </details>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+            <div style={{padding:"12px 22px", borderTop:"1px solid "+B.grey1, background:B.offW, display:"flex", justifyContent:"flex-end"}}>
+              <button onClick={()=>setShowMatchesModal(false)} style={{padding:"9px 18px", borderRadius:8, border:"1.5px solid "+B.grey1, background:B.white, color:B.navy, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════════
           MODAL: Importación de Excel a Metas
