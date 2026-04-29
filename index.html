@@ -4473,10 +4473,10 @@ function MacroProMatcher() {
     // ══════════════════════════════════════════════════════════════
     const VistaProspectos=()=>{
       const asesores=[...new Set(allProspectos.map(p=>p.cli&&p.cli.asesor).filter(Boolean))];
+      // NOTA: allProspectos YA viene filtrado por srcInvFiltrado (filterDevCompania + filterDesarrolloGlobal)
+      // Solo aplicamos aquí los filtros de la VistaProspectos: asesor + pipeline
       const filtered=allProspectos.filter(p=>{
-        if(filterDevCompania!=="Todos"&&p.lot&&getCompaniaDev(p.lot.desarrollador||p.lot.desarrollo)!==filterDevCompania) return false;
-        if(filterDesarrolloGlobal!=="Todos"&&p.lot&&(p.lot.desarrollador||p.lot.desarrollo)!==filterDesarrolloGlobal) return false;
-        if(filterAsesor!=="Todos"&&(!p.cli||p.cli.asesor!==filterAsesor)) return false;
+        if(filterAsesor!=="Todos"&&(!p.cli||p.cli.asesor!==filterAsesor)&&(!p.prospecto||p.prospecto.asesor!==filterAsesor)) return false;
         if(filterPipeline!=="Todos"&&p.pipeline!==filterPipeline) return false;
         return true;
       });
