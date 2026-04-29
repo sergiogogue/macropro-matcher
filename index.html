@@ -1481,9 +1481,9 @@ function ModalAsesorForm({ initial, isEdit, inventory, onClose, onSave, onDelete
   const renderField = (label, k, type, options, placeholder, required, full)=>{
     if(type==="select"){
       return (
-        <div key={k} style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
+        <div key={"f-"+k} style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
           <label style={{fontSize:10, fontWeight:700, color:B.grey4, textTransform:"uppercase", letterSpacing:0.8, display:"block", marginBottom:4}}>{label}{required&&<span style={{color:"#dc2626"}}> *</span>}</label>
-          <select value={data[k]??""} onChange={e=>upd(k, e.target.value)}
+          <select value={data[k]==null?"":String(data[k])} onChange={e=>upd(k, e.target.value)}
             style={{width:"100%", padding:"8px 10px", borderRadius:6, border:"1px solid "+B.grey1, fontSize:12, fontFamily:"'DM Sans',sans-serif", background:"#fff", color:B.navy}}>
             <option value="">— Seleccionar —</option>
             {(options||[]).map(o=><option key={o} value={o}>{o}</option>)}
@@ -1493,35 +1493,23 @@ function ModalAsesorForm({ initial, isEdit, inventory, onClose, onSave, onDelete
     }
     if(type==="textarea"){
       return (
-        <div key={k} style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
+        <div key={"f-"+k} style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
           <label style={{fontSize:10, fontWeight:700, color:B.grey4, textTransform:"uppercase", letterSpacing:0.8, display:"block", marginBottom:4}}>{label}</label>
-          <textarea value={data[k]??""} onChange={e=>upd(k, e.target.value)} rows={4} placeholder={placeholder||""}
+          <textarea value={data[k]==null?"":String(data[k])} onChange={e=>upd(k, e.target.value)} rows={4} placeholder={placeholder||""}
             style={{width:"100%", padding:"8px 10px", borderRadius:6, border:"1px solid "+B.grey1, fontSize:12, fontFamily:"'DM Sans',sans-serif", resize:"vertical", color:B.navy}}/>
         </div>
       );
     }
-    // Para campos numéricos: usamos type="text" + inputMode="numeric" + filtro en onChange
-    // type="number" en React tiene comportamiento errático con value controlado en algunos casos
-    const isNumeric = type==="number";
-    const handleChange = (e)=>{
-      const v = e.target.value;
-      if(isNumeric){
-        // Permitir solo dígitos, punto y coma decimal
-        if(v==="" || /^[0-9]*\.?[0-9]*$/.test(v)){
-          upd(k, v);
-        }
-      } else {
-        upd(k, v);
-      }
-    };
+    // Input simple sin restricciones — React maneja el state, sin filtrado en onChange
+    // type SIEMPRE es text (incluso para números) — la conversión a número se hace al guardar
     return (
-      <div key={k} style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
+      <div key={"f-"+k} style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
         <label style={{fontSize:10, fontWeight:700, color:B.grey4, textTransform:"uppercase", letterSpacing:0.8, display:"block", marginBottom:4}}>{label}{required&&<span style={{color:"#dc2626"}}> *</span>}</label>
         <input
-          type={isNumeric?"text":(type||"text")}
-          inputMode={isNumeric?"decimal":undefined}
-          value={data[k]??""}
-          onChange={handleChange}
+          type="text"
+          inputMode={type==="number"?"decimal":(type==="email"?"email":"text")}
+          value={data[k]==null?"":String(data[k])}
+          onChange={e=>upd(k, e.target.value)}
           placeholder={placeholder||""}
           style={{width:"100%", padding:"8px 10px", borderRadius:6, border:"1px solid "+B.grey1, fontSize:12, fontFamily:"'DM Sans',sans-serif", color:B.navy}}/>
       </div>
