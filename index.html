@@ -638,9 +638,58 @@ function nuevaSolicitudAsesor(){
     matchesEncontrados: [], // ids de lotes
     lotesEnviados: [], // ids de lotes que se le mandaron al asesor
     loteMatch: null, // id del lote que finalmente cerró
-    convertidoAProspecto: false // bandera de integración con CRM
+    convertidoAProspecto: false, // bandera de integración con CRM
+    actividades: [] // [{id, tipo, descripcion, fecha, hora, completada, creadaEn}]
   };
 }
+
+// Plantillas de actividades sugeridas según etapa del pipeline
+// Cada plantilla genera una actividad pre-llenada con descripción + días desde hoy
+const PLANTILLAS_ACTIVIDAD_POR_ETAPA = {
+  "Nueva solicitud": [
+    { tipo:"Llamada", descripcion:"Llamar al asesor para confirmar requerimientos", diasDesde:1 },
+    { tipo:"Seguimiento", descripcion:"Revisar inventario y armar primera lista de opciones", diasDesde:2 }
+  ],
+  "Buscando opciones": [
+    { tipo:"Email", descripcion:"Enviar opciones de macrolotes al asesor", diasDesde:1 },
+    { tipo:"WhatsApp", descripcion:"Compartir fichas técnicas por WhatsApp", diasDesde:1 }
+  ],
+  "Opciones enviadas": [
+    { tipo:"Seguimiento", descripcion:"Pedir feedback sobre las opciones enviadas", diasDesde:3 },
+    { tipo:"Llamada", descripcion:"Llamar al asesor para conocer interés del cliente", diasDesde:5 }
+  ],
+  "En revisión": [
+    { tipo:"Seguimiento", descripcion:"Confirmar si el cliente final está interesado", diasDesde:2 },
+    { tipo:"WhatsApp", descripcion:"Resolver dudas técnicas pendientes", diasDesde:3 }
+  ],
+  "Visita agendada": [
+    { tipo:"Llamada", descripcion:"Confirmar visita 1 día antes", diasDesde:0 },
+    { tipo:"Visita al terreno", descripcion:"Visita con asesor y cliente al terreno", diasDesde:3 },
+    { tipo:"Seguimiento", descripcion:"Llamada post-visita para impresiones", diasDesde:4 }
+  ],
+  "Match": [
+    { tipo:"Seguimiento", descripcion:"Acompañar el proceso de cierre con el asesor", diasDesde:2 }
+  ],
+  "Cerrado sin match": [
+    { tipo:"Seguimiento", descripcion:"Mantener contacto para futuras oportunidades", diasDesde:30 }
+  ]
+};
+
+// Crear actividad nueva con valores por defecto sensatos
+function nuevaActividadSolicitud(tipo, descripcion, diasDesde){
+  const fecha = new Date();
+  fecha.setDate(fecha.getDate() + (diasDesde||1));
+  return {
+    id: "act-sol-"+Date.now()+"-"+Math.floor(Math.random()*1000),
+    tipo: tipo||"Seguimiento",
+    descripcion: descripcion||"",
+    fecha: fecha.toISOString().slice(0,10),
+    hora: "10:00",
+    completada: false,
+    creadaEn: new Date().toISOString()
+  };
+}
+
 // Match automático: busca lotes del inventario que cumplan con los criterios
 function buscarMatchesParaSolicitud(solicitud, inventory){
   if(!solicitud||!Array.isArray(inventory)) return [];
@@ -1588,6 +1637,190 @@ function ModalAsesorForm({ initial, isEdit, inventory, onClose, onSave, onDelete
             {renderField("Notas (visibilidad, accesos, zona específica, etc.)", "notas", "textarea", null, "Pega aquí el mensaje original del asesor o anota requisitos especiales...", false, false)}
           </div>
 
+          {/* Bloque 6: Actividades y recordatorios */}
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1, marginBottom:8, paddingBottom:4, borderBottom:"2px solid "+B.gold}}>⏰ 6. Actividades y recordatorios</div>
+
+            {/* Lista de actividades existentes */}
+            {(data.actividades||[]).length>0&&(
+              <div style={{marginBottom:10, display:"flex", flexDirection:"column", gap:6}}>
+                {(data.actividades||[]).map((act, idx)=>{
+                  const fechaAct = new Date(act.fecha+"T"+(act.hora||"10:00")+":00");
+                  const ahora = new Date();
+                  const vencida = !act.completada && fechaAct < ahora;
+                  return (
+                    <div key={act.id} style={{padding:"10px 12px", background:act.completada?"#f1f5f9":(vencida?"#fee2e2":B.offW), borderRadius:8, border:"1px solid "+(vencida?"#dc2626":B.grey1), borderLeft:"3px solid "+(act.completada?"#16a34a":(vencida?"#dc2626":B.gold))}}>
+                      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:6}}>
+                        <div style={{flex:1, minWidth:0}}>
+                          <input type="text" value={act.descripcion||""} onChange={(e)=>{
+                            const acts = [...(data.actividades||[])];
+                            acts[idx] = {...acts[idx], descripcion:e.target.value};
+                            upd("actividades", acts);
+                          }}
+                            style={{width:"100%", padding:"4px 6px", borderRadius:4, border:"1px solid transparent", fontSize:11, fontWeight:700, color:act.completada?B.grey3:B.navy, textDecoration:act.completada?"line-through":"none", background:"transparent", fontFamily:"'DM Sans',sans-serif"}}
+                            onFocus={e=>e.target.style.border="1px solid "+B.grey1}
+                            onBlur={e=>e.target.style.border="1px solid transparent"}/>
+                        </div>
+                        <div style={{display:"flex", gap:4}}>
+                          <button onClick={(e)=>{
+                            e.preventDefault();
+                            // Generar .ics inline
+                            const dt = new Date(act.fecha+"T"+(act.hora||"10:00")+":00");
+                            const dtEnd = new Date(dt.getTime()+30*60000);
+                            const fmt = (d)=>d.toISOString().replace(/[-:]/g,"").split(".")[0]+"Z";
+                            const ics = [
+                              "BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//MacroPro//Asesores//ES","CALSCALE:GREGORIAN","METHOD:PUBLISH",
+                              "BEGIN:VEVENT",
+                              "UID:"+act.id+"@macropro",
+                              "DTSTAMP:"+fmt(new Date()),
+                              "DTSTART:"+fmt(dt),
+                              "DTEND:"+fmt(dtEnd),
+                              "SUMMARY:"+(act.descripcion||"Actividad")+" — "+(data.asesorNombre||"Asesor"),
+                              "DESCRIPTION:Solicitud de "+(data.asesorNombre||"")+" ("+(data.asesorEmpresa||"Independiente")+")\\nCliente: "+(data.clienteNombre||"")+"\\nGiro: "+(data.clienteGiro||"")+"\\nTel: "+(data.asesorTelefono||""),
+                              "END:VEVENT","END:VCALENDAR"
+                            ].join("\r\n");
+                            const blob = new Blob([ics],{type:"text/calendar;charset=utf-8"});
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = "actividad-asesor-"+act.id+".ics";
+                            a.click();
+                            setTimeout(()=>URL.revokeObjectURL(url), 2000);
+                          }}
+                            style={{padding:"4px 8px", borderRadius:5, border:"1px solid "+B.grey1, background:B.white, color:B.navy, fontSize:9, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}} title="Exportar a Calendar">
+                            📥
+                          </button>
+                          <button onClick={(e)=>{
+                            e.preventDefault();
+                            const acts = [...(data.actividades||[])];
+                            acts[idx] = {...acts[idx], completada:!acts[idx].completada};
+                            upd("actividades", acts);
+                          }}
+                            style={{padding:"4px 8px", borderRadius:5, border:"none", background:act.completada?B.grey3:"#16a34a", color:"#fff", fontSize:9, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}} title={act.completada?"Marcar pendiente":"Marcar completada"}>
+                            {act.completada?"↺":"✓"}
+                          </button>
+                          <button onClick={(e)=>{
+                            e.preventDefault();
+                            if(!window.confirm("¿Eliminar esta actividad?")) return;
+                            const acts = (data.actividades||[]).filter((_,i)=>i!==idx);
+                            upd("actividades", acts);
+                          }}
+                            style={{padding:"4px 8px", borderRadius:5, border:"1px solid #fecaca", background:"#fff", color:"#dc2626", fontSize:9, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}} title="Eliminar">
+                            🗑
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{display:"flex", gap:6, alignItems:"center", flexWrap:"wrap"}}>
+                        <select value={act.tipo||"Seguimiento"} onChange={(e)=>{
+                          const acts = [...(data.actividades||[])];
+                          acts[idx] = {...acts[idx], tipo:e.target.value};
+                          upd("actividades", acts);
+                        }}
+                          style={{padding:"3px 6px", borderRadius:4, border:"1px solid "+B.grey1, fontSize:10, fontFamily:"'DM Sans',sans-serif", color:B.navy, background:"#fff"}}>
+                          <option value="Llamada">📞 Llamada</option>
+                          <option value="Email">📧 Email</option>
+                          <option value="WhatsApp">💬 WhatsApp</option>
+                          <option value="Visita al terreno">🚗 Visita</option>
+                          <option value="Seguimiento">📌 Seguimiento</option>
+                          <option value="Reunión">🤝 Reunión</option>
+                        </select>
+                        <input type="date" value={act.fecha||""} onChange={(e)=>{
+                          const acts = [...(data.actividades||[])];
+                          acts[idx] = {...acts[idx], fecha:e.target.value};
+                          upd("actividades", acts);
+                        }}
+                          style={{padding:"3px 6px", borderRadius:4, border:"1px solid "+(vencida?"#dc2626":B.grey1), fontSize:10, fontFamily:"'DM Sans',sans-serif", color:vencida?"#dc2626":B.navy, background:"#fff"}}/>
+                        <input type="time" value={act.hora||"10:00"} onChange={(e)=>{
+                          const acts = [...(data.actividades||[])];
+                          acts[idx] = {...acts[idx], hora:e.target.value};
+                          upd("actividades", acts);
+                        }}
+                          style={{padding:"3px 6px", borderRadius:4, border:"1px solid "+B.grey1, fontSize:10, fontFamily:"'DM Sans',sans-serif", color:B.navy, background:"#fff"}}/>
+                        {vencida&&<span style={{fontSize:9, fontWeight:800, color:"#dc2626", textTransform:"uppercase"}}>⚠ Vencida</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Plantillas según etapa actual */}
+            {(() => {
+              const etapaActual = data.pipeline||"Nueva solicitud";
+              const plantillas = PLANTILLAS_ACTIVIDAD_POR_ETAPA[etapaActual]||[];
+              if(plantillas.length===0) return null;
+              return (
+                <div style={{marginBottom:8, padding:"8px 10px", background:"#fef3c7", borderRadius:6, borderLeft:"3px solid #f59e0b"}}>
+                  <div style={{fontSize:9, fontWeight:800, color:"#92400e", textTransform:"uppercase", letterSpacing:0.8, marginBottom:5}}>⚡ Plantillas para etapa "{etapaActual}"</div>
+                  <div style={{display:"flex", flexWrap:"wrap", gap:5}}>
+                    {plantillas.map((plt, i)=>(
+                      <button key={i} onClick={(e)=>{
+                        e.preventDefault();
+                        const nueva = nuevaActividadSolicitud(plt.tipo, plt.descripcion, plt.diasDesde);
+                        upd("actividades", [...(data.actividades||[]), nueva]);
+                      }}
+                        style={{padding:"5px 10px", borderRadius:6, border:"none", background:"#fff", color:"#92400e", fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", border:"1px solid #f59e0b"}}>
+                        + {plt.descripcion.length>40?plt.descripcion.slice(0,40)+"...":plt.descripcion} <span style={{color:"#78350f", fontWeight:500}}>· en {plt.diasDesde||"hoy"}d</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Botón nueva actividad manual */}
+            <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+              <button onClick={(e)=>{
+                e.preventDefault();
+                const nueva = nuevaActividadSolicitud("Seguimiento", "Nueva actividad", 1);
+                upd("actividades", [...(data.actividades||[]), nueva]);
+              }}
+                style={{padding:"7px 12px", borderRadius:6, border:"1px dashed "+B.grey1, background:B.white, color:B.navy, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+                ➕ Actividad personalizada
+              </button>
+              {(data.actividades||[]).length>1&&(
+                <button onClick={(e)=>{
+                  e.preventDefault();
+                  // Exportar TODAS las actividades como un solo .ics
+                  const acts = (data.actividades||[]).filter(a=>!a.completada);
+                  if(acts.length===0){ alert("No hay actividades pendientes para exportar"); return; }
+                  const fmt = (d)=>d.toISOString().replace(/[-:]/g,"").split(".")[0]+"Z";
+                  const events = acts.map(act=>{
+                    const dt = new Date(act.fecha+"T"+(act.hora||"10:00")+":00");
+                    const dtEnd = new Date(dt.getTime()+30*60000);
+                    return [
+                      "BEGIN:VEVENT",
+                      "UID:"+act.id+"@macropro",
+                      "DTSTAMP:"+fmt(new Date()),
+                      "DTSTART:"+fmt(dt),
+                      "DTEND:"+fmt(dtEnd),
+                      "SUMMARY:"+act.descripcion+" — "+(data.asesorNombre||"Asesor"),
+                      "DESCRIPTION:Solicitud de "+(data.asesorNombre||"")+" ("+(data.asesorEmpresa||"Independiente")+")\\nCliente: "+(data.clienteNombre||"")+"\\nGiro: "+(data.clienteGiro||""),
+                      "END:VEVENT"
+                    ].join("\r\n");
+                  });
+                  const ics = ["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//MacroPro//Asesores//ES","CALSCALE:GREGORIAN","METHOD:PUBLISH",...events,"END:VCALENDAR"].join("\r\n");
+                  const blob = new Blob([ics],{type:"text/calendar;charset=utf-8"});
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = "actividades-"+(data.asesorNombre||"asesor").replace(/\s+/g,"-")+".ics";
+                  a.click();
+                  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+                }}
+                  style={{padding:"7px 12px", borderRadius:6, border:"none", background:B.gold, color:B.navy, fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+                  📥 Exportar TODAS al Calendar
+                </button>
+              )}
+            </div>
+
+            {(data.actividades||[]).length===0&&(
+              <div style={{fontSize:10, color:B.grey3, fontStyle:"italic", marginTop:6}}>
+                💡 Usa las plantillas amarillas de arriba o crea actividades personalizadas. Se pueden exportar a Google Calendar / Apple Calendar / Outlook.
+              </div>
+            )}
+          </div>
+
           {/* Historial de cambios (solo en edición) */}
           {isEdit&&data.historial&&data.historial.length>0&&(
             <div style={{marginBottom:14, padding:"10px 12px", background:B.offW, borderRadius:8}}>
@@ -1835,23 +2068,37 @@ function MacroProMatcher() {
     setClients(prev=>[nuevoCliente, ...prev]);
     // 2. Crear prospecto en el lote
     const ahora = new Date().toISOString();
+    // Recolectar actividades de la solicitud (solo pendientes) + agregar la default de "referido"
+    const actividadesPendientes = (solicitud.actividades||[])
+      .filter(a=>!a.completada)
+      .map(a=>({
+        id: "act-"+Date.now()+"-"+Math.floor(Math.random()*10000),
+        tipo: a.tipo||"Seguimiento",
+        descripcion: a.descripcion+" (transferida desde solicitud asesor)",
+        fecha: a.fecha,
+        hora: a.hora||"10:00",
+        completada: false,
+        creadaEn: ahora
+      }));
+    const actividadDefault = {
+      id: "act-"+Date.now(),
+      tipo: "Seguimiento",
+      descripcion: `Cliente referido por ${solicitud.asesorNombre}`,
+      fecha: new Date().toISOString().slice(0,10),
+      hora: "10:00",
+      completada: false,
+      creadaEn: ahora
+    };
+    const todasActividades = [actividadDefault, ...actividadesPendientes];
     const nuevoProspecto = {
       nombre: nombreCliente,
       empresa: solicitud.clienteGiro||"",
       telefono: solicitud.asesorTelefono||"",
       email: solicitud.asesorEmail||"",
-      nota: `Match desde solicitud de asesor ${solicitud.asesorNombre} — ${new Date().toLocaleDateString("es-MX")}`,
+      nota: `Match desde solicitud de asesor ${solicitud.asesorNombre} — ${new Date().toLocaleDateString("es-MX")}${actividadesPendientes.length>0?` · ${actividadesPendientes.length} actividad(es) transferida(s)`:""}`,
       pipeline: "En negociación",
       temperatura: "Caliente",
-      actividades: [{
-        id: "act-"+Date.now(),
-        tipo: "Seguimiento",
-        descripcion: `Cliente referido por ${solicitud.asesorNombre}`,
-        fecha: new Date().toISOString().slice(0,10),
-        hora: "10:00",
-        completada: false,
-        creadaEn: ahora
-      }]
+      actividades: todasActividades
     };
     setCrmData(prev=>{
       const next = {...prev};
@@ -1861,20 +2108,22 @@ function MacroProMatcher() {
       next[loteId].lastContact = ahora;
       return next;
     });
-    // 3. Marcar la solicitud como Match + convertida
+    // 3. Marcar la solicitud como Match + convertida + marcar actividades como transferidas
     setSolicitudesAsesor(prev=>prev.map(a=>a.id===solicitud.id?{
       ...a,
       pipeline:"Match",
       loteMatch:loteId,
       convertidoAProspecto:true,
       fechaUltimaActividad:ahora,
+      // Marcar todas las actividades pendientes como completadas (porque se transfirieron)
+      actividades:(a.actividades||[]).map(act=>act.completada?act:{...act, completada:true, descripcion:act.descripcion+" ✓ transferida al CRM"}),
       historial:[...(a.historial||[]), {
         fecha:ahora,
         tipo:"conversion",
         descripcion:`Convertido a prospecto del CRM en lote ${lote.nombre||loteId}`
       }]
     }:a));
-    toast("✅ Convertido a prospecto del CRM");
+    toast("✅ Convertido a prospecto del CRM"+(actividadesPendientes.length>0?` · ${actividadesPendientes.length} actividad(es) transferida(s)`:""));
     setShowMatchesModal(false);
   };
   // Estados de UI para Vista Metas
@@ -7468,6 +7717,21 @@ function MacroProMatcher() {
                             {a.ciudad&&<>📍 {a.ciudad}{a.estado?", "+a.estado:""} </>}
                           </div>
                           {a.precioMaximo&&<div style={{fontSize:10, color:"#15803d", fontWeight:700, marginTop:3}}>💰 Max: ${parseFloat(a.precioMaximo).toLocaleString("es-MX")}</div>}
+                          {/* Próxima actividad pendiente */}
+                          {(() => {
+                            const proximaAct = (a.actividades||[])
+                              .filter(act=>!act.completada&&act.fecha)
+                              .sort((x,y)=>new Date(x.fecha+"T"+(x.hora||"10:00"))-new Date(y.fecha+"T"+(y.hora||"10:00")))[0];
+                            if(!proximaAct) return null;
+                            const fechaProx = new Date(proximaAct.fecha+"T"+(proximaAct.hora||"10:00"));
+                            const vencidaProx = fechaProx < new Date();
+                            const icono = proximaAct.tipo==="Llamada"?"📞":proximaAct.tipo==="Email"?"📧":proximaAct.tipo==="WhatsApp"?"💬":proximaAct.tipo==="Visita al terreno"?"🚗":"📌";
+                            return (
+                              <div style={{fontSize:10, color:vencidaProx?"#dc2626":"#92400e", fontWeight:600, marginTop:4, padding:"4px 6px", background:vencidaProx?"#fee2e2":"#fef3c7", borderRadius:4}}>
+                                {vencidaProx?"⚠ ":icono+" "}{proximaAct.descripcion.length>32?proximaAct.descripcion.slice(0,32)+"...":proximaAct.descripcion} · {fechaProx.toLocaleDateString("es-MX",{day:"numeric",month:"short"})}
+                              </div>
+                            );
+                          })()}
                           <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, paddingTop:6, borderTop:"1px dashed "+B.grey1}}>
                             <span style={{fontSize:9, color:stale?"#dc2626":B.grey3, fontWeight:stale?700:500}}>{stale?"⚠ ":""}{fechaRelativa(a.fechaUltimaActividad||a.fechaCreacion)}</span>
                             <button onClick={(e)=>{e.stopPropagation(); buscarMatchesAsesor(a);}}
