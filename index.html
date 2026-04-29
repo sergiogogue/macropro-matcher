@@ -1476,13 +1476,14 @@ function ModalAsesorForm({ initial, isEdit, inventory, onClose, onSave, onDelete
   };
   // Estados de ciudades comunes en México
   const ESTADOS_MX = ["Jalisco","Querétaro","Quintana Roo","Nuevo León","CDMX","Estado de México","Puebla","Veracruz","Yucatán","Guanajuato","Aguascalientes","Otro"];
-  // Input field genérico
-  const Field = ({label, k, type, options, placeholder, required, full})=>{
+  // Input field genérico — IMPORTANTE: función que se llama directamente, NO componente JSX
+  // Si se usara como <Field/> React lo trataría como nuevo componente cada render → input pierde foco
+  const renderField = (label, k, type, options, placeholder, required, full)=>{
     if(type==="select"){
       return (
-        <div style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
+        <div key={k} style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
           <label style={{fontSize:10, fontWeight:700, color:B.grey4, textTransform:"uppercase", letterSpacing:0.8, display:"block", marginBottom:4}}>{label}{required&&<span style={{color:"#dc2626"}}> *</span>}</label>
-          <select value={data[k]||""} onChange={e=>upd(k, e.target.value)}
+          <select value={data[k]??""} onChange={e=>upd(k, e.target.value)}
             style={{width:"100%", padding:"8px 10px", borderRadius:6, border:"1px solid "+B.grey1, fontSize:12, fontFamily:"'DM Sans',sans-serif", background:"#fff", color:B.navy}}>
             <option value="">— Seleccionar —</option>
             {(options||[]).map(o=><option key={o} value={o}>{o}</option>)}
@@ -1492,17 +1493,36 @@ function ModalAsesorForm({ initial, isEdit, inventory, onClose, onSave, onDelete
     }
     if(type==="textarea"){
       return (
-        <div style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
+        <div key={k} style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
           <label style={{fontSize:10, fontWeight:700, color:B.grey4, textTransform:"uppercase", letterSpacing:0.8, display:"block", marginBottom:4}}>{label}</label>
-          <textarea value={data[k]||""} onChange={e=>upd(k, e.target.value)} rows={4} placeholder={placeholder||""}
+          <textarea value={data[k]??""} onChange={e=>upd(k, e.target.value)} rows={4} placeholder={placeholder||""}
             style={{width:"100%", padding:"8px 10px", borderRadius:6, border:"1px solid "+B.grey1, fontSize:12, fontFamily:"'DM Sans',sans-serif", resize:"vertical", color:B.navy}}/>
         </div>
       );
     }
+    // Para campos numéricos: usamos type="text" + inputMode="numeric" + filtro en onChange
+    // type="number" en React tiene comportamiento errático con value controlado en algunos casos
+    const isNumeric = type==="number";
+    const handleChange = (e)=>{
+      const v = e.target.value;
+      if(isNumeric){
+        // Permitir solo dígitos, punto y coma decimal
+        if(v==="" || /^[0-9]*\.?[0-9]*$/.test(v)){
+          upd(k, v);
+        }
+      } else {
+        upd(k, v);
+      }
+    };
     return (
-      <div style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
+      <div key={k} style={{marginBottom:10, gridColumn:full?"1 / -1":"auto"}}>
         <label style={{fontSize:10, fontWeight:700, color:B.grey4, textTransform:"uppercase", letterSpacing:0.8, display:"block", marginBottom:4}}>{label}{required&&<span style={{color:"#dc2626"}}> *</span>}</label>
-        <input type={type||"text"} value={data[k]||""} onChange={e=>upd(k, e.target.value)} placeholder={placeholder||""}
+        <input
+          type={isNumeric?"text":(type||"text")}
+          inputMode={isNumeric?"decimal":undefined}
+          value={data[k]??""}
+          onChange={handleChange}
+          placeholder={placeholder||""}
           style={{width:"100%", padding:"8px 10px", borderRadius:6, border:"1px solid "+B.grey1, fontSize:12, fontFamily:"'DM Sans',sans-serif", color:B.navy}}/>
       </div>
     );
@@ -1533,10 +1553,10 @@ function ModalAsesorForm({ initial, isEdit, inventory, onClose, onSave, onDelete
           <div style={{marginBottom:14}}>
             <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1, marginBottom:8, paddingBottom:4, borderBottom:"2px solid "+B.gold}}>👤 1. Identificación del asesor</div>
             <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
-              <Field label="Nombre del asesor" k="asesorNombre" required/>
-              <Field label="Teléfono / WhatsApp" k="asesorTelefono" required/>
-              <Field label="Empresa o broker" k="asesorEmpresa" placeholder="Coldwell, C21, Independiente..."/>
-              <Field label="Email" k="asesorEmail" type="email"/>
+              {renderField("Nombre del asesor", "asesorNombre", null, null, null, true, false)}
+              {renderField("Teléfono / WhatsApp", "asesorTelefono", null, null, null, true, false)}
+              {renderField("Empresa o broker", "asesorEmpresa", null, null, "Coldwell, C21, Independiente...", false, false)}
+              {renderField("Email", "asesorEmail", "email", null, null, false, false)}
             </div>
           </div>
 
@@ -1544,9 +1564,9 @@ function ModalAsesorForm({ initial, isEdit, inventory, onClose, onSave, onDelete
           <div style={{marginBottom:14}}>
             <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1, marginBottom:8, paddingBottom:4, borderBottom:"2px solid "+B.gold}}>🎯 2. Cliente final del asesor</div>
             <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
-              <Field label="Nombre del cliente" k="clienteNombre" required/>
-              <Field label="Giro del cliente" k="clienteGiro" placeholder="Farmacia, oficinas, plaza, vivienda..." required/>
-              <Field label="Tipo de cliente" k="clienteTipo" type="select" options={TIPOS_CLIENTE_FINAL} full/>
+              {renderField("Nombre del cliente", "clienteNombre", null, null, null, true, false)}
+              {renderField("Giro del cliente", "clienteGiro", null, null, "Farmacia, oficinas, plaza, vivienda...", true, false)}
+              {renderField("Tipo de cliente", "clienteTipo", "select", TIPOS_CLIENTE_FINAL, null, false, true)}
             </div>
           </div>
 
@@ -1554,13 +1574,13 @@ function ModalAsesorForm({ initial, isEdit, inventory, onClose, onSave, onDelete
           <div style={{marginBottom:14}}>
             <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1, marginBottom:8, paddingBottom:4, borderBottom:"2px solid "+B.gold}}>📐 3. Requerimiento técnico</div>
             <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
-              <Field label="Superficie mínima (m²)" k="superficieMin" type="number" required/>
-              <Field label="Superficie máxima (m²)" k="superficieMax" type="number"/>
-              <Field label="Frente mínimo (m)" k="frenteMinimo" type="number"/>
-              <Field label="Altura libre mín. (m)" k="alturaLibre" type="number"/>
-              <Field label="Uso de suelo" k="usoSuelo" type="select" options={USOS_SUELO_OPCIONES}/>
-              <Field label="Estado" k="estado" type="select" options={ESTADOS_MX}/>
-              <Field label="Ciudad / Zona" k="ciudad" required full/>
+              {renderField("Superficie mínima (m²)", "superficieMin", "number", null, null, true, false)}
+              {renderField("Superficie máxima (m²)", "superficieMax", "number", null, null, false, false)}
+              {renderField("Frente mínimo (m)", "frenteMinimo", "number", null, null, false, false)}
+              {renderField("Altura libre mín. (m)", "alturaLibre", "number", null, null, false, false)}
+              {renderField("Uso de suelo", "usoSuelo", "select", USOS_SUELO_OPCIONES, null, false, false)}
+              {renderField("Estado", "estado", "select", ESTADOS_MX, null, false, false)}
+              {renderField("Ciudad / Zona", "ciudad", null, null, null, true, true)}
             </div>
           </div>
 
@@ -1568,16 +1588,16 @@ function ModalAsesorForm({ initial, isEdit, inventory, onClose, onSave, onDelete
           <div style={{marginBottom:14}}>
             <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1, marginBottom:8, paddingBottom:4, borderBottom:"2px solid "+B.gold}}>💰 4. Información comercial</div>
             <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
-              <Field label="Precio máximo (MXN)" k="precioMaximo" type="number" required/>
-              <Field label="Forma de pago" k="formaPago" type="select" options={FORMAS_PAGO}/>
-              <Field label="Plazo para decidir" k="plazoDecision" type="select" options={PLAZOS_DECISION} full/>
+              {renderField("Precio máximo (MXN)", "precioMaximo", "number", null, null, true, false)}
+              {renderField("Forma de pago", "formaPago", "select", FORMAS_PAGO, null, false, false)}
+              {renderField("Plazo para decidir", "plazoDecision", "select", PLAZOS_DECISION, null, false, true)}
             </div>
           </div>
 
           {/* Bloque 5: Notas */}
           <div style={{marginBottom:14}}>
             <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1, marginBottom:8, paddingBottom:4, borderBottom:"2px solid "+B.gold}}>📝 5. Notas y requisitos especiales</div>
-            <Field label="Notas (visibilidad, accesos, zona específica, etc.)" k="notas" type="textarea" placeholder="Pega aquí el mensaje original del asesor o anota requisitos especiales..."/>
+            {renderField("Notas (visibilidad, accesos, zona específica, etc.)", "notas", "textarea", null, "Pega aquí el mensaje original del asesor o anota requisitos especiales...", false, false)}
           </div>
 
           {/* Historial de cambios (solo en edición) */}
