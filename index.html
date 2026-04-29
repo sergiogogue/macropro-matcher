@@ -3798,7 +3798,7 @@ function MacroProMatcher() {
     const totalPropuesta=srcInvFiltrado.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Propuesta").length;
     const totalCerrado=srcInvCRM.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Vendido").length;
     const totalInteracciones=Object.values(crmData).reduce((a,v)=>a+(v.interacciones?v.interacciones.length:0),0);
-    const totalProspActivos=allProspectos.filter(p=>p.pipeline!=="Perdido"&&p.pipeline!=="Disponible").length;
+    const totalProspActivos=allProspectos.filter(p=>ACTIVE_STAGES.includes(p.pipeline)).length;
 
     // ── MINI COMPONENTS ────────────────────────────────────────────
     const Semaforo=({lotId,size})=>{
@@ -3907,7 +3907,7 @@ function MacroProMatcher() {
       const totalPropuestaF=srcInvFiltrado.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Propuesta").length;
       const totalCerradoF=srcInvFiltrado.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Vendido").length;
       const totalInteraccionesF=srcInvFiltrado.reduce((a,l)=>a+(crmData[l.id]&&crmData[l.id].interacciones?crmData[l.id].interacciones.length:0),0);
-      const totalProspActivosF=allProspectos.filter(p=>srcInvFiltrado.find(l=>l.id===p.lotId)&&p.pipeline!=="Perdido"&&p.pipeline!=="Disponible").length;
+      const totalProspActivosF=allProspectos.filter(p=>srcInvFiltrado.find(l=>l.id===p.lotId)&&ACTIVE_STAGES.includes(p.pipeline)).length;
       const allProspF=allProspectos.filter(p=>srcInvFiltrado.find(l=>l.id===p.lotId));
 
       // ═══════════════════════════════════════════════════════════
