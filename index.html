@@ -210,11 +210,20 @@ function loteToSupabase(lote) {
 
 // Transforma un cliente del localStorage al formato de la tabla Supabase 'clientes'
 function clienteToSupabase(cliente) {
-  const email = (cliente.email || "").toString().trim().toLowerCase();
-  if (!email) return null; // Sin email no se puede migrar (clave única acordada)
+  const email = (cliente.email || "").toString().trim().toLowerCase() || null;
+  // id_cliente es ahora la clave única (no email). Si no hay id nativo, generar determinístico.
+  let idCliente = (cliente.id || cliente.id_cliente || "").toString().trim();
+  if (!idCliente) {
+    // Generar id determinístico basado en nombre + telefono para idempotencia
+    const seed = ((cliente.nombre || "") + "|" + (cliente.telefono || "") + "|" + (cliente.empresa || "")).trim();
+    if (!seed || seed === "||") return null; // Sin nada identificable, no migrar
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash) + seed.charCodeAt(i) | 0;
+    idCliente = "auto-" + Math.abs(hash).toString(36);
+  }
   return {
     email: email,
-    id_cliente: (cliente.id || cliente.id_cliente || "").toString().trim() || null,
+    id_cliente: idCliente,
     nombre: cliente.nombre || null,
     empresa: cliente.empresa || null,
     telefono: cliente.telefono ? cliente.telefono.toString() : null,
@@ -286,7 +295,7 @@ async function migrarClientesASupabase(clientes, onProgress) {
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
     try {
-      const { data, error } = await sb.from('clientes').upsert(batch, { onConflict: 'email' }).select('id');
+      const { data, error } = await sb.from('clientes').upsert(batch, { onConflict: 'id_cliente' }).select('id');
       if (error) {
         errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${error.message}`);
       } else {
@@ -304,7 +313,7 @@ async function migrarClientesASupabase(clientes, onProgress) {
     skipped: skipped,
     errors: errors,
     message: errors.length === 0
-      ? `✓ ${uploaded} clientes migrados${skipped ? ` (${skipped} omitidos — sin email)` : ''}`
+      ? `✓ ${uploaded} clientes migrados${skipped ? ` (${skipped} omitidos — sin datos identificables)` : ''}`
       : `⚠ ${uploaded}/${rows.length} migrados. ${errors.length} errores.`
   };
 }
@@ -325,12 +334,17 @@ async function migrarCRMASupabase(crmData, onProgress) {
   // 2. Construir filas crm_lotes
   const rows = [];
   const skippedKeys = [];
+  // Cargar inventario UNA sola vez e indexar por id y clave_unica para lookup O(1)
+  const lotesInv = JSON.parse(localStorage.getItem('macropro_inventory_v1') || '[]');
+  const invById = {};
+  const invByClave = {};
+  lotesInv.forEach(l => {
+    if (l.id) invById[l.id] = l;
+    invByClave[loteKey(l)] = l;
+  });
   Object.entries(crmData || {}).forEach(([loteClaveOriginal, info]) => {
     // El CRM usa el "ID" del lote como clave (ej: "KU-17-r119")
-    // Necesitamos reconstruir la clave_unica real a partir del lote
-    // Buscamos en el inventario el lote correspondiente
-    const lotesInv = JSON.parse(localStorage.getItem('macropro_inventario') || '[]');
-    const loteInv = lotesInv.find(l => l.id === loteClaveOriginal || loteKey(l) === loteClaveOriginal);
+    const loteInv = invById[loteClaveOriginal] || invByClave[loteClaveOriginal];
     if (!loteInv) {
       skippedKeys.push(loteClaveOriginal);
       return;
