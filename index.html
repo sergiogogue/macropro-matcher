@@ -9771,6 +9771,13 @@ function MacroProMatcher() {
               💾 <span style={{fontSize:10}}>{inventory.length}L·{clients.length}C</span>
             </div>
           )}
+          {window.__macroProSession&&(
+            <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",background:B.offW,borderRadius:8,border:"1px solid "+B.grey1,fontFamily:"'DM Sans',sans-serif"}} title={window.__macroProSession.user.email}>
+              <div style={{width:24,height:24,borderRadius:"50%",background:B.navy,color:B.gold,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800}}>{(window.__macroProSession.user.email||"?").charAt(0).toUpperCase()}</div>
+              <span style={{fontSize:11,fontWeight:600,color:B.grey4,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(window.__macroProSession.user.email||"").split("@")[0]}</span>
+              <button onClick={()=>window.__macroProLogout&&window.__macroProLogout()} title="Cerrar sesión" style={{padding:"3px 8px",background:"transparent",color:"#ef4444",border:"1px solid #fca5a5",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>Salir</button>
+            </div>
+          )}
         </div>
       </nav>
       {view==="home"&&<ViewHome/>}
@@ -10504,7 +10511,183 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-ReactDOM.render(React.createElement(ErrorBoundary,null,React.createElement(MacroProMatcher)), document.getElementById("root"));
+// ═══════════════════════════════════════════════════════════════════
+// AUTHGATE — Componente de autenticación
+// Muestra login si no hay sesión, o la app si está autenticado
+// ═══════════════════════════════════════════════════════════════════
+function AuthGate() {
+  const [session, setSession] = React.useState(null);
+  const [loadingSession, setLoadingSession] = React.useState(true);
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [submitting, setSubmitting] = React.useState(false);
+  
+  // Verificar sesión al montar
+  React.useEffect(() => {
+    if (!sb || !sb.auth) {
+      // Si Supabase aún no está listo, esperar
+      const interval = setInterval(() => {
+        if (sb && sb.auth) {
+          clearInterval(interval);
+          checkSession();
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+    checkSession();
+    
+    function checkSession() {
+      sb.auth.getSession().then(({ data: { session } }) => {
+        setSession(session);
+        setLoadingSession(false);
+        if (session) {
+          console.log("✅ Sesión activa:", session.user.email);
+        }
+      }).catch(err => {
+        console.error("Error verificando sesión:", err);
+        setLoadingSession(false);
+      });
+      
+      // Escuchar cambios de auth (login, logout, refresh)
+      const { data: { subscription } } = sb.auth.onAuthStateChange((event, newSession) => {
+        console.log("🔐 Auth event:", event);
+        setSession(newSession);
+      });
+      return () => subscription?.unsubscribe();
+    }
+  }, []);
+  
+  const handleLogin = async (e) => {
+    if (e) e.preventDefault();
+    if (!email || !password) {
+      setError("Email y contraseña son requeridos");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      const { data, error } = await sb.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+      if (error) throw error;
+      setSession(data.session);
+      setEmail("");
+      setPassword("");
+    } catch (err) {
+      console.error("Login error:", err);
+      setError(err.message || "Error al iniciar sesión");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  
+  const handleLogout = async () => {
+    if (!window.confirm("¿Cerrar sesión?")) return;
+    try {
+      await sb.auth.signOut();
+      setSession(null);
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
+  };
+  
+  // Exponer logout globalmente para que el menú lo use
+  React.useEffect(() => {
+    window.__macroProLogout = handleLogout;
+    window.__macroProSession = session;
+  }, [session]);
+  
+  // Estado: cargando sesión
+  if (loadingSession) {
+    return React.createElement("div", {
+      style: {
+        minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+        background: "#002B49", color: "#F5B335", fontSize: 18, fontFamily: "'DM Sans', sans-serif"
+      }
+    }, "🔐 Verificando sesión...");
+  }
+  
+  // Estado: sin sesión → mostrar login
+  if (!session) {
+    return React.createElement("div", {
+      style: {
+        minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+        background: "linear-gradient(135deg, #002B49 0%, #0a3d5c 100%)",
+        fontFamily: "'DM Sans', sans-serif", padding: 20
+      }
+    },
+      React.createElement("div", {
+        style: {
+          background: "#fff", borderRadius: 16, padding: 40, maxWidth: 420, width: "100%",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.3)"
+        }
+      },
+        // Logo
+        React.createElement("div", {
+          style: { textAlign: "center", marginBottom: 28 }
+        },
+          React.createElement("div", {
+            style: {
+              width: 64, height: 64, background: "#002B49", color: "#F5B335",
+              borderRadius: 16, display: "inline-flex", alignItems: "center", justifyContent: "center",
+              fontSize: 32, fontWeight: 900, marginBottom: 12
+            }
+          }, "M"),
+          React.createElement("div", { style: { fontSize: 24, fontWeight: 800, color: "#002B49" } }, "MacroPro"),
+          React.createElement("div", { style: { fontSize: 13, color: "#6b7280", marginTop: 4 } }, "Grupo Guía · CRM Macrolotes")
+        ),
+        // Form
+        React.createElement("div", {},
+          React.createElement("label", {
+            style: { display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }
+          }, "Email"),
+          React.createElement("input", {
+            type: "email", value: email, onChange: (e) => setEmail(e.target.value),
+            placeholder: "tu@grupoguia.mx",
+            style: {
+              width: "100%", padding: "12px 14px", border: "1.5px solid #e5e7eb", borderRadius: 9,
+              fontSize: 14, fontFamily: "inherit", marginBottom: 16, boxSizing: "border-box"
+            },
+            onKeyDown: (e) => { if (e.key === 'Enter') handleLogin(); }
+          }),
+          React.createElement("label", {
+            style: { display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }
+          }, "Contraseña"),
+          React.createElement("input", {
+            type: "password", value: password, onChange: (e) => setPassword(e.target.value),
+            placeholder: "••••••••",
+            style: {
+              width: "100%", padding: "12px 14px", border: "1.5px solid #e5e7eb", borderRadius: 9,
+              fontSize: 14, fontFamily: "inherit", marginBottom: 16, boxSizing: "border-box"
+            },
+            onKeyDown: (e) => { if (e.key === 'Enter') handleLogin(); }
+          }),
+          error && React.createElement("div", {
+            style: {
+              background: "#fef2f2", color: "#991b1b", padding: "10px 12px", borderRadius: 8,
+              fontSize: 12, marginBottom: 14, border: "1px solid #fca5a5"
+            }
+          }, "⚠ " + error),
+          React.createElement("button", {
+            onClick: handleLogin, disabled: submitting,
+            style: {
+              width: "100%", padding: "12px", background: submitting ? "#9ca3af" : "#002B49", color: "#F5B335",
+              border: "none", borderRadius: 9, fontSize: 14, fontWeight: 700, cursor: submitting ? "not-allowed" : "pointer",
+              fontFamily: "inherit"
+            }
+          }, submitting ? "Iniciando..." : "🔐 Iniciar sesión"),
+          React.createElement("div", {
+            style: { fontSize: 11, color: "#9ca3af", marginTop: 16, textAlign: "center", lineHeight: 1.5 }
+          }, "Si no tienes acceso, contacta a tu administrador")
+        )
+      )
+    );
+  }
+  
+  // Estado: autenticado → mostrar app
+  return React.createElement(ErrorBoundary, null, React.createElement(MacroProMatcher));
+}
+
+ReactDOM.render(React.createElement(AuthGate), document.getElementById("root"));
 
 
 
