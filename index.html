@@ -24,6 +24,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.0/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- Supabase JS Client v2 - Cargado desde CDN con fallback -->
   <script>
     (function(){
@@ -2189,6 +2192,39 @@ function MacroProMatcher() {
   React.useEffect(()=>{localStorage.setItem("macropro_ejec_filtro_desarrollo", ejecFiltroDesarrollo);},[ejecFiltroDesarrollo]);
   React.useEffect(()=>{localStorage.setItem("macropro_ejec_filtro_asesor", ejecFiltroAsesor);},[ejecFiltroAsesor]);
   React.useEffect(()=>{localStorage.setItem("macropro_ejec_filtro_etapa", ejecFiltroEtapa);},[ejecFiltroEtapa]);
+  // Modal de generación de PDF Ejecutivo
+  const [showPDFModal, setShowPDFModal] = React.useState(false);
+  const [pdfGenerando, setPdfGenerando] = React.useState(false);
+  // Panel Supabase (sincronización con la nube)
+  const [showSupabasePanel, setShowSupabasePanel] = React.useState(false);
+  const [supabaseStatus, setSupabaseStatus] = React.useState("checking"); // checking | connected | disconnected
+  const [supabaseLastSync, setSupabaseLastSync] = React.useState(null);
+  const [supabaseProgress, setSupabaseProgress] = React.useState(null); // {tabla, hechos, total, mensaje}
+  const [supabaseConteos, setSupabaseConteos] = React.useState({lotes:null, clientes:null, crm:null});
+
+  // Verificar conexión a Supabase al cargar la app
+  React.useEffect(()=>{
+    let cancelled = false;
+    (async()=>{
+      const ok = await waitForSupabase(8000);
+      if(cancelled) return;
+      if(ok) {
+        setSupabaseStatus("connected");
+        // Contar registros en la nube
+        try {
+          const [l, c, k] = await Promise.all([
+            contarEnSupabase("lotes"),
+            contarEnSupabase("clientes"),
+            contarEnSupabase("crm_lotes")
+          ]);
+          if(!cancelled) setSupabaseConteos({lotes:l.count, clientes:c.count, crm:k.count});
+        } catch(e){}
+      } else {
+        setSupabaseStatus("disconnected");
+      }
+    })();
+    return ()=>{cancelled=true;};
+  },[]);
 
 
   // Asignación rápida de asesor a lote sin cliente — usable desde cualquier vista
@@ -6933,6 +6969,663 @@ function MacroProMatcher() {
 
 
   // ═══════════════════════════════════════════════════════════════
+  // SUPABASE — Funciones de migración y sincronización
+  // ═══════════════════════════════════════════════════════════════
+
+  // Subir TODO el localStorage a Supabase (migración inicial)
+  const subirTodoASupabase = async () => {
+    if(supabaseStatus!=="connected") {
+      toast("⚠ Sin conexión a Supabase. Recarga la página.");
+      return;
+    }
+    if(!confirm("¿Subir TODO tu inventario, clientes y CRM a Supabase? Esto puede tomar 1-3 minutos.")) return;
+    try {
+      // Lotes
+      setSupabaseProgress({tabla:"lotes", hechos:0, total:inventory.length, mensaje:"Subiendo inventario..."});
+      const resultLotes = await migrarLotesASupabase(inventory, (h,t)=>{
+        setSupabaseProgress({tabla:"lotes", hechos:h, total:t, mensaje:"Subiendo lotes..."});
+      });
+      
+      // Clientes
+      setSupabaseProgress({tabla:"clientes", hechos:0, total:clients.length, mensaje:"Subiendo clientes..."});
+      const resultClientes = await migrarClientesASupabase(clients, (h,t)=>{
+        setSupabaseProgress({tabla:"clientes", hechos:h, total:t, mensaje:"Subiendo clientes..."});
+      });
+      
+      // CRM
+      const crmKeys = Object.keys(crmData||{});
+      setSupabaseProgress({tabla:"crm", hechos:0, total:crmKeys.length, mensaje:"Subiendo CRM..."});
+      const resultCRM = await migrarCRMASupabase(crmData, (h,t)=>{
+        setSupabaseProgress({tabla:"crm", hechos:h, total:t, mensaje:"Subiendo CRM..."});
+      });
+      
+      setSupabaseProgress(null);
+      setSupabaseLastSync(new Date().toISOString());
+      
+      // Recontar
+      const [l, c, k] = await Promise.all([
+        contarEnSupabase("lotes"),
+        contarEnSupabase("clientes"),
+        contarEnSupabase("crm_lotes")
+      ]);
+      setSupabaseConteos({lotes:l.count, clientes:c.count, crm:k.count});
+      
+      const total = (resultLotes.count||0)+(resultClientes.count||0)+(resultCRM.count||0);
+      const errores = [...(resultLotes.errors||[]), ...(resultClientes.errors||[]), ...(resultCRM.errors||[])];
+      
+      if(errores.length>0) {
+        console.warn("Errores de migración:", errores);
+        toast(`⚠ Subidos ${total} registros. ${errores.length} errores (ver Console).`);
+      } else {
+        toast(`✅ ${total} registros subidos exitosamente`);
+      }
+    } catch(err) {
+      console.error("Error subiendo:", err);
+      toast("⚠ Error: "+err.message);
+      setSupabaseProgress(null);
+    }
+  };
+
+  // Bajar TODO desde Supabase (sobrescribe localStorage)
+  const bajarTodoDeSupabase = async () => {
+    if(supabaseStatus!=="connected") {
+      toast("⚠ Sin conexión a Supabase.");
+      return;
+    }
+    if(!confirm("⚠ Esto sobrescribirá tu data local con la versión en Supabase. ¿Continuar?")) return;
+    try {
+      setSupabaseProgress({tabla:"lotes", hechos:0, total:0, mensaje:"Descargando inventario..."});
+      
+      // Lotes
+      const {data:lotesData, error:errL} = await sb.from("lotes").select("*");
+      if(errL) throw new Error("Lotes: "+errL.message);
+      
+      setSupabaseProgress({tabla:"clientes", hechos:lotesData.length, total:lotesData.length, mensaje:"Descargando clientes..."});
+      const {data:clientesData, error:errC} = await sb.from("clientes").select("*");
+      if(errC) throw new Error("Clientes: "+errC.message);
+      
+      setSupabaseProgress({tabla:"crm", hechos:0, total:0, mensaje:"Descargando CRM..."});
+      const {data:crmDataDB, error:errK} = await sb.from("crm_lotes").select("*");
+      if(errK) throw new Error("CRM: "+errK.message);
+      
+      // Reconstruir crmData en formato app
+      const crmReconstruido = {};
+      (crmDataDB||[]).forEach(row=>{
+        crmReconstruido[row.lote_id] = {
+          pipeline: row.pipeline,
+          asesorResponsable: row.asesor_asignado,
+          fechaIngresoInventario: row.fecha_ingreso_inventario,
+          notas: row.notas,
+          prospectos: row.prospectos||[],
+          interacciones: row.interacciones||[],
+          devFeedback: row.dev_feedback||[],
+          seguimientosAsesor: row.seguimientos_asesor||[],
+          lastContact: row.updated_at
+        };
+      });
+      
+      // Reconstruir lotes
+      const lotesReconstruidos = (lotesData||[]).map(l=>({
+        id: l.id,
+        clave_unica: l.clave_unica,
+        nombre: l.nombre,
+        desarrollo: l.desarrollo,
+        desarrollador: l.desarrollador,
+        ciudad: l.ciudad,
+        estado: l.estado,
+        sup_m2: l.sup_m2,
+        precio_m2: l.precio_m2,
+        precio_total: l.precio_total,
+        uso: l.uso,
+        usos_todos: l.usos_todos||[],
+        descripcion: l.descripcion,
+        latitud: l.latitud,
+        longitud: l.longitud,
+        status_inventario: l.status_inventario,
+        fecha_ingreso: l.fecha_ingreso,
+        id_macrolote: l.id_macrolote,
+        precio_pendiente: l.precio_pendiente
+      }));
+      
+      // Reconstruir clientes
+      const clientesReconstruidos = (clientesData||[]).map(c=>({
+        id: c.id,
+        id_cliente: c.id_cliente,
+        email: c.email,
+        nombre: c.nombre,
+        empresa: c.empresa,
+        telefono: c.telefono,
+        asesor: c.asesor,
+        ciudad_interes: c.ciudad_interes||[],
+        uso_interes: c.uso_interes||[],
+        presupuesto_min: c.presupuesto_min,
+        presupuesto_max: c.presupuesto_max,
+        sup_min: c.sup_min,
+        sup_max: c.sup_max,
+        temperatura: c.temperatura,
+        status: c.status,
+        deal_breakers: c.deal_breakers||[],
+        notas: c.notas,
+        tipo_comprador: c.tipo_comprador,
+        plazo_cierre: c.plazo_cierre
+      }));
+      
+      // Aplicar
+      setInventory(lotesReconstruidos);
+      setClients(clientesReconstruidos);
+      setCrmData(crmReconstruido);
+      saveCRM(crmReconstruido);
+      
+      setSupabaseProgress(null);
+      setSupabaseLastSync(new Date().toISOString());
+      toast(`✅ Bajados: ${lotesReconstruidos.length} lotes, ${clientesReconstruidos.length} clientes, ${Object.keys(crmReconstruido).length} CRM`);
+    } catch(err) {
+      console.error("Error bajando:", err);
+      toast("⚠ Error: "+err.message);
+      setSupabaseProgress(null);
+    }
+  };
+
+  // Suscripciones Realtime — escucha cambios en Supabase y refresca conteos
+  React.useEffect(()=>{
+    if(supabaseStatus!=="connected"||!sb) return;
+    let canalLotes, canalClientes, canalCRM;
+    try {
+      canalLotes = sb.channel("lotes_changes")
+        .on("postgres_changes", {event:"*", schema:"public", table:"lotes"}, (payload)=>{
+          console.log("📡 Cambio en lotes:", payload.eventType);
+          setSupabaseLastSync(new Date().toISOString());
+          // Recontar
+          contarEnSupabase("lotes").then(r=>setSupabaseConteos(prev=>({...prev, lotes:r.count})));
+        })
+        .subscribe();
+      canalClientes = sb.channel("clientes_changes")
+        .on("postgres_changes", {event:"*", schema:"public", table:"clientes"}, (payload)=>{
+          console.log("📡 Cambio en clientes:", payload.eventType);
+          setSupabaseLastSync(new Date().toISOString());
+          contarEnSupabase("clientes").then(r=>setSupabaseConteos(prev=>({...prev, clientes:r.count})));
+        })
+        .subscribe();
+      canalCRM = sb.channel("crm_changes")
+        .on("postgres_changes", {event:"*", schema:"public", table:"crm_lotes"}, (payload)=>{
+          console.log("📡 Cambio en CRM:", payload.eventType);
+          setSupabaseLastSync(new Date().toISOString());
+          contarEnSupabase("crm_lotes").then(r=>setSupabaseConteos(prev=>({...prev, crm:r.count})));
+        })
+        .subscribe();
+    } catch(e){ console.warn("Realtime no disponible:", e); }
+    
+    return ()=>{
+      try { if(canalLotes) sb.removeChannel(canalLotes); } catch(e){}
+      try { if(canalClientes) sb.removeChannel(canalClientes); } catch(e){}
+      try { if(canalCRM) sb.removeChannel(canalCRM); } catch(e){}
+    };
+  },[supabaseStatus]);
+
+
+  // ═══════════════════════════════════════════════════════════════
+  // PDF EJECUTIVO — Generador de reporte profesional CEO/Cliente
+  // ═══════════════════════════════════════════════════════════════
+  const generarPDFEjecutivo = async (modo) => {
+    // modo: "ceo" (interno, todo) | "cliente" (externo, oculta notas)
+    if(typeof window.jspdf === "undefined") {
+      toast("⚠ jsPDF no cargado. Recarga la página.");
+      return;
+    }
+    setPdfGenerando(true);
+    try {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF("p","mm","a4");
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      let cursorY = margin;
+
+      // ─── HELPERS ───
+      const fmtMoney = (v) => {
+        if(!v||v===0) return "$0";
+        if(v>=1e9) return "$"+(v/1e9).toFixed(2)+"B";
+        if(v>=1e6) return "$"+(v/1e6).toFixed(1)+"M";
+        if(v>=1e3) return "$"+(v/1e3).toFixed(0)+"k";
+        return "$"+v.toFixed(0);
+      };
+      const fmtMoneyFull = (v) => "$"+(v||0).toLocaleString("es-MX",{maximumFractionDigits:0});
+      const ahora = new Date();
+      const fechaReporte = ahora.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
+
+      // Datos base con filtros aplicados
+      const srcInvE = inventory.length>0?inventory:DEMO_LOTS;
+      const lotesFiltrados = srcInvE.filter(l=>{
+        if(ejecFiltroDesarrollador!=="Todos"&&(l.desarrollador||l.desarrollo)!==ejecFiltroDesarrollador) return false;
+        if(ejecFiltroDesarrollo!=="Todos"&&l.desarrollo!==ejecFiltroDesarrollo) return false;
+        return true;
+      });
+
+      const stageOrder={"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Vendido":7,"Perdido":0,"Disponible":0};
+      const stageProb={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
+      const ACTIVE_STAGES_LOCAL = ["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
+
+      const getLotePipelineLocal = (lotId) => {
+        const e = crmData[lotId];
+        if(!e) return "Disponible";
+        if(e.pipeline==="Vendido"||e.pipeline==="Perdido") return e.pipeline;
+        const prospectos = e.prospectos||[];
+        if(prospectos.length===0) return e.pipeline||"Disponible";
+        let masAvanzada = "Disponible"; let maxOrden = 0;
+        prospectos.forEach(p=>{
+          if(!p||!p.pipeline) return;
+          const ord = stageOrder[p.pipeline]||0;
+          if(ord>maxOrden){ maxOrden=ord; masAvanzada=p.pipeline; }
+        });
+        return masAvanzada;
+      };
+
+      // ─── PORTADA ───
+      // Banda azul superior
+      doc.setFillColor(0, 43, 73);
+      doc.rect(0, 0, pageW, 50, "F");
+      // Banda dorada
+      doc.setFillColor(212, 175, 55);
+      doc.rect(0, 50, pageW, 2, "F");
+
+      // Título principal
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(28);
+      doc.text("MacroPro", margin, 24);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "normal");
+      doc.text("by Grupo Guía", margin, 31);
+
+      // Tipo de reporte
+      doc.setFontSize(10);
+      doc.setTextColor(212, 175, 55);
+      const tipoReporte = modo==="ceo" ? "REPORTE EJECUTIVO INTERNO · CEO" : "REPORTE EJECUTIVO · CLIENTE";
+      doc.text(tipoReporte, pageW - margin, 24, {align:"right"});
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(9);
+      doc.text(fechaReporte, pageW - margin, 31, {align:"right"});
+
+      cursorY = 64;
+
+      // Subtítulo de filtros aplicados
+      doc.setTextColor(0, 43, 73);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(20);
+      doc.text("Vista Ejecutiva", margin, cursorY);
+      cursorY += 8;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      const filtrosTexto = [
+        ejecFiltroDesarrollador!=="Todos" ? "Desarrollador: "+ejecFiltroDesarrollador : null,
+        ejecFiltroDesarrollo!=="Todos" ? "Desarrollo: "+ejecFiltroDesarrollo : null,
+        ejecFiltroAsesor!=="Todos" ? "Asesor: "+ejecFiltroAsesor : null,
+      ].filter(Boolean).join(" · ") || "Todos los desarrollos";
+      doc.text("Alcance: "+filtrosTexto, margin, cursorY);
+      cursorY += 10;
+
+      // ─── SECCIÓN 1: HERO - CIERRE VS META ───
+      const mesActual = ahora.getMonth();
+      let metaAnualMonto=0, realYTDMonto=0, metaYTDMonto=0, realYTDUds=0;
+      Object.entries(metasData||{}).forEach(([nombre, d])=>{
+        if(!d||!d.plan||!d.real) return;
+        if(ejecFiltroDesarrollador!=="Todos" && d.desarrollador!==ejecFiltroDesarrollador) return;
+        if(ejecFiltroDesarrollo!=="Todos" && nombre!==ejecFiltroDesarrollo) return;
+        metaAnualMonto += (d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
+        realYTDMonto += (d.real.monto||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
+        metaYTDMonto += (d.plan.monto||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
+        realYTDUds += (d.real.uds||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
+      });
+      const cumplYTD = metaYTDMonto>0 ? realYTDMonto/metaYTDMonto : 0;
+      const cumplAnual = metaAnualMonto>0 ? realYTDMonto/metaAnualMonto : 0;
+      const gapAnual = metaAnualMonto - realYTDMonto;
+
+      // Caja Hero
+      doc.setFillColor(0, 43, 73);
+      doc.roundedRect(margin, cursorY, pageW-margin*2, 50, 3, 3, "F");
+      doc.setTextColor(212, 175, 55);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.text("🎯 CIERRE "+ahora.getFullYear(), margin+5, cursorY+8);
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(22);
+      doc.text(fmtMoney(realYTDMonto), margin+5, cursorY+22);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text("de "+fmtMoney(metaAnualMonto)+" meta anual ("+(cumplAnual*100).toFixed(1)+"%)", margin+5, cursorY+30);
+
+      // Mini KPIs en Hero
+      const kpiX = margin + 100;
+      doc.setFontSize(8);
+      doc.setTextColor(180, 180, 180);
+      doc.text("VENDIDO YTD", kpiX, cursorY+10);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(realYTDUds+" uds", kpiX, cursorY+16);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(180, 180, 180);
+      doc.text("META YTD", kpiX, cursorY+24);
+      doc.setTextColor(cumplYTD>=0.95 ? 167 : 253, cumplYTD>=0.95 ? 243 : 230, cumplYTD>=0.95 ? 208 : 138);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text((cumplYTD*100).toFixed(0)+"%", kpiX, cursorY+30);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(180, 180, 180);
+      doc.text("GAP A META", kpiX+30, cursorY+10);
+      doc.setTextColor(gapAnual<=0 ? 167 : 254, gapAnual<=0 ? 243 : 215, gapAnual<=0 ? 208 : 170);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(fmtMoney(gapAnual), kpiX+30, cursorY+16);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(180, 180, 180);
+      doc.text("MESES RESTANTES", kpiX+30, cursorY+24);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text((12-mesActual-1)+"", kpiX+30, cursorY+30);
+
+      // Status badge
+      const statusColor = cumplYTD>=0.95 ? [22,163,74] : (cumplYTD>=0.75 ? [245,158,11] : [220,38,38]);
+      const statusText = cumplYTD>=0.95 ? "ON TRACK" : (cumplYTD>=0.75 ? "EN RIESGO" : "BEHIND");
+      doc.setFillColor(...statusColor);
+      doc.roundedRect(pageW-margin-30, cursorY+5, 25, 6, 2, 2, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.text(statusText, pageW-margin-17.5, cursorY+9, {align:"center"});
+
+      cursorY += 58;
+
+      // ─── SECCIÓN 2: PIPELINE HEALTH ───
+      doc.setTextColor(0, 43, 73);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text("📊 Salud del Pipeline", margin, cursorY);
+      cursorY += 6;
+
+      const pipelinePorEtapa = {};
+      ACTIVE_STAGES_LOCAL.forEach(s=>{ pipelinePorEtapa[s] = {count:0, valor:0, ponderado:0}; });
+      lotesFiltrados.forEach(lot=>{
+        const pip = getLotePipelineLocal(lot.id);
+        if(!ACTIVE_STAGES_LOCAL.includes(pip)) return;
+        const valor = lot.precio_total||0;
+        pipelinePorEtapa[pip].count++;
+        pipelinePorEtapa[pip].valor += valor;
+        pipelinePorEtapa[pip].ponderado += valor * stageProb[pip];
+      });
+
+      const pipeRows = ACTIVE_STAGES_LOCAL.map(s=>{
+        const d = pipelinePorEtapa[s];
+        return [s, d.count.toString(), fmtMoney(d.valor), (stageProb[s]*100).toFixed(0)+"%", fmtMoney(d.ponderado)];
+      });
+      const totalPipelineValor = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.valor,0);
+      const totalPipelinePonderado = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.ponderado,0);
+      const totalPipelineCount = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.count,0);
+      pipeRows.push(["TOTAL ACTIVO", totalPipelineCount.toString(), fmtMoney(totalPipelineValor), "—", fmtMoney(totalPipelinePonderado)]);
+
+      doc.autoTable({
+        startY: cursorY,
+        head: [["Etapa", "Lotes", "Valor", "Prob.", "Ponderado"]],
+        body: pipeRows,
+        theme: "striped",
+        headStyles: {fillColor:[0,43,73], textColor:[255,255,255], fontSize:9, fontStyle:"bold"},
+        bodyStyles: {fontSize:9, textColor:[51,65,85]},
+        columnStyles: {0:{fontStyle:"bold"}, 1:{halign:"right"}, 2:{halign:"right"}, 3:{halign:"right"}, 4:{halign:"right",textColor:[212,175,55],fontStyle:"bold"}},
+        margin: {left:margin, right:margin},
+        didParseCell: function(data) {
+          // Última fila (TOTAL) en negritas con fondo destacado
+          if(data.row.index === pipeRows.length-1){
+            data.cell.styles.fillColor = [248, 250, 252];
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.textColor = [0, 43, 73];
+          }
+        }
+      });
+      cursorY = doc.lastAutoTable.finalY + 10;
+
+      // ─── SECCIÓN 3: PERFORMANCE POR DESARROLLADOR ───
+      // Verificar si hay espacio o nueva página
+      if(cursorY > pageH - 60) { doc.addPage(); cursorY = margin + 5; }
+
+      doc.setTextColor(0, 43, 73);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text("🏢 Performance por Desarrollador", margin, cursorY);
+      cursorY += 6;
+
+      const performancePorDev = {};
+      Object.entries(metasData||{}).forEach(([nombre, d])=>{
+        if(!d||!d.plan||!d.real||!d.desarrollador) return;
+        if(ejecFiltroDesarrollador!=="Todos" && d.desarrollador!==ejecFiltroDesarrollador) return;
+        const dev = d.desarrollador;
+        if(!performancePorDev[dev]) performancePorDev[dev] = {planMonto:0,realMonto:0,metaYTDMonto:0,desarrollos:0};
+        performancePorDev[dev].planMonto += (d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
+        performancePorDev[dev].realMonto += (d.real.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+        performancePorDev[dev].metaYTDMonto += (d.plan.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+        performancePorDev[dev].desarrollos++;
+      });
+      const ranking = Object.entries(performancePorDev)
+        .map(([dev,d])=>({dev,...d,cumplYTD: d.metaYTDMonto>0?d.realMonto/d.metaYTDMonto:0}))
+        .sort((a,b)=>b.cumplYTD - a.cumplYTD);
+
+      if(ranking.length>0){
+        const devRows = ranking.map((d,i)=>{
+          const medalla = i===0?"🥇":(i===1?"🥈":(i===2?"🥉":"  "));
+          return [medalla+" "+d.dev, d.desarrollos+"", fmtMoney(d.realMonto), fmtMoney(d.metaYTDMonto), (d.cumplYTD*100).toFixed(0)+"%"];
+        });
+        doc.autoTable({
+          startY: cursorY,
+          head: [["Desarrollador", "# Des.", "Vendido YTD", "Meta YTD", "Cumpl."]],
+          body: devRows,
+          theme: "striped",
+          headStyles: {fillColor:[0,43,73], textColor:[255,255,255], fontSize:9, fontStyle:"bold"},
+          bodyStyles: {fontSize:9, textColor:[51,65,85]},
+          columnStyles: {0:{fontStyle:"bold"}, 1:{halign:"center"}, 2:{halign:"right"}, 3:{halign:"right"}, 4:{halign:"right",fontStyle:"bold"}},
+          margin: {left:margin, right:margin},
+        });
+        cursorY = doc.lastAutoTable.finalY + 10;
+      } else {
+        doc.setFont("helvetica","italic");
+        doc.setFontSize(9);
+        doc.setTextColor(150,150,150);
+        doc.text("Sin metas configuradas para los desarrolladores filtrados", margin, cursorY);
+        cursorY += 10;
+      }
+
+      // ─── SECCIÓN 4: TOP DEALS EN PIPELINE ───
+      if(cursorY > pageH - 70) { doc.addPage(); cursorY = margin + 5; }
+
+      doc.setTextColor(0, 43, 73);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text("💎 Top Deals en Pipeline", margin, cursorY);
+      cursorY += 6;
+
+      const topDeals = lotesFiltrados.map(l=>({
+        lot:l, valor:l.precio_total||0, pipeline:getLotePipelineLocal(l.id),
+        ponderado:(l.precio_total||0)*stageProb[getLotePipelineLocal(l.id)]
+      }))
+      .filter(d=>ACTIVE_STAGES_LOCAL.includes(d.pipeline))
+      .sort((a,b)=>b.ponderado - a.ponderado)
+      .slice(0,10);
+
+      if(topDeals.length>0){
+        const dealRows = topDeals.map((d,i)=>[
+          (i+1)+"", d.lot.nombre||"—", d.lot.desarrollo||"—", d.pipeline, fmtMoney(d.valor), fmtMoney(d.ponderado)
+        ]);
+        doc.autoTable({
+          startY: cursorY,
+          head: [["#", "Lote", "Desarrollo", "Etapa", "Valor", "Ponderado"]],
+          body: dealRows,
+          theme: "striped",
+          headStyles: {fillColor:[0,43,73], textColor:[255,255,255], fontSize:9, fontStyle:"bold"},
+          bodyStyles: {fontSize:8, textColor:[51,65,85]},
+          columnStyles: {0:{halign:"center",cellWidth:8}, 4:{halign:"right"}, 5:{halign:"right",textColor:[212,175,55],fontStyle:"bold"}},
+          margin: {left:margin, right:margin},
+        });
+        cursorY = doc.lastAutoTable.finalY + 10;
+      }
+
+      // ─── SECCIÓN 5: RIESGOS Y ALERTAS (solo CEO) ───
+      if(modo==="ceo"){
+        if(cursorY > pageH - 70) { doc.addPage(); cursorY = margin + 5; }
+
+        doc.setTextColor(0, 43, 73);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(13);
+        doc.text("🚨 Riesgos y Alertas (solo interno)", margin, cursorY);
+        cursorY += 6;
+
+        // Lotes sin movimiento
+        const lotesSinMov60 = lotesFiltrados.filter(l=>{
+          const e=crmData[l.id]; if(!e||!e.lastContact) return false;
+          const pip=getLotePipelineLocal(l.id);
+          if(pip==="Perdido"||pip==="Vendido"||pip==="Disponible") return false;
+          const dias=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));
+          return dias>60;
+        });
+
+        const lotesPremium = lotesFiltrados.filter(l=>{
+          if((l.precio_total||0) < 5e6) return false;
+          const pip = getLotePipelineLocal(l.id);
+          if(pip==="Vendido"||pip==="Perdido") return false;
+          const crm = crmData[l.id];
+          if(!crm) return true;
+          const tieneAsesor = crm.asesorResponsable || (crm.prospectos||[]).some(p=>p.asesor);
+          return !tieneAsesor;
+        });
+
+        const alertas = [];
+        if(lotesSinMov60.length>0) alertas.push(["📉 Lotes sin movimiento +60d", lotesSinMov60.length+"", lotesSinMov60.slice(0,3).map(l=>l.nombre).join(", ")]);
+        if(lotesPremium.length>0) alertas.push(["💎 Lotes premium sin asesor", lotesPremium.length+"", lotesPremium.slice(0,3).map(l=>l.nombre+" ("+fmtMoney(l.precio_total)+")").join(", ")]);
+
+        if(alertas.length>0){
+          doc.autoTable({
+            startY: cursorY,
+            head: [["Tipo de alerta", "Cantidad", "Ejemplos"]],
+            body: alertas,
+            theme: "striped",
+            headStyles: {fillColor:[220,38,38], textColor:[255,255,255], fontSize:9, fontStyle:"bold"},
+            bodyStyles: {fontSize:8, textColor:[51,65,85]},
+            columnStyles: {0:{fontStyle:"bold",cellWidth:55}, 1:{halign:"center",cellWidth:18}, 2:{cellWidth:"auto"}},
+            margin: {left:margin, right:margin},
+          });
+          cursorY = doc.lastAutoTable.finalY + 10;
+        } else {
+          doc.setFont("helvetica","italic");
+          doc.setFontSize(9);
+          doc.setTextColor(22,163,74);
+          doc.text("✅ Sin alertas críticas", margin, cursorY);
+          cursorY += 10;
+        }
+      }
+
+      // ─── SECCIÓN 6: PROSPECTOS ACTIVOS DETALLADOS ───
+      if(cursorY > pageH - 70) { doc.addPage(); cursorY = margin + 5; }
+
+      doc.setTextColor(0, 43, 73);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text("👥 Prospectos Activos", margin, cursorY);
+      cursorY += 6;
+
+      const prospectosActivos = [];
+      lotesFiltrados.forEach(lot=>{
+        const crm = crmData[lot.id];
+        if(!crm||!crm.prospectos) return;
+        crm.prospectos.forEach((p)=>{
+          if(!p||!p.pipeline) return;
+          if(p.pipeline==="Perdido"||p.pipeline==="Vendido") return;
+          if(ejecFiltroEtapa!=="Todos"&&p.pipeline!==ejecFiltroEtapa) return;
+          const asesorP = p.asesor||crm.asesorResponsable||"Sin asignar";
+          if(ejecFiltroAsesor!=="Todos"&&asesorP!==ejecFiltroAsesor) return;
+          prospectosActivos.push({
+            nombre: p.nombre||"—",
+            asesor: asesorP,
+            lote: lot.nombre||"—",
+            desarrollo: lot.desarrollo||"—",
+            etapa: p.pipeline,
+            valor: lot.precio_total||0,
+            temperatura: p.temperatura||"—",
+            notaInterna: p.nota||p.notas||""
+          });
+        });
+      });
+
+      if(prospectosActivos.length>0){
+        const cols = modo==="ceo"
+          ? ["Cliente","Asesor","Lote","Desarrollo","Etapa","Valor","Temp.","Nota interna"]
+          : ["Cliente","Asesor","Lote","Desarrollo","Etapa","Valor"];
+        const rows = prospectosActivos.map(p=>{
+          const base = [p.nombre, p.asesor, p.lote, p.desarrollo, p.etapa, fmtMoney(p.valor)];
+          if(modo==="ceo") {
+            base.push(p.temperatura);
+            base.push(p.notaInterna ? (p.notaInterna.length>40 ? p.notaInterna.substring(0,40)+"..." : p.notaInterna) : "—");
+          }
+          return base;
+        });
+        doc.autoTable({
+          startY: cursorY,
+          head: [cols],
+          body: rows,
+          theme: "striped",
+          headStyles: {fillColor:[0,43,73], textColor:[255,255,255], fontSize:8, fontStyle:"bold"},
+          bodyStyles: {fontSize:7, textColor:[51,65,85]},
+          columnStyles: {5:{halign:"right",fontStyle:"bold"}},
+          margin: {left:margin, right:margin},
+        });
+        cursorY = doc.lastAutoTable.finalY + 10;
+      } else {
+        doc.setFont("helvetica","italic");
+        doc.setFontSize(9);
+        doc.setTextColor(150,150,150);
+        doc.text("Sin prospectos activos para los filtros aplicados", margin, cursorY);
+        cursorY += 10;
+      }
+
+      // ─── FOOTER en cada página ───
+      const totalPaginas = doc.internal.getNumberOfPages();
+      for(let i=1; i<=totalPaginas; i++){
+        doc.setPage(i);
+        // Línea dorada
+        doc.setDrawColor(212, 175, 55);
+        doc.setLineWidth(0.3);
+        doc.line(margin, pageH-12, pageW-margin, pageH-12);
+        // Texto footer
+        doc.setFont("helvetica","normal");
+        doc.setFontSize(7);
+        doc.setTextColor(150,150,150);
+        doc.text("MacroPro · Grupo Guía", margin, pageH-7);
+        doc.text(modo==="ceo" ? "CONFIDENCIAL · Uso interno" : "Reporte Ejecutivo", pageW/2, pageH-7, {align:"center"});
+        doc.text("Página "+i+" de "+totalPaginas, pageW-margin, pageH-7, {align:"right"});
+      }
+
+      // ─── DESCARGAR ───
+      const filtroSlug = (ejecFiltroDesarrollador!=="Todos"?ejecFiltroDesarrollador:"Todos")+(ejecFiltroDesarrollo!=="Todos"?"_"+ejecFiltroDesarrollo:"");
+      const fechaSlug = ahora.toISOString().slice(0,10);
+      const filename = "MacroPro_Reporte_"+(modo==="ceo"?"CEO":"Cliente")+"_"+filtroSlug.replace(/[^a-zA-Z0-9]/g,"-")+"_"+fechaSlug+".pdf";
+      doc.save(filename);
+      toast("✅ Reporte PDF descargado");
+      setShowPDFModal(false);
+    } catch(err) {
+      console.error("Error generando PDF:",err);
+      toast("⚠ Error generando PDF: "+err.message);
+    } finally {
+      setPdfGenerando(false);
+    }
+  };
+
+
+  // ═══════════════════════════════════════════════════════════════
   // VIEW: ⬡ EJECUTIVO — CEO COCKPIT (vista ejecutiva profesional)
   // ═══════════════════════════════════════════════════════════════
   const ViewEjecutivo = () => {
@@ -7259,13 +7952,19 @@ function MacroProMatcher() {
     return (
       <div style={{padding:"20px 24px", maxWidth:1400, margin:"0 auto"}}>
         {/* Header */}
-        <div style={{marginBottom:20}}>
-          <div style={{fontSize:11, fontWeight:700, color:B.gold, letterSpacing:2, textTransform:"uppercase"}}>⬡ CEO Cockpit</div>
-          <div style={{display:"flex", alignItems:"baseline", gap:14, flexWrap:"wrap"}}>
-            <div style={{fontSize:28, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>Vista Ejecutiva</div>
-            <div style={{fontSize:13, color:B.grey4}}>{ahora.toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
+        <div style={{marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16, flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontSize:11, fontWeight:700, color:B.gold, letterSpacing:2, textTransform:"uppercase"}}>⬡ CEO Cockpit</div>
+            <div style={{display:"flex", alignItems:"baseline", gap:14, flexWrap:"wrap"}}>
+              <div style={{fontSize:28, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>Vista Ejecutiva</div>
+              <div style={{fontSize:13, color:B.grey4}}>{ahora.toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
+            </div>
+            <div style={{fontSize:12, color:B.grey4, marginTop:4}}>Cierre vs meta · Salud del pipeline · Riesgos · Performance · Tendencia</div>
           </div>
-          <div style={{fontSize:12, color:B.grey4, marginTop:4}}>Cierre vs meta · Salud del pipeline · Riesgos · Performance · Tendencia</div>
+          <button onClick={()=>setShowPDFModal(true)}
+            style={{padding:"12px 22px", borderRadius:10, border:"none", background:"linear-gradient(135deg,"+B.navy+" 0%,#003a66 100%)", color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 3px 12px rgba(0,43,73,0.25)", display:"flex", alignItems:"center", gap:8}}>
+            <span style={{fontSize:18}}>📄</span> Generar Reporte PDF
+          </button>
         </div>
 
         {/* Filtros */}
@@ -8685,6 +9384,62 @@ function MacroProMatcher() {
       <ModalMigrate/>
 
       {/* ═══════════════════════════════════════════════════════════════
+          MODAL: Generación de PDF Ejecutivo (CEO o Cliente)
+          ═══════════════════════════════════════════════════════════════ */}
+      {showPDFModal&&(
+        <div onClick={()=>!pdfGenerando&&setShowPDFModal(false)}
+          style={{position:"fixed", inset:0, background:"rgba(0,43,73,0.6)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:20}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{background:"#fff", borderRadius:16, maxWidth:540, width:"100%", boxShadow:"0 24px 80px rgba(0,0,0,0.3)", overflow:"hidden"}}>
+            {/* Header */}
+            <div style={{padding:"22px 26px", background:"linear-gradient(135deg,"+B.navy+" 0%,#003a66 100%)", color:"#fff"}}>
+              <div style={{fontSize:11, fontWeight:700, color:B.gold, letterSpacing:2, textTransform:"uppercase"}}>📄 Reporte Ejecutivo</div>
+              <div style={{fontSize:20, fontWeight:800, fontFamily:"'Playfair Display',serif", marginTop:4}}>Selecciona la versión</div>
+              <div style={{fontSize:12, opacity:0.8, marginTop:4}}>El PDF respetará los filtros activos del Cockpit</div>
+            </div>
+            {/* Opciones */}
+            <div style={{padding:"22px 26px", display:"flex", flexDirection:"column", gap:14}}>
+              <button onClick={()=>generarPDFEjecutivo("ceo")} disabled={pdfGenerando}
+                style={{padding:"18px 20px", borderRadius:12, border:"2px solid "+B.navy, background:"#fff", cursor:pdfGenerando?"wait":"pointer", textAlign:"left", display:"flex", gap:14, alignItems:"flex-start", fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s"}}
+                onMouseEnter={e=>!pdfGenerando&&(e.currentTarget.style.background=B.offW)}
+                onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                <div style={{fontSize:30}}>🔒</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14, fontWeight:800, color:B.navy, marginBottom:4}}>Versión CEO interna</div>
+                  <div style={{fontSize:11, color:B.grey4, lineHeight:1.4}}>Incluye <strong>todo</strong>: KPIs, pipeline, performance, riesgos y alertas, prospectos con notas internas y temperatura. Para uso interno y toma de decisiones.</div>
+                  <div style={{fontSize:10, color:"#dc2626", marginTop:6, fontWeight:700}}>⚠ CONFIDENCIAL</div>
+                </div>
+              </button>
+              <button onClick={()=>generarPDFEjecutivo("cliente")} disabled={pdfGenerando}
+                style={{padding:"18px 20px", borderRadius:12, border:"2px solid "+B.gold, background:"#fff", cursor:pdfGenerando?"wait":"pointer", textAlign:"left", display:"flex", gap:14, alignItems:"flex-start", fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s"}}
+                onMouseEnter={e=>!pdfGenerando&&(e.currentTarget.style.background="#fef3c7")}
+                onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+                <div style={{fontSize:30}}>🤝</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14, fontWeight:800, color:B.navy, marginBottom:4}}>Versión Cliente externa</div>
+                  <div style={{fontSize:11, color:B.grey4, lineHeight:1.4}}>Reporte profesional <strong>sin notas internas</strong>, sin riesgos confidenciales. Compartible con dueños de desarrollo (TYA, HITO, Garvi, etc.).</div>
+                  <div style={{fontSize:10, color:"#16a34a", marginTop:6, fontWeight:700}}>✅ Compartible</div>
+                </div>
+              </button>
+              {pdfGenerando&&(
+                <div style={{textAlign:"center", padding:"10px", color:B.gold, fontSize:12, fontWeight:700}}>
+                  ⚙ Generando reporte...
+                </div>
+              )}
+            </div>
+            {/* Footer */}
+            <div style={{padding:"14px 26px", background:B.offW, borderTop:"1px solid "+B.grey1, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+              <div style={{fontSize:10, color:B.grey4}}>El PDF se descargará automáticamente</div>
+              <button onClick={()=>!pdfGenerando&&setShowPDFModal(false)} disabled={pdfGenerando}
+                style={{padding:"8px 18px", borderRadius:8, border:"1px solid "+B.grey1, background:"#fff", color:B.grey4, fontSize:11, fontWeight:700, cursor:pdfGenerando?"wait":"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
           MODAL: Nueva/Editar solicitud de asesor
           ═══════════════════════════════════════════════════════════════ */}
       {showSolicitudModal&&(() => {
@@ -9198,6 +9953,130 @@ function MacroProMatcher() {
       )}
       {loading&&<LoadingView/>}
       {toastMsg&&<div style={s.toast}>{toastMsg}</div>}
+
+      {/* ═══ INDICADOR FLOTANTE SUPABASE ═══ */}
+      <div onClick={()=>setShowSupabasePanel(true)}
+        style={{position:"fixed", bottom:18, right:18, zIndex:998, padding:"10px 16px", borderRadius:24,
+          background: supabaseStatus==="connected" ? "#16a34a" : (supabaseStatus==="checking" ? "#f59e0b" : "#dc2626"),
+          color:"#fff", fontSize:11, fontWeight:700, cursor:"pointer", boxShadow:"0 4px 16px rgba(0,0,0,0.2)",
+          display:"flex", alignItems:"center", gap:8, fontFamily:"'DM Sans',sans-serif",
+          transition:"all 0.2s"}}
+        title="Click para abrir panel de sincronización">
+        <span style={{fontSize:14}}>{supabaseStatus==="connected" ? "🟢" : (supabaseStatus==="checking" ? "🟡" : "🔴")}</span>
+        <span>{supabaseStatus==="connected" ? "Supabase conectado" : (supabaseStatus==="checking" ? "Conectando..." : "Sin conexión")}</span>
+        {supabaseProgress&&<span style={{padding:"2px 8px", background:"rgba(255,255,255,0.2)", borderRadius:10, fontSize:10}}>
+          ⚙ {supabaseProgress.hechos}/{supabaseProgress.total}
+        </span>}
+      </div>
+
+      {/* ═══ MODAL PANEL SUPABASE ═══ */}
+      {showSupabasePanel&&(
+        <div onClick={()=>setShowSupabasePanel(false)}
+          style={{position:"fixed", inset:0, background:"rgba(0,43,73,0.6)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center", padding:20}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{background:"#fff", borderRadius:16, maxWidth:600, width:"100%", boxShadow:"0 24px 80px rgba(0,0,0,0.3)", overflow:"hidden", maxHeight:"90vh", overflowY:"auto"}}>
+            {/* Header */}
+            <div style={{padding:"22px 26px", background:"linear-gradient(135deg,"+B.navy+" 0%,#003a66 100%)", color:"#fff"}}>
+              <div style={{fontSize:11, fontWeight:700, color:B.gold, letterSpacing:2, textTransform:"uppercase"}}>☁ Sincronización en la nube</div>
+              <div style={{fontSize:20, fontWeight:800, fontFamily:"'Playfair Display',serif", marginTop:4}}>Panel Supabase</div>
+              <div style={{fontSize:12, opacity:0.8, marginTop:4}}>
+                Estado: {supabaseStatus==="connected" ? "🟢 Conectado" : (supabaseStatus==="checking" ? "🟡 Verificando..." : "🔴 Sin conexión")}
+                {supabaseLastSync&&<span> · Última sync: {new Date(supabaseLastSync).toLocaleTimeString("es-MX")}</span>}
+              </div>
+            </div>
+            
+            {/* Conteos */}
+            <div style={{padding:"18px 26px", borderBottom:"1px solid "+B.grey1}}>
+              <div style={{fontSize:11, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1.5, marginBottom:10}}>📊 Comparativa local vs nube</div>
+              <table style={{width:"100%", fontSize:12, borderCollapse:"collapse"}}>
+                <thead>
+                  <tr style={{background:B.offW}}>
+                    <th style={{padding:"8px 10px", textAlign:"left", fontSize:10, fontWeight:700, color:B.grey3, textTransform:"uppercase"}}>Tabla</th>
+                    <th style={{padding:"8px 10px", textAlign:"right", fontSize:10, fontWeight:700, color:B.grey3, textTransform:"uppercase"}}>Local</th>
+                    <th style={{padding:"8px 10px", textAlign:"right", fontSize:10, fontWeight:700, color:B.grey3, textTransform:"uppercase"}}>Nube ☁</th>
+                    <th style={{padding:"8px 10px", textAlign:"center", fontSize:10, fontWeight:700, color:B.grey3, textTransform:"uppercase"}}>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr style={{borderBottom:"1px solid "+B.grey1}}>
+                    <td style={{padding:"10px", fontWeight:700, color:B.navy}}>📦 Inventario</td>
+                    <td style={{padding:"10px", textAlign:"right"}}>{inventory.length}</td>
+                    <td style={{padding:"10px", textAlign:"right"}}>{supabaseConteos.lotes!==null ? supabaseConteos.lotes : "—"}</td>
+                    <td style={{padding:"10px", textAlign:"center"}}>
+                      {supabaseConteos.lotes===inventory.length ? "✅" : (supabaseConteos.lotes===null ? "⏳" : "⚠")}
+                    </td>
+                  </tr>
+                  <tr style={{borderBottom:"1px solid "+B.grey1}}>
+                    <td style={{padding:"10px", fontWeight:700, color:B.navy}}>👥 Clientes</td>
+                    <td style={{padding:"10px", textAlign:"right"}}>{clients.length}</td>
+                    <td style={{padding:"10px", textAlign:"right"}}>{supabaseConteos.clientes!==null ? supabaseConteos.clientes : "—"}</td>
+                    <td style={{padding:"10px", textAlign:"center"}}>
+                      {supabaseConteos.clientes===clients.length ? "✅" : (supabaseConteos.clientes===null ? "⏳" : "⚠")}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{padding:"10px", fontWeight:700, color:B.navy}}>🎯 CRM (lotes con datos)</td>
+                    <td style={{padding:"10px", textAlign:"right"}}>{Object.keys(crmData||{}).length}</td>
+                    <td style={{padding:"10px", textAlign:"right"}}>{supabaseConteos.crm!==null ? supabaseConteos.crm : "—"}</td>
+                    <td style={{padding:"10px", textAlign:"center"}}>
+                      {supabaseConteos.crm===Object.keys(crmData||{}).length ? "✅" : (supabaseConteos.crm===null ? "⏳" : "⚠")}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Progreso si está activo */}
+            {supabaseProgress&&(
+              <div style={{padding:"18px 26px", background:"#fef3c7", borderBottom:"1px solid #fbbf24"}}>
+                <div style={{fontSize:11, fontWeight:700, color:"#92400e", marginBottom:8}}>⚙ {supabaseProgress.mensaje}</div>
+                <div style={{height:8, background:"rgba(0,0,0,0.1)", borderRadius:4, overflow:"hidden"}}>
+                  <div style={{height:"100%", width:supabaseProgress.total>0?(supabaseProgress.hechos/supabaseProgress.total*100)+"%":"0%", background:"#f59e0b", transition:"width 0.3s"}}></div>
+                </div>
+                <div style={{fontSize:10, color:"#78350f", marginTop:4}}>{supabaseProgress.hechos} de {supabaseProgress.total}</div>
+              </div>
+            )}
+
+            {/* Acciones */}
+            <div style={{padding:"22px 26px", display:"flex", flexDirection:"column", gap:12}}>
+              <button onClick={subirTodoASupabase} disabled={supabaseStatus!=="connected"||supabaseProgress!==null}
+                style={{padding:"14px 18px", borderRadius:10, border:"2px solid "+B.gold, background:"#fff", cursor:(supabaseStatus==="connected"&&!supabaseProgress)?"pointer":"not-allowed",
+                  textAlign:"left", display:"flex", gap:14, alignItems:"flex-start", fontFamily:"'DM Sans',sans-serif", opacity:(supabaseStatus==="connected"&&!supabaseProgress)?1:0.5}}>
+                <div style={{fontSize:24}}>⬆</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13, fontWeight:800, color:B.navy, marginBottom:2}}>Subir todo a Supabase</div>
+                  <div style={{fontSize:11, color:B.grey4}}>Sincroniza tu inventario, clientes y CRM con la nube. Recomendado al iniciar Supabase.</div>
+                </div>
+              </button>
+              
+              <button onClick={bajarTodoDeSupabase} disabled={supabaseStatus!=="connected"||supabaseProgress!==null}
+                style={{padding:"14px 18px", borderRadius:10, border:"2px solid "+B.navy, background:"#fff", cursor:(supabaseStatus==="connected"&&!supabaseProgress)?"pointer":"not-allowed",
+                  textAlign:"left", display:"flex", gap:14, alignItems:"flex-start", fontFamily:"'DM Sans',sans-serif", opacity:(supabaseStatus==="connected"&&!supabaseProgress)?1:0.5}}>
+                <div style={{fontSize:24}}>⬇</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13, fontWeight:800, color:B.navy, marginBottom:2}}>Bajar todo de Supabase</div>
+                  <div style={{fontSize:11, color:B.grey4}}>Sobrescribe tu data local con la versión en la nube. Útil cuando tu asistente subió cambios.</div>
+                </div>
+              </button>
+            </div>
+
+            {/* Info técnica */}
+            <div style={{padding:"14px 26px", background:B.offW, borderTop:"1px solid "+B.grey1, fontSize:10, color:B.grey4}}>
+              <div style={{marginBottom:4}}>🔗 <strong>Proyecto:</strong> xugrrabebphdelgwqnwc</div>
+              <div style={{marginBottom:4}}>📡 <strong>Realtime:</strong> Activo en lotes, clientes, crm_lotes</div>
+              <div>💡 Los cambios desde otros dispositivos se reflejan automáticamente</div>
+            </div>
+
+            {/* Footer */}
+            <div style={{padding:"14px 26px", borderTop:"1px solid "+B.grey1, display:"flex", justifyContent:"flex-end"}}>
+              <button onClick={()=>setShowSupabasePanel(false)}
+                style={{padding:"8px 18px", borderRadius:8, border:"1px solid "+B.grey1, background:"#fff", color:B.grey4, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
