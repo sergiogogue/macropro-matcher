@@ -7332,33 +7332,167 @@ function MacroProMatcher() {
     }
   };
 
-  // Suscripciones Realtime — escucha cambios en Supabase y refresca conteos
+  // Suscripciones Realtime — escucha cambios en Supabase y aplica al estado local
   React.useEffect(()=>{
     if(supabaseStatus!=="connected"||!sb) return;
     let canalLotes, canalClientes, canalCRM;
+    
+    // Helper: convertir un row de Supabase 'lotes' al formato localStorage
+    const lotesSupaToLocal = (l) => ({
+      id: l.id_macrolote || l.clave_unica,
+      clave_unica: l.clave_unica,
+      nombre_lote: l.nombre,
+      nombre: l.nombre,
+      desarrollo: l.desarrollo || '',
+      desarrollador: l.desarrollador || '',
+      ciudad: l.ciudad || '',
+      estado: l.estado || '',
+      sup_m2: l.sup_m2,
+      precio_m2: l.precio_m2,
+      precio_total: l.precio_total,
+      uso: l.uso || '',
+      usos_todos: Array.isArray(l.usos_todos) ? l.usos_todos : [],
+      status: l.status_inventario || 'Disponible',
+      status_inventario: l.status_inventario || 'Disponible',
+      fecha_ingreso: l.fecha_ingreso || null,
+      _supabase_id: l.id
+    });
+    
+    // Helper: convertir un row de Supabase 'clientes' al formato localStorage
+    const clienteSupaToLocal = (c) => ({
+      id: c.id_cliente,
+      id_cliente: c.id_cliente,
+      email: c.email || '',
+      nombre: c.nombre || '',
+      empresa: c.empresa || '',
+      telefono: c.telefono || '',
+      asesor: c.asesor || '',
+      tipo_comprador: c.tipo_comprador || '',
+      ciudad_interes: Array.isArray(c.ciudad_interes) ? c.ciudad_interes : [],
+      uso_interes: Array.isArray(c.uso_interes) ? c.uso_interes : [],
+      presupuesto_min: c.presupuesto_min,
+      presupuesto_max: c.presupuesto_max,
+      sup_min: c.sup_min,
+      sup_max: c.sup_max,
+      temperatura: c.temperatura || '',
+      status: c.status || '',
+      plazo_cierre: c.plazo_cierre || '',
+      deal_breakers: Array.isArray(c.deal_breakers) ? c.deal_breakers : [],
+      activo: c.activo !== false,
+      _supabase_id: c.id
+    });
+    
     try {
+      // ═══ LOTES ═══
       canalLotes = sb.channel("lotes_changes")
         .on("postgres_changes", {event:"*", schema:"public", table:"lotes"}, (payload)=>{
-          console.log("📡 Cambio en lotes:", payload.eventType);
+          console.log("📡 Cambio en lotes:", payload.eventType, payload.new?.clave_unica || payload.old?.clave_unica);
           setSupabaseLastSync(new Date().toISOString());
-          // Recontar
+          
+          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+            const loteNuevo = lotesSupaToLocal(payload.new);
+            setInventory(prev => {
+              const idx = prev.findIndex(l => 
+                (l._supabase_id && l._supabase_id === payload.new.id) ||
+                (l.clave_unica && l.clave_unica === payload.new.clave_unica) ||
+                (l.id && l.id === loteNuevo.id)
+              );
+              const next = [...prev];
+              if (idx >= 0) {
+                next[idx] = { ...next[idx], ...loteNuevo };
+              } else {
+                next.push(loteNuevo);
+              }
+              return next;
+            });
+          } else if (payload.eventType === "DELETE") {
+            setInventory(prev => prev.filter(l => 
+              !(l._supabase_id && l._supabase_id === payload.old.id) &&
+              !(l.clave_unica && l.clave_unica === payload.old.clave_unica)
+            ));
+          }
+          
           contarEnSupabase("lotes").then(r=>setSupabaseConteos(prev=>({...prev, lotes:r.count})));
         })
         .subscribe();
+      
+      // ═══ CLIENTES ═══
       canalClientes = sb.channel("clientes_changes")
         .on("postgres_changes", {event:"*", schema:"public", table:"clientes"}, (payload)=>{
-          console.log("📡 Cambio en clientes:", payload.eventType);
+          console.log("📡 Cambio en clientes:", payload.eventType, payload.new?.id_cliente || payload.old?.id_cliente);
           setSupabaseLastSync(new Date().toISOString());
+          
+          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+            const clienteNuevo = clienteSupaToLocal(payload.new);
+            setClients(prev => {
+              const idx = prev.findIndex(c => 
+                (c._supabase_id && c._supabase_id === payload.new.id) ||
+                (c.id_cliente && c.id_cliente === payload.new.id_cliente) ||
+                (c.id && c.id === clienteNuevo.id)
+              );
+              const next = [...prev];
+              if (idx >= 0) {
+                next[idx] = { ...next[idx], ...clienteNuevo };
+              } else {
+                next.push(clienteNuevo);
+              }
+              return next;
+            });
+          } else if (payload.eventType === "DELETE") {
+            setClients(prev => prev.filter(c => 
+              !(c._supabase_id && c._supabase_id === payload.old.id) &&
+              !(c.id_cliente && c.id_cliente === payload.old.id_cliente)
+            ));
+          }
+          
           contarEnSupabase("clientes").then(r=>setSupabaseConteos(prev=>({...prev, clientes:r.count})));
         })
         .subscribe();
+      
+      // ═══ CRM ═══
       canalCRM = sb.channel("crm_changes")
-        .on("postgres_changes", {event:"*", schema:"public", table:"crm_lotes"}, (payload)=>{
-          console.log("📡 Cambio en CRM:", payload.eventType);
+        .on("postgres_changes", {event:"*", schema:"public", table:"crm_lotes"}, async (payload)=>{
+          console.log("📡 Cambio en CRM:", payload.eventType, payload.new?.lote_id || payload.old?.lote_id);
           setSupabaseLastSync(new Date().toISOString());
+          
+          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+            // Necesitamos saber a qué lote_clave corresponde el lote_id (UUID)
+            try {
+              const { data: loteRow } = await sb.from('lotes').select('id_macrolote, clave_unica').eq('id', payload.new.lote_id).single();
+              if (!loteRow) return;
+              const loteClave = loteRow.id_macrolote || loteRow.clave_unica;
+              const crmEntry = {
+                pipeline: payload.new.pipeline || 'Prospecto',
+                asesorResponsable: payload.new.asesor_asignado || null,
+                prospectos: Array.isArray(payload.new.prospectos) ? payload.new.prospectos : [],
+                interacciones: Array.isArray(payload.new.interacciones) ? payload.new.interacciones : [],
+                devFeedback: Array.isArray(payload.new.dev_feedback) ? payload.new.dev_feedback : [],
+                seguimientosAsesor: Array.isArray(payload.new.seguimientos_asesor) ? payload.new.seguimientos_asesor : []
+              };
+              setCrmData(prev => {
+                const next = { ...prev, [loteClave]: crmEntry };
+                saveCRM(next);
+                return next;
+              });
+            } catch(err) { console.warn("Error procesando cambio CRM:", err); }
+          } else if (payload.eventType === "DELETE") {
+            try {
+              const { data: loteRow } = await sb.from('lotes').select('id_macrolote, clave_unica').eq('id', payload.old.lote_id).single();
+              if (!loteRow) return;
+              const loteClave = loteRow.id_macrolote || loteRow.clave_unica;
+              setCrmData(prev => {
+                const next = { ...prev };
+                delete next[loteClave];
+                saveCRM(next);
+                return next;
+              });
+            } catch(err) { console.warn("Error procesando DELETE CRM:", err); }
+          }
+          
           contarEnSupabase("crm_lotes").then(r=>setSupabaseConteos(prev=>({...prev, crm:r.count})));
         })
         .subscribe();
+        
     } catch(e){ console.warn("Realtime no disponible:", e); }
     
     return ()=>{
