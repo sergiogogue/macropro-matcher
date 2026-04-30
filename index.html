@@ -214,9 +214,8 @@ function clienteToSupabase(cliente) {
   // id_cliente es ahora la clave única (no email). Si no hay id nativo, generar determinístico.
   let idCliente = (cliente.id || cliente.id_cliente || "").toString().trim();
   if (!idCliente) {
-    // Generar id determinístico basado en nombre + telefono para idempotencia
     const seed = ((cliente.nombre || "") + "|" + (cliente.telefono || "") + "|" + (cliente.empresa || "")).trim();
-    if (!seed || seed === "||") return null; // Sin nada identificable, no migrar
+    if (!seed || seed === "||") return null;
     let hash = 0;
     for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash) + seed.charCodeAt(i) | 0;
     idCliente = "auto-" + Math.abs(hash).toString(36);
@@ -406,16 +405,187 @@ async function contarEnSupabase(tabla) {
   }
 }
 
-// Exponer helpers globalmente para uso en consola/debug
+// ============================================================
+// DESCARGA DESDE SUPABASE (para nuevos dispositivos / multi-usuario)
+// ============================================================
+
+// Descargar lotes de Supabase y guardar en localStorage
+async function descargarLotesDeSupabase(onProgress) {
+  const ok = await waitForSupabase();
+  if (!ok) return { success: false, count: 0, message: 'Supabase no disponible' };
+  try {
+    if (onProgress) onProgress('Descargando lotes...', 0);
+    const { data, error } = await sb.from('lotes').select('*');
+    if (error) return { success: false, count: 0, message: error.message };
+    // Transformar formato Supabase -> formato localStorage
+    const lotes = (data || []).map(l => ({
+      id: l.id_macrolote || l.clave_unica,
+      clave_unica: l.clave_unica,
+      nombre_lote: l.nombre,
+      nombre: l.nombre,
+      desarrollo: l.desarrollo || '',
+      desarrollador: l.desarrollador || '',
+      ciudad: l.ciudad || '',
+      estado: l.estado || '',
+      sup_m2: l.sup_m2,
+      precio_m2: l.precio_m2,
+      precio_total: l.precio_total,
+      uso: l.uso || '',
+      usos_todos: Array.isArray(l.usos_todos) ? l.usos_todos : [],
+      status: l.status_inventario || 'Disponible',
+      status_inventario: l.status_inventario || 'Disponible',
+      fecha_ingreso: l.fecha_ingreso || null,
+      _supabase_id: l.id  // referencia interna
+    }));
+    localStorage.setItem('macropro_inventory_v1', JSON.stringify(lotes));
+    if (onProgress) onProgress(`✓ ${lotes.length} lotes descargados`, lotes.length);
+    return { success: true, count: lotes.length, message: `✓ ${lotes.length} lotes descargados` };
+  } catch (err) {
+    return { success: false, count: 0, message: err.message };
+  }
+}
+
+// Descargar clientes de Supabase y guardar en localStorage
+async function descargarClientesDeSupabase(onProgress) {
+  const ok = await waitForSupabase();
+  if (!ok) return { success: false, count: 0, message: 'Supabase no disponible' };
+  try {
+    if (onProgress) onProgress('Descargando clientes...', 0);
+    const { data, error } = await sb.from('clientes').select('*');
+    if (error) return { success: false, count: 0, message: error.message };
+    const clientes = (data || []).map(c => ({
+      id: c.id_cliente,
+      id_cliente: c.id_cliente,
+      email: c.email || '',
+      nombre: c.nombre || '',
+      empresa: c.empresa || '',
+      telefono: c.telefono || '',
+      asesor: c.asesor || '',
+      tipo_comprador: c.tipo_comprador || '',
+      ciudad_interes: Array.isArray(c.ciudad_interes) ? c.ciudad_interes : [],
+      uso_interes: Array.isArray(c.uso_interes) ? c.uso_interes : [],
+      presupuesto_min: c.presupuesto_min,
+      presupuesto_max: c.presupuesto_max,
+      sup_min: c.sup_min,
+      sup_max: c.sup_max,
+      temperatura: c.temperatura || '',
+      status: c.status || '',
+      plazo_cierre: c.plazo_cierre || '',
+      deal_breakers: Array.isArray(c.deal_breakers) ? c.deal_breakers : [],
+      activo: c.activo !== false,
+      _supabase_id: c.id
+    }));
+    localStorage.setItem('macropro_clients_v1', JSON.stringify(clientes));
+    if (onProgress) onProgress(`✓ ${clientes.length} clientes descargados`, clientes.length);
+    return { success: true, count: clientes.length, message: `✓ ${clientes.length} clientes descargados` };
+  } catch (err) {
+    return { success: false, count: 0, message: err.message };
+  }
+}
+
+// Descargar CRM de Supabase y guardar en localStorage
+async function descargarCRMDeSupabase(onProgress) {
+  const ok = await waitForSupabase();
+  if (!ok) return { success: false, count: 0, message: 'Supabase no disponible' };
+  try {
+    if (onProgress) onProgress('Descargando CRM...', 0);
+    // Necesitamos los lotes para mapear lote_id (UUID) -> id_macrolote (string)
+    const { data: lotesDb, error: errLotes } = await sb.from('lotes').select('id, id_macrolote, clave_unica');
+    if (errLotes) return { success: false, count: 0, message: errLotes.message };
+    const idToLoteKey = {};
+    (lotesDb || []).forEach(l => { idToLoteKey[l.id] = l.id_macrolote || l.clave_unica; });
+
+    const { data, error } = await sb.from('crm_lotes').select('*');
+    if (error) return { success: false, count: 0, message: error.message };
+    const crmObj = {};
+    (data || []).forEach(row => {
+      const loteKeyStr = idToLoteKey[row.lote_id];
+      if (!loteKeyStr) return;
+      crmObj[loteKeyStr] = {
+        pipeline: row.pipeline || 'Prospecto',
+        asesorResponsable: row.asesor_asignado || null,
+        prospectos: Array.isArray(row.prospectos) ? row.prospectos : [],
+        interacciones: Array.isArray(row.interacciones) ? row.interacciones : [],
+        devFeedback: Array.isArray(row.dev_feedback) ? row.dev_feedback : [],
+        seguimientosAsesor: Array.isArray(row.seguimientos_asesor) ? row.seguimientos_asesor : []
+      };
+    });
+    localStorage.setItem('macropro_crm_v1', JSON.stringify(crmObj));
+    const count = Object.keys(crmObj).length;
+    if (onProgress) onProgress(`✓ ${count} seguimientos CRM descargados`, count);
+    return { success: true, count: count, message: `✓ ${count} seguimientos CRM descargados` };
+  } catch (err) {
+    return { success: false, count: 0, message: err.message };
+  }
+}
+
+// Orquestador: descargar TODO de Supabase
+async function descargarTodoDeSupabase(onProgress) {
+  const resultLotes = await descargarLotesDeSupabase(onProgress);
+  const resultClientes = await descargarClientesDeSupabase(onProgress);
+  const resultCRM = await descargarCRMDeSupabase(onProgress);
+  return {
+    success: resultLotes.success && resultClientes.success && resultCRM.success,
+    lotes: resultLotes,
+    clientes: resultClientes,
+    crm: resultCRM,
+    message: `${resultLotes.message} · ${resultClientes.message} · ${resultCRM.message}`
+  };
+}
+
+// Detectar si es primera vez (localStorage vacío) y auto-descargar de Supabase
+async function autoDescargaSiCorresponde() {
+  const lotesLocales = JSON.parse(localStorage.getItem('macropro_inventory_v1') || '[]');
+  const clientesLocales = JSON.parse(localStorage.getItem('macropro_clients_v1') || '[]');
+  // Si no hay datos locales, intentar descargar de Supabase
+  if (lotesLocales.length === 0 && clientesLocales.length === 0) {
+    console.log('🔄 localStorage vacío detectado. Intentando auto-descarga desde Supabase...');
+    const ok = await waitForSupabase();
+    if (!ok) {
+      console.warn('⚠ Auto-descarga abortada: Supabase no disponible');
+      return { triggered: false, reason: 'supabase_unavailable' };
+    }
+    const result = await descargarTodoDeSupabase((msg) => console.log('📥', msg));
+    if (result.success) {
+      console.log('✅ Auto-descarga completa. Recargando para reflejar datos...');
+      // Recargar la página para que React lea el nuevo localStorage
+      setTimeout(() => location.reload(), 500);
+      return { triggered: true, success: true, result };
+    } else {
+      console.warn('⚠ Auto-descarga falló:', result.message);
+      return { triggered: true, success: false, result };
+    }
+  }
+  return { triggered: false, reason: 'data_exists' };
+}
+
+// Exponer helpers globalmente para uso en consola/debug y desde React
 if (typeof window !== 'undefined') {
   window.sbHelpers = {
+    // Subir
     migrarLotes: migrarLotesASupabase,
     migrarClientes: migrarClientesASupabase,
     migrarCRM: migrarCRMASupabase,
+    // Bajar
+    descargarLotes: descargarLotesDeSupabase,
+    descargarClientes: descargarClientesDeSupabase,
+    descargarCRM: descargarCRMDeSupabase,
+    descargarTodo: descargarTodoDeSupabase,
+    autoDescarga: autoDescargaSiCorresponde,
+    // Utilidades
     contar: contarEnSupabase,
     loteKey: loteKey
   };
+
+  // Auto-descarga al cargar si localStorage está vacío
+  // Espera 2 segundos para asegurar que Supabase esté listo
+  setTimeout(() => {
+    autoDescargaSiCorresponde().then(r => {
+      if (r.triggered) console.log('Auto-descarga resultado:', r);
+    }).catch(err => console.warn('Auto-descarga error:', err));
+  }, 2000);
 }
+
 
 
 // ─── BRAND TOKENS ─────────────────────────────────────────────────
@@ -2455,6 +2625,28 @@ function MacroProMatcher() {
     if (!r3.success) return;
     toast("🎉 Migración completa: " + r1.count + " lotes, " + r2.count + " clientes, " + r3.count + " seguimientos CRM");
   };
+
+  // ── Descargar TODO desde Supabase ─────────────────────────────
+  const runDescargaTodo = async () => {
+    if (!window.confirm("⚠️ Esto sobrescribirá TODOS los datos locales con los de la nube.\n\n¿Continuar?")) return;
+    setMigrateState(s => ({ ...s, running: true, results: null, error: null, progress: { current: 0, total: 0, label: 'Descargando...' } }));
+    try {
+      const result = await window.sbHelpers.descargarTodo((msg, n) => {
+        setMigrateState(s => ({ ...s, progress: { current: n || 0, total: 0, label: msg } }));
+      });
+      if (result.success) {
+        toast("✅ Descarga completa: " + result.lotes.count + " lotes, " + result.clientes.count + " clientes, " + result.crm.count + " CRM. Recargando...");
+        setTimeout(() => location.reload(), 1500);
+      } else {
+        setMigrateState(s => ({ ...s, running: false, error: result.message }));
+        toast("❌ Error: " + result.message);
+      }
+    } catch (err) {
+      setMigrateState(s => ({ ...s, running: false, error: err.message }));
+      toast("❌ Error: " + err.message);
+    }
+  };
+
   // ── Semáforo de tiempo en inventario ────────────────────────
   const INV_SEMAFORO=[
     {max:30,   label:"Nuevo",       col:"#22c55e", bg:"#dcfce7", icon:"🟢"},
@@ -9279,8 +9471,25 @@ function MacroProMatcher() {
           </div>
 
           {/* Info box */}
-          <div style={{background:"#fef3c7", borderRadius:9, padding:"10px 14px", marginBottom:18, fontSize:11, color:"#92400e", lineHeight:1.5}}>
+          <div style={{background:"#fef3c7", borderRadius:9, padding:"10px 14px", marginBottom:12, fontSize:11, color:"#92400e", lineHeight:1.5}}>
             💡 <strong>Primera vez:</strong> ejecuta primero el SQL de <code>supabase_schema_v2.sql</code> en Supabase Dashboard → SQL Editor.
+          </div>
+
+          {/* Sección descarga (para nuevos dispositivos) */}
+          <div style={{background:"#dbeafe", borderRadius:9, padding:"12px 14px", marginBottom:12, border:"1px solid #93c5fd"}}>
+            <div style={{fontSize:11, color:"#1e40af", lineHeight:1.5, marginBottom:8, fontWeight:600}}>
+              📥 ¿Es un dispositivo nuevo o quieres traer los datos de la nube?
+            </div>
+            <button
+              onClick={runDescargaTodo}
+              disabled={running || !sb}
+              style={{width:"100%",padding:"10px",background:(running||!sb)?B.grey1:"#1e40af",color:"#fff",border:"none",borderRadius:9,cursor:(running||!sb)?"not-allowed":"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",opacity:(running||!sb)?0.5:1}}
+            >
+              ⬇️ Descargar TODO desde la nube
+            </button>
+            <div style={{fontSize:10, color:"#1e40af", marginTop:6, opacity:0.8}}>
+              ⚠️ Sobrescribe los datos locales. Úsalo solo si es la primera vez en este dispositivo.
+            </div>
           </div>
 
           {/* Cerrar */}
