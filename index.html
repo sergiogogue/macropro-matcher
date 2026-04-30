@@ -1873,7 +1873,11 @@ function MacroProMatcher() {
     view:"macropro_view_v1",
     activeTab:"macropro_activeTab_v1",
     filterDevCompania:"macropro_filterDevCompania_v1",
-    filterDesarrolloGlobal:"macropro_filterDesarrolloGlobal_v1"
+    filterDesarrolloGlobal:"macropro_filterDesarrolloGlobal_v1",
+    filterPipeline:"macropro_filterPipeline_v1",
+    filterDesarrolloCRM:"macropro_filterDesarrolloCRM_v1",
+    filterSemaforo:"macropro_filterSemaforo_v1",
+    filterAsesor:"macropro_filterAsesor_v1"
   };
   const loadPersisted=(key,defaultVal)=>{
     try{
@@ -1894,13 +1898,16 @@ function MacroProMatcher() {
   const [activeTab, setActiveTabRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.activeTab,"dashboard"));
   const setActiveTab=(t)=>{setActiveTabRaw(t);savePersisted(STORAGE_KEYS.activeTab,t);};
   const [selectedLotCRM, setSelectedLotCRM] = React.useState(null);
-  const [filterPipeline, setFilterPipeline] = React.useState("Todos");
-  const [filterDesarrolloCRM, setFilterDesarrolloCRM] = React.useState("Todos");
+  const [filterPipeline, setFilterPipelineRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterPipeline,"Todos"));
+  const setFilterPipeline=(v)=>{setFilterPipelineRaw(v);savePersisted(STORAGE_KEYS.filterPipeline,v);};
+  const [filterDesarrolloCRM, setFilterDesarrolloCRMRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterDesarrolloCRM,"Todos"));
+  const setFilterDesarrolloCRM=(v)=>{setFilterDesarrolloCRMRaw(v);savePersisted(STORAGE_KEYS.filterDesarrolloCRM,v);};
   const [filterDesarrolloGlobal, setFilterDesarrolloGlobalRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterDesarrolloGlobal,"Todos"));
   const setFilterDesarrolloGlobal=(v)=>{setFilterDesarrolloGlobalRaw(v);savePersisted(STORAGE_KEYS.filterDesarrolloGlobal,v);};
   const [filterDevCompania, setFilterDevCompaniaRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterDevCompania,"Todos"));
   const setFilterDevCompania=(v)=>{setFilterDevCompaniaRaw(v);savePersisted(STORAGE_KEYS.filterDevCompania,v);};
-  const [filterSemaforo, setFilterSemaforo] = React.useState("Todos");
+  const [filterSemaforo, setFilterSemaforoRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterSemaforo,"Todos"));
+  const setFilterSemaforo=(v)=>{setFilterSemaforoRaw(v);savePersisted(STORAGE_KEYS.filterSemaforo,v);};
   const [selectedAsesorLotes, setSelectedAsesorLotes] = React.useState(null);
   const [inventory, setInventoryRaw] = useState(()=>loadPersisted(STORAGE_KEYS.inventory,[]));
   const setInventory=(data)=>{
@@ -1928,7 +1935,8 @@ function MacroProMatcher() {
   const [filterCity, setFilterCity] = useState("Todas");
   const [filterDesarrollo, setFilterDesarrollo] = useState("Todos");
   const [filterUso, setFilterUso] = useState("Todos");
-  const [filterAsesor, setFilterAsesor] = useState("Todos");
+  const [filterAsesor, setFilterAsesorRaw] = useState(()=>loadPersisted(STORAGE_KEYS.filterAsesor,"Todos"));
+  const setFilterAsesor=(v)=>{setFilterAsesorRaw(v);savePersisted(STORAGE_KEYS.filterAsesor,v);};
   const [filterSupMin, setFilterSupMin] = useState("");
   const [filterSupMax, setFilterSupMax] = useState("");
   const [filterPrecioMax, setFilterPrecioMax] = useState("");
@@ -4475,11 +4483,34 @@ function MacroProMatcher() {
       const asesores=[...new Set(allProspectos.map(p=>p.cli&&p.cli.asesor).filter(Boolean))];
       // NOTA: allProspectos YA viene filtrado por srcInvFiltrado (filterDevCompania + filterDesarrolloGlobal)
       // Solo aplicamos aquí los filtros de la VistaProspectos: asesor + pipeline
+      // Soportar grupos especiales:
+      // "__activos__" = todas las etapas activas (Prospecto..Contrato)
+      // "__cierre__" = Apartado + Contrato (cierre inminente)
+      const ETAPAS_ACTIVAS = ["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
+      const ETAPAS_CIERRE = ["Apartado","Contrato"];
+      const matchPipelineFilter = (pip) => {
+        if(filterPipeline==="Todos") return true;
+        if(filterPipeline==="__activos__") return ETAPAS_ACTIVAS.includes(pip);
+        if(filterPipeline==="__cierre__") return ETAPAS_CIERRE.includes(pip);
+        return pip===filterPipeline;
+      };
       const filtered=allProspectos.filter(p=>{
         if(filterAsesor!=="Todos"&&(!p.cli||p.cli.asesor!==filterAsesor)&&(!p.prospecto||p.prospecto.asesor!==filterAsesor)) return false;
-        if(filterPipeline!=="Todos"&&p.pipeline!==filterPipeline) return false;
+        if(!matchPipelineFilter(p.pipeline)) return false;
         return true;
       });
+
+      // Detectar si hay filtros activos (para mostrar alerta + botón limpiar)
+      const filtrosActivos = (filterDevCompania!=="Todos"?1:0) + (filterDesarrolloGlobal!=="Todos"?1:0) + (filterAsesor!=="Todos"?1:0) + (filterPipeline!=="Todos"?1:0);
+      const filtroDejoCero = filtered.length===0 && allProspectos.length>0 && filtrosActivos>0;
+      const limpiarTodosFiltros = () => {
+        setFilterDevCompania("Todos");
+        setFilterDesarrolloGlobal("Todos");
+        setFilterAsesor("Todos");
+        setFilterPipeline("Todos");
+        setFilterSemaforo("Todos");
+        setFilterDesarrolloCRM("Todos");
+      };
 
       return (
         <div>
@@ -4490,10 +4521,40 @@ function MacroProMatcher() {
             </select>
             <select value={filterPipeline} onChange={e=>setFilterPipeline(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
               <option value="Todos">Todas las etapas</option>
+              <option value="__activos__">🔥 Solo activos (todos en pipeline)</option>
+              <option value="__cierre__">💰 Cierre inminente (Apartado + Contrato)</option>
+              <option disabled>──────────</option>
               {PIPELINE_STAGES.map(s=><option key={s}>{s}</option>)}
             </select>
             <span style={{fontSize:11,color:B.grey3,marginLeft:"auto"}}>{filtered.length} prospecto{filtered.length!==1?"s":""}</span>
+            {filtrosActivos>0&&(
+              <button onClick={limpiarTodosFiltros}
+                style={{padding:"6px 12px",borderRadius:8,border:"1px solid "+B.gold,background:B.white,color:B.gold,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                ✨ Limpiar {filtrosActivos} filtro{filtrosActivos!==1?"s":""}
+              </button>
+            )}
           </div>
+
+          {filtroDejoCero&&(
+            <div style={{padding:"20px 24px",background:"linear-gradient(135deg,#fef3c7 0%,#fde68a 100%)",borderRadius:12,border:"2px solid #f59e0b",marginBottom:16,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+              <div style={{fontSize:32}}>🔍</div>
+              <div style={{flex:1,minWidth:200}}>
+                <div style={{fontSize:14,fontWeight:800,color:"#92400e",marginBottom:4}}>Sin resultados con los filtros activos</div>
+                <div style={{fontSize:12,color:"#78350f"}}>
+                  Tienes <strong>{filtrosActivos} filtro{filtrosActivos!==1?"s":""}</strong> aplicado{filtrosActivos!==1?"s":""}: 
+                  {filterDevCompania!=="Todos"&&<span style={{display:"inline-block",margin:"0 4px",padding:"2px 8px",background:"#fff",borderRadius:6,fontWeight:700}}>📊 {filterDevCompania}</span>}
+                  {filterDesarrolloGlobal!=="Todos"&&<span style={{display:"inline-block",margin:"0 4px",padding:"2px 8px",background:"#fff",borderRadius:6,fontWeight:700}}>🏗 {filterDesarrolloGlobal}</span>}
+                  {filterAsesor!=="Todos"&&<span style={{display:"inline-block",margin:"0 4px",padding:"2px 8px",background:"#fff",borderRadius:6,fontWeight:700}}>👤 {filterAsesor}</span>}
+                  {filterPipeline!=="Todos"&&<span style={{display:"inline-block",margin:"0 4px",padding:"2px 8px",background:"#fff",borderRadius:6,fontWeight:700}}>📋 {filterPipeline==="__activos__"?"Solo activos":(filterPipeline==="__cierre__"?"Cierre inminente":filterPipeline)}</span>}
+                </div>
+                <div style={{fontSize:11,color:"#78350f",marginTop:6,fontStyle:"italic"}}>Hay {allProspectos.length} prospectos en total — algunos pueden no coincidir con tu selección.</div>
+              </div>
+              <button onClick={limpiarTodosFiltros}
+                style={{padding:"12px 24px",borderRadius:10,border:"none",background:"#f59e0b",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 8px rgba(245,158,11,0.3)"}}>
+                ✨ Limpiar todos los filtros
+              </button>
+            </div>
+          )}
 
           {filterAsesor!=="Todos"&&(()=>{
             const myItems=allProspectos.filter(x=>(x.cli&&x.cli.asesor===filterAsesor)||(x.prospecto&&x.prospecto.asesor===filterAsesor));
