@@ -6872,13 +6872,21 @@ function MacroProMatcher() {
 
 
   // ═══════════════════════════════════════════════════════════════
-  // VIEW: ⬡ EJECUTIVO — Operación diaria del pipeline
+  // VIEW: ⬡ EJECUTIVO — CEO COCKPIT (vista ejecutiva profesional)
   // ═══════════════════════════════════════════════════════════════
   const ViewEjecutivo = () => {
-    // Helpers locales (replicados para no depender de scope de otras vistas)
-    const STAGES_REQUIRING_ACTIVITY_LOCAL = ["En negociación","Propuesta","Contrato"];
-    // getLotePipeline local: deriva la etapa del lote como la más avanzada de sus prospectos
+    // ════════════════════════════════════════════════════════════════
+    // CEO COCKPIT — Vista ejecutiva de alto nivel para toma de decisiones
+    // 6 secciones: Hero · Performance vs Plan · Pipeline Health · 
+    //              Risks & Alerts · Performance por desarrollador · Tendencia
+    // ════════════════════════════════════════════════════════════════
+
+    // ─── Helpers locales ────────────────────────────────────────────
     const stageOrder={"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Vendido":7,"Perdido":0,"Disponible":0};
+    const stageProb={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
+    const STAGES_REQUIRING_ACTIVITY_LOCAL = ["En negociación","Propuesta","Contrato"];
+    const ACTIVE_STAGES_LOCAL = ["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
+
     const getLotePipelineLocal = (lotId) => {
       const e = crmData[lotId];
       if(!e) return "Disponible";
@@ -6893,7 +6901,7 @@ function MacroProMatcher() {
       });
       return masAvanzada;
     };
-    // updateProspectoPipeline local (versión simplificada sin modal de pérdida)
+
     const updateProspectoPipelineLocal = (lotId, prospectoIdx, newStage) => {
       setCrmData(prev=>{
         const entry = prev[lotId]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
@@ -6908,9 +6916,18 @@ function MacroProMatcher() {
       toast("✅ Etapa actualizada a "+newStage);
     };
 
-    // Datos base
+    const fmtMoney = (v) => {
+      if(!v||v===0) return "$0";
+      if(v>=1e9) return "$"+(v/1e9).toFixed(2)+"B";
+      if(v>=1e6) return "$"+(v/1e6).toFixed(1)+"M";
+      if(v>=1e3) return "$"+(v/1e3).toFixed(0)+"k";
+      return "$"+v.toFixed(0);
+    };
+    const fmtMoneyFull = (v) => "$"+(v||0).toLocaleString("es-MX",{maximumFractionDigits:0});
+    const fmtPct = (v) => (v*100).toFixed(0)+"%";
+
+    // ─── Datos base + filtros ───────────────────────────────────────
     const srcInvE = inventory.length>0?inventory:DEMO_LOTS;
-    // Aplicar filtros
     const desarrolladoresUnicos = [...new Set(srcInvE.map(l=>l.desarrollador||l.desarrollo).filter(Boolean))].sort();
     const desarrollosUnicos = [...new Set(srcInvE.filter(l=>{
       if(ejecFiltroDesarrollador==="Todos") return true;
@@ -6941,7 +6958,6 @@ function MacroProMatcher() {
         if(ejecFiltroEtapa!=="Todos"&&pipelineP!==ejecFiltroEtapa) return;
         const asesorP = p.asesor||crm.asesorResponsable||"Sin asignar";
         if(ejecFiltroAsesor!=="Todos"&&asesorP!==ejecFiltroAsesor) return;
-        // Última actividad y próxima
         const acts = p.actividades||[];
         const proximaAct = acts.filter(a=>!a.completada).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha))[0];
         const ultimaInteraccion = (crm.lastContact)||(acts.filter(a=>a.completada).sort((a,b)=>new Date(b.fechaCompletada||b.fecha)-new Date(a.fechaCompletada||a.fecha))[0]||{}).fechaCompletada||null;
@@ -6955,34 +6971,205 @@ function MacroProMatcher() {
       });
     });
 
-    // KPIs operativos
-    const kpiPipelineActivo = lotesFiltrados.filter(l=>{
-      const e=crmData[l.id]; if(!e) return false;
-      const pip=getLotePipelineLocal(l.id); 
-      return pip&&pip!=="Disponible"&&pip!=="Perdido"&&pip!=="Vendido";
-    });
-    const valorPipelineActivo = kpiPipelineActivo.reduce((a,l)=>a+(l.precio_total||0),0);
-    const apartados = lotesFiltrados.filter(l=>getLotePipelineLocal(l.id)==="Apartado");
-    const valorApartados = apartados.reduce((a,l)=>a+(l.precio_total||0),0);
-    const vendidos = lotesFiltrados.filter(l=>getLotePipelineLocal(l.id)==="Vendido");
-    const valorVendidos = vendidos.reduce((a,l)=>a+(l.precio_total||0),0);
+    // ─── SECCIÓN 1: Hero — Cierre vs Meta YTD ───────────────────────
+    const ahora = new Date();
+    const mesActual = ahora.getMonth(); // 0-11
+    const diaDelAno = Math.floor((ahora - new Date(ahora.getFullYear(),0,0))/(1000*60*60*24));
+    const pctAnoTranscurrido = diaDelAno/365;
 
-    // Alertas
+    // Calcular meta y real desde metasData (filtrado por desarrollador/desarrollo)
+    let metaAnualUds=0, metaAnualMonto=0, realYTDUds=0, realYTDMonto=0, metaYTDUds=0, metaYTDMonto=0;
+    Object.entries(metasData||{}).forEach(([nombre, d])=>{
+      if(!d||!d.plan||!d.real) return;
+      if(ejecFiltroDesarrollador!=="Todos" && d.desarrollador!==ejecFiltroDesarrollador) return;
+      if(ejecFiltroDesarrollo!=="Todos" && nombre!==ejecFiltroDesarrollo) return;
+      const planU = (d.plan.uds||[]).reduce((a,b)=>a+(b||0),0);
+      const planM = (d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
+      // Real YTD: meses 0 hasta mesActual (incluido)
+      const realU = (d.real.uds||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
+      const realM = (d.real.monto||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
+      // Meta YTD: meses 0 hasta mesActual
+      const metaU = (d.plan.uds||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
+      const metaM = (d.plan.monto||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
+      metaAnualUds+=planU; metaAnualMonto+=planM;
+      realYTDUds+=realU; realYTDMonto+=realM;
+      metaYTDUds+=metaU; metaYTDMonto+=metaM;
+    });
+
+    const cumplYTDPct = metaYTDMonto>0 ? realYTDMonto/metaYTDMonto : 0;
+    const cumplAnualPct = metaAnualMonto>0 ? realYTDMonto/metaAnualMonto : 0;
+    const gapAnualMonto = metaAnualMonto - realYTDMonto;
+    const mesesRestantes = 12 - mesActual - 1;
+    const velocidadActualMensual = mesActual>0 ? realYTDMonto/(mesActual+1) : 0;
+    const velocidadRequeridaMensual = mesesRestantes>0 ? gapAnualMonto/mesesRestantes : 0;
+    const onTrack = cumplYTDPct >= 0.95;
+    const heroColor = onTrack ? "#16a34a" : (cumplYTDPct >= 0.75 ? "#f59e0b" : "#dc2626");
+    const heroLabel = onTrack ? "🟢 ON TRACK" : (cumplYTDPct >= 0.75 ? "🟡 EN RIESGO" : "🔴 BEHIND");
+
+    // ─── SECCIÓN 2: Pipeline Health ─────────────────────────────────
+    // Pipeline ponderado por etapa
+    const pipelinePorEtapa = {};
+    ACTIVE_STAGES_LOCAL.forEach(s=>{ pipelinePorEtapa[s] = {count:0, valor:0, ponderado:0, lotes:[]}; });
+    
+    lotesFiltrados.forEach(lot=>{
+      const pip = getLotePipelineLocal(lot.id);
+      if(!ACTIVE_STAGES_LOCAL.includes(pip)) return;
+      const valor = lot.precio_total||0;
+      pipelinePorEtapa[pip].count++;
+      pipelinePorEtapa[pip].valor += valor;
+      pipelinePorEtapa[pip].ponderado += valor * stageProb[pip];
+      pipelinePorEtapa[pip].lotes.push(lot);
+    });
+    const pipelineTotalValor = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.valor, 0);
+    const pipelineTotalPonderado = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.ponderado, 0);
+    const totalLotesActivos = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.count, 0);
+
+    // Conversión global (lotes vendidos / total con interacción)
+    const lotesVendidos = lotesFiltrados.filter(l=>getLotePipelineLocal(l.id)==="Vendido").length;
+    const lotesPerdidos = lotesFiltrados.filter(l=>getLotePipelineLocal(l.id)==="Perdido").length;
+    const lotesCerrados = lotesVendidos + lotesPerdidos;
+    const conversionRate = lotesCerrados>0 ? lotesVendidos/lotesCerrados : 0;
+
+    // Velocidad: lotes vendidos / días desde primera interacción promedio
+    let sumDiasVenta=0, countVendidosConFecha=0;
+    lotesFiltrados.forEach(l=>{
+      if(getLotePipelineLocal(l.id)!=="Vendido") return;
+      const crm = crmData[l.id];
+      if(!crm) return;
+      // Buscar primera interacción
+      const primeras = (crm.interacciones||[]).filter(i=>i.fecha).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+      const ultimas = (crm.interacciones||[]).filter(i=>i.fecha).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+      if(primeras.length===0||ultimas.length===0) return;
+      const dias = Math.floor((new Date(ultimas[0].fecha) - new Date(primeras[0].fecha))/(864e5));
+      if(dias>0){ sumDiasVenta+=dias; countVendidosConFecha++; }
+    });
+    const cicloVentaPromedio = countVendidosConFecha>0 ? sumDiasVenta/countVendidosConFecha : 0;
+
+    // Ticket promedio
+    const valorTotalVendido = lotesFiltrados.filter(l=>getLotePipelineLocal(l.id)==="Vendido").reduce((a,l)=>a+(l.precio_total||0),0);
+    const ticketPromedio = lotesVendidos>0 ? valorTotalVendido/lotesVendidos : 0;
+
+    // ─── SECCIÓN 3: Performance por desarrollador ───────────────────
+    const performancePorDev = {};
+    Object.entries(metasData||{}).forEach(([nombre, d])=>{
+      if(!d||!d.plan||!d.real||!d.desarrollador) return;
+      if(ejecFiltroDesarrollador!=="Todos" && d.desarrollador!==ejecFiltroDesarrollador) return;
+      const dev = d.desarrollador;
+      if(!performancePorDev[dev]){
+        performancePorDev[dev] = {
+          desarrollador:dev, planUds:0, planMonto:0, realUds:0, realMonto:0, metaYTDMonto:0,
+          desarrollos:[]
+        };
+      }
+      const planM = (d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
+      const realM = (d.real.monto||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
+      const metaYTDM = (d.plan.monto||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
+      performancePorDev[dev].planUds += (d.plan.uds||[]).reduce((a,b)=>a+(b||0),0);
+      performancePorDev[dev].planMonto += planM;
+      performancePorDev[dev].realUds += (d.real.uds||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
+      performancePorDev[dev].realMonto += realM;
+      performancePorDev[dev].metaYTDMonto += metaYTDM;
+      performancePorDev[dev].desarrollos.push(nombre);
+    });
+    const rankingDevs = Object.values(performancePorDev)
+      .map(d=>({...d, cumplYTD: d.metaYTDMonto>0?d.realMonto/d.metaYTDMonto:0, cumplAnual: d.planMonto>0?d.realMonto/d.planMonto:0}))
+      .sort((a,b)=>b.cumplYTD - a.cumplYTD);
+
+    // ─── SECCIÓN 4: Risks & Alerts ──────────────────────────────────
+    const HOY_MS = Date.now();
     const lotesSinMov60 = lotesFiltrados.filter(l=>{
       const e=crmData[l.id]; if(!e||!e.lastContact) return false;
       const pip=getLotePipelineLocal(l.id);
       if(pip==="Perdido"||pip==="Vendido"||pip==="Disponible") return false;
-      const dias=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));
+      const dias=Math.floor((HOY_MS-new Date(e.lastContact).getTime())/(864e5));
       return dias>60;
     });
+    
+    const dealsRiesgoCriticos = prospectosActivos.filter(p=>{
+      if(!STAGES_REQUIRING_ACTIVITY_LOCAL.includes(p.pipeline)) return false;
+      return p.diasSinContacto && p.diasSinContacto > 30;
+    }).sort((a,b)=>b.valor - a.valor);
+
+    const lotesPremiumSinAsesor = lotesFiltrados.filter(l=>{
+      const valor = l.precio_total||0;
+      if(valor < 5e6) return false; // Más de 5M = premium
+      const pip = getLotePipelineLocal(l.id);
+      if(pip==="Vendido"||pip==="Perdido") return false;
+      const crm = crmData[l.id];
+      if(!crm) return true;
+      // Sin asesor responsable y sin prospectos
+      const tieneAsesor = crm.asesorResponsable || (crm.prospectos||[]).some(p=>p.asesor);
+      return !tieneAsesor;
+    }).sort((a,b)=>(b.precio_total||0)-(a.precio_total||0));
+
     const prospSinActividad = prospectosActivos.filter(p=>{
       if(!STAGES_REQUIRING_ACTIVITY_LOCAL.includes(p.pipeline)) return false;
       return !p.proximaAct;
     });
 
-    // Top 5 lotes por valor en pipeline
-    const top5Lotes = [...kpiPipelineActivo].sort((a,b)=>(b.precio_total||0)-(a.precio_total||0)).slice(0,5);
+    // Visitas próximas 7 días
+    const en7Dias = new Date(); en7Dias.setDate(en7Dias.getDate()+7);
+    const visitasProximas = prospectosActivos.filter(p=>{
+      if(!p.proximaAct||!p.proximaAct.fecha) return false;
+      const fechaAct = new Date(p.proximaAct.fecha);
+      return fechaAct >= ahora && fechaAct <= en7Dias && p.proximaAct.tipo&&p.proximaAct.tipo.toLowerCase().includes("visita");
+    });
 
+    // Forecast 30 días: prospectos en Apartado + Contrato + Propuesta caliente
+    const forecast30 = prospectosActivos.filter(p=>{
+      return p.pipeline==="Apartado"||p.pipeline==="Contrato"||(p.pipeline==="Propuesta"&&p.temperatura==="Caliente");
+    });
+    const valorForecast30 = forecast30.reduce((a,p)=>a+p.valor*stageProb[p.pipeline],0);
+
+    // ─── SECCIÓN 5: Top performers ──────────────────────────────────
+    const performanceAsesores = {};
+    Object.entries(crmData).forEach(([loteId, crm])=>{
+      const lot = srcInvE.find(l=>l.id===loteId);
+      if(!lot) return;
+      if(ejecFiltroDesarrollador!=="Todos"&&(lot.desarrollador||lot.desarrollo)!==ejecFiltroDesarrollador) return;
+      if(ejecFiltroDesarrollo!=="Todos"&&lot.desarrollo!==ejecFiltroDesarrollo) return;
+      const pip = getLotePipelineLocal(loteId);
+      const valor = lot.precio_total||0;
+      const asesoresLote = new Set();
+      if(crm.asesorResponsable) asesoresLote.add(crm.asesorResponsable);
+      (crm.prospectos||[]).forEach(p=>{ if(p.asesor) asesoresLote.add(p.asesor); });
+      asesoresLote.forEach(asesor=>{
+        if(!performanceAsesores[asesor]) performanceAsesores[asesor] = {asesor, vendido:0, pipeline:0, lotes:0, deals:0};
+        performanceAsesores[asesor].lotes++;
+        if(pip==="Vendido"){ performanceAsesores[asesor].vendido += valor; performanceAsesores[asesor].deals++; }
+        else if(ACTIVE_STAGES_LOCAL.includes(pip)) performanceAsesores[asesor].pipeline += valor;
+      });
+    });
+    const topAsesores = Object.values(performanceAsesores).sort((a,b)=>b.vendido - a.vendido).slice(0,5);
+
+    // Top deals en pipeline
+    const topDeals = lotesFiltrados.map(l=>({
+      lot:l, valor:l.precio_total||0, pipeline:getLotePipelineLocal(l.id), ponderado:(l.precio_total||0)*stageProb[getLotePipelineLocal(l.id)]
+    }))
+    .filter(d=>ACTIVE_STAGES_LOCAL.includes(d.pipeline))
+    .sort((a,b)=>b.ponderado - a.ponderado)
+    .slice(0,5);
+
+    // ─── SECCIÓN 6: Tendencia 12 meses ──────────────────────────────
+    const meses12 = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+    const ventasMensuales = new Array(12).fill(0);
+    const planMensual = new Array(12).fill(0);
+    Object.entries(metasData||{}).forEach(([nombre, d])=>{
+      if(!d||!d.real||!d.plan) return;
+      if(ejecFiltroDesarrollador!=="Todos" && d.desarrollador!==ejecFiltroDesarrollador) return;
+      if(ejecFiltroDesarrollo!=="Todos" && nombre!==ejecFiltroDesarrollo) return;
+      (d.real.monto||[]).forEach((v,i)=>{ if(i<12) ventasMensuales[i]+=v||0; });
+      (d.plan.monto||[]).forEach((v,i)=>{ if(i<12) planMensual[i]+=v||0; });
+    });
+    const maxVentaMes = Math.max(...ventasMensuales, ...planMensual, 1);
+    const mejorMesIdx = ventasMensuales.indexOf(Math.max(...ventasMensuales.slice(0, mesActual+1)));
+    const peorMesIdx = ventasMensuales.slice(0, mesActual+1).reduce((acc,v,i,arr)=>v<arr[acc]?i:acc,0);
+    // Tendencia últimos 3 meses (avg)
+    const ult3 = mesActual>=2 ? (ventasMensuales[mesActual]+ventasMensuales[mesActual-1]+ventasMensuales[mesActual-2])/3 : 0;
+    const prev3 = mesActual>=5 ? (ventasMensuales[mesActual-3]+ventasMensuales[mesActual-4]+ventasMensuales[mesActual-5])/3 : 0;
+    const tendenciaPct = prev3>0 ? (ult3-prev3)/prev3 : 0;
+
+    // ─── Limpiar filtros ────────────────────────────────────────────
     const limpiarFiltros = () => {
       setEjecFiltroDesarrollador("Todos");
       setEjecFiltroDesarrollo("Todos");
@@ -6990,7 +7177,8 @@ function MacroProMatcher() {
       setEjecFiltroEtapa("Todos");
     };
 
-    const KPICard = ({label, valor, subvalor, color, icon}) => (
+    // ─── Componente: KPI Card ───────────────────────────────────────
+    const KPICard = ({label, valor, subvalor, color, icon, tendencia, tendenciaTexto}) => (
       <div style={{background:B.white, borderRadius:14, padding:"18px 20px", border:"1px solid "+B.grey1, boxShadow:"0 2px 8px rgba(0,43,73,0.05)", flex:"1 1 200px", minWidth:200}}>
         <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6}}>
           <div style={{fontSize:10, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>{label}</div>
@@ -6998,94 +7186,221 @@ function MacroProMatcher() {
         </div>
         <div style={{fontSize:26, fontWeight:800, color:color||B.navy, fontFamily:"'Playfair Display',serif", lineHeight:1}}>{valor}</div>
         {subvalor&&<div style={{fontSize:11, color:B.grey4, marginTop:6, fontWeight:600}}>{subvalor}</div>}
+        {tendencia!==undefined&&(
+          <div style={{fontSize:11, marginTop:6, fontWeight:700, color:tendencia>0?"#16a34a":(tendencia<0?"#dc2626":B.grey3)}}>
+            {tendencia>0?"↗ +":(tendencia<0?"↘ ":"→ ")}{Math.abs(tendencia*100).toFixed(0)}% {tendenciaTexto||""}
+          </div>
+        )}
       </div>
     );
 
+    // ─── RENDER ─────────────────────────────────────────────────────
     return (
       <div style={{padding:"20px 24px", maxWidth:1400, margin:"0 auto"}}>
         {/* Header */}
-        <div style={{marginBottom:24}}>
-          <div style={{fontSize:11, fontWeight:700, color:B.gold, letterSpacing:2, textTransform:"uppercase"}}>⬡ Vista Ejecutiva</div>
-          <div style={{fontSize:28, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>Operación del Pipeline</div>
-          <div style={{fontSize:12, color:B.grey4, marginTop:4}}>Visión consolidada de prospectos activos, alertas y oportunidades de cierre</div>
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:11, fontWeight:700, color:B.gold, letterSpacing:2, textTransform:"uppercase"}}>⬡ CEO Cockpit</div>
+          <div style={{display:"flex", alignItems:"baseline", gap:14, flexWrap:"wrap"}}>
+            <div style={{fontSize:28, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>Vista Ejecutiva</div>
+            <div style={{fontSize:13, color:B.grey4}}>{ahora.toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
+          </div>
+          <div style={{fontSize:12, color:B.grey4, marginTop:4}}>Cierre vs meta · Salud del pipeline · Riesgos · Performance · Tendencia</div>
         </div>
 
         {/* Filtros */}
-        <div style={{background:B.white, borderRadius:12, padding:"14px 18px", marginBottom:20, border:"1px solid "+B.grey1, display:"flex", gap:12, flexWrap:"wrap", alignItems:"center"}}>
-          <div style={{fontSize:10, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1.2}}>🔍 Filtros:</div>
-          <select value={ejecFiltroDesarrollador} onChange={e=>setEjecFiltroDesarrollador(e.target.value)}
-            style={{padding:"7px 11px", borderRadius:7, border:"1.5px solid "+B.grey1, fontSize:12, fontWeight:600, color:B.navy, background:B.white, cursor:"pointer", outline:"none"}}>
-            <option value="Todos">Desarrollador: Todos</option>
-            {desarrolladoresUnicos.map(d=><option key={d} value={d}>{d}</option>)}
+        <div style={{background:B.white, borderRadius:12, padding:"14px 16px", marginBottom:20, border:"1px solid "+B.grey1, display:"flex", gap:10, alignItems:"center", flexWrap:"wrap"}}>
+          <div style={{fontSize:10, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1.5}}>🔍 Filtros:</div>
+          <select value={ejecFiltroDesarrollador} onChange={e=>{setEjecFiltroDesarrollador(e.target.value);setEjecFiltroDesarrollo("Todos");}}
+            style={{padding:"7px 12px", borderRadius:8, border:"1px solid "+B.grey1, fontSize:12, color:B.navy, background:B.white, fontFamily:"'DM Sans',sans-serif"}}>
+            <option value="Todos">Todos los desarrolladores</option>
+            {desarrolladoresUnicos.map(d=><option key={d}>{d}</option>)}
           </select>
           <select value={ejecFiltroDesarrollo} onChange={e=>setEjecFiltroDesarrollo(e.target.value)}
-            style={{padding:"7px 11px", borderRadius:7, border:"1.5px solid "+B.grey1, fontSize:12, fontWeight:600, color:B.navy, background:B.white, cursor:"pointer", outline:"none"}}>
-            <option value="Todos">Desarrollo: Todos</option>
-            {desarrollosUnicos.map(d=><option key={d} value={d}>{d}</option>)}
+            style={{padding:"7px 12px", borderRadius:8, border:"1px solid "+B.grey1, fontSize:12, color:B.navy, background:B.white, fontFamily:"'DM Sans',sans-serif"}}>
+            <option value="Todos">Todos los desarrollos</option>
+            {desarrollosUnicos.map(d=><option key={d}>{d}</option>)}
           </select>
           <select value={ejecFiltroAsesor} onChange={e=>setEjecFiltroAsesor(e.target.value)}
-            style={{padding:"7px 11px", borderRadius:7, border:"1.5px solid "+B.grey1, fontSize:12, fontWeight:600, color:B.navy, background:B.white, cursor:"pointer", outline:"none"}}>
+            style={{padding:"7px 12px", borderRadius:8, border:"1px solid "+B.grey1, fontSize:12, color:B.navy, background:B.white, fontFamily:"'DM Sans',sans-serif"}}>
             <option value="Todos">Asesor: Todos</option>
-            {asesoresUnicos.map(a=><option key={a} value={a}>{a}</option>)}
-          </select>
-          <select value={ejecFiltroEtapa} onChange={e=>setEjecFiltroEtapa(e.target.value)}
-            style={{padding:"7px 11px", borderRadius:7, border:"1.5px solid "+B.grey1, fontSize:12, fontWeight:600, color:B.navy, background:B.white, cursor:"pointer", outline:"none"}}>
-            <option value="Todos">Etapa: Todas</option>
-            {PIPELINE_STAGES.filter(s=>s!=="Perdido"&&s!=="Vendido").map(s=><option key={s} value={s}>{s}</option>)}
+            {asesoresUnicos.map(a=><option key={a}>{a}</option>)}
           </select>
           <button onClick={limpiarFiltros}
-            style={{padding:"7px 13px", borderRadius:7, border:"1px solid "+B.grey1, fontSize:11, fontWeight:700, color:B.grey4, background:B.offW, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
-            🧹 Limpiar
+            style={{padding:"7px 14px", borderRadius:8, border:"1px solid "+B.gold, background:B.white, color:B.gold, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+            ✨ Limpiar
           </button>
-          <div style={{marginLeft:"auto", fontSize:11, color:B.grey3}}>{lotesFiltrados.length} de {srcInvE.length} lotes · {prospectosActivos.length} prospectos activos</div>
+          <div style={{marginLeft:"auto", fontSize:11, color:B.grey4}}>
+            {lotesFiltrados.length} lotes · {prospectosActivos.length} prospectos activos
+          </div>
         </div>
 
-        {/* KPIs */}
-        <div style={{display:"flex", gap:14, marginBottom:24, flexWrap:"wrap"}}>
-          <KPICard icon="🎯" label="Pipeline Activo" valor={kpiPipelineActivo.length} subvalor={fmtMiles(Math.round(valorPipelineActivo/1000))+" miles"} color={B.navy}/>
-          <KPICard icon="👤" label="Prospectos Activos" valor={prospectosActivos.length} subvalor={asesoresUnicos.length+" asesores involucrados"} color="#3B82F6"/>
-          <KPICard icon="🟡" label="Apartados" valor={apartados.length} subvalor={fmtMiles(Math.round(valorApartados/1000))+" miles"} color="#F59E0B"/>
-          <KPICard icon="✅" label="Vendidos" valor={vendidos.length} subvalor={fmtMiles(Math.round(valorVendidos/1000))+" miles"} color="#22c55e"/>
-        </div>
+        {/* ═══════ SECCIÓN 1: HERO — CIERRE VS META ANUAL ═══════ */}
+        <div style={{background:"linear-gradient(135deg, "+B.navy+" 0%, #003a66 100%)", borderRadius:18, padding:"28px 32px", marginBottom:24, color:"#fff", position:"relative", overflow:"hidden"}}>
+          <div style={{position:"absolute", top:14, right:18, padding:"5px 12px", borderRadius:20, background:heroColor, fontSize:10, fontWeight:800, letterSpacing:1.5}}>{heroLabel}</div>
+          <div style={{fontSize:11, fontWeight:700, color:B.gold, letterSpacing:2, textTransform:"uppercase", marginBottom:6}}>🎯 Cierre {ahora.getFullYear()}</div>
+          <div style={{fontSize:32, fontWeight:800, fontFamily:"'Playfair Display',serif", marginBottom:16}}>
+            {fmtMoney(realYTDMonto)} <span style={{fontSize:18, color:"rgba(255,255,255,0.6)", fontWeight:500}}>de {fmtMoney(metaAnualMonto)}</span>
+          </div>
+          {/* Barra de progreso */}
+          <div style={{position:"relative", height:14, background:"rgba(255,255,255,0.15)", borderRadius:8, overflow:"hidden", marginBottom:6}}>
+            <div style={{position:"absolute", left:0, top:0, height:"100%", width:Math.min(100, cumplAnualPct*100)+"%", background:heroColor, borderRadius:8, transition:"width 0.6s"}}></div>
+            {/* Línea del año transcurrido */}
+            <div style={{position:"absolute", left:Math.min(100, pctAnoTranscurrido*100)+"%", top:-4, height:22, width:2, background:B.gold, opacity:0.7}}></div>
+          </div>
+          <div style={{display:"flex", justifyContent:"space-between", fontSize:11, color:"rgba(255,255,255,0.8)", marginBottom:18}}>
+            <span>📊 Cumplimiento anual: <strong style={{color:"#fff"}}>{(cumplAnualPct*100).toFixed(1)}%</strong></span>
+            <span>📅 Año transcurrido: <strong style={{color:B.gold}}>{(pctAnoTranscurrido*100).toFixed(0)}%</strong></span>
+          </div>
 
-        {/* Alertas */}
-        {(lotesSinMov60.length>0||prospSinActividad.length>0)&&(
-          <div style={{background:"#fef3c7", border:"1.5px solid #f59e0b", borderRadius:12, padding:"14px 18px", marginBottom:20}}>
-            <div style={{fontSize:13, fontWeight:800, color:"#92400e", marginBottom:10, textTransform:"uppercase", letterSpacing:1}}>⚠️ Alertas operativas</div>
-            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(280px, 1fr))", gap:10}}>
-              {lotesSinMov60.length>0&&(
-                <div style={{background:"#fff", borderRadius:8, padding:"10px 12px", borderLeft:"3px solid #dc2626"}}>
-                  <div style={{fontSize:18, fontWeight:800, color:"#991b1b"}}>{lotesSinMov60.length}</div>
-                  <div style={{fontSize:11, color:"#78350f", fontWeight:600}}>lotes sin movimiento &gt;60 días</div>
-                </div>
-              )}
-              {prospSinActividad.length>0&&(
-                <div style={{background:"#fff", borderRadius:8, padding:"10px 12px", borderLeft:"3px solid #f59e0b"}}>
-                  <div style={{fontSize:18, fontWeight:800, color:"#b45309"}}>{prospSinActividad.length}</div>
-                  <div style={{fontSize:11, color:"#78350f", fontWeight:600}}>prospectos activos sin actividad pendiente</div>
-                </div>
-              )}
+          {/* KPIs del Hero */}
+          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:14}}>
+            <div style={{padding:"14px 16px", background:"rgba(255,255,255,0.08)", borderRadius:10, border:"1px solid rgba(255,255,255,0.1)"}}>
+              <div style={{fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.6)", letterSpacing:1.5, textTransform:"uppercase"}}>Vendido YTD</div>
+              <div style={{fontSize:22, fontWeight:800, fontFamily:"'Playfair Display',serif", marginTop:2}}>{realYTDUds} uds</div>
+              <div style={{fontSize:10, color:"rgba(255,255,255,0.6)", marginTop:2}}>{fmtMoneyFull(realYTDMonto)}</div>
+            </div>
+            <div style={{padding:"14px 16px", background:"rgba(255,255,255,0.08)", borderRadius:10, border:"1px solid rgba(255,255,255,0.1)"}}>
+              <div style={{fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.6)", letterSpacing:1.5, textTransform:"uppercase"}}>Meta YTD</div>
+              <div style={{fontSize:22, fontWeight:800, fontFamily:"'Playfair Display',serif", marginTop:2, color:cumplYTDPct>=0.95?"#a7f3d0":"#fde68a"}}>{(cumplYTDPct*100).toFixed(0)}%</div>
+              <div style={{fontSize:10, color:"rgba(255,255,255,0.6)", marginTop:2}}>{fmtMoneyFull(metaYTDMonto)}</div>
+            </div>
+            <div style={{padding:"14px 16px", background:"rgba(255,255,255,0.08)", borderRadius:10, border:"1px solid rgba(255,255,255,0.1)"}}>
+              <div style={{fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.6)", letterSpacing:1.5, textTransform:"uppercase"}}>Gap a meta anual</div>
+              <div style={{fontSize:22, fontWeight:800, fontFamily:"'Playfair Display',serif", marginTop:2, color:gapAnualMonto<=0?"#a7f3d0":"#fed7aa"}}>{fmtMoney(gapAnualMonto)}</div>
+              <div style={{fontSize:10, color:"rgba(255,255,255,0.6)", marginTop:2}}>{mesesRestantes} meses restantes</div>
+            </div>
+            <div style={{padding:"14px 16px", background:"rgba(255,255,255,0.08)", borderRadius:10, border:"1px solid rgba(255,255,255,0.1)"}}>
+              <div style={{fontSize:9, fontWeight:700, color:"rgba(255,255,255,0.6)", letterSpacing:1.5, textTransform:"uppercase"}}>Velocidad requerida</div>
+              <div style={{fontSize:22, fontWeight:800, fontFamily:"'Playfair Display',serif", marginTop:2}}>{fmtMoney(velocidadRequeridaMensual)}</div>
+              <div style={{fontSize:10, color:"rgba(255,255,255,0.6)", marginTop:2}}>vs actual: {fmtMoney(velocidadActualMensual)}/mes</div>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* Top 5 lotes en pipeline */}
-        {top5Lotes.length>0&&(
-          <div style={{background:B.white, borderRadius:12, padding:"18px 20px", marginBottom:20, border:"1px solid "+B.grey1}}>
-            <div style={{fontSize:13, fontWeight:800, color:B.navy, marginBottom:12, textTransform:"uppercase", letterSpacing:1}}>🏆 Top 5 lotes por valor en pipeline</div>
-            <div style={{display:"flex", flexDirection:"column", gap:8}}>
-              {top5Lotes.map((l,i)=>{
-                const pip=getLotePipelineLocal(l.id);
-                const c=PIPELINE_COLORS[pip]||B.grey3;
+        {/* ═══════ SECCIÓN 2: PIPELINE HEALTH ═══════ */}
+        <div style={{background:B.white, borderRadius:14, padding:"20px 24px", marginBottom:24, border:"1px solid "+B.grey1}}>
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:18, flexWrap:"wrap", gap:10}}>
+            <div>
+              <div style={{fontSize:18, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>📊 Salud del Pipeline</div>
+              <div style={{fontSize:11, color:B.grey4, marginTop:2}}>Pipeline ponderado por probabilidad de cierre</div>
+            </div>
+            <div style={{display:"flex", gap:14, alignItems:"baseline"}}>
+              <div>
+                <div style={{fontSize:9, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Total bruto</div>
+                <div style={{fontSize:20, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>{fmtMoney(pipelineTotalValor)}</div>
+              </div>
+              <div>
+                <div style={{fontSize:9, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Ponderado</div>
+                <div style={{fontSize:20, fontWeight:800, color:B.gold, fontFamily:"'Playfair Display',serif"}}>{fmtMoney(pipelineTotalPonderado)}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Tabla por etapa */}
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
+              <thead>
+                <tr style={{background:B.offW}}>
+                  <th style={{textAlign:"left", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Etapa</th>
+                  <th style={{textAlign:"right", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Lotes</th>
+                  <th style={{textAlign:"right", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Valor</th>
+                  <th style={{textAlign:"right", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Prob.</th>
+                  <th style={{textAlign:"right", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Ponderado</th>
+                  <th style={{textAlign:"left", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Distribución</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ACTIVE_STAGES_LOCAL.map(s=>{
+                  const data = pipelinePorEtapa[s];
+                  const pctValor = pipelineTotalValor>0 ? data.valor/pipelineTotalValor : 0;
+                  return (
+                    <tr key={s} style={{borderBottom:"1px solid "+B.grey1}}>
+                      <td style={{padding:"10px 12px", fontWeight:700, color:B.navy}}>{s}</td>
+                      <td style={{padding:"10px 12px", textAlign:"right", fontWeight:600}}>{data.count}</td>
+                      <td style={{padding:"10px 12px", textAlign:"right"}}>{fmtMoney(data.valor)}</td>
+                      <td style={{padding:"10px 12px", textAlign:"right", color:B.grey4}}>{(stageProb[s]*100).toFixed(0)}%</td>
+                      <td style={{padding:"10px 12px", textAlign:"right", fontWeight:700, color:B.gold}}>{fmtMoney(data.ponderado)}</td>
+                      <td style={{padding:"10px 12px", minWidth:120}}>
+                        <div style={{height:8, background:B.grey1, borderRadius:4, overflow:"hidden"}}>
+                          <div style={{height:"100%", width:Math.min(100,pctValor*100)+"%", background:PIPELINE_COLORS[s]||B.navy, borderRadius:4}}></div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr style={{background:B.offW, fontWeight:800}}>
+                  <td style={{padding:"12px", color:B.navy}}>TOTAL ACTIVO</td>
+                  <td style={{padding:"12px", textAlign:"right", color:B.navy}}>{totalLotesActivos}</td>
+                  <td style={{padding:"12px", textAlign:"right", color:B.navy}}>{fmtMoney(pipelineTotalValor)}</td>
+                  <td style={{padding:"12px", textAlign:"right"}}>—</td>
+                  <td style={{padding:"12px", textAlign:"right", color:B.gold}}>{fmtMoney(pipelineTotalPonderado)}</td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Métricas adicionales del pipeline */}
+          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:12, marginTop:18}}>
+            <div style={{padding:"12px 14px", background:B.offW, borderRadius:8}}>
+              <div style={{fontSize:9, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Tasa conversión</div>
+              <div style={{fontSize:20, fontWeight:800, color:conversionRate>=0.5?"#16a34a":B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>{(conversionRate*100).toFixed(0)}%</div>
+              <div style={{fontSize:10, color:B.grey4}}>{lotesVendidos} vendidos / {lotesCerrados} cerrados</div>
+            </div>
+            <div style={{padding:"12px 14px", background:B.offW, borderRadius:8}}>
+              <div style={{fontSize:9, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Ciclo de venta</div>
+              <div style={{fontSize:20, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>{Math.round(cicloVentaPromedio)} días</div>
+              <div style={{fontSize:10, color:B.grey4}}>Promedio en {countVendidosConFecha} ventas</div>
+            </div>
+            <div style={{padding:"12px 14px", background:B.offW, borderRadius:8}}>
+              <div style={{fontSize:9, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Ticket promedio</div>
+              <div style={{fontSize:20, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>{fmtMoney(ticketPromedio)}</div>
+              <div style={{fontSize:10, color:B.grey4}}>{lotesVendidos} unidades vendidas</div>
+            </div>
+            <div style={{padding:"12px 14px", background:"#fef3c7", borderRadius:8, border:"1px solid #fbbf24"}}>
+              <div style={{fontSize:9, fontWeight:700, color:"#92400e", textTransform:"uppercase", letterSpacing:1.2}}>Forecast 30 días</div>
+              <div style={{fontSize:20, fontWeight:800, color:"#b45309", fontFamily:"'Playfair Display',serif", marginTop:2}}>{fmtMoney(valorForecast30)}</div>
+              <div style={{fontSize:10, color:"#92400e"}}>{forecast30.length} deals con alta probabilidad</div>
+            </div>
+          </div>
+        </div>
+
+        {/* ═══════ SECCIÓN 3: PERFORMANCE POR DESARROLLADOR ═══════ */}
+        {rankingDevs.length>0&&(
+          <div style={{background:B.white, borderRadius:14, padding:"20px 24px", marginBottom:24, border:"1px solid "+B.grey1}}>
+            <div style={{fontSize:18, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginBottom:4}}>🏢 Performance por Desarrollador</div>
+            <div style={{fontSize:11, color:B.grey4, marginBottom:16}}>Ranking ordenado por % de cumplimiento YTD</div>
+            <div style={{display:"flex", flexDirection:"column", gap:10}}>
+              {rankingDevs.map((d,i)=>{
+                const color = d.cumplYTD>=0.95?"#16a34a":(d.cumplYTD>=0.75?"#f59e0b":"#dc2626");
+                const medalla = i===0?"🥇":(i===1?"🥈":(i===2?"🥉":"  "));
                 return (
-                  <div key={l.id} style={{display:"flex", alignItems:"center", gap:12, padding:"10px 12px", background:B.offW, borderRadius:8, borderLeft:"3px solid "+c}}>
-                    <div style={{width:28, height:28, borderRadius:14, background:B.navy, color:B.gold, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:800}}>#{i+1}</div>
-                    <div style={{flex:1, minWidth:0}}>
-                      <div style={{fontSize:13, fontWeight:700, color:B.navy}}>{l.nombre}</div>
-                      <div style={{fontSize:10, color:B.grey4}}>{l.desarrollo} · {l.ciudad}</div>
+                  <div key={d.desarrollador} style={{padding:"12px 14px", background:i===0?"#fef3c7":B.offW, borderRadius:10, border:i===0?"1px solid #fbbf24":"1px solid "+B.grey1}}>
+                    <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6, flexWrap:"wrap", gap:8}}>
+                      <div style={{display:"flex", alignItems:"center", gap:10}}>
+                        <span style={{fontSize:18}}>{medalla}</span>
+                        <div>
+                          <div style={{fontSize:13, fontWeight:800, color:B.navy}}>{d.desarrollador}</div>
+                          <div style={{fontSize:10, color:B.grey4}}>{d.desarrollos.length} desarrollo{d.desarrollos.length!==1?"s":""}</div>
+                        </div>
+                      </div>
+                      <div style={{display:"flex", gap:14, fontSize:11, alignItems:"baseline"}}>
+                        <div>
+                          <div style={{fontSize:8, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Vendido YTD</div>
+                          <div style={{fontWeight:800, color:B.navy, fontSize:14}}>{fmtMoney(d.realMonto)}</div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:8, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Meta YTD</div>
+                          <div style={{fontWeight:600, color:B.grey4, fontSize:14}}>{fmtMoney(d.metaYTDMonto)}</div>
+                        </div>
+                        <div style={{padding:"3px 10px", borderRadius:14, background:color, color:"#fff", fontSize:11, fontWeight:800}}>
+                          {(d.cumplYTD*100).toFixed(0)}%
+                        </div>
+                      </div>
                     </div>
-                    <span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:700, background:c+"22", color:c}}>{pip}</span>
-                    <div style={{fontSize:14, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", textAlign:"right", minWidth:120}}>{fmtMiles(Math.round((l.precio_total||0)/1000))+"k"}</div>
+                    <div style={{height:8, background:B.grey1, borderRadius:4, overflow:"hidden"}}>
+                      <div style={{height:"100%", width:Math.min(100,d.cumplYTD*100)+"%", background:color, borderRadius:4}}></div>
+                    </div>
                   </div>
                 );
               })}
@@ -7093,70 +7408,208 @@ function MacroProMatcher() {
           </div>
         )}
 
-        {/* Tabla de prospectos activos */}
-        <div style={{background:B.white, borderRadius:12, padding:"18px 20px", marginBottom:20, border:"1px solid "+B.grey1}}>
-          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12}}>
-            <div style={{fontSize:13, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1}}>👥 Prospectos activos · {prospectosActivos.length}</div>
-            <div style={{fontSize:11, color:B.grey3, fontStyle:"italic"}}>Etapa editable inline</div>
-          </div>
-          {prospectosActivos.length===0?(
-            <div style={{padding:30, textAlign:"center", color:B.grey3, fontSize:13, background:B.offW, borderRadius:8}}>Sin prospectos activos con los filtros actuales</div>
-          ):(
-            <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
-                <thead>
-                  <tr style={{background:B.navy, color:B.white}}>
-                    <th style={{padding:"10px 8px", textAlign:"left", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Cliente</th>
-                    <th style={{padding:"10px 8px", textAlign:"left", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Asesor</th>
-                    <th style={{padding:"10px 8px", textAlign:"left", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Lote</th>
-                    <th style={{padding:"10px 8px", textAlign:"left", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Desarrollo</th>
-                    <th style={{padding:"10px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Valor</th>
-                    <th style={{padding:"10px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Etapa</th>
-                    <th style={{padding:"10px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Temp.</th>
-                    <th style={{padding:"10px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Próx. acción</th>
-                    <th style={{padding:"10px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Días s/c</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {prospectosActivos.sort((a,b)=>{
-                    const orden={"Apartado":1,"Contrato":2,"Propuesta":3,"En negociación":4,"Contactado":5,"Prospecto":6};
-                    return (orden[a.pipeline]||9)-(orden[b.pipeline]||9);
-                  }).map((p,i)=>{
-                    const pipColor = PIPELINE_COLORS[p.pipeline]||B.grey3;
-                    const tempC = tempColor(p.temperatura);
-                    const tempBgC = tempBg(p.temperatura);
-                    const diasC = p.diasSinContacto===null?B.grey3:(p.diasSinContacto>30?"#dc2626":p.diasSinContacto>14?"#d97706":"#16a34a");
-                    return (
-                      <tr key={p.lot.id+"-"+p.prospectoIdx} style={{borderBottom:"1px solid "+B.grey1, background:i%2===0?B.white:B.offW}}>
-                        <td style={{padding:"10px 8px", fontWeight:700, color:B.navy}}>{p.prospecto.nombre||"—"}</td>
-                        <td style={{padding:"10px 8px", color:B.grey4, fontSize:11}}>{p.asesor}</td>
-                        <td style={{padding:"10px 8px", color:B.grey4, fontSize:11}}>{p.lot.nombre}</td>
-                        <td style={{padding:"10px 8px", color:B.grey4, fontSize:11}}>{p.lot.desarrollo}</td>
-                        <td style={{padding:"10px 8px", textAlign:"right", fontWeight:700, color:B.navy, fontSize:11}}>{fmtMiles(Math.round(p.valor/1000))+"k"}</td>
-                        <td style={{padding:"6px 8px", textAlign:"center"}}>
-                          <select value={p.pipeline} onChange={e=>updateProspectoPipelineLocal(p.lot.id,p.prospectoIdx,e.target.value)}
-                            style={{padding:"4px 8px", borderRadius:6, border:"1.5px solid "+pipColor, background:pipColor+"15", color:pipColor, fontSize:10, fontWeight:700, cursor:"pointer", outline:"none", fontFamily:"'DM Sans',sans-serif"}}>
-                            {PIPELINE_STAGES.map(s=><option key={s} value={s}>{s}</option>)}
-                          </select>
-                        </td>
-                        <td style={{padding:"10px 8px", textAlign:"center"}}>
-                          <span style={{padding:"3px 8px", borderRadius:10, fontSize:10, fontWeight:700, background:tempBgC, color:tempC}}>{p.temperatura}</span>
-                        </td>
-                        <td style={{padding:"10px 8px", textAlign:"center", fontSize:10, color:B.grey4}}>
-                          {p.proximaAct?(p.proximaAct.fecha+(p.proximaAct.tipo?" · "+p.proximaAct.tipo:"")):<span style={{color:"#dc2626", fontWeight:700}}>—</span>}
-                        </td>
-                        <td style={{padding:"10px 8px", textAlign:"center", fontSize:11, fontWeight:700, color:diasC}}>{p.diasSinContacto===null?"—":p.diasSinContacto+"d"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+        {/* ═══════ SECCIÓN 4: RISKS & ALERTS ═══════ */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(380px, 1fr))", gap:16, marginBottom:24}}>
+          {/* Críticos */}
+          <div style={{background:"#fef2f2", borderRadius:14, padding:"18px 20px", border:"1px solid #fecaca"}}>
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12}}>
+              <div style={{fontSize:13, fontWeight:800, color:"#991b1b"}}>🚨 Críticos · {dealsRiesgoCriticos.length}</div>
+              <div style={{fontSize:9, fontWeight:700, color:"#991b1b", textTransform:"uppercase", letterSpacing:1}}>Acción inmediata</div>
             </div>
-          )}
+            {dealsRiesgoCriticos.length===0?(
+              <div style={{fontSize:11, color:"#991b1b", fontStyle:"italic"}}>✅ Sin deals críticos</div>
+            ):(
+              <div style={{display:"flex", flexDirection:"column", gap:6}}>
+                {dealsRiesgoCriticos.slice(0,4).map((p,i)=>(
+                  <div key={i} style={{padding:"8px 10px", background:"#fff", borderRadius:6, fontSize:11, borderLeft:"3px solid #dc2626"}}>
+                    <div style={{fontWeight:700, color:B.navy}}>{p.prospecto.nombre}</div>
+                    <div style={{fontSize:10, color:B.grey4, marginTop:2}}>{p.lot.nombre} · {p.lot.desarrollo} · {fmtMoney(p.valor)}</div>
+                    <div style={{fontSize:10, color:"#dc2626", fontWeight:700, marginTop:2}}>⏰ {p.diasSinContacto}d sin contacto · {p.pipeline}</div>
+                  </div>
+                ))}
+                {dealsRiesgoCriticos.length>4&&<div style={{fontSize:10, color:"#991b1b", fontStyle:"italic", marginTop:4}}>+ {dealsRiesgoCriticos.length-4} más</div>}
+              </div>
+            )}
+          </div>
+
+          {/* Alertas */}
+          <div style={{background:"#fef3c7", borderRadius:14, padding:"18px 20px", border:"1px solid #fbbf24"}}>
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12}}>
+              <div style={{fontSize:13, fontWeight:800, color:"#92400e"}}>⚠ Alertas · {lotesPremiumSinAsesor.length+lotesSinMov60.length+prospSinActividad.length}</div>
+              <div style={{fontSize:9, fontWeight:700, color:"#92400e", textTransform:"uppercase", letterSpacing:1}}>Esta semana</div>
+            </div>
+            <div style={{display:"flex", flexDirection:"column", gap:8, fontSize:11}}>
+              {lotesPremiumSinAsesor.length>0&&(
+                <div style={{padding:"8px 10px", background:"#fff", borderRadius:6, borderLeft:"3px solid #f59e0b"}}>
+                  <div style={{fontWeight:700, color:"#92400e"}}>💎 {lotesPremiumSinAsesor.length} lote{lotesPremiumSinAsesor.length!==1?"s":""} premium sin asesor</div>
+                  <div style={{fontSize:10, color:B.grey4, marginTop:2}}>Top: {lotesPremiumSinAsesor[0].nombre} · {fmtMoney(lotesPremiumSinAsesor[0].precio_total)}</div>
+                </div>
+              )}
+              {lotesSinMov60.length>0&&(
+                <div style={{padding:"8px 10px", background:"#fff", borderRadius:6, borderLeft:"3px solid #f59e0b"}}>
+                  <div style={{fontWeight:700, color:"#92400e"}}>📉 {lotesSinMov60.length} lote{lotesSinMov60.length!==1?"s":""} sin movimiento +60 días</div>
+                  <div style={{fontSize:10, color:B.grey4, marginTop:2}}>Pipeline en riesgo de enfriarse</div>
+                </div>
+              )}
+              {prospSinActividad.length>0&&(
+                <div style={{padding:"8px 10px", background:"#fff", borderRadius:6, borderLeft:"3px solid #f59e0b"}}>
+                  <div style={{fontWeight:700, color:"#92400e"}}>📋 {prospSinActividad.length} prospecto{prospSinActividad.length!==1?"s":""} sin próxima actividad</div>
+                  <div style={{fontSize:10, color:B.grey4, marginTop:2}}>En etapa avanzada sin seguimiento</div>
+                </div>
+              )}
+              {(lotesPremiumSinAsesor.length+lotesSinMov60.length+prospSinActividad.length)===0&&<div style={{fontSize:11, color:"#92400e", fontStyle:"italic"}}>✅ Sin alertas</div>}
+            </div>
+          </div>
+
+          {/* Oportunidades */}
+          <div style={{background:"#ecfdf5", borderRadius:14, padding:"18px 20px", border:"1px solid #6ee7b7"}}>
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12}}>
+              <div style={{fontSize:13, fontWeight:800, color:"#065f46"}}>🎯 Oportunidades · {visitasProximas.length+forecast30.length}</div>
+              <div style={{fontSize:9, fontWeight:700, color:"#065f46", textTransform:"uppercase", letterSpacing:1}}>Próximos 30 días</div>
+            </div>
+            <div style={{display:"flex", flexDirection:"column", gap:8, fontSize:11}}>
+              {visitasProximas.length>0&&(
+                <div style={{padding:"8px 10px", background:"#fff", borderRadius:6, borderLeft:"3px solid #10b981"}}>
+                  <div style={{fontWeight:700, color:"#065f46"}}>🚗 {visitasProximas.length} visita{visitasProximas.length!==1?"s":""} agendada{visitasProximas.length!==1?"s":""} esta semana</div>
+                </div>
+              )}
+              {forecast30.length>0&&(
+                <div style={{padding:"8px 10px", background:"#fff", borderRadius:6, borderLeft:"3px solid #10b981"}}>
+                  <div style={{fontWeight:700, color:"#065f46"}}>💰 Forecast cierre 30d: {fmtMoney(valorForecast30)}</div>
+                  <div style={{fontSize:10, color:B.grey4, marginTop:2}}>{forecast30.length} deals en Apartado/Contrato</div>
+                </div>
+              )}
+              {(visitasProximas.length+forecast30.length)===0&&<div style={{fontSize:11, color:"#065f46", fontStyle:"italic"}}>Sin oportunidades inmediatas</div>}
+            </div>
+          </div>
         </div>
+
+        {/* ═══════ SECCIÓN 5: TOP PERFORMERS ═══════ */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(380px, 1fr))", gap:16, marginBottom:24}}>
+          {/* Top Asesores */}
+          <div style={{background:B.white, borderRadius:14, padding:"20px 24px", border:"1px solid "+B.grey1}}>
+            <div style={{fontSize:14, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginBottom:4}}>🏆 Top Asesores</div>
+            <div style={{fontSize:10, color:B.grey4, marginBottom:14}}>Por valor vendido</div>
+            {topAsesores.length===0?(
+              <div style={{fontSize:11, color:B.grey4, fontStyle:"italic", padding:"20px 0"}}>Sin datos de ventas asignadas a asesores</div>
+            ):(
+              <div style={{display:"flex", flexDirection:"column", gap:8}}>
+                {topAsesores.map((a,i)=>(
+                  <div key={a.asesor} style={{display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 12px", background:i===0?"#fef3c7":B.offW, borderRadius:8}}>
+                    <div style={{display:"flex", alignItems:"center", gap:10}}>
+                      <span style={{fontSize:16}}>{i===0?"🥇":(i===1?"🥈":(i===2?"🥉":"  "))}</span>
+                      <div>
+                        <div style={{fontSize:12, fontWeight:700, color:B.navy}}>{a.asesor}</div>
+                        <div style={{fontSize:10, color:B.grey4}}>{a.deals} venta{a.deals!==1?"s":""} · {a.lotes} lotes asignados</div>
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:14, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>{fmtMoney(a.vendido)}</div>
+                      {a.pipeline>0&&<div style={{fontSize:9, color:B.grey4}}>+{fmtMoney(a.pipeline)} en pipeline</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Top Deals */}
+          <div style={{background:B.white, borderRadius:14, padding:"20px 24px", border:"1px solid "+B.grey1}}>
+            <div style={{fontSize:14, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginBottom:4}}>💎 Top Deals en Pipeline</div>
+            <div style={{fontSize:10, color:B.grey4, marginBottom:14}}>Por valor ponderado</div>
+            {topDeals.length===0?(
+              <div style={{fontSize:11, color:B.grey4, fontStyle:"italic", padding:"20px 0"}}>Sin deals activos</div>
+            ):(
+              <div style={{display:"flex", flexDirection:"column", gap:8}}>
+                {topDeals.map((d,i)=>(
+                  <div key={i} style={{display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 12px", background:i===0?"#fef3c7":B.offW, borderRadius:8}}>
+                    <div style={{display:"flex", alignItems:"center", gap:10, minWidth:0}}>
+                      <span style={{fontSize:16}}>{i===0?"🥇":(i===1?"🥈":(i===2?"🥉":"  "))}</span>
+                      <div style={{minWidth:0, flex:1}}>
+                        <div style={{fontSize:12, fontWeight:700, color:B.navy, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{d.lot.nombre}</div>
+                        <div style={{fontSize:10, color:B.grey4}}>{d.lot.desarrollo} · <span style={{color:PIPELINE_COLORS[d.pipeline], fontWeight:700}}>{d.pipeline}</span></div>
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:14, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>{fmtMoney(d.valor)}</div>
+                      <div style={{fontSize:9, color:B.gold, fontWeight:700}}>Ponderado: {fmtMoney(d.ponderado)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ═══════ SECCIÓN 6: TENDENCIA 12 MESES ═══════ */}
+        <div style={{background:B.white, borderRadius:14, padding:"20px 24px", marginBottom:24, border:"1px solid "+B.grey1}}>
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:18, flexWrap:"wrap", gap:10}}>
+            <div>
+              <div style={{fontSize:18, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>📈 Tendencia {ahora.getFullYear()}</div>
+              <div style={{fontSize:11, color:B.grey4, marginTop:2}}>Real (azul) vs Plan (gris) por mes</div>
+            </div>
+            <div style={{display:"flex", gap:14, alignItems:"baseline"}}>
+              {tendenciaPct!==0&&(
+                <div>
+                  <div style={{fontSize:9, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Tendencia 3m</div>
+                  <div style={{fontSize:18, fontWeight:800, fontFamily:"'Playfair Display',serif", color:tendenciaPct>=0?"#16a34a":"#dc2626"}}>
+                    {tendenciaPct>=0?"↗ +":"↘ "}{Math.abs(tendenciaPct*100).toFixed(0)}%
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Gráfica de barras SVG */}
+          <div style={{display:"flex", alignItems:"flex-end", gap:6, height:160, marginBottom:8}}>
+            {meses12.map((m,i)=>{
+              const real = ventasMensuales[i]||0;
+              const plan = planMensual[i]||0;
+              const altReal = maxVentaMes>0 ? (real/maxVentaMes)*140 : 0;
+              const altPlan = maxVentaMes>0 ? (plan/maxVentaMes)*140 : 0;
+              const esActual = i===mesActual;
+              const esFuturo = i>mesActual;
+              return (
+                <div key={i} style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:2, opacity:esFuturo?0.3:1}}>
+                  <div style={{width:"100%", height:140, position:"relative", display:"flex", alignItems:"flex-end", justifyContent:"center", gap:2}}>
+                    {/* Plan bar (gris atrás) */}
+                    <div title={"Plan: "+fmtMoneyFull(plan)} style={{width:"45%", height:altPlan+"px", background:B.grey2, borderRadius:"3px 3px 0 0", transition:"height 0.6s"}}></div>
+                    {/* Real bar (azul al frente) */}
+                    <div title={"Real: "+fmtMoneyFull(real)} style={{width:"45%", height:altReal+"px", background:esActual?B.gold:B.navy, borderRadius:"3px 3px 0 0", transition:"height 0.6s"}}></div>
+                  </div>
+                  <div style={{fontSize:9, fontWeight:esActual?800:600, color:esActual?B.gold:(esFuturo?B.grey3:B.grey4)}}>{m}</div>
+                  <div style={{fontSize:8, color:esFuturo?B.grey3:B.grey4}}>{real>0?fmtMoney(real):"—"}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Insights de tendencia */}
+          <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))", gap:12, marginTop:14}}>
+            {ventasMensuales[mejorMesIdx]>0&&(
+              <div style={{padding:"10px 12px", background:"#ecfdf5", borderRadius:8, borderLeft:"3px solid #10b981"}}>
+                <div style={{fontSize:9, fontWeight:700, color:"#065f46", textTransform:"uppercase", letterSpacing:1}}>Mejor mes</div>
+                <div style={{fontSize:14, fontWeight:800, color:"#065f46", fontFamily:"'Playfair Display',serif", marginTop:2}}>{meses12[mejorMesIdx]}</div>
+                <div style={{fontSize:10, color:"#065f46"}}>{fmtMoney(ventasMensuales[mejorMesIdx])}</div>
+              </div>
+            )}
+            <div style={{padding:"10px 12px", background:B.offW, borderRadius:8}}>
+              <div style={{fontSize:9, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Mes actual</div>
+              <div style={{fontSize:14, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>{meses12[mesActual]}</div>
+              <div style={{fontSize:10, color:B.grey4}}>{fmtMoney(ventasMensuales[mesActual])} de {fmtMoney(planMensual[mesActual])} plan</div>
+            </div>
+            <div style={{padding:"10px 12px", background:B.offW, borderRadius:8}}>
+              <div style={{fontSize:9, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Promedio mensual</div>
+              <div style={{fontSize:14, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>{fmtMoney(velocidadActualMensual)}</div>
+              <div style={{fontSize:10, color:B.grey4}}>YTD ({mesActual+1} meses)</div>
+            </div>
+          </div>
+        </div>
+
       </div>
     );
   };
+
 
   // ═══════════════════════════════════════════════════════════════
   // VIEW: 🎯 METAS — Objetivos Plan vs Real por desarrollo
