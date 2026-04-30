@@ -2703,7 +2703,13 @@ function MacroProMatcher() {
   const srcInv = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
   const srcCli = clients.length > 0 ? clients : DEMO_CLIENTS;
 
+  // Ref para que handlers de Realtime puedan llamar toast (definido más abajo)
+  const toastRef = React.useRef(null);
   const toast = (msg) => { setToastMsg(msg); setTimeout(()=>setToastMsg(""),3500); };
+  // Mantener toastRef sincronizado
+  React.useEffect(() => {
+    toastRef.current = toast;
+  });
 
   const handleFilterCity = (val) => { setFilterCity(val); setFilterDesarrollo("Todos"); };
 
@@ -7333,8 +7339,22 @@ function MacroProMatcher() {
   };
 
   // Suscripciones Realtime — escucha cambios en Supabase y aplica al estado local
+  // Usamos refs para que los handlers siempre vean los setters actuales (evita stale closures)
+  const setInventoryRef = React.useRef(setInventory);
+  const setClientsRef = React.useRef(setClients);
+  const setCrmDataRef = React.useRef(setCrmData);
+  const saveCRMRef = React.useRef(saveCRM);
+  
+  React.useEffect(() => {
+    setInventoryRef.current = setInventory;
+    setClientsRef.current = setClients;
+    setCrmDataRef.current = setCrmData;
+    saveCRMRef.current = saveCRM;
+  });
+  
   React.useEffect(()=>{
     if(supabaseStatus!=="connected"||!sb) return;
+    console.log("🔌 Iniciando suscripciones Realtime...");
     let canalLotes, canalClientes, canalCRM;
     
     // Helper: convertir un row de Supabase 'lotes' al formato localStorage
@@ -7358,7 +7378,6 @@ function MacroProMatcher() {
       _supabase_id: l.id
     });
     
-    // Helper: convertir un row de Supabase 'clientes' al formato localStorage
     const clienteSupaToLocal = (c) => ({
       id: c.id_cliente,
       id_cliente: c.id_cliente,
@@ -7384,81 +7403,104 @@ function MacroProMatcher() {
     
     try {
       // ═══ LOTES ═══
-      canalLotes = sb.channel("lotes_changes")
+      canalLotes = sb.channel("lotes_changes_v2")
         .on("postgres_changes", {event:"*", schema:"public", table:"lotes"}, (payload)=>{
-          console.log("📡 Cambio en lotes:", payload.eventType, payload.new?.clave_unica || payload.old?.clave_unica);
+          console.log("📡 SYNC Cambio en lotes:", payload.eventType, payload.new?.clave_unica || payload.old?.clave_unica);
           setSupabaseLastSync(new Date().toISOString());
           
-          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
-            const loteNuevo = lotesSupaToLocal(payload.new);
-            setInventory(prev => {
-              const idx = prev.findIndex(l => 
-                (l._supabase_id && l._supabase_id === payload.new.id) ||
-                (l.clave_unica && l.clave_unica === payload.new.clave_unica) ||
-                (l.id && l.id === loteNuevo.id)
-              );
-              const next = [...prev];
-              if (idx >= 0) {
-                next[idx] = { ...next[idx], ...loteNuevo };
-              } else {
-                next.push(loteNuevo);
-              }
-              return next;
-            });
-          } else if (payload.eventType === "DELETE") {
-            setInventory(prev => prev.filter(l => 
-              !(l._supabase_id && l._supabase_id === payload.old.id) &&
-              !(l.clave_unica && l.clave_unica === payload.old.clave_unica)
-            ));
+          try {
+            if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+              const loteNuevo = lotesSupaToLocal(payload.new);
+              setInventoryRef.current(prev => {
+                const idx = prev.findIndex(l => 
+                  (l._supabase_id && l._supabase_id === payload.new.id) ||
+                  (l.clave_unica && l.clave_unica === payload.new.clave_unica) ||
+                  (l.id && l.id === loteNuevo.id)
+                );
+                const next = [...prev];
+                if (idx >= 0) {
+                  next[idx] = { ...next[idx], ...loteNuevo };
+                  console.log("✓ Lote actualizado en estado local:", loteNuevo.nombre);
+                  if (toastRef.current) toastRef.current("🔄 Lote actualizado: " + loteNuevo.nombre);
+                } else {
+                  next.push(loteNuevo);
+                  console.log("✓ Lote nuevo agregado:", loteNuevo.nombre);
+                  if (toastRef.current) toastRef.current("➕ Lote nuevo: " + loteNuevo.nombre);
+                }
+                return next;
+              });
+            } else if (payload.eventType === "DELETE") {
+              setInventoryRef.current(prev => prev.filter(l => 
+                !(l._supabase_id && l._supabase_id === payload.old.id) &&
+                !(l.clave_unica && l.clave_unica === payload.old.clave_unica)
+              ));
+              if (toastRef.current) toastRef.current("🗑 Lote eliminado");
+            }
+          } catch (err) {
+            console.error("Error procesando cambio en lotes:", err);
           }
           
           contarEnSupabase("lotes").then(r=>setSupabaseConteos(prev=>({...prev, lotes:r.count})));
         })
-        .subscribe();
+        .subscribe((status, err) => {
+          console.log("📡 Canal LOTES status:", status);
+          if (err) console.error("Error suscribiendo a lotes:", err);
+        });
       
       // ═══ CLIENTES ═══
-      canalClientes = sb.channel("clientes_changes")
+      canalClientes = sb.channel("clientes_changes_v2")
         .on("postgres_changes", {event:"*", schema:"public", table:"clientes"}, (payload)=>{
-          console.log("📡 Cambio en clientes:", payload.eventType, payload.new?.id_cliente || payload.old?.id_cliente);
+          console.log("📡 SYNC Cambio en clientes:", payload.eventType, payload.new?.id_cliente || payload.old?.id_cliente);
           setSupabaseLastSync(new Date().toISOString());
           
-          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
-            const clienteNuevo = clienteSupaToLocal(payload.new);
-            setClients(prev => {
-              const idx = prev.findIndex(c => 
-                (c._supabase_id && c._supabase_id === payload.new.id) ||
-                (c.id_cliente && c.id_cliente === payload.new.id_cliente) ||
-                (c.id && c.id === clienteNuevo.id)
-              );
-              const next = [...prev];
-              if (idx >= 0) {
-                next[idx] = { ...next[idx], ...clienteNuevo };
-              } else {
-                next.push(clienteNuevo);
-              }
-              return next;
-            });
-          } else if (payload.eventType === "DELETE") {
-            setClients(prev => prev.filter(c => 
-              !(c._supabase_id && c._supabase_id === payload.old.id) &&
-              !(c.id_cliente && c.id_cliente === payload.old.id_cliente)
-            ));
+          try {
+            if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+              const clienteNuevo = clienteSupaToLocal(payload.new);
+              setClientsRef.current(prev => {
+                const idx = prev.findIndex(c => 
+                  (c._supabase_id && c._supabase_id === payload.new.id) ||
+                  (c.id_cliente && c.id_cliente === payload.new.id_cliente) ||
+                  (c.id && c.id === clienteNuevo.id)
+                );
+                const next = [...prev];
+                if (idx >= 0) {
+                  next[idx] = { ...next[idx], ...clienteNuevo };
+                  console.log("✓ Cliente actualizado:", clienteNuevo.nombre);
+                  if (toastRef.current) toastRef.current("🔄 Cliente actualizado: " + clienteNuevo.nombre);
+                } else {
+                  next.push(clienteNuevo);
+                  console.log("✓ Cliente nuevo:", clienteNuevo.nombre);
+                  if (toastRef.current) toastRef.current("➕ Cliente nuevo: " + clienteNuevo.nombre);
+                }
+                return next;
+              });
+            } else if (payload.eventType === "DELETE") {
+              setClientsRef.current(prev => prev.filter(c => 
+                !(c._supabase_id && c._supabase_id === payload.old.id) &&
+                !(c.id_cliente && c.id_cliente === payload.old.id_cliente)
+              ));
+              if (toastRef.current) toastRef.current("🗑 Cliente eliminado");
+            }
+          } catch (err) {
+            console.error("Error procesando cambio en clientes:", err);
           }
           
           contarEnSupabase("clientes").then(r=>setSupabaseConteos(prev=>({...prev, clientes:r.count})));
         })
-        .subscribe();
+        .subscribe((status, err) => {
+          console.log("📡 Canal CLIENTES status:", status);
+          if (err) console.error("Error suscribiendo a clientes:", err);
+        });
       
       // ═══ CRM ═══
-      canalCRM = sb.channel("crm_changes")
+      canalCRM = sb.channel("crm_changes_v2")
         .on("postgres_changes", {event:"*", schema:"public", table:"crm_lotes"}, async (payload)=>{
-          console.log("📡 Cambio en CRM:", payload.eventType, payload.new?.lote_id || payload.old?.lote_id);
+          console.log("📡 SYNC Cambio en CRM:", payload.eventType, payload.new?.lote_id || payload.old?.lote_id);
           setSupabaseLastSync(new Date().toISOString());
           
-          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
-            // Necesitamos saber a qué lote_clave corresponde el lote_id (UUID)
-            try {
-              const { data: loteRow } = await sb.from('lotes').select('id_macrolote, clave_unica').eq('id', payload.new.lote_id).single();
+          try {
+            if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+              const { data: loteRow } = await sb.from('lotes').select('id_macrolote, clave_unica, nombre').eq('id', payload.new.lote_id).single();
               if (!loteRow) return;
               const loteClave = loteRow.id_macrolote || loteRow.clave_unica;
               const crmEntry = {
@@ -7469,33 +7511,39 @@ function MacroProMatcher() {
                 devFeedback: Array.isArray(payload.new.dev_feedback) ? payload.new.dev_feedback : [],
                 seguimientosAsesor: Array.isArray(payload.new.seguimientos_asesor) ? payload.new.seguimientos_asesor : []
               };
-              setCrmData(prev => {
+              setCrmDataRef.current(prev => {
                 const next = { ...prev, [loteClave]: crmEntry };
-                saveCRM(next);
+                if (saveCRMRef.current) saveCRMRef.current(next);
                 return next;
               });
-            } catch(err) { console.warn("Error procesando cambio CRM:", err); }
-          } else if (payload.eventType === "DELETE") {
-            try {
+              console.log("✓ CRM actualizado para lote:", loteRow.nombre);
+              if (toastRef.current) toastRef.current("🔄 CRM actualizado: " + (loteRow.nombre || loteClave));
+            } else if (payload.eventType === "DELETE") {
               const { data: loteRow } = await sb.from('lotes').select('id_macrolote, clave_unica').eq('id', payload.old.lote_id).single();
               if (!loteRow) return;
               const loteClave = loteRow.id_macrolote || loteRow.clave_unica;
-              setCrmData(prev => {
+              setCrmDataRef.current(prev => {
                 const next = { ...prev };
                 delete next[loteClave];
-                saveCRM(next);
+                if (saveCRMRef.current) saveCRMRef.current(next);
                 return next;
               });
-            } catch(err) { console.warn("Error procesando DELETE CRM:", err); }
+            }
+          } catch (err) {
+            console.error("Error procesando cambio en CRM:", err);
           }
           
           contarEnSupabase("crm_lotes").then(r=>setSupabaseConteos(prev=>({...prev, crm:r.count})));
         })
-        .subscribe();
+        .subscribe((status, err) => {
+          console.log("📡 Canal CRM status:", status);
+          if (err) console.error("Error suscribiendo a CRM:", err);
+        });
         
     } catch(e){ console.warn("Realtime no disponible:", e); }
     
     return ()=>{
+      console.log("🔌 Cerrando suscripciones Realtime...");
       try { if(canalLotes) sb.removeChannel(canalLotes); } catch(e){}
       try { if(canalClientes) sb.removeChannel(canalClientes); } catch(e){}
       try { if(canalCRM) sb.removeChannel(canalCRM); } catch(e){}
