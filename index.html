@@ -577,13 +577,9 @@ if (typeof window !== 'undefined') {
     loteKey: loteKey
   };
 
-  // Auto-descarga al cargar si localStorage está vacío
-  // Espera 2 segundos para asegurar que Supabase esté listo
-  setTimeout(() => {
-    autoDescargaSiCorresponde().then(r => {
-      if (r.triggered) console.log('Auto-descarga resultado:', r);
-    }).catch(err => console.warn('Auto-descarga error:', err));
-  }, 2000);
+  // Auto-descarga DESHABILITADA - causaba loop infinito en iOS PWA standalone.
+  // El usuario debe usar el botón "⬇ Bajar de Supabase" en el panel flotante ☁️
+  console.log('ℹ️ Auto-descarga deshabilitada por diseño. Usa el panel ☁️ Supabase para sincronizar.');
 }
 
 
