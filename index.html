@@ -7357,6 +7357,12 @@ function MacroProMatcher() {
   // Usa fingerprint del contenido (count + IDs) para detectar cambios
   // sin depender de columnas updated_at que pueden no estar al día.
   // ═══════════════════════════════════════════════════════════
+  
+  // Ref compartida entre polling y auto-sync subida:
+  // cuando subimos cambios, pausamos el polling 5 seg para no
+  // detectarlos como si fueran cambios remotos.
+  const pausePollingUntilRef = React.useRef(0);
+  
   React.useEffect(()=>{
     if(supabaseStatus!=="connected"||!sb) return;
     console.log("🔄 Polling automático activado (cada 10s)");
@@ -7378,6 +7384,9 @@ function MacroProMatcher() {
     const poll = async () => {
       if (isPolling) return;
       if (document.hidden) return;
+      // Si acabamos de subir cambios nosotros, esperar a que pase la pausa
+      // (evita detectar nuestros propios cambios como si fueran remotos)
+      if (pausePollingUntilRef.current > Date.now()) return;
       isPolling = true;
       try {
         // Queries ligeros: solo id + 1 campo que cambia con frecuencia
@@ -7437,16 +7446,20 @@ function MacroProMatcher() {
         try {
           if (lotesChanged) {
             const newInv = JSON.parse(localStorage.getItem('macropro_inventory_v1') || '[]');
+            // Marcar que el próximo cambio NO debe re-subirse (vino del polling)
+            skipNextSyncInv.current = true;
             if (setInventoryRef.current) setInventoryRef.current(newInv);
             fpLotes = newFpLotes;
           }
           if (clientesChanged) {
             const newCli = JSON.parse(localStorage.getItem('macropro_clients_v1') || '[]');
+            skipNextSyncCli.current = true;
             if (setClientsRef.current) setClientsRef.current(newCli);
             fpClientes = newFpClientes;
           }
           if (crmChanged) {
             const newCrm = JSON.parse(localStorage.getItem('macropro_crm_v1') || '{}');
+            skipNextSyncCrm.current = true;
             if (setCrmDataRef.current) setCrmDataRef.current(newCrm);
             fpCRM = newFpCRM;
           }
@@ -7475,6 +7488,87 @@ function MacroProMatcher() {
       clearInterval(intervalId);
     };
   },[supabaseStatus]);
+  
+  // ═══════════════════════════════════════════════════════════
+  // AUTO-SYNC SUBIDA — Sube cambios locales a Supabase con debounce
+  // Cuando inventory/clients/crmData cambian, espera 2 seg de inactividad
+  // y sube a Supabase. Así el otro usuario los detecta en su polling.
+  // ═══════════════════════════════════════════════════════════
+  
+  // Refs para evitar subidas en el primer render (datos ya están en nube)
+  const skipFirstSyncInv = React.useRef(true);
+  const skipFirstSyncCli = React.useRef(true);
+  const skipFirstSyncCrm = React.useRef(true);
+  // Bandera: true cuando el siguiente cambio viene del polling (descarga remota),
+  // para skippear el auto-sync de subida y evitar loops.
+  const skipNextSyncInv = React.useRef(false);
+  const skipNextSyncCli = React.useRef(false);
+  const skipNextSyncCrm = React.useRef(false);
+  
+  // CRM auto-sync (la más importante — los cambios de pipeline son frecuentes)
+  React.useEffect(() => {
+    if (supabaseStatus !== "connected" || !sb) return;
+    if (skipFirstSyncCrm.current) { skipFirstSyncCrm.current = false; return; }
+    // Si el cambio vino del polling (descarga remota), NO re-subir
+    if (skipNextSyncCrm.current) { skipNextSyncCrm.current = false; return; }
+    if (!crmData || Object.keys(crmData).length === 0) return;
+    
+    const timer = setTimeout(async () => {
+      try {
+        console.log("☁️ Auto-sync CRM → nube...");
+        await window.sbHelpers.migrarCRM(crmData);
+        // Pausa polling 5 seg para no auto-detectar nuestro cambio
+        pausePollingUntilRef.current = Date.now() + 5000;
+        console.log("✅ CRM sincronizado a nube");
+      } catch(e) {
+        console.warn("⚠️ Auto-sync CRM falló (reintentará al próximo cambio):", e.message);
+      }
+    }, 2000); // debounce 2 segundos
+    
+    return () => clearTimeout(timer);
+  }, [crmData, supabaseStatus]);
+  
+  // Inventory auto-sync (lotes — cambian con menos frecuencia)
+  React.useEffect(() => {
+    if (supabaseStatus !== "connected" || !sb) return;
+    if (skipFirstSyncInv.current) { skipFirstSyncInv.current = false; return; }
+    if (skipNextSyncInv.current) { skipNextSyncInv.current = false; return; }
+    if (!inventory || inventory.length === 0) return;
+    
+    const timer = setTimeout(async () => {
+      try {
+        console.log("☁️ Auto-sync inventario → nube...");
+        await window.sbHelpers.migrarLotes(inventory);
+        pausePollingUntilRef.current = Date.now() + 5000;
+        console.log("✅ Inventario sincronizado a nube");
+      } catch(e) {
+        console.warn("⚠️ Auto-sync inventario falló:", e.message);
+      }
+    }, 3000); // debounce 3 segundos (más largo porque son más datos)
+    
+    return () => clearTimeout(timer);
+  }, [inventory, supabaseStatus]);
+  
+  // Clients auto-sync
+  React.useEffect(() => {
+    if (supabaseStatus !== "connected" || !sb) return;
+    if (skipFirstSyncCli.current) { skipFirstSyncCli.current = false; return; }
+    if (skipNextSyncCli.current) { skipNextSyncCli.current = false; return; }
+    if (!clients || clients.length === 0) return;
+    
+    const timer = setTimeout(async () => {
+      try {
+        console.log("☁️ Auto-sync clientes → nube...");
+        await window.sbHelpers.migrarClientes(clients);
+        pausePollingUntilRef.current = Date.now() + 5000;
+        console.log("✅ Clientes sincronizados a nube");
+      } catch(e) {
+        console.warn("⚠️ Auto-sync clientes falló:", e.message);
+      }
+    }, 3000);
+    
+    return () => clearTimeout(timer);
+  }, [clients, supabaseStatus]);
   
   // ═══════════════════════════════════════════════════════════
   // REALTIME (DESHABILITADO — usar polling de arriba)
