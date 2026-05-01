@@ -7352,7 +7352,136 @@ function MacroProMatcher() {
     saveCRMRef.current = saveCRM;
   });
   
+  // ═══════════════════════════════════════════════════════════
+  // POLLING AUTOMÁTICO — Sincronización silenciosa cada 10 seg
+  // Usa fingerprint del contenido (count + IDs) para detectar cambios
+  // sin depender de columnas updated_at que pueden no estar al día.
+  // ═══════════════════════════════════════════════════════════
   React.useEffect(()=>{
+    if(supabaseStatus!=="connected"||!sb) return;
+    console.log("🔄 Polling automático activado (cada 10s)");
+    
+    let isPolling = false;
+    // Fingerprints por tabla — string que cambia si hay diferencias
+    let fpLotes = null, fpClientes = null, fpCRM = null;
+    let firstRun = true;
+    
+    // Genera un fingerprint compacto a partir de filas {id, key}
+    const makeFingerprint = (rows, keyField) => {
+      if (!Array.isArray(rows)) return "0";
+      // Ordenar por id para que el orden no afecte el hash
+      const sorted = [...rows].sort((a,b) => String(a.id||'').localeCompare(String(b.id||'')));
+      // Concatenar id + valor del campo de cambio (etapa, status, etc.)
+      return sorted.length + ":" + sorted.map(r => (r.id||'') + "=" + (r[keyField]||'')).join("|");
+    };
+    
+    const poll = async () => {
+      if (isPolling) return;
+      if (document.hidden) return;
+      isPolling = true;
+      try {
+        // Queries ligeros: solo id + 1 campo que cambia con frecuencia
+        const [qLotes, qClientes, qCRM] = await Promise.all([
+          sb.from('lotes').select('id, status_inventario'),
+          sb.from('clientes').select('id, status'),
+          sb.from('crm_lotes').select('lote_id, pipeline')
+        ]);
+        
+        if (qLotes.error || qClientes.error || qCRM.error) {
+          // Si algún query falla, log silencioso y reintentar después
+          isPolling = false;
+          return;
+        }
+        
+        const newFpLotes = makeFingerprint(qLotes.data || [], 'status_inventario');
+        const newFpClientes = makeFingerprint(qClientes.data || [], 'status');
+        const newFpCRM = makeFingerprint(
+          (qCRM.data || []).map(r => ({id: r.lote_id, pipeline: r.pipeline})),
+          'pipeline'
+        );
+        
+        // Primera ejecución: solo guardar fingerprints, no sincronizar
+        if (firstRun) {
+          fpLotes = newFpLotes;
+          fpClientes = newFpClientes;
+          fpCRM = newFpCRM;
+          firstRun = false;
+          isPolling = false;
+          return;
+        }
+        
+        // Detectar qué cambió
+        const lotesChanged = newFpLotes !== fpLotes;
+        const clientesChanged = newFpClientes !== fpClientes;
+        const crmChanged = newFpCRM !== fpCRM;
+        
+        if (!lotesChanged && !clientesChanged && !crmChanged) {
+          isPolling = false;
+          return;
+        }
+        
+        console.log("🔄 Cambios detectados:",
+          lotesChanged ? "lotes ":"",
+          clientesChanged ? "clientes ":"",
+          crmChanged ? "crm":"");
+        
+        // Descargar SOLO lo que cambió
+        const tasks = [];
+        if (lotesChanged) tasks.push(window.sbHelpers.descargarLotes());
+        if (clientesChanged) tasks.push(window.sbHelpers.descargarClientes());
+        if (crmChanged) tasks.push(window.sbHelpers.descargarCRM());
+        
+        await Promise.all(tasks);
+        
+        // Aplicar a estado de React
+        try {
+          if (lotesChanged) {
+            const newInv = JSON.parse(localStorage.getItem('macropro_inventory_v1') || '[]');
+            if (setInventoryRef.current) setInventoryRef.current(newInv);
+            fpLotes = newFpLotes;
+          }
+          if (clientesChanged) {
+            const newCli = JSON.parse(localStorage.getItem('macropro_clients_v1') || '[]');
+            if (setClientsRef.current) setClientsRef.current(newCli);
+            fpClientes = newFpClientes;
+          }
+          if (crmChanged) {
+            const newCrm = JSON.parse(localStorage.getItem('macropro_crm_v1') || '{}');
+            if (setCrmDataRef.current) setCrmDataRef.current(newCrm);
+            fpCRM = newFpCRM;
+          }
+          // Toast solo una vez (si hubo cambios reales en CRM o lotes)
+          if (toastRef.current && (crmChanged || lotesChanged)) {
+            toastRef.current("🔄 Actualizado desde la nube");
+          }
+        } catch(e) {
+          console.warn("Error aplicando sync:", e);
+        }
+      } catch(err) {
+        // Errores de red u otros: silencioso, reintenta en el siguiente ciclo
+      } finally {
+        isPolling = false;
+      }
+    };
+    
+    // Primer poll para guardar fingerprints iniciales (sin sincronizar)
+    poll();
+    
+    // Polling cada 10 segundos
+    const intervalId = setInterval(poll, 10000);
+    
+    return () => {
+      console.log("🔄 Polling detenido");
+      clearInterval(intervalId);
+    };
+  },[supabaseStatus]);
+  
+  // ═══════════════════════════════════════════════════════════
+  // REALTIME (DESHABILITADO — usar polling de arriba)
+  // Se mantiene el código por si en el futuro Supabase mejora Realtime
+  // ═══════════════════════════════════════════════════════════
+  React.useEffect(()=>{
+    if(true) return; // ← deshabilitado
     if(supabaseStatus!=="connected"||!sb) return;
     console.log("🔌 Iniciando suscripciones Realtime...");
     let canalLotes, canalClientes, canalCRM;
