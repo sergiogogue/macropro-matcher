@@ -418,7 +418,7 @@ async function descargarLotesDeSupabase(onProgress) {
     const { data, error } = await sb.from('lotes').select('*');
     if (error) return { success: false, count: 0, message: error.message };
     // Transformar formato Supabase -> formato localStorage
-    const lotes = (data || []).map(l => ({
+    const lotesRaw = (data || []).map(l => ({
       id: l.id_macrolote || l.clave_unica,
       clave_unica: l.clave_unica,
       nombre_lote: l.nombre,
@@ -437,9 +437,22 @@ async function descargarLotesDeSupabase(onProgress) {
       fecha_ingreso: l.fecha_ingreso || null,
       _supabase_id: l.id  // referencia interna
     }));
+    // 🛡️ v3.1 DEDUPE DEFENSIVO por clave_unica (protección contra duplicados accidentales en Supabase)
+    const lotes = [];
+    const vistosLotes = new Set();
+    let dupLotes = 0;
+    for (let i = 0; i < lotesRaw.length; i++) {
+      const l = lotesRaw[i];
+      const key = (l.clave_unica && String(l.clave_unica).trim().toLowerCase()) || (l.id && String(l.id).trim().toLowerCase()) || `__pos_${i}`;
+      if (vistosLotes.has(key)) { dupLotes++; continue; }
+      vistosLotes.add(key);
+      lotes.push(l);
+    }
+    if (dupLotes > 0) console.warn(`⚠ ${dupLotes} lotes duplicados ignorados al descargar`);
     localStorage.setItem('macropro_inventory_v1', JSON.stringify(lotes));
-    if (onProgress) onProgress(`✓ ${lotes.length} lotes descargados`, lotes.length);
-    return { success: true, count: lotes.length, message: `✓ ${lotes.length} lotes descargados` };
+    const sufLotes = dupLotes > 0 ? ` (${dupLotes} duplicados ignorados)` : '';
+    if (onProgress) onProgress(`✓ ${lotes.length} lotes descargados${sufLotes}`, lotes.length);
+    return { success: true, count: lotes.length, duplicados: dupLotes, message: `✓ ${lotes.length} lotes descargados${sufLotes}` };
   } catch (err) {
     return { success: false, count: 0, message: err.message };
   }
@@ -453,7 +466,7 @@ async function descargarClientesDeSupabase(onProgress) {
     if (onProgress) onProgress('Descargando clientes...', 0);
     const { data, error } = await sb.from('clientes').select('*');
     if (error) return { success: false, count: 0, message: error.message };
-    const clientes = (data || []).map(c => ({
+    const clientesRaw = (data || []).map(c => ({
       id: c.id_cliente,
       id_cliente: c.id_cliente,
       email: c.email || '',
@@ -475,9 +488,24 @@ async function descargarClientesDeSupabase(onProgress) {
       activo: c.activo !== false,
       _supabase_id: c.id
     }));
+    // 🛡️ v3.1 DEDUPE DEFENSIVO por id_cliente (fallback: nombre+telefono normalizados)
+    const clientes = [];
+    const vistosCli = new Set();
+    let dupCli = 0;
+    for (let i = 0; i < clientesRaw.length; i++) {
+      const c = clientesRaw[i];
+      const idKey = c.id_cliente ? String(c.id_cliente).trim() : '';
+      const fallbackKey = `${(c.nombre || '').toLowerCase().trim()}__${(c.telefono || '').trim()}`;
+      const key = idKey || (fallbackKey !== '__' ? fallbackKey : `__pos_${i}`);
+      if (vistosCli.has(key)) { dupCli++; continue; }
+      vistosCli.add(key);
+      clientes.push(c);
+    }
+    if (dupCli > 0) console.warn(`⚠ ${dupCli} clientes duplicados ignorados al descargar`);
     localStorage.setItem('macropro_clients_v1', JSON.stringify(clientes));
-    if (onProgress) onProgress(`✓ ${clientes.length} clientes descargados`, clientes.length);
-    return { success: true, count: clientes.length, message: `✓ ${clientes.length} clientes descargados` };
+    const sufCli = dupCli > 0 ? ` (${dupCli} duplicados ignorados)` : '';
+    if (onProgress) onProgress(`✓ ${clientes.length} clientes descargados${sufCli}`, clientes.length);
+    return { success: true, count: clientes.length, duplicados: dupCli, message: `✓ ${clientes.length} clientes descargados${sufCli}` };
   } catch (err) {
     return { success: false, count: 0, message: err.message };
   }
@@ -2228,7 +2256,7 @@ function MacroProMatcher() {
     }));
   };
   const buscarMatchesAsesor = (solicitud) => {
-    const inv = inventory.length>0?inventory:DEMO_LOTS;
+    const inv = inventory.length>0?inventory:SAMPLE_INVENTORY;
     const matches = buscarMatchesParaSolicitud(solicitud, inv);
     setMatchesActuales(matches);
     setSolicitudActiva(solicitud);
@@ -2237,7 +2265,7 @@ function MacroProMatcher() {
   // Convertir solicitud Match → Cliente del CRM (integración)
   const convertirAsesorAProspecto = (solicitud, loteId) => {
     if(!solicitud||!loteId){ toast("⚠ Datos insuficientes para convertir"); return; }
-    const inv = inventory.length>0?inventory:DEMO_LOTS;
+    const inv = inventory.length>0?inventory:SAMPLE_INVENTORY;
     const lote = inv.find(l=>l.id===loteId);
     if(!lote){ toast("⚠ Lote no encontrado"); return; }
     // 1. Crear cliente nuevo si no existe
@@ -2539,7 +2567,70 @@ function MacroProMatcher() {
     };
     return tplCuerpo.replace(/\{(\w+)\}/g,(m,k)=>vars[k]!==undefined?vars[k]:m);
   };
-  const exportCRMJson=()=>{const b=new Blob([JSON.stringify(crmData,null,2)],{type:"application/json"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download="CRM_MacroPro_"+new Date().toISOString().slice(0,10)+".json";a.click();};
+  // 🛡️ v3 BACKUP COMPLETO — un archivo JSON con todo (inventario + clientes + CRM + metadata)
+  const exportCRMJson = () => {
+    const backup = {
+      version: "v3-backup-completo",
+      generado_en: new Date().toISOString(),
+      contadores: {
+        lotes: (inventory||[]).length,
+        clientes: (clients||[]).length,
+        crm_seguimientos: Object.keys(crmData||{}).length
+      },
+      inventory: inventory||[],
+      clients: clients||[],
+      crmData: crmData||{}
+    };
+    const b = new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+    const u = URL.createObjectURL(b);
+    const a = document.createElement("a");
+    a.href = u;
+    a.download = "MacroPro_Backup_"+new Date().toISOString().slice(0,10)+".json";
+    a.click();
+    URL.revokeObjectURL(u);
+    toast(`✓ Backup descargado: ${backup.contadores.lotes} lotes · ${backup.contadores.clientes} clientes · ${backup.contadores.crm_seguimientos} CRM`);
+  };
+  
+  // 🛡️ v3 RESTAURAR BACKUP — sube JSON y reemplaza datos locales
+  const restaurarBackupJson = (file) => {
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        // Validar estructura
+        if(!data || typeof data !== "object") throw new Error("Archivo no es JSON válido");
+        const tieneInv = Array.isArray(data.inventory);
+        const tieneCli = Array.isArray(data.clients);
+        const tieneCRM = data.crmData && typeof data.crmData === "object";
+        if(!tieneInv && !tieneCli && !tieneCRM) {
+          throw new Error("El JSON no tiene inventory, clients ni crmData");
+        }
+        const partes = [];
+        if(tieneInv) partes.push(`${data.inventory.length} lotes`);
+        if(tieneCli) partes.push(`${data.clients.length} clientes`);
+        if(tieneCRM) partes.push(`${Object.keys(data.crmData).length} CRM`);
+        if(!window.confirm(
+          `⚠️ RESTAURAR BACKUP\n\n` +
+          `El archivo contiene:\n${partes.map(p=>`• ${p}`).join("\n")}\n\n` +
+          `Esto SOBRESCRIBIRÁ tus datos locales actuales:\n` +
+          `• ${(inventory||[]).length} lotes actuales → ${tieneInv?data.inventory.length:"sin cambio"}\n` +
+          `• ${(clients||[]).length} clientes actuales → ${tieneCli?data.clients.length:"sin cambio"}\n` +
+          `• ${Object.keys(crmData||{}).length} CRM actuales → ${tieneCRM?Object.keys(data.crmData).length:"sin cambio"}\n\n` +
+          `NO sube a Supabase. Solo restaura local.\n\n` +
+          `¿Continuar?`
+        )) return;
+        if(tieneInv) setInventory(data.inventory);
+        if(tieneCli) setClients(data.clients);
+        if(tieneCRM) setCrmData(data.crmData);
+        toast(`✓ Backup restaurado: ${partes.join(" · ")}`);
+      } catch(err) {
+        toast("⚠ Error al restaurar: "+err.message);
+        console.error("Error restaurando backup:",err);
+      }
+    };
+    reader.readAsText(file);
+  };
   const importCRMJson=(e)=>{
     const file=e.target.files[0];if(!file)return;
     const r=new FileReader();
@@ -2892,7 +2983,11 @@ function MacroProMatcher() {
         const C={
           id:colIdx(["id cliente","id"]),nombre:colIdx(["nombre completo","nombre"]),
           empresa:colIdx(["empresa grupo","empresa","compañia","razon social"]),
+          // 🔧 v3 FIX: agregar mapeo Correo→email y Teléfono→telefono
+          email:colIdx(["correo","email","e-mail","correo electronico","correo electrónico"]),
+          telefono:colIdx(["teléfono","telefono","tel","celular","movil","móvil"]),
           asesor:colIdx(["asesor","agente","responsable"]),
+          tipo_comprador:colIdx(["tipo comprador","tipo de comprador","tipo"]),
           ciudad1:colIdx(["ciudad 1","ciudad1"]),ciudad2:colIdx(["ciudad 2","ciudad2"]),ciudad3:colIdx(["ciudad 3","ciudad3"]),
           uso1:colIdx(["uso buscado 1","uso_buscado_1","uso buscado","uso de suelo buscado","uso 1","uso1","uso"]),
           uso2:colIdx(["uso buscado 2","uso_buscado_2","uso 2","uso2"]),
@@ -2921,6 +3016,9 @@ function MacroProMatcher() {
             id:(g(row,"id")||("CLI-"+String(i+1).padStart(3,"0")))+"-r"+i,
             nombre:g(row,"nombre")||`Cliente ${i+1}`,
             empresa:g(row,"empresa"),asesor:g(row,"asesor"),
+            // 🔧 v3 FIX: incluir email y telefono del Excel
+            email:g(row,"email"),telefono:g(row,"telefono"),
+            tipo_comprador:g(row,"tipo_comprador"),
             ciudad_interes:ciudades,uso_interes:usos,
             presupuesto_min:toNum(g(row,"ppto_min")),presupuesto_max:toNum(g(row,"ppto_max")),
             precio_max_m2:toNum(g(row,"precio_m2")),sup_min:toNum(g(row,"sup_min")),sup_max:toNum(g(row,"sup_max")),
@@ -6430,9 +6528,12 @@ function MacroProMatcher() {
               setCrmData(migrated); saveCRM(migrated);
               toast(before>0?"🔧 "+before+" registros legacy migrados":"✅ Datos ya estaban limpios");
             }} style={{padding:"8px 13px",background:"#f59e0b",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title="Migra etapas antiguas (Prospectado, Propuesta formal, Baja) al nuevo pipeline">🔧 Sanear datos</button>
-            <button onClick={exportCRMJson} style={{padding:"8px 13px",background:B.navy,color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>⬇ Exportar JSON</button>
-            <label style={{padding:"8px 13px",background:B.offW,color:B.grey4,border:"1px solid "+B.grey1,borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",gap:4,fontFamily:"'DM Sans',sans-serif"}}>
-              ⬆ Importar<input type="file" accept=".json" onChange={importCRMJson} style={{display:"none"}}/>
+            <button onClick={exportCRMJson} style={{padding:"8px 13px",background:B.navy,color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title="Descarga UN archivo JSON con inventario + clientes + CRM completo">💾 Backup completo</button>
+            <label style={{padding:"8px 13px",background:"#10b981",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",gap:4,fontFamily:"'DM Sans',sans-serif"}} title="Restaurar desde archivo de Backup completo (no sube a nube, solo local)">
+              🔁 Restaurar<input type="file" accept=".json" onChange={(e)=>{const f=e.target.files[0];restaurarBackupJson(f);e.target.value="";}} style={{display:"none"}}/>
+            </label>
+            <label style={{padding:"8px 13px",background:B.offW,color:B.grey4,border:"1px solid "+B.grey1,borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",gap:4,fontFamily:"'DM Sans',sans-serif"}} title="Importar solo CRM (legacy)">
+              ⬆ Importar CRM<input type="file" accept=".json" onChange={importCRMJson} style={{display:"none"}}/>
             </label>
             <button onClick={()=>setShowMigrateModal(true)} style={{padding:"8px 13px",background:"linear-gradient(135deg,#3b82f6,#1d4ed8)",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 8px rgba(59,130,246,0.3)"}} title="Subir inventario, clientes y CRM a Supabase (nube)">☁️ Migrar a nube</button>
           </div>
@@ -7186,7 +7287,59 @@ function MacroProMatcher() {
       toast("⚠ Sin conexión a Supabase. Recarga la página.");
       return;
     }
-    if(!confirm("¿Subir TODO tu inventario, clientes y CRM a Supabase? Esto puede tomar 1-3 minutos.")) return;
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 🛡️ v3 BLINDAJE PRE-MIGRACIÓN — bloquea si hay datos malos
+    // Causa raíz del incidente 30-abr: upsert con clave NULL crea duplicados
+    // ═══════════════════════════════════════════════════════════════
+    const lotesSinClave = inventory.filter(l => !(l.clave_unica||"").toString().trim() && !(l.id||"").toString().trim());
+    const clientesSinId = clients.filter(c => !(c.id||c.id_cliente||"").toString().trim() && !(c.nombre||"").toString().trim());
+    const lotesSinNombre = inventory.filter(l => !(l.nombre_lote||l.nombre||"").toString().trim());
+    
+    if(lotesSinClave.length>0 || clientesSinId.length>0 || lotesSinNombre.length>0) {
+      const partes = [];
+      if(lotesSinClave.length>0) partes.push(`• ${lotesSinClave.length} lotes sin clave_unica ni id`);
+      if(lotesSinNombre.length>0) partes.push(`• ${lotesSinNombre.length} lotes sin nombre`);
+      if(clientesSinId.length>0) partes.push(`• ${clientesSinId.length} clientes sin id ni nombre`);
+      alert(
+        "⛔ MIGRACIÓN BLOQUEADA — datos inválidos detectados\n\n" +
+        partes.join("\n") + "\n\n" +
+        "Estos registros causarían DUPLICACIÓN en Supabase porque el sistema\n" +
+        "no puede identificarlos de forma única.\n\n" +
+        "Acción: corrige el Excel y vuelve a cargar antes de migrar.\n\n" +
+        "Tip: revisa que cada lote tenga 'Clave/Nombre' y cada cliente\n" +
+        "tenga 'ID Cliente' o 'Nombre Completo'."
+      );
+      return;
+    }
+    
+    // Detectar duplicados internos en local (defensa contra Excel mal armado)
+    const clavesLotes = inventory.map(l => (l.clave_unica||l.id||"").toString().trim().toLowerCase()).filter(Boolean);
+    const idsClientes = clients.map(c => (c.id||c.id_cliente||"").toString().trim()).filter(Boolean);
+    const dupClavesLotes = clavesLotes.length - new Set(clavesLotes).size;
+    const dupIdsClientes = idsClientes.length - new Set(idsClientes).size;
+    
+    if(dupClavesLotes>0 || dupIdsClientes>0) {
+      const partes = [];
+      if(dupClavesLotes>0) partes.push(`• ${dupClavesLotes} lotes con clave_unica duplicada`);
+      if(dupIdsClientes>0) partes.push(`• ${dupIdsClientes} clientes con id duplicado`);
+      if(!confirm(
+        "⚠️ DUPLICADOS DETECTADOS en datos locales:\n\n" +
+        partes.join("\n") + "\n\n" +
+        "Si migras así, Supabase recibirá los duplicados.\n" +
+        "Recomendado: cancela y revisa el Excel.\n\n" +
+        "¿Continuar de todos modos?"
+      )) return;
+    }
+    
+    if(!confirm(
+      `¿Subir a Supabase?\n\n` +
+      `• ${inventory.length} lotes\n` +
+      `• ${clients.length} clientes\n` +
+      `• ${Object.keys(crmData||{}).length} seguimientos CRM\n\n` +
+      `Tiempo estimado: 1-3 minutos.`
+    )) return;
+    
     try {
       // Lotes
       setSupabaseProgress({tabla:"lotes", hechos:0, total:inventory.length, mensaje:"Subiendo inventario..."});
@@ -7495,25 +7648,61 @@ function MacroProMatcher() {
   const skipFirstSyncInv = React.useRef(true);
   const skipFirstSyncCli = React.useRef(true);
   const skipFirstSyncCrm = React.useRef(true);
-  // Bandera: true cuando el siguiente cambio viene del polling (descarga remota),
-  // para skippear el auto-sync de subida y evitar loops.
+  // 🛡️ v3.1 FIX: usar fingerprint en vez de boolean para evitar loop polling↔autosync
+  // El boolean solo skip 1 ciclo, pero React puede re-renderizar 2-3 veces.
+  // Con fingerprint comparamos contenido real y solo subimos si cambió de verdad.
+  const lastSyncedFpInv = React.useRef(null);
+  const lastSyncedFpCli = React.useRef(null);
+  const lastSyncedFpCrm = React.useRef(null);
+  
+  // Bandera legacy mantenida por compatibilidad pero ya no es la principal
   const skipNextSyncInv = React.useRef(false);
   const skipNextSyncCli = React.useRef(false);
   const skipNextSyncCrm = React.useRef(false);
   
+  // Helper: fingerprint estable basado en IDs + estado de cada item
+  const fpInventory = (inv) => {
+    if (!Array.isArray(inv)) return "0";
+    const sorted = [...inv].sort((a,b) => String(a.clave_unica||a.id||'').localeCompare(String(b.clave_unica||b.id||'')));
+    return sorted.length + ":" + sorted.map(l => (l.clave_unica||l.id||'') + "=" + (l.status||l.status_inventario||'')).join("|");
+  };
+  const fpClients = (cli) => {
+    if (!Array.isArray(cli)) return "0";
+    const sorted = [...cli].sort((a,b) => String(a.id||a.id_cliente||'').localeCompare(String(b.id||b.id_cliente||'')));
+    return sorted.length + ":" + sorted.map(c => (c.id||c.id_cliente||'') + "=" + (c.status||'')).join("|");
+  };
+  const fpCRMData = (crm) => {
+    if (!crm || typeof crm !== 'object') return "0";
+    const keys = Object.keys(crm).sort();
+    return keys.length + ":" + keys.map(k => k + "=" + (crm[k]?.pipeline||'')).join("|");
+  };
+  
   // CRM auto-sync (la más importante — los cambios de pipeline son frecuentes)
   React.useEffect(() => {
     if (supabaseStatus !== "connected" || !sb) return;
-    if (skipFirstSyncCrm.current) { skipFirstSyncCrm.current = false; return; }
-    // Si el cambio vino del polling (descarga remota), NO re-subir
-    if (skipNextSyncCrm.current) { skipNextSyncCrm.current = false; return; }
+    if (skipFirstSyncCrm.current) { 
+      skipFirstSyncCrm.current = false; 
+      lastSyncedFpCrm.current = fpCRMData(crmData);
+      return; 
+    }
     if (!crmData || Object.keys(crmData).length === 0) return;
+    
+    // 🛡️ v3.1: si el contenido es idéntico al último subido, NO subir
+    const currentFp = fpCRMData(crmData);
+    if (currentFp === lastSyncedFpCrm.current) return;
+    
+    // Si el cambio vino del polling (descarga remota), NO re-subir
+    if (skipNextSyncCrm.current) { 
+      skipNextSyncCrm.current = false; 
+      lastSyncedFpCrm.current = currentFp;
+      return; 
+    }
     
     const timer = setTimeout(async () => {
       try {
         console.log("☁️ Auto-sync CRM → nube...");
         await window.sbHelpers.migrarCRM(crmData);
-        // Pausa polling 5 seg para no auto-detectar nuestro cambio
+        lastSyncedFpCrm.current = currentFp;
         pausePollingUntilRef.current = Date.now() + 5000;
         console.log("✅ CRM sincronizado a nube");
       } catch(e) {
@@ -7527,14 +7716,28 @@ function MacroProMatcher() {
   // Inventory auto-sync (lotes — cambian con menos frecuencia)
   React.useEffect(() => {
     if (supabaseStatus !== "connected" || !sb) return;
-    if (skipFirstSyncInv.current) { skipFirstSyncInv.current = false; return; }
-    if (skipNextSyncInv.current) { skipNextSyncInv.current = false; return; }
+    if (skipFirstSyncInv.current) { 
+      skipFirstSyncInv.current = false; 
+      lastSyncedFpInv.current = fpInventory(inventory);
+      return; 
+    }
     if (!inventory || inventory.length === 0) return;
+    
+    // 🛡️ v3.1: si el contenido es idéntico al último subido, NO subir
+    const currentFp = fpInventory(inventory);
+    if (currentFp === lastSyncedFpInv.current) return;
+    
+    if (skipNextSyncInv.current) { 
+      skipNextSyncInv.current = false; 
+      lastSyncedFpInv.current = currentFp;
+      return; 
+    }
     
     const timer = setTimeout(async () => {
       try {
         console.log("☁️ Auto-sync inventario → nube...");
         await window.sbHelpers.migrarLotes(inventory);
+        lastSyncedFpInv.current = currentFp;
         pausePollingUntilRef.current = Date.now() + 5000;
         console.log("✅ Inventario sincronizado a nube");
       } catch(e) {
@@ -7548,14 +7751,28 @@ function MacroProMatcher() {
   // Clients auto-sync
   React.useEffect(() => {
     if (supabaseStatus !== "connected" || !sb) return;
-    if (skipFirstSyncCli.current) { skipFirstSyncCli.current = false; return; }
-    if (skipNextSyncCli.current) { skipNextSyncCli.current = false; return; }
+    if (skipFirstSyncCli.current) { 
+      skipFirstSyncCli.current = false; 
+      lastSyncedFpCli.current = fpClients(clients);
+      return; 
+    }
     if (!clients || clients.length === 0) return;
+    
+    // 🛡️ v3.1: si el contenido es idéntico al último subido, NO subir
+    const currentFp = fpClients(clients);
+    if (currentFp === lastSyncedFpCli.current) return;
+    
+    if (skipNextSyncCli.current) { 
+      skipNextSyncCli.current = false; 
+      lastSyncedFpCli.current = currentFp;
+      return; 
+    }
     
     const timer = setTimeout(async () => {
       try {
         console.log("☁️ Auto-sync clientes → nube...");
         await window.sbHelpers.migrarClientes(clients);
+        lastSyncedFpCli.current = currentFp;
         pausePollingUntilRef.current = Date.now() + 5000;
         console.log("✅ Clientes sincronizados a nube");
       } catch(e) {
@@ -7801,7 +8018,7 @@ function MacroProMatcher() {
       const fechaReporte = ahora.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
 
       // Datos base con filtros aplicados
-      const srcInvE = inventory.length>0?inventory:DEMO_LOTS;
+      const srcInvE = inventory.length>0?inventory:SAMPLE_INVENTORY;
       const lotesFiltrados = srcInvE.filter(l=>{
         if(ejecFiltroDesarrollador!=="Todos"&&(l.desarrollador||l.desarrollo)!==ejecFiltroDesarrollador) return false;
         if(ejecFiltroDesarrollo!=="Todos"&&l.desarrollo!==ejecFiltroDesarrollo) return false;
@@ -8288,7 +8505,7 @@ function MacroProMatcher() {
     const fmtPct = (v) => (v*100).toFixed(0)+"%";
 
     // ─── Datos base + filtros ───────────────────────────────────────
-    const srcInvE = inventory.length>0?inventory:DEMO_LOTS;
+    const srcInvE = inventory.length>0?inventory:SAMPLE_INVENTORY;
     const desarrolladoresUnicos = [...new Set(srcInvE.map(l=>l.desarrollador||l.desarrollo).filter(Boolean))].sort();
     const desarrollosUnicos = [...new Set(srcInvE.filter(l=>{
       if(ejecFiltroDesarrollador==="Todos") return true;
@@ -9231,7 +9448,7 @@ function MacroProMatcher() {
             SECCIÓN: Tendencia mensual con Plan + Real + Momentum CRM
             ═══════════════════════════════════════════════════════════ */}
         {(() => {
-          const momentum = calcularMomentumKanban(crmData, inventory.length>0?inventory:DEMO_LOTS, metasFiltroDesarrollador, metasFiltroDesarrollo);
+          const momentum = calcularMomentumKanban(crmData, inventory.length>0?inventory:SAMPLE_INVENTORY, metasFiltroDesarrollador, metasFiltroDesarrollo);
           // Calcular Plan y Real agregados por mes según filtros activos
           const planMes = new Array(12).fill(0);
           const realMes = new Array(12).fill(0);
@@ -10079,7 +10296,7 @@ function MacroProMatcher() {
         return <ModalAsesorForm
           initial={initial}
           isEdit={isEdit}
-          inventory={inventory.length>0?inventory:DEMO_LOTS}
+          inventory={inventory.length>0?inventory:SAMPLE_INVENTORY}
           onClose={()=>{setShowSolicitudModal(false); setEditingSolicitud(null);}}
           onSave={(data)=>{ guardarAsesor(data); setShowSolicitudModal(false); setEditingSolicitud(null); }}
           onDelete={(id)=>{ eliminarAsesor(id); setShowSolicitudModal(false); setEditingSolicitud(null); }}
