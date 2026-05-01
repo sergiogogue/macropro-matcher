@@ -7532,7 +7532,10 @@ function MacroProMatcher() {
     
     const poll = async () => {
       if (isPolling) return;
-      if (document.hidden) return;
+      // 🛡️ v3.2 FIX iPad PWA: NO usar document.hidden porque iOS Safari/PWA
+      // lo reporta mal en standalone mode (queda en true permanentemente).
+      // Penalización: ~1 query cada 10s en background, aceptable para CRM.
+      // Ref: WebKit Bug #186722
       // Si acabamos de subir cambios nosotros, esperar a que pase la pausa
       // (evita detectar nuestros propios cambios como si fueran remotos)
       if (pausePollingUntilRef.current > Date.now()) return;
@@ -7632,9 +7635,24 @@ function MacroProMatcher() {
     // Polling cada 10 segundos
     const intervalId = setInterval(poll, 10000);
     
+    // 🛡️ v3.2 FIX: cuando la pestaña/PWA vuelve al foco, disparar poll inmediato
+    // Cubre casos donde iOS pausa setInterval en background y el usuario espera
+    // ver cambios al instante al volver. Combina visibilitychange + focus para
+    // máxima compatibilidad iOS Safari/PWA, Chrome desktop, Edge, etc.
+    const onVisibleAgain = () => {
+      if (!document.hidden) {
+        console.log("🔄 App volvió al foco — disparando poll inmediato");
+        poll();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibleAgain);
+    window.addEventListener('focus', onVisibleAgain);
+    
     return () => {
       console.log("🔄 Polling detenido");
       clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibleAgain);
+      window.removeEventListener('focus', onVisibleAgain);
     };
   },[supabaseStatus]);
   
