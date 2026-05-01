@@ -7532,12 +7532,7 @@ function MacroProMatcher() {
     
     const poll = async () => {
       if (isPolling) return;
-      // 🛡️ v3.3 FIX iPad PWA — línea comentada el 1-may-2026
-      // Causa: iOS Safari/PWA reporta document.hidden=true incorrectamente
-      // en modo standalone, bloqueando todo el polling.
-      // Ref: WebKit Bug #186722
-      // Penalización: ~1 query cada 10s en background, dentro de límites Supabase free tier
-      // if (document.hidden) return;
+      if (document.hidden) return;
       // Si acabamos de subir cambios nosotros, esperar a que pase la pausa
       // (evita detectar nuestros propios cambios como si fueran remotos)
       if (pausePollingUntilRef.current > Date.now()) return;
