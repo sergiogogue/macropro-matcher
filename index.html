@@ -7542,7 +7542,7 @@ function MacroProMatcher() {
         const [qLotes, qClientes, qCRM] = await Promise.all([
           sb.from('lotes').select('id, status_inventario'),
           sb.from('clientes').select('id, status'),
-          sb.from('crm_lotes').select('lote_id, pipeline')
+          sb.from('crm_lotes').select('lote_id, pipeline, prospectos')
         ]);
         
         if (qLotes.error || qClientes.error || qCRM.error) {
@@ -7553,9 +7553,20 @@ function MacroProMatcher() {
         
         const newFpLotes = makeFingerprint(qLotes.data || [], 'status_inventario');
         const newFpClientes = makeFingerprint(qClientes.data || [], 'status');
+        // 🛡️ v3.4 FIX: incluir prospectos en fingerprint
+        // Razón: cuando se mueve un lote en el Kanban, se actualiza prospectos[N].pipeline
+        // pero NO siempre se actualiza pipeline del lote. El fingerprint anterior solo
+        // miraba pipeline del lote → no detectaba esos cambios → iPad no sincronizaba.
+        const hashProspectos = (pros) => {
+          if (!Array.isArray(pros) || pros.length === 0) return '';
+          return pros.map(p => (p.nombre || p.id || '_') + ':' + (p.pipeline || '')).sort().join(',');
+        };
         const newFpCRM = makeFingerprint(
-          (qCRM.data || []).map(r => ({id: r.lote_id, pipeline: r.pipeline})),
-          'pipeline'
+          (qCRM.data || []).map(r => ({
+            id: r.lote_id,
+            sig: (r.pipeline || '') + '|' + hashProspectos(r.prospectos)
+          })),
+          'sig'
         );
         
         // Primera ejecución: solo guardar fingerprints, no sincronizar
