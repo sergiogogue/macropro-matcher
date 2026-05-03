@@ -1774,6 +1774,153 @@ async function iaAnalizarProspecto(lote, prospecto, crmEntry, todosLosLotes, tod
   }
 }
 
+// ─── IA TOP BUYERS — TOP 5 compradores potenciales para un lote ───
+// Reusa el patrón de iaAnalizarProspecto: pre-filtra, manda a IA, parsea JSON.
+// Excluye prospectos ya asignados al lote para no auto-recomendar lo que ya tienes.
+function iaBuildTopBuyersPrompt(lote, candidatos) {
+  const candStr = candidatos.map(c =>
+    "[" + (c.id || "SIN-ID") + "] " +
+    (c.nombre || "Sin nombre") +
+    " | " + (c.empresa || "sin empresa") +
+    " | Asesor:" + (c.asesor || "-") +
+    " | Ciudades:" + ((c.ciudad_interes || []).join("/") || "-") +
+    " | Usos:" + ((c.uso_interes || []).join("/") || "-") +
+    " | Ppto:$" + (c.presupuesto_min || 0) + "-$" + (c.presupuesto_max || 0) +
+    " | Sup:" + (c.sup_min || 0) + "-" + (c.sup_max || 0) + "m²" +
+    " | Temp:" + (c.temperatura || "-") +
+    " | Status:" + (c.status || "-")
+  ).join("\n");
+
+  return "Eres estratega inmobiliario senior en México. Rankea los TOP 5 mejores compradores para este lote macrolote.\n\n" +
+    "LOTE:\n" +
+    "ID:" + (lote.id || "") +
+    "|Nombre:" + (lote.nombre || "") +
+    "|Desarrollo:" + (lote.desarrollo || "") + " (" + (lote.desarrollador || "-") + ")" +
+    "|Ubicación:" + (lote.ciudad || "") + ", " + (lote.estado || "") +
+    "|Uso:" + (lote.uso || "") +
+    "|Sup:" + (lote.sup_m2 || 0) + "m²" +
+    "|Precio:$" + (lote.precio_total || 0) + " ($" + (lote.precio_m2 || 0) + "/m²)" +
+    "|Fortaleza:" + ((lote.fortaleza || "").substring(0, 200)) + "\n\n" +
+    "CANDIDATOS (" + candidatos.length + "):\n" + candStr + "\n\n" +
+    "Devuelve SOLO JSON válido (sin markdown, sin texto antes/después) en este formato exacto:\n" +
+    '{"top_buyers":[{"id":"CLI-001","score":95,"razon":"1 oración","argumentos":["a1","a2","a3"],"objecion_probable":"obj","respuesta_objecion":"resp","urgencia":"Alta"}]}\n\n' +
+    "Rankea SOLO los 5 mejores de mayor a menor score (0-100). Considera compatibilidad de ubicación, uso de suelo, presupuesto vs precio del lote, temperatura del cliente y ajuste de superficie. Penaliza clientes fríos, presupuesto justo o ciudades distintas. urgencia debe ser exactamente Alta, Media o Baja.";
+}
+
+async function iaTopBuyers(lote, todosLosClientes, crmDataLocal, todosLosLotes) {
+  const apiKey = iaGetApiKey();
+  if(!apiKey) {
+    return { ok:false, error:"No hay API key configurada" };
+  }
+  try {
+    // Helper: matching de ciudad con tolerancia ZMG
+    const ZMG_TB = ["guadalajara","zapopan","tlajomulco","tonala","tlaquepaque","el salto","san pedro","zmg","gdl"];
+    const matchCiudadTB = (cliCiudades, loteCiudad) => {
+      if(!cliCiudades || !cliCiudades.length) return true; // sin preferencia = aceptar
+      const lc = (loteCiudad || "").toLowerCase();
+      return cliCiudades.some(ci => {
+        const c2 = (ci || "").toLowerCase();
+        if(!c2) return false;
+        if(lc === c2 || lc.includes(c2) || c2.includes(lc)) return true;
+        return ZMG_TB.some(z => lc.includes(z)) && ZMG_TB.some(z => c2.includes(z));
+      });
+    };
+
+    // Excluir prospectos ya asignados a ESTE lote
+    const yaAsignados = new Set(
+      (((crmDataLocal || {})[lote.id] || {}).prospectos || [])
+        .map(p => (p.nombre || "").toLowerCase().trim())
+        .filter(Boolean)
+    );
+
+    // Pre-filtrar candidatos
+    const candidatos = (todosLosClientes || []).filter(c => {
+      if(!c || !c.nombre) return false;
+      if(yaAsignados.has((c.nombre || "").toLowerCase().trim())) return false;
+      // Ciudad: si el cliente declaró ciudades, debe haber match
+      if(c.ciudad_interes && c.ciudad_interes.length > 0 && !matchCiudadTB(c.ciudad_interes, lote.ciudad)) return false;
+      // Presupuesto suave: cliente debe poder pagar al menos 70% del precio del lote
+      if(c.presupuesto_max && lote.precio_total && c.presupuesto_max < lote.precio_total * 0.7) return false;
+      // Superficie suave
+      if(c.sup_max && lote.sup_m2 && c.sup_max < lote.sup_m2 * 0.7) return false;
+      return true;
+    });
+
+    if(candidatos.length === 0) {
+      return { ok:false, error:"No hay clientes compatibles con este lote (ciudad/presupuesto/superficie). Ajusta criterios o agrega clientes a la BD." };
+    }
+
+    // Ordenar: temperatura primero, luego presupuesto descendente
+    const tempOrderTB = { "Caliente":0, "Tibio":1, "Frío":2 };
+    const top12 = [...candidatos].sort((a,b) => {
+      const ta = tempOrderTB[a.temperatura] !== undefined ? tempOrderTB[a.temperatura] : 3;
+      const tb = tempOrderTB[b.temperatura] !== undefined ? tempOrderTB[b.temperatura] : 3;
+      if(ta !== tb) return ta - tb;
+      return (b.presupuesto_max || 0) - (a.presupuesto_max || 0);
+    }).slice(0, 12);
+
+    const prompt = iaBuildTopBuyersPrompt(lote, top12);
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: IA_MODEL,
+        max_tokens: IA_MAX_TOKENS,
+        messages: [{ role:"user", content: prompt }]
+      })
+    });
+
+    if(!response.ok) {
+      const errText = await response.text();
+      console.error("iaTopBuyers API error:", response.status, errText);
+      let msg = "Error " + response.status;
+      if(response.status === 401) msg = "API key inválida — revísala en ⚙️ Configurar IA";
+      else if(response.status === 429) msg = "Demasiadas llamadas — espera un momento";
+      else if(response.status === 400) msg = "Petición rechazada — datos malformados";
+      else if(response.status >= 500) msg = "API de Anthropic con problemas — reintenta";
+      return { ok:false, error: msg };
+    }
+
+    const json = await response.json();
+    const textBlock = (json.content || []).find(b => b.type === "text");
+    if(!textBlock) {
+      return { ok:false, error:"Respuesta sin texto" };
+    }
+    let raw = textBlock.text.trim();
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch(e) {
+      console.error("iaTopBuyers: JSON parse failed", raw);
+      return { ok:false, error:"La IA no devolvió JSON válido. Reintenta." };
+    }
+
+    // Enriquecer con datos del cliente original
+    const topBuyersList = (parsed.top_buyers || []).map(r => {
+      const cliente = top12.find(c => c.id === r.id) ||
+                      top12.find(c => (c.nombre || "").toLowerCase() === (r.nombre || "").toLowerCase());
+      return Object.assign({}, r, { cliente: cliente || null });
+    }).filter(r => r.cliente).slice(0, 5);
+
+    if(topBuyersList.length === 0) {
+      return { ok:false, error:"IA respondió pero sin coincidencias con la BD. Reintenta." };
+    }
+
+    return { ok:true, data: { top_buyers: topBuyersList, total_evaluados: top12.length } };
+  } catch(err) {
+    console.error("iaTopBuyers error:", err);
+    return { ok:false, error: err.message || "Error desconocido" };
+  }
+}
+
 
 async function generarFichaTecnica(lot) {
   const pptx = new PptxGenJS();
@@ -2409,6 +2556,10 @@ function MacroProMatcher() {
   });
   const [iaAnalyzingId, setIaAnalyzingId] = React.useState(null);
   const [iaResultModal, setIaResultModal] = React.useState(null);
+  // ─── IA Top Buyers (TOP 5 compradores para un lote) ───
+  const [iaTopBuyersLot, setIaTopBuyersLot] = React.useState(null);
+  const [iaTopBuyersResults, setIaTopBuyersResults] = React.useState(null);
+  const [iaTopBuyersLoading, setIaTopBuyersLoading] = React.useState(false);
 
   // ═══════════════════════════════════════════════════════════
   // PWA: Detección de instalable + estado installed
@@ -6230,6 +6381,34 @@ function MacroProMatcher() {
           {/* Footer acciones */}
           <div style={{padding:"10px 14px",borderTop:"1px solid "+B.grey1,display:"flex",gap:7,flexWrap:"wrap",background:B.offW}}>
             <button onClick={()=>{setSelectedLot(l);setView("matchLot");}} style={{padding:"6px 12px",background:B.gold,color:B.navy,border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>🎯 Match IA</button>
+            {iaKeyConfigured&&(
+              <button
+                onClick={async()=>{
+                  if(iaTopBuyersLoading) return;
+                  setIaTopBuyersLot(l);
+                  setIaTopBuyersResults(null);
+                  setIaTopBuyersLoading(true);
+                  try{
+                    const todosLosLotes=inventory.length>0?inventory:SAMPLE_INVENTORY;
+                    const todosLosClientes=clients||[];
+                    const result=await iaTopBuyers(l,todosLosClientes,crmData,todosLosLotes);
+                    if(result.ok){
+                      setIaTopBuyersResults(result.data);
+                    }else{
+                      setIaTopBuyersResults({error:result.error||"No se pudo analizar"});
+                    }
+                  }catch(err){
+                    setIaTopBuyersResults({error:err.message||"Error desconocido"});
+                  }finally{
+                    setIaTopBuyersLoading(false);
+                  }
+                }}
+                disabled={iaTopBuyersLoading}
+                title="Encuentra los 5 mejores compradores potenciales para este lote (IA)"
+                style={{padding:"6px 12px",background:iaTopBuyersLoading?"#cbd5e1":"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",border:"none",borderRadius:7,cursor:iaTopBuyersLoading?"wait":"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",opacity:iaTopBuyersLoading?0.7:1}}>
+                {iaTopBuyersLoading&&iaTopBuyersLot&&iaTopBuyersLot.id===l.id?"⏳ Buscando...":"⚡ Top 5 IA"}
+              </button>
+            )}
             <button onClick={()=>setSelectedLotDetail(l)} style={{padding:"6px 12px",background:B.navy,color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📋 Ficha</button>
           </div>
         </div>
@@ -11354,6 +11533,154 @@ function MacroProMatcher() {
                 style={{padding:"8px 18px", borderRadius:8, border:"1px solid "+B.grey1, background:"#fff", color:B.grey4, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
                 Cerrar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {/* MODAL: TOP 5 COMPRADORES IA — Sugiere compradores para el lote */}
+      {/* ═══════════════════════════════════════════════════════════ */}
+      {iaTopBuyersLot&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'DM Sans',sans-serif"}} onClick={(e)=>{if(e.target===e.currentTarget&&!iaTopBuyersLoading){setIaTopBuyersLot(null);setIaTopBuyersResults(null);}}}>
+          <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:680,maxHeight:"90vh",boxShadow:"0 25px 70px rgba(0,43,73,0.4)",overflow:"hidden",display:"flex",flexDirection:"column"}}>
+            {/* Header */}
+            <div style={{background:"linear-gradient(135deg,#15803d,#22c55e)",padding:"18px 22px",flexShrink:0,position:"relative"}}>
+              <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.85)",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>⚡ TOP 5 COMPRADORES IA · CLAUDE SONNET</div>
+              <div style={{fontSize:18,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif",lineHeight:1.2}}>{iaTopBuyersLot.nombre||iaTopBuyersLot.id}</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,0.85)",marginTop:3}}>
+                {iaTopBuyersLot.desarrollo} · {iaTopBuyersLot.ciudad}
+                {iaTopBuyersLot.precio_total?" · $"+(iaTopBuyersLot.precio_total/1000000).toFixed(1)+" MDP":""}
+                {iaTopBuyersLot.sup_m2?" · "+iaTopBuyersLot.sup_m2.toLocaleString()+" m²":""}
+              </div>
+              <button onClick={()=>{if(!iaTopBuyersLoading){setIaTopBuyersLot(null);setIaTopBuyersResults(null);}}} disabled={iaTopBuyersLoading} style={{position:"absolute",top:14,right:14,background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:8,width:32,height:32,cursor:iaTopBuyersLoading?"wait":"pointer",fontSize:16,fontWeight:700,opacity:iaTopBuyersLoading?0.5:1}}>✕</button>
+            </div>
+
+            {/* Body — scroll */}
+            <div style={{padding:"20px 22px",overflowY:"auto",flex:1,background:B.offW}}>
+              {iaTopBuyersLoading&&(
+                <div style={{textAlign:"center",padding:"40px 20px"}}>
+                  <div style={{display:"inline-block",width:48,height:48,border:"4px solid #d1fae5",borderTopColor:"#15803d",borderRadius:"50%",animation:"spin 0.9s linear infinite"}}></div>
+                  <div style={{marginTop:18,fontSize:14,fontWeight:700,color:B.navy}}>Analizando tu base de clientes...</div>
+                  <div style={{fontSize:11,color:B.grey3,marginTop:6}}>IA evalúa ubicación, presupuesto, uso, temperatura y ajuste de superficie</div>
+                </div>
+              )}
+
+              {!iaTopBuyersLoading&&iaTopBuyersResults&&iaTopBuyersResults.error&&(
+                <div style={{padding:"24px 20px",background:"#fef2f2",borderRadius:10,border:"1.5px solid #fca5a5"}}>
+                  <div style={{fontSize:13,fontWeight:800,color:"#b91c1c",marginBottom:6}}>⚠ No se pudo completar el análisis</div>
+                  <div style={{fontSize:12,color:"#7f1d1d",lineHeight:1.5}}>{iaTopBuyersResults.error}</div>
+                </div>
+              )}
+
+              {!iaTopBuyersLoading&&iaTopBuyersResults&&iaTopBuyersResults.top_buyers&&iaTopBuyersResults.top_buyers.length>0&&(
+                <div>
+                  <div style={{fontSize:11,color:B.grey3,marginBottom:14,padding:"8px 12px",background:"#eff6ff",borderRadius:8,borderLeft:"3px solid #3B82F6"}}>
+                    💡 IA evaluó <strong>{iaTopBuyersResults.total_evaluados||0}</strong> candidatos compatibles. Estos son los <strong>5 mejores</strong>:
+                  </div>
+                  {iaTopBuyersResults.top_buyers.map((tb,idx)=>{
+                    const c=tb.cliente||{};
+                    const medalla=idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":(idx+1)+"°";
+                    const scoreCol=tb.score>=80?"#15803d":tb.score>=60?"#f59e0b":tb.score>=40?"#3B82F6":B.grey3;
+                    const tempCol=c.temperatura==="Caliente"?"#dc2626":c.temperatura==="Tibio"?"#f59e0b":B.grey3;
+                    const urgCol=tb.urgencia==="Alta"?"#dc2626":tb.urgencia==="Media"?"#f59e0b":B.grey3;
+                    // Verificar si ya está asignado a este lote
+                    const crmEntry=(crmData||{})[iaTopBuyersLot.id]||{prospectos:[]};
+                    const yaAsignado=(crmEntry.prospectos||[]).some(p=>(p.nombre||"").toLowerCase().trim()===(c.nombre||"").toLowerCase().trim());
+                    return(
+                      <div key={c.id||idx} style={{background:"#fff",borderRadius:12,padding:"14px 16px",marginBottom:11,border:"1.5px solid "+(idx===0?"#fbbf24":B.grey1),boxShadow:idx===0?"0 4px 18px rgba(251,191,36,0.18)":"0 1px 4px rgba(0,43,73,0.04)"}}>
+                        {/* Header card */}
+                        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                          <div style={{fontSize:22,fontWeight:800,minWidth:40,textAlign:"center"}}>{medalla}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:14,fontWeight:800,color:B.navy,marginBottom:2}}>{c.nombre||"Sin nombre"}</div>
+                            <div style={{fontSize:11,color:B.grey3}}>
+                              {c.empresa||"Sin empresa"}
+                              {c.asesor?" · Asesor: "+c.asesor:""}
+                            </div>
+                          </div>
+                          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
+                            <div style={{fontSize:22,fontWeight:800,color:scoreCol,lineHeight:1}}>{tb.score||0}</div>
+                            <div style={{fontSize:9,fontWeight:700,color:scoreCol,textTransform:"uppercase",letterSpacing:0.5}}>SCORE</div>
+                          </div>
+                        </div>
+
+                        {/* Tags */}
+                        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+                          {c.temperatura&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:5,background:tempCol+"22",color:tempCol}}>🌡 {c.temperatura}</span>}
+                          {c.status&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:5,background:"#eff6ff",color:"#1e40af"}}>{c.status}</span>}
+                          {tb.urgencia&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:5,background:urgCol+"22",color:urgCol}}>⚡ Urgencia {tb.urgencia}</span>}
+                          {c.presupuesto_max?<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:5,background:"#f0fdf4",color:"#15803d"}}>Ppto hasta ${(c.presupuesto_max/1000000).toFixed(0)} MDP</span>:null}
+                        </div>
+
+                        {/* Razón */}
+                        {tb.razon&&(
+                          <div style={{fontSize:12,color:B.grey4,lineHeight:1.5,padding:"8px 11px",background:"#fffbeb",borderRadius:7,border:"1px solid #fde68a",marginBottom:8}}>
+                            <strong style={{color:"#92400e"}}>Por qué:</strong> {tb.razon}
+                          </div>
+                        )}
+
+                        {/* Argumentos */}
+                        {Array.isArray(tb.argumentos)&&tb.argumentos.length>0&&(
+                          <div style={{marginBottom:8}}>
+                            <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:0.8,marginBottom:4}}>💼 Argumentos comerciales</div>
+                            <ul style={{margin:0,paddingLeft:18,fontSize:11.5,color:B.grey4,lineHeight:1.5}}>
+                              {tb.argumentos.map((a,i)=><li key={i} style={{marginBottom:2}}>{a}</li>)}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Objeción + respuesta */}
+                        {tb.objecion_probable&&(
+                          <div style={{fontSize:11,padding:"7px 10px",background:"#fef2f2",borderRadius:6,marginBottom:8,borderLeft:"2px solid #f87171"}}>
+                            <div style={{color:"#991b1b",fontWeight:700,marginBottom:2}}>⚠ Objeción probable: {tb.objecion_probable}</div>
+                            {tb.respuesta_objecion&&<div style={{color:"#7f1d1d",fontStyle:"italic"}}>↳ {tb.respuesta_objecion}</div>}
+                          </div>
+                        )}
+
+                        {/* Acción */}
+                        <div style={{display:"flex",gap:7,marginTop:10,paddingTop:10,borderTop:"1px dashed "+B.grey1}}>
+                          <button
+                            onClick={()=>{
+                              if(yaAsignado){toast("⚠ Ya estaba asignado a este lote");return;}
+                              const crm=(crmData||{})[iaTopBuyersLot.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
+                              const prospectos=[...(crm.prospectos||[]),{
+                                nombre:c.nombre||"",
+                                empresa:c.empresa||"",
+                                telefono:c.telefono||"",
+                                email:c.email||"",
+                                pipeline:"Prospecto",
+                                nota:"⚡ Top "+(idx+1)+" IA — score "+(tb.score||0)+" · "+new Date().toLocaleDateString("es-MX")
+                              }];
+                              updateCRM(iaTopBuyersLot.id,{
+                                prospectos,
+                                pipeline:crm.pipeline==="Disponible"?"Prospecto":crm.pipeline,
+                                lastContact:new Date().toISOString().slice(0,10)
+                              });
+                              toast("✅ "+(c.nombre||"Cliente")+" asignado al lote");
+                            }}
+                            disabled={yaAsignado}
+                            style={{flex:1,padding:"8px 14px",background:yaAsignado?B.grey1:"#15803d",color:yaAsignado?B.grey3:"#fff",border:"none",borderRadius:7,cursor:yaAsignado?"default":"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>
+                            {yaAsignado?"✓ Ya asignado":"➕ Asignar como prospecto"}
+                          </button>
+                          <button
+                            onClick={()=>{setSelectedClient(c);setView("matchClient");setIaTopBuyersLot(null);setIaTopBuyersResults(null);}}
+                            title="Ver otros lotes que le encajan a este cliente"
+                            style={{padding:"8px 12px",background:"#fff",color:B.navy,border:"1.5px solid "+B.grey1,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>
+                            👤 Ver perfil
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{padding:"12px 22px",borderTop:"1px solid "+B.grey1,background:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+              <div style={{fontSize:10,color:B.grey3}}>💡 IA · Claude Sonnet · ~$0.02 USD por análisis</div>
+              <button onClick={()=>{if(!iaTopBuyersLoading){setIaTopBuyersLot(null);setIaTopBuyersResults(null);}}} disabled={iaTopBuyersLoading} style={{padding:"8px 18px",background:B.navy,color:"#fff",border:"none",borderRadius:8,cursor:iaTopBuyersLoading?"wait":"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",opacity:iaTopBuyersLoading?0.5:1}}>Cerrar</button>
             </div>
           </div>
         </div>
