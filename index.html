@@ -1383,6 +1383,8 @@ function descargarICS(activity, lote, prospecto, durMinutes){
       if(lote.ciudad) descParts.push("Ciudad: "+lote.ciudad);
     }
     descParts.push("");
+    descParts.push("Abrir en MacroPro: https://sergiogogue.github.io/macropro-matcher/");
+    descParts.push("");
     descParts.push("Generado por MacroPro · Grupo Guía");
     const description=descParts.join("\n");
     const location=lote?[lote.desarrollo,lote.ciudad,lote.estado].filter(Boolean).join(", "):"";
