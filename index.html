@@ -6162,6 +6162,49 @@ function MacroProMatcher() {
                         {PIPELINE_STAGES.map(s=><option key={s} value={s}>{s}</option>)}
                       </select>
                       {!VALID_STAGES_SET.has(pStage)&&<span style={{fontSize:9,color:"#dc2626",fontWeight:700}}>← Elige etapa nueva</span>}
+                      {/* 🤖 Botón Analizar IA — solo si hay API key configurada */}
+                      {iaKeyConfigured&&(
+                        <button
+                          onClick={async ()=>{
+                            const prospId=l.id+"::"+i;
+                            if(iaAnalyzingId===prospId) return;
+                            setIaAnalyzingId(prospId);
+                            try{
+                              const todosLosLotes=inventory.length>0?inventory:SAMPLE_INVENTORY;
+                              const todosLosClientes=clients||[];
+                              const result=await iaAnalizarProspecto(l,p,crm,todosLosLotes,todosLosClientes);
+                              if(result.ok){
+                                setIaResultModal({prospecto:p,lote:l,data:result.data});
+                              }else{
+                                toast("⚠ "+(result.error||"No se pudo analizar"));
+                              }
+                            }catch(err){
+                              toast("⚠ Error al analizar: "+(err.message||"desconocido"));
+                            }finally{
+                              setIaAnalyzingId(null);
+                            }
+                          }}
+                          disabled={iaAnalyzingId===(l.id+"::"+i)}
+                          title="Analizar este prospecto con IA (Claude Sonnet)"
+                          style={{
+                            padding:"4px 10px",
+                            background: iaAnalyzingId===(l.id+"::"+i) ? "#cbd5e1" : "linear-gradient(135deg,#1e293b,#475569)",
+                            color:"#fff",
+                            border:"none",
+                            borderRadius:6,
+                            cursor: iaAnalyzingId===(l.id+"::"+i) ? "wait" : "pointer",
+                            fontSize:10,
+                            fontWeight:700,
+                            fontFamily:"'DM Sans',sans-serif",
+                            display:"flex",
+                            alignItems:"center",
+                            gap:4,
+                            opacity: iaAnalyzingId===(l.id+"::"+i) ? 0.7 : 1
+                          }}
+                        >
+                          {iaAnalyzingId===(l.id+"::"+i) ? "⏳ Analizando..." : "🤖 Analizar IA"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
