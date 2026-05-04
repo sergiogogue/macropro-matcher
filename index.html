@@ -1921,6 +1921,216 @@ async function iaTopBuyers(lote, todosLosClientes, crmDataLocal, todosLosLotes) 
   }
 }
 
+// ─── IA DASHBOARD EJECUTIVO — Narrativa estratégica de la operación ───
+// Estrategia B (Balanceada): KPIs agregados + Top 20 lotes/asesores + comparativa.
+// Refresh manual cacheado en localStorage para no consumir API sin click.
+function iaBuildDashboardSnapshot(inv, clientes, crmDataLocal) {
+  const tot = (inv || []).length;
+  const STAGES_AC = ["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
+  const stageProb = {"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Vendido":1.00,"Perdido":0,"Disponible":0};
+  const hoy = new Date();
+  const diasDesde = (iso) => { if(!iso) return 999; const d = new Date(iso); return Math.floor((hoy - d) / 86400000); };
+
+  // Snapshot por lote
+  const lotesData = (inv || []).map(l => {
+    const e = (crmDataLocal || {})[l.id] || {};
+    const pros = e.prospectos || [];
+    let etapa = e.pipeline || "Disponible";
+    if(pros.length > 0) {
+      const ord = {"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Vendido":7,"Perdido":0,"Disponible":0};
+      let max = 0;
+      pros.forEach(p => { const o = ord[p.pipeline] || 0; if(o > max) { max = o; etapa = p.pipeline; } });
+    }
+    const lastDays = diasDesde(e.lastContact);
+    return {
+      id: l.id, desarrollador: l.desarrollador || l.desarrollo, desarrollo: l.desarrollo,
+      ciudad: l.ciudad, precio: l.precio_total || 0, etapa, prospectos: pros.length,
+      diasSinMov: lastDays, asesor: e.asesor || (pros[0] && pros[0].asesor) || ""
+    };
+  });
+
+  // KPIs agregados
+  const cerrados = lotesData.filter(l => l.etapa === "Vendido");
+  const enPipeline = lotesData.filter(l => STAGES_AC.includes(l.etapa));
+  const pipelineMonto = enPipeline.reduce((s, l) => s + l.precio, 0);
+  const pipelinePonderado = enPipeline.reduce((s, l) => s + l.precio * (stageProb[l.etapa] || 0), 0);
+  const cerradoMonto = cerrados.reduce((s, l) => s + l.precio, 0);
+  const inventarioTotal = lotesData.reduce((s, l) => s + l.precio, 0);
+  const disponibles = lotesData.filter(l => l.etapa === "Disponible").length;
+
+  // Top 20 lotes en riesgo (estancados con más $ en juego)
+  const enRiesgo = lotesData
+    .filter(l => l.etapa !== "Disponible" && l.etapa !== "Vendido" && l.etapa !== "Perdido" && l.diasSinMov >= 30)
+    .sort((a, b) => (b.precio * b.diasSinMov) - (a.precio * a.diasSinMov))
+    .slice(0, 20);
+
+  // Top 10 oportunidades (en propuesta/apartado/contrato con $ alto)
+  const oportunidades = lotesData
+    .filter(l => ["Propuesta","Apartado","Contrato"].includes(l.etapa))
+    .sort((a, b) => (b.precio * (stageProb[b.etapa] || 0)) - (a.precio * (stageProb[a.etapa] || 0)))
+    .slice(0, 10);
+
+  // Performance por desarrollador (Top 8)
+  const porDesa = {};
+  lotesData.forEach(l => {
+    if(!l.desarrollador) return;
+    const k = l.desarrollador;
+    if(!porDesa[k]) porDesa[k] = { total:0, vendidos:0, pipeline:0, montoVendido:0, montoPipeline:0, estancados:0 };
+    porDesa[k].total++;
+    if(l.etapa === "Vendido") { porDesa[k].vendidos++; porDesa[k].montoVendido += l.precio; }
+    if(STAGES_AC.includes(l.etapa)) { porDesa[k].pipeline++; porDesa[k].montoPipeline += l.precio; }
+    if(l.diasSinMov >= 60 && l.etapa !== "Disponible" && l.etapa !== "Vendido") porDesa[k].estancados++;
+  });
+  const desarrolladoresArr = Object.entries(porDesa)
+    .map(([n,v]) => Object.assign({nombre:n}, v))
+    .sort((a,b) => b.montoPipeline + b.montoVendido - (a.montoPipeline + a.montoVendido))
+    .slice(0, 8);
+
+  // Performance por asesor (Top 10)
+  const porAse = {};
+  lotesData.forEach(l => {
+    if(!l.asesor) return;
+    const k = l.asesor;
+    if(!porAse[k]) porAse[k] = { lotes:0, vendidos:0, pipeline:0, montoPipeline:0, montoVendido:0 };
+    porAse[k].lotes++;
+    if(l.etapa === "Vendido") { porAse[k].vendidos++; porAse[k].montoVendido += l.precio; }
+    if(STAGES_AC.includes(l.etapa)) { porAse[k].pipeline++; porAse[k].montoPipeline += l.precio; }
+  });
+  const asesoresArr = Object.entries(porAse)
+    .map(([n,v]) => Object.assign({nombre:n}, v))
+    .sort((a,b) => (b.montoVendido + b.montoPipeline) - (a.montoVendido + a.montoPipeline))
+    .slice(0, 10);
+
+  return {
+    fecha: hoy.toISOString().slice(0,10),
+    kpis: {
+      lotesTotales: tot,
+      lotesDisponibles: disponibles,
+      lotesEnPipeline: enPipeline.length,
+      lotesCerrados: cerrados.length,
+      pipelineMontoTotal: Math.round(pipelineMonto),
+      pipelineMontoPonderado: Math.round(pipelinePonderado),
+      cerradoMonto: Math.round(cerradoMonto),
+      inventarioTotal: Math.round(inventarioTotal),
+      clientesActivos: (clientes || []).length
+    },
+    enRiesgo: enRiesgo.map(l => ({ id:l.id, nombre:l.desarrollo + " " + l.id, desarrollador:l.desarrollador, precio:l.precio, etapa:l.etapa, diasSinMov:l.diasSinMov, asesor:l.asesor })),
+    oportunidades: oportunidades.map(l => ({ id:l.id, nombre:l.desarrollo + " " + l.id, desarrollador:l.desarrollador, precio:l.precio, etapa:l.etapa, prospectos:l.prospectos, asesor:l.asesor })),
+    desarrolladores: desarrolladoresArr,
+    asesores: asesoresArr
+  };
+}
+
+function iaBuildDashboardPrompt(snapshot) {
+  const k = snapshot.kpis;
+  const fmt = (v) => "$" + (v/1000000).toFixed(1) + "M";
+  const enRiesgoStr = snapshot.enRiesgo.slice(0,15).map(l =>
+    "[" + l.id + "] " + l.nombre + " (" + l.desarrollador + ") · " + fmt(l.precio) + " · " + l.etapa + " · " + l.diasSinMov + "d sin mov" + (l.asesor ? " · "+l.asesor : "")
+  ).join("\n");
+  const oportStr = snapshot.oportunidades.slice(0,8).map(l =>
+    "[" + l.id + "] " + l.nombre + " (" + l.desarrollador + ") · " + fmt(l.precio) + " · " + l.etapa + (l.asesor ? " · "+l.asesor : "")
+  ).join("\n");
+  const desaStr = snapshot.desarrolladores.map(d =>
+    d.nombre + ": " + d.total + " lotes · vendidos:" + d.vendidos + " (" + fmt(d.montoVendido) + ") · pipeline:" + d.pipeline + " (" + fmt(d.montoPipeline) + ") · estancados:" + d.estancados
+  ).join("\n");
+  const aseStr = snapshot.asesores.map(a =>
+    a.nombre + ": " + a.lotes + " lotes · vendidos:" + a.vendidos + " (" + fmt(a.montoVendido) + ") · pipeline:" + a.pipeline + " (" + fmt(a.montoPipeline) + ")"
+  ).join("\n");
+
+  return "Eres director de operaciones inmobiliario senior reportando al CEO de Grupo Guía. Analiza este snapshot operativo y genera narrativa ejecutiva accionable en español de México.\n\n" +
+    "═══ KPIs DE OPERACIÓN ═══\n" +
+    "Inventario total: " + k.lotesTotales + " lotes (" + fmt(k.inventarioTotal) + ")\n" +
+    "Disponibles: " + k.lotesDisponibles + " · En pipeline: " + k.lotesEnPipeline + " · Cerrados: " + k.lotesCerrados + "\n" +
+    "Pipeline activo: " + fmt(k.pipelineMontoTotal) + " (ponderado por probabilidad: " + fmt(k.pipelineMontoPonderado) + ")\n" +
+    "Cerrado YTD: " + fmt(k.cerradoMonto) + "\n" +
+    "Clientes en BD: " + k.clientesActivos + "\n\n" +
+    "═══ TOP LOTES EN RIESGO (estancados) ═══\n" + (enRiesgoStr || "(ninguno)") + "\n\n" +
+    "═══ TOP OPORTUNIDADES (en propuesta/apartado/contrato) ═══\n" + (oportStr || "(ninguna)") + "\n\n" +
+    "═══ PERFORMANCE POR DESARROLLADOR ═══\n" + (desaStr || "(sin datos)") + "\n\n" +
+    "═══ PERFORMANCE POR ASESOR ═══\n" + (aseStr || "(sin datos)") + "\n\n" +
+    "Devuelve SOLO JSON válido (sin markdown, sin texto antes/después) en este formato exacto:\n" +
+    '{"narrativa_ejecutiva":"4-6 líneas tono CEO directo. Menciona pipeline total, riesgo crítico principal y oportunidad jugosa con NOMBRES específicos. Sin saludos, sin relleno.",' +
+    '"alertas_criticas":[{"titulo":"corto","detalle":"contexto","accion":"qué hacer YA","monto":"$ involucrado"}],' +
+    '"oportunidades_top":[{"titulo":"corto","detalle":"por qué es oportunidad","accion":"siguiente paso","monto":"$ potencial"}],' +
+    '"insight_estrategico":"1 frase con un patrón no obvio que detectaste en los datos",' +
+    '"recomendacion_semana":"La acción #1 que el CEO debería empujar esta semana, específica y medible"}\n\n' +
+    "Reglas: máximo 3 alertas y 3 oportunidades. Usa NOMBRES propios de lotes/desarrolladores/asesores. Tono ejecutivo: directo, sin adornos. NO uses palabras genéricas como 'sinergia', 'optimizar', 'maximizar'. Sé específico con números y nombres.";
+}
+
+async function iaDashboardEjecutivo(inventory, clientes, crmDataLocal) {
+  const apiKey = iaGetApiKey();
+  if(!apiKey) return { ok:false, error:"No hay API key configurada" };
+  try {
+    if(!inventory || inventory.length === 0) {
+      return { ok:false, error:"Sin inventario disponible para analizar" };
+    }
+    const snapshot = iaBuildDashboardSnapshot(inventory, clientes, crmDataLocal);
+    const prompt = iaBuildDashboardPrompt(snapshot);
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: IA_MODEL,
+        max_tokens: 2500,
+        messages: [{ role:"user", content: prompt }]
+      })
+    });
+
+    if(!response.ok) {
+      const errText = await response.text();
+      console.error("iaDashboardEjecutivo API error:", response.status, errText);
+      let msg = "Error " + response.status;
+      if(response.status === 401) msg = "API key inválida — revísala en ⚙️ Configurar IA";
+      else if(response.status === 429) msg = "Demasiadas llamadas — espera un momento";
+      else if(response.status === 400) msg = "Petición rechazada — datos malformados";
+      else if(response.status >= 500) msg = "API de Anthropic con problemas — reintenta";
+      return { ok:false, error: msg };
+    }
+
+    const json = await response.json();
+    const textBlock = (json.content || []).find(b => b.type === "text");
+    if(!textBlock) return { ok:false, error:"Respuesta sin texto" };
+    let raw = textBlock.text.trim();
+    raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+    let parsed;
+    try { parsed = JSON.parse(raw); }
+    catch(e) {
+      console.error("iaDashboardEjecutivo JSON parse failed", raw);
+      return { ok:false, error:"La IA no devolvió JSON válido. Reintenta." };
+    }
+
+    const result = {
+      generadoEn: new Date().toISOString(),
+      narrativa: parsed.narrativa_ejecutiva || "",
+      alertas: Array.isArray(parsed.alertas_criticas) ? parsed.alertas_criticas.slice(0,3) : [],
+      oportunidades: Array.isArray(parsed.oportunidades_top) ? parsed.oportunidades_top.slice(0,3) : [],
+      insight: parsed.insight_estrategico || "",
+      recomendacion: parsed.recomendacion_semana || "",
+      kpis: snapshot.kpis
+    };
+
+    try { localStorage.setItem("macropro_dashboard_ia_cache", JSON.stringify(result)); } catch(e) {}
+    return { ok:true, data: result };
+  } catch(err) {
+    console.error("iaDashboardEjecutivo error:", err);
+    return { ok:false, error: err.message || "Error desconocido" };
+  }
+}
+
+function iaLoadDashboardCache() {
+  try {
+    const raw = localStorage.getItem("macropro_dashboard_ia_cache");
+    if(!raw) return null;
+    return JSON.parse(raw);
+  } catch(e) { return null; }
+}
+
 
 async function generarFichaTecnica(lot) {
   const pptx = new PptxGenJS();
@@ -2560,6 +2770,12 @@ function MacroProMatcher() {
   const [iaTopBuyersLot, setIaTopBuyersLot] = React.useState(null);
   const [iaTopBuyersResults, setIaTopBuyersResults] = React.useState(null);
   const [iaTopBuyersLoading, setIaTopBuyersLoading] = React.useState(false);
+  // ─── IA Dashboard Ejecutivo (narrativa estratégica) ───
+  const [iaDashResult, setIaDashResult] = React.useState(() => {
+    try { return iaLoadDashboardCache(); } catch(e) { return null; }
+  });
+  const [iaDashLoading, setIaDashLoading] = React.useState(false);
+  const [iaDashError, setIaDashError] = React.useState(null);
 
   // ═══════════════════════════════════════════════════════════
   // PWA: Detección de instalable + estado installed
@@ -9468,6 +9684,139 @@ function MacroProMatcher() {
               <div style={{fontSize:10, color:"rgba(255,255,255,0.6)", marginTop:2}}>vs actual: {fmtMoney(velocidadActualMensual)}/mes</div>
             </div>
           </div>
+        </div>
+
+        {/* ═══════ SECCIÓN IA: NARRATIVA EJECUTIVA ═══════ */}
+        <div style={{background:"linear-gradient(135deg, #15803d 0%, #22c55e 100%)", borderRadius:18, padding:"24px 28px", marginBottom:24, color:"#fff", position:"relative", overflow:"hidden", boxShadow:"0 8px 32px rgba(21,128,61,0.25)"}}>
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:12, marginBottom:16}}>
+            <div>
+              <div style={{fontSize:11, fontWeight:700, color:"rgba(255,255,255,0.85)", letterSpacing:2, textTransform:"uppercase", marginBottom:4}}>🧠 Análisis Estratégico IA</div>
+              <div style={{fontSize:22, fontWeight:800, color:"#fff", fontFamily:"'Playfair Display',serif"}}>Tu operación HOY</div>
+              {iaDashResult&&iaDashResult.generadoEn&&(
+                <div style={{fontSize:10, color:"rgba(255,255,255,0.7)", marginTop:4}}>
+                  Última actualización: {new Date(iaDashResult.generadoEn).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} · Claude Sonnet
+                </div>
+              )}
+            </div>
+            <button
+              onClick={async()=>{
+                if(iaDashLoading) return;
+                if(!iaKeyConfigured){
+                  setShowIAConfigModal(true);
+                  return;
+                }
+                setIaDashLoading(true);
+                setIaDashError(null);
+                try{
+                  const inv=inventory.length>0?inventory:SAMPLE_INVENTORY;
+                  const cli=clients||[];
+                  const result=await iaDashboardEjecutivo(inv,cli,crmData);
+                  if(result.ok){
+                    setIaDashResult(result.data);
+                  }else{
+                    setIaDashError(result.error||"No se pudo generar el análisis");
+                  }
+                }catch(err){
+                  setIaDashError(err.message||"Error desconocido");
+                }finally{
+                  setIaDashLoading(false);
+                }
+              }}
+              disabled={iaDashLoading}
+              style={{padding:"10px 18px",background:iaDashLoading?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.95)",color:iaDashLoading?"rgba(255,255,255,0.7)":"#15803d",border:"none",borderRadius:10,cursor:iaDashLoading?"wait":"pointer",fontSize:12,fontWeight:800,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 4px 14px rgba(0,0,0,0.15)"}}>
+              {iaDashLoading?"⏳ Analizando...":(iaDashResult?"🔄 Re-analizar":"⚡ Generar análisis IA")}
+            </button>
+          </div>
+
+          {/* Estado: vacío inicial */}
+          {!iaDashResult&&!iaDashLoading&&!iaDashError&&(
+            <div style={{padding:"20px 0",fontSize:13,color:"rgba(255,255,255,0.9)",lineHeight:1.6,fontStyle:"italic"}}>
+              💡 Click en <strong>"Generar análisis IA"</strong> para que la IA analice tu operación completa y te entregue narrativa ejecutiva, alertas críticas y oportunidades top de la semana.
+              <div style={{fontSize:11,marginTop:8,color:"rgba(255,255,255,0.7)",fontStyle:"normal"}}>
+                ~$0.04 USD por análisis · Cache local hasta nuevo refresh
+              </div>
+            </div>
+          )}
+
+          {/* Estado: loading */}
+          {iaDashLoading&&(
+            <div style={{padding:"30px 0",textAlign:"center"}}>
+              <div style={{display:"inline-block",width:42,height:42,border:"4px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.9s linear infinite"}}></div>
+              <div style={{marginTop:14,fontSize:13,fontWeight:700,color:"#fff"}}>Analizando {(inventory.length>0?inventory:SAMPLE_INVENTORY).length} lotes y {(clients||[]).length} clientes...</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.75)",marginTop:4}}>Procesando KPIs, riesgos, oportunidades y patrones</div>
+            </div>
+          )}
+
+          {/* Estado: error */}
+          {!iaDashLoading&&iaDashError&&(
+            <div style={{padding:"16px 18px",background:"rgba(127,29,29,0.95)",borderRadius:10,border:"1px solid rgba(255,255,255,0.2)"}}>
+              <div style={{fontSize:13,fontWeight:800,color:"#fff",marginBottom:4}}>⚠ No se pudo completar el análisis</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,0.9)",lineHeight:1.5}}>{iaDashError}</div>
+            </div>
+          )}
+
+          {/* Estado: resultado */}
+          {!iaDashLoading&&iaDashResult&&iaDashResult.narrativa&&(
+            <div>
+              {/* Narrativa principal */}
+              <div style={{background:"rgba(255,255,255,0.12)",borderRadius:12,padding:"18px 22px",marginBottom:14,backdropFilter:"blur(10px)",border:"1px solid rgba(255,255,255,0.2)"}}>
+                <div style={{fontSize:14.5,color:"#fff",lineHeight:1.65,fontWeight:500}}>
+                  {iaDashResult.narrativa}
+                </div>
+              </div>
+
+              {/* Alertas + Oportunidades en grid */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12,marginBottom:14}}>
+                {/* Alertas críticas */}
+                {iaDashResult.alertas&&iaDashResult.alertas.length>0&&(
+                  <div style={{background:"rgba(127,29,29,0.45)",borderRadius:10,padding:"14px 16px",border:"1.5px solid rgba(252,165,165,0.5)"}}>
+                    <div style={{fontSize:11,fontWeight:800,color:"#fef2f2",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>🚨 Alertas críticas</div>
+                    {iaDashResult.alertas.map((a,i)=>(
+                      <div key={i} style={{marginBottom:i<iaDashResult.alertas.length-1?12:0,paddingBottom:i<iaDashResult.alertas.length-1?12:0,borderBottom:i<iaDashResult.alertas.length-1?"1px dashed rgba(252,165,165,0.3)":"none"}}>
+                        <div style={{fontSize:12,fontWeight:800,color:"#fff",marginBottom:3}}>{a.titulo||"Alerta"}</div>
+                        {a.detalle&&<div style={{fontSize:11,color:"rgba(255,255,255,0.85)",marginBottom:4,lineHeight:1.5}}>{a.detalle}</div>}
+                        {a.accion&&<div style={{fontSize:11,color:"#fef9c3",fontWeight:700}}>→ {a.accion}</div>}
+                        {a.monto&&<div style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginTop:3}}>{a.monto}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Oportunidades top */}
+                {iaDashResult.oportunidades&&iaDashResult.oportunidades.length>0&&(
+                  <div style={{background:"rgba(20,83,45,0.5)",borderRadius:10,padding:"14px 16px",border:"1.5px solid rgba(187,247,208,0.5)"}}>
+                    <div style={{fontSize:11,fontWeight:800,color:"#f0fdf4",letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>💎 Oportunidades top</div>
+                    {iaDashResult.oportunidades.map((o,i)=>(
+                      <div key={i} style={{marginBottom:i<iaDashResult.oportunidades.length-1?12:0,paddingBottom:i<iaDashResult.oportunidades.length-1?12:0,borderBottom:i<iaDashResult.oportunidades.length-1?"1px dashed rgba(187,247,208,0.3)":"none"}}>
+                        <div style={{fontSize:12,fontWeight:800,color:"#fff",marginBottom:3}}>{o.titulo||"Oportunidad"}</div>
+                        {o.detalle&&<div style={{fontSize:11,color:"rgba(255,255,255,0.85)",marginBottom:4,lineHeight:1.5}}>{o.detalle}</div>}
+                        {o.accion&&<div style={{fontSize:11,color:"#fef9c3",fontWeight:700}}>→ {o.accion}</div>}
+                        {o.monto&&<div style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginTop:3}}>{o.monto}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Insight + Recomendación de la semana */}
+              {(iaDashResult.insight||iaDashResult.recomendacion)&&(
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
+                  {iaDashResult.insight&&(
+                    <div style={{background:"rgba(255,255,255,0.1)",borderRadius:10,padding:"12px 14px",borderLeft:"3px solid #fbbf24"}}>
+                      <div style={{fontSize:10,fontWeight:800,color:"#fef3c7",letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>💡 Insight estratégico</div>
+                      <div style={{fontSize:12,color:"#fff",lineHeight:1.5}}>{iaDashResult.insight}</div>
+                    </div>
+                  )}
+                  {iaDashResult.recomendacion&&(
+                    <div style={{background:"rgba(255,255,255,0.1)",borderRadius:10,padding:"12px 14px",borderLeft:"3px solid #fbbf24"}}>
+                      <div style={{fontSize:10,fontWeight:800,color:"#fef3c7",letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>🎯 Acción #1 de la semana</div>
+                      <div style={{fontSize:12,color:"#fff",lineHeight:1.5,fontWeight:600}}>{iaDashResult.recomendacion}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ═══════ SECCIÓN 2: PIPELINE HEALTH ═══════ */}
