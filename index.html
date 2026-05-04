@@ -3560,6 +3560,19 @@ function MacroProMatcher() {
                 try{ const d=new Date(s); if(!isNaN(d)) return d.toISOString().slice(0,10); }catch(e){}
                 return s;
               })(),
+              // ─── Coordenadas geográficas (parser robusto) ───
+              lat:(()=>{
+                const v=getVal(row,"Latitud","Lat","Latitude");
+                if(v===""||v===null||v===undefined) return null;
+                const n=parseFloat(String(v).replace(",","."));
+                return (isFinite(n)&&n>=-90&&n<=90)?n:null;
+              })(),
+              lng:(()=>{
+                const v=getVal(row,"Longitud","Lng","Long","Longitude");
+                if(v===""||v===null||v===undefined) return null;
+                const n=parseFloat(String(v).replace(",","."));
+                return (isFinite(n)&&n>=-180&&n<=180)?n:null;
+              })(),
             };
           }).filter(l=>l.nombre&&l.nombre.trim()!==""&&l.nombre.trim()!=="0"&&String(l.nombre).length>1);
         if(mapped.length>0){
