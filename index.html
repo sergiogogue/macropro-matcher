@@ -3992,7 +3992,7 @@ function MacroProMatcher() {
               {lotsFiltered.map(lot=>(
                 <div key={lot.id} style={{background:B.white,borderRadius:9,padding:"10px 14px",marginBottom:7,border:`1px solid ${B.grey1}`}}>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <div style={{width:34,height:34,borderRadius:7,backgroundColor:B.navy,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:800,color:B.gold,flexShrink:0}}>{lot.id.split("-")[0]}</div>
+                    <div style={{width:34,height:34,borderRadius:7,backgroundColor:B.navy,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:800,color:B.gold,flexShrink:0}}>{String(lot.id||"").split("-")[0]}</div>
                     <div style={{flex:1}}>
                       <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
                         <span style={{fontWeight:700,fontSize:12,color:B.navy}}>{lot.nombre}</span>
@@ -4103,7 +4103,7 @@ function MacroProMatcher() {
               {lotsFiltered.map(lot=>(
                 <div key={lot.id} style={s.lotCard(selectedLot?.id===lot.id)} onClick={()=>setSelectedLot(selectedLot?.id===lot.id?null:lot)}>
                   <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <div style={{width:38,height:38,borderRadius:8,backgroundColor:selectedLot?.id===lot.id?B.gold:B.navy,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:selectedLot?.id===lot.id?B.navy:B.white,flexShrink:0}}>{lot.id.split("-")[0]}</div>
+                    <div style={{width:38,height:38,borderRadius:8,backgroundColor:selectedLot?.id===lot.id?B.gold:B.navy,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:selectedLot?.id===lot.id?B.navy:B.white,flexShrink:0}}>{String(lot.id||"").split("-")[0]}</div>
                     <div style={{flex:1}}>
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
                         <span style={{fontWeight:700,fontSize:13,color:selectedLot?.id===lot.id?B.white:B.navy}}>{lot.nombre}</span>
@@ -4678,7 +4678,7 @@ function MacroProMatcher() {
         {filtered.map(lot=>(
           <div key={lot.id} style={{...s.lotCard(false),cursor:"default"}}>
             <div style={{display:"flex",alignItems:"center",gap:14}}>
-              <div style={{width:44,height:44,borderRadius:9,background:`linear-gradient(135deg,${B.navy},${B.navyL})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:B.gold,flexShrink:0,textAlign:"center",lineHeight:1.2,padding:3}}>{lot.id.split("-")[0]}</div>
+              <div style={{width:44,height:44,borderRadius:9,background:`linear-gradient(135deg,${B.navy},${B.navyL})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:B.gold,flexShrink:0,textAlign:"center",lineHeight:1.2,padding:3}}>{String(lot.id||"").split("-")[0]}</div>
               <div style={{flex:1}}>
                 <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4,flexWrap:"wrap"}}>
                   <span style={{fontWeight:700,fontSize:14,color:B.navy}}>{lot.nombre}</span>
