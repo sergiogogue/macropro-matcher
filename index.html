@@ -9491,7 +9491,7 @@ function MacroProMatcher() {
           doc.setFillColor(...RED);doc.rect(mg,curY,3.5,18,"F");
           doc.setTextColor(...RED);doc.setFont("helvetica","bold");doc.setFontSize(9);
           doc.text("ATENCION: "+lotesSinActividad.length+" lote"+(lotesSinActividad.length>1?"s":"")+" sin actividad comercial detectado"+(lotesSinActividad.length>1?"s":""),mg+7,curY+8);
-          doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor([100,30,30]);
+          doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(100,30,30);
           doc.text("Valor total sin movimiento: "+fm(valorEnRiesgo)+"  — Requieren atencion inmediata",mg+7,curY+14);
           curY+=24;
         } else {
