@@ -9551,7 +9551,7 @@ function MacroProMatcher() {
                   style={{width:26,height:26,borderRadius:4,background:cfg.color,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:6,color:"#fff",fontWeight:800,opacity:nivel==="disponible"?0.35:0.8,transition:"all 0.15s",userSelect:"none"}}
                   onMouseEnter={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.transform="scale(1.2)";}}
                   onMouseLeave={e=>{e.currentTarget.style.opacity=nivel==="disponible"?"0.35":"0.8";e.currentTarget.style.transform="scale(1)";}}>
-                  {l.nombre.replace(/[^A-Z0-9]/gi,"").substring(0,2).toUpperCase()}
+                  {(l.nombre||l.id||"??").replace(/[^A-Z0-9]/gi,"").substring(0,2).toUpperCase()||"??"}
                 </div>
               );
             })}
