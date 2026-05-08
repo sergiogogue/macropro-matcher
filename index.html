@@ -9342,296 +9342,240 @@ function MacroProMatcher() {
 
     // ─── Generador PDF CEO Desarrollador ────────────────────────
     const generarPDFCliente = async () => {
-      if(!window.jspdf){toast("⚠ jsPDF no disponible — recarga la página");return;}
-      if(cmdDev==="Todos"){toast("⚠ Selecciona un desarrollador específico primero");return;}
+      if(!window.jspdf){toast("Recarga la pagina — jsPDF no disponible");return;}
+      if(cmdDev==="Todos"){toast("Selecciona un desarrollador especifico primero");return;}
       setPdfGenerandoCmd(true);
       try {
         const {jsPDF}=window.jspdf;
         const doc=new jsPDF("p","mm","a4");
         const pW=doc.internal.pageSize.getWidth();
         const pH=doc.internal.pageSize.getHeight();
-        const mg=14;
+        const mg=15;
         const ahora=new Date();
         const fechaStr=ahora.toLocaleDateString("es-MX",{day:"numeric",month:"long",year:"numeric"});
         const mesStr=ahora.toLocaleDateString("es-MX",{month:"long",year:"numeric"});
-        const NAVY=[0,43,73], GOLD=[212,175,55], WHITE=[255,255,255], GREY=[100,116,139], OFFWH=[248,250,252], RED=[220,38,38], GREEN=[22,163,74];
+        const NAVY=[0,43,73],GOLD=[212,175,55],WHITE=[255,255,255],GREY=[100,116,139];
+        const OFFWH=[248,250,252],RED=[220,38,38],GREEN=[22,163,74],BLUE=[37,99,172],DARK=[30,50,70];
 
-        // Computos para el reporte
+        // Computos
         const lotesEnPipeline=lotesFiltrados.filter(l=>ACTIVE_STAGES.includes(getLotePip(l.id))).length;
         const valorPipeline=prospectosActivos.reduce((a,p)=>a+p.valor,0);
         const forecast=prospectosActivos.reduce((a,p)=>a+(p.valor*(STAGE_PROBABILITY[p.pipeline]||0)),0);
-        const lotesSinMov=lotesFiltrados.filter(l=>{
-          const crm=crmData[l.id]||{}; const pip=getLotePip(l.id);
-          if(!ACTIVE_STAGES.includes(pip)) return false;
-          if(!crm.lastContact) return true;
-          return Math.floor((NOW-new Date(crm.lastContact).getTime())/864e5)>30;
+        const lotesSinActividad=lotesFiltrados.filter(l=>{
+          const crm=crmData[l.id]||{};const pip=getLotePip(l.id);
+          if(pip==="Vendido"||pip==="Perdido") return false;
+          const pros=(crm.prospectos||[]).filter(p=>p&&(p.pipeline||"Prospecto")!=="Perdido"&&(p.pipeline||"Prospecto")!=="Vendido");
+          if(pros.length===0&&!crm.seguimientoAsesor) return true;
+          if(ACTIVE_STAGES.includes(pip)){if(!crm.lastContact) return true;return Math.floor((NOW-new Date(crm.lastContact).getTime())/864e5)>30;}
+          return false;
+        }).sort((a,b)=>(b.precio_total||0)-(a.precio_total||0));
+        const valorEnRiesgo=lotesSinActividad.reduce((a,l)=>a+(l.precio_total||0),0);
+        let interacciones30d=0;const interaccionesByAsesor={};
+        lotesFiltrados.forEach(l=>{
+          (crmData[l.id]?.interacciones||[]).forEach(i=>{
+            if(!i.fecha) return;
+            if(Math.floor((NOW-new Date(i.fecha).getTime())/864e5)<=30){
+              interacciones30d++;
+              const as=i.asesor||"Sin asignar";
+              interaccionesByAsesor[as]=(interaccionesByAsesor[as]||0)+1;
+            }
+          });
         });
 
-        // ══ PÁGINA 1: PORTADA ══════════════════════════════════
-        // Fondo azul top
-        doc.setFillColor(...NAVY);
-        doc.rect(0,0,pW,118,"F");
-        // Acento dorado lateral
-        doc.setFillColor(...GOLD);
-        doc.rect(0,0,4,118,"F");
-        // Línea dorada divisoria
-        doc.setFillColor(...GOLD);
-        doc.rect(0,118,pW,1.5,"F");
-
-        // Brand
-        doc.setTextColor(...WHITE);
-        doc.setFont("helvetica","normal");
-        doc.setFontSize(8);
-        doc.setTextColor(180,200,220);
-        doc.text("GRUPO GUÍA · MACROPRO · SISTEMA DE GESTIÓN DE MACROLOTES",mg+6,16);
-
-        // Nombre desarrollador
-        const devWords=cmdDev.split(" ");
-        let dL1="",dL2="";
-        devWords.forEach(w=>{ if((dL1+" "+w).trim().length<=18) dL1=(dL1+" "+w).trim(); else dL2=(dL2+" "+w).trim(); });
-        doc.setFont("helvetica","bold");
-        doc.setFontSize(38);
-        doc.setTextColor(...GOLD);
-        doc.text(dL1,mg+6,52);
-        if(dL2){doc.setFontSize(32);doc.text(dL2,mg+6,66);}
-
-        // Subtítulo
-        const stY=dL2?80:66;
-        doc.setFont("helvetica","normal");
-        doc.setFontSize(14);
-        doc.setTextColor(...WHITE);
-        doc.text("Reporte de Gestión de Macrolotes",mg+6,stY);
-        doc.setFontSize(9);
-        doc.setTextColor(160,185,210);
-        doc.text("Período: "+mesStr,mg+6,stY+7);
-
-        // Preparado por (derecha)
-        doc.setTextColor(160,185,210);
-        doc.setFontSize(8);
-        doc.setFont("helvetica","normal");
-        doc.text("Preparado por:",pW-mg,88,{align:"right"});
-        doc.setFont("helvetica","bold");
-        doc.setFontSize(12);
-        doc.setTextColor(...WHITE);
-        doc.text("Grupo Guía",pW-mg,97,{align:"right"});
-        doc.setFont("helvetica","normal");
-        doc.setFontSize(7);
-        doc.setTextColor(160,185,210);
-        doc.text(fechaStr,pW-mg,103,{align:"right"});
-
-        // KPIs portada
-        const kpis=[
-          {l:"LOTES EN CARTERA",v:lotesFiltrados.length+"",s:"totales"},
-          {l:"EN PIPELINE",v:lotesEnPipeline+"",s:"con prospecto activo"},
-          {l:"VALOR PIPELINE",v:fmtMoney(valorPipeline),s:"bruto total"},
-          {l:"FORECAST",v:fmtMoney(forecast),s:"ponderado"},
-        ];
-        const kBW=(pW-mg*2-9)/4;
-        kpis.forEach((k,i)=>{
-          const kX=mg+i*(kBW+3);
-          doc.setFillColor(...OFFWH);
-          doc.roundedRect(kX,127,kBW,32,2,2,"F");
-          doc.setFillColor(...GOLD);
-          doc.rect(kX,127,kBW,1,"F");
-          doc.setTextColor(...GREY);
-          doc.setFont("helvetica","bold");
-          doc.setFontSize(5.5);
-          doc.text(k.l,kX+kBW/2,133,{align:"center"});
-          doc.setTextColor(...NAVY);
-          doc.setFont("helvetica","bold");
-          doc.setFontSize(k.v.length>6?12:16);
-          doc.text(k.v,kX+kBW/2,146,{align:"center"});
-          doc.setTextColor(...GREY);
-          doc.setFont("helvetica","normal");
-          doc.setFontSize(5.5);
-          doc.text(k.s,kX+kBW/2,153,{align:"center"});
-        });
-
-        // Footer portada
-        doc.setFillColor(...NAVY);
-        doc.rect(0,pH-18,pW,18,"F");
-        doc.setFillColor(...GOLD);
-        doc.rect(0,pH-18,pW,0.6,"F");
-        doc.setTextColor(140,165,190);
-        doc.setFont("helvetica","normal");
-        doc.setFontSize(7);
-        doc.text("CONFIDENCIAL · Este documento es para uso exclusivo del destinatario",pW/2,pH-10,{align:"center"});
-        doc.text("MacroPro © Grupo Guía · "+fechaStr,pW/2,pH-5,{align:"center"});
-
-        // ══ PÁGINA 2: PIPELINE + TOP DEALS ════════════════════
-        doc.addPage();
+        // Helpers
+        const fm=v=>v>=1e9?"$"+(v/1e9).toFixed(2)+"B":v>=1e6?"$"+(v/1e6).toFixed(1)+"M":v>0?"$"+(v/1000).toFixed(0)+"K":"$0";
         const addPageHeader=(titulo)=>{
-          doc.setFillColor(...NAVY);
-          doc.rect(0,0,pW,13,"F");
-          doc.setFillColor(...GOLD);
-          doc.rect(0,13,pW,0.8,"F");
-          doc.setTextColor(...WHITE);
-          doc.setFont("helvetica","bold");
-          doc.setFontSize(8);
-          doc.text(cmdDev+" · "+titulo,mg,9);
-          doc.setFont("helvetica","normal");
-          doc.setFontSize(7);
-          doc.setTextColor(180,200,220);
+          doc.setFillColor(...NAVY);doc.rect(0,0,pW,13,"F");
+          doc.setFillColor(...GOLD);doc.rect(0,13,pW,0.8,"F");
+          doc.setTextColor(...WHITE);doc.setFont("helvetica","bold");doc.setFontSize(7.5);
+          doc.text(cmdDev+" — "+titulo,mg,9);
+          doc.setFont("helvetica","normal");doc.setFontSize(7);doc.setTextColor(180,200,220);
           doc.text(fechaStr,pW-mg,9,{align:"right"});
         };
-        const addSectionTitle=(titulo,y,lineW)=>{
-          doc.setTextColor(...NAVY);
-          doc.setFont("helvetica","bold");
-          doc.setFontSize(12);
+        const addSection=(titulo,y,w)=>{
+          doc.setTextColor(...NAVY);doc.setFont("helvetica","bold");doc.setFontSize(11);
           doc.text(titulo,mg,y);
-          doc.setDrawColor(...GOLD);
-          doc.setLineWidth(0.8);
-          doc.line(mg,y+1.5,mg+(lineW||60),y+1.5);
-          return y+8;
+          doc.setFillColor(...GOLD);doc.rect(mg,y+1.5,w||60,0.8,"F");
+          return y+9;
         };
-        addPageHeader("Situación Comercial");
-        let curY=22;
+        const kpiBox=(x,y,w,h,label,value,sub,vc)=>{
+          doc.setFillColor(...OFFWH);doc.roundedRect(x,y,w,h,2,2,"F");
+          doc.setFillColor(...GOLD);doc.rect(x,y,w,1,"F");
+          doc.setTextColor(...GREY);doc.setFont("helvetica","bold");doc.setFontSize(5.5);
+          doc.text(label,x+w/2,y+6,{align:"center"});
+          doc.setTextColor(...(vc||NAVY));doc.setFont("helvetica","bold");doc.setFontSize(value.length>7?11:14);
+          doc.text(value,x+w/2,y+h-8,{align:"center"});
+          if(sub){doc.setTextColor(...GREY);doc.setFont("helvetica","normal");doc.setFontSize(5);doc.text(sub,x+w/2,y+h-3,{align:"center"});}
+        };
 
-        // Pipeline table
-        curY=addSectionTitle("Situación del Pipeline",curY,65);
+        // PAGINA 1 — PORTADA
+        doc.setFillColor(...NAVY);doc.rect(0,0,pW,126,"F");
+        doc.setFillColor(...GOLD);doc.rect(0,0,4,126,"F");
+        doc.setFillColor(...GOLD);doc.rect(0,126,pW,1.5,"F");
+        doc.setTextColor(155,180,205);doc.setFont("helvetica","normal");doc.setFontSize(7.5);
+        doc.text("GRUPO GUIA  |  MACROPRO  |  SISTEMA DE GESTION DE MACROLOTES",mg+6,14);
+        const dw=cmdDev.split(" ");let dL1="",dL2="";
+        dw.forEach(w=>{if((dL1+" "+w).trim().length<=18)dL1=(dL1+" "+w).trim();else dL2=(dL2+" "+w).trim();});
+        doc.setFont("helvetica","bold");doc.setFontSize(40);doc.setTextColor(...GOLD);
+        doc.text(dL1,mg+6,56);
+        if(dL2){doc.setFontSize(32);doc.text(dL2,mg+6,69);}
+        const stY=dL2?84:70;
+        doc.setFont("helvetica","normal");doc.setFontSize(15);doc.setTextColor(...WHITE);
+        doc.text("Reporte de Gestion de Macrolotes",mg+6,stY);
+        doc.setFontSize(9);doc.setTextColor(155,180,205);
+        doc.text("Periodo: "+mesStr,mg+6,stY+7);
+        doc.setTextColor(135,160,185);doc.setFontSize(8);
+        doc.text("Preparado por:",pW-mg,95,{align:"right"});
+        doc.setFont("helvetica","bold");doc.setFontSize(13);doc.setTextColor(...WHITE);
+        doc.text("Grupo Guia",pW-mg,105,{align:"right"});
+        doc.setFont("helvetica","normal");doc.setFontSize(7.5);doc.setTextColor(135,160,185);
+        doc.text(fechaStr,pW-mg,111,{align:"right"});
+        const kW=(pW-mg*2-12)/5;
+        [
+          {l:"LOTES EN CARTERA",v:lotesFiltrados.length+"",s:"inventario total",vc:NAVY},
+          {l:"EN PIPELINE",v:lotesEnPipeline+"",s:"con prospecto activo",vc:lotesEnPipeline>0?BLUE:GREY},
+          {l:"VALOR PIPELINE",v:fm(valorPipeline),s:"bruto total",vc:valorPipeline>0?BLUE:GREY},
+          {l:"FORECAST",v:fm(forecast),s:"ponderado cierre",vc:forecast>0?GREEN:GREY},
+          {l:"VALOR EN RIESGO",v:fm(valorEnRiesgo),s:"sin actividad",vc:valorEnRiesgo>0?RED:GREEN},
+        ].forEach((k,i)=>kpiBox(mg+i*(kW+3),132,kW,33,k.l,k.v,k.s,k.vc));
+        doc.setTextColor(...GREY);doc.setFont("helvetica","normal");doc.setFontSize(7.5);
+        doc.text("Prospectos activos: "+prospectosActivos.length+"  |  Lotes sin actividad: "+lotesSinActividad.length+"  |  Interacciones (30d): "+interacciones30d,mg,172);
+        doc.setFillColor(...NAVY);doc.rect(0,pH-16,pW,16,"F");
+        doc.setFillColor(...GOLD);doc.rect(0,pH-16,pW,0.6,"F");
+        doc.setTextColor(125,150,175);doc.setFontSize(6.5);
+        doc.text("CONFIDENCIAL — Uso exclusivo del destinatario  |  MacroPro (c) Grupo Guia  |  "+fechaStr,pW/2,pH-7,{align:"center"});
+
+        // PAGINA 2 — PIPELINE + PROSPECTOS
+        doc.addPage();addPageHeader("Situacion Comercial Actual");let curY=22;
+        doc.setFillColor(...NAVY);doc.roundedRect(mg,curY,pW-mg*2,14,2,2,"F");
+        doc.setTextColor(...GOLD);doc.setFont("helvetica","bold");doc.setFontSize(7.5);
+        const rTexto=prospectosActivos.length>0
+          ?prospectosActivos.length+" prospecto"+(prospectosActivos.length>1?"s":"")+" activo"+(prospectosActivos.length>1?"s":"")+"  |  "+fm(valorPipeline)+" en pipeline  |  Forecast: "+fm(forecast)
+          :"Sin prospectos activos — "+lotesFiltrados.length+" lotes en cartera disponibles para asignacion";
+        doc.text(rTexto,pW/2,curY+8.5,{align:"center"});curY+=20;
+        curY=addSection("Pipeline por Etapa",curY,70);
         const pipRows=[];
         ACTIVE_STAGES.forEach(s=>{
-          const pros=prospectosActivos.filter(p=>p.pipeline===s);
-          if(!pros.length) return;
-          const val=pros.reduce((a,p)=>a+p.valor,0);
-          const pond=val*(STAGE_PROBABILITY[s]||0);
-          pipRows.push([s,pros.length+"",fmtMoney(val),Math.round((STAGE_PROBABILITY[s]||0)*100)+"%",fmtMoney(pond)]);
+          const pros=prospectosActivos.filter(p=>p.pipeline===s);if(!pros.length) return;
+          const val=pros.reduce((a,p)=>a+p.valor,0);const pond=val*(STAGE_PROBABILITY[s]||0);
+          pipRows.push([s,pros.length+"",fm(val),Math.round((STAGE_PROBABILITY[s]||0)*100)+"%",fm(pond)]);
         });
         if(!pipRows.length) pipRows.push(["Sin prospectos activos","","","",""]);
-        const totV=prospectosActivos.reduce((a,p)=>a+p.valor,0);
-        const totP=prospectosActivos.reduce((a,p)=>a+(p.valor*(STAGE_PROBABILITY[p.pipeline]||0)),0);
-        pipRows.push(["TOTAL ACTIVO",prospectosActivos.length+"",fmtMoney(totV),"—",fmtMoney(totP)]);
-        doc.autoTable({
-          startY:curY, head:[["Etapa","Prospectos","Valor Bruto","Prob.","Forecast Ponderado"]],
-          body:pipRows, margin:{left:mg,right:mg},
-          headStyles:{fillColor:NAVY,textColor:WHITE,fontStyle:"bold",fontSize:8},
-          bodyStyles:{fontSize:8.5,textColor:[30,50,70]},
-          alternateRowStyles:{fillColor:OFFWH},
+        pipRows.push(["TOTAL",prospectosActivos.length+"",fm(valorPipeline),"—",fm(forecast)]);
+        doc.autoTable({startY:curY,head:[["Etapa del Proceso","Prospectos","Valor Bruto","Prob.","Forecast Ponderado"]],body:pipRows,margin:{left:mg,right:mg},
+          headStyles:{fillColor:NAVY,textColor:WHITE,fontStyle:"bold",fontSize:8},bodyStyles:{fontSize:8,textColor:DARK},alternateRowStyles:{fillColor:OFFWH},
           columnStyles:{0:{fontStyle:"bold"},1:{halign:"center"},2:{halign:"right"},3:{halign:"center"},4:{halign:"right",fontStyle:"bold",textColor:NAVY}},
-          didParseCell:(d)=>{ if(d.row.index===pipRows.length-1){d.cell.styles.fontStyle="bold";d.cell.styles.fillColor=[220,232,245];d.cell.styles.textColor=NAVY;} }
+          didParseCell:(d)=>{if(d.row.index===pipRows.length-1){d.cell.styles.fontStyle="bold";d.cell.styles.fillColor=[215,230,248];d.cell.styles.textColor=NAVY;}}
         });
         curY=doc.lastAutoTable.finalY+10;
-
-        // Top deals
-        if(curY>pH-80){doc.addPage();addPageHeader("Oportunidades Prioritarias");curY=22;}
-        curY=addSectionTitle("Oportunidades Prioritarias",curY,70);
-        const topDeals=[...prospectosActivos]
-          .sort((a,b)=>{const so={"Contrato":6,"Apartado":5,"Propuesta":4,"En negociación":3,"Contactado":2,"Prospecto":1};const d=(so[b.pipeline]||0)-(so[a.pipeline]||0);return d!==0?d:b.valor-a.valor;})
-          .slice(0,8);
-        if(!topDeals.length){
-          doc.setTextColor(...GREY); doc.setFont("helvetica","italic"); doc.setFontSize(9);
-          doc.text("Sin prospectos activos en este período",mg,curY+6); curY+=14;
+        if(curY>pH-80){doc.addPage();addPageHeader("Prospectos Activos");curY=22;}
+        curY=addSection("Prospectos Activos — Detalle Completo",curY,100);
+        if(!prospectosActivos.length){
+          doc.setFillColor(...OFFWH);doc.roundedRect(mg,curY,pW-mg*2,16,2,2,"F");
+          doc.setTextColor(...GREY);doc.setFont("helvetica","italic");doc.setFontSize(9);
+          doc.text("Sin prospectos activos para este desarrollador en el periodo actual",pW/2,curY+10,{align:"center"});curY+=22;
         } else {
-          doc.autoTable({
-            startY:curY,
-            head:[["Prospecto","Lote","Etapa","Valor","Días s/cont.","Asesor"]],
-            body:topDeals.map(p=>[p.prospecto.nombre,p.lot.nombre||String(p.lot.id||""),p.pipeline,fmtMoney(p.valor),p.diasSinContacto!==null?p.diasSinContacto+"d":"—",p.asesor||"Sin asignar"]),
-            margin:{left:mg,right:mg},
-            headStyles:{fillColor:NAVY,textColor:WHITE,fontStyle:"bold",fontSize:7.5},
-            bodyStyles:{fontSize:7.5,textColor:[30,50,70]},
-            alternateRowStyles:{fillColor:OFFWH},
-            columnStyles:{2:{fontStyle:"bold"},3:{halign:"right",fontStyle:"bold",textColor:NAVY},4:{halign:"center"},5:{fontSize:7}}
+          const ps=[...prospectosActivos].sort((a,b)=>{const so={"Contrato":6,"Apartado":5,"Propuesta":4,"En negociacion":3,"En negociacion":3,"Contactado":2,"Prospecto":1};return (so[b.pipeline]||0)-(so[a.pipeline]||0)||b.valor-a.valor;});
+          doc.autoTable({startY:curY,head:[["Prospecto","Lote","Etapa","Valor","Temp.","Sin cont.","Asesor"]],
+            body:ps.map(p=>[p.prospecto.nombre,(p.lot.nombre||String(p.lot.id||"")).substring(0,16),p.pipeline,fm(p.valor),p.prospecto.temperatura||"—",p.diasSinContacto!==null?p.diasSinContacto+"d":"—",(p.asesor||"Sin asignar").split(" ")[0]]),
+            margin:{left:mg,right:mg},headStyles:{fillColor:NAVY,textColor:WHITE,fontStyle:"bold",fontSize:7.5},bodyStyles:{fontSize:7.5,textColor:DARK},alternateRowStyles:{fillColor:OFFWH},
+            columnStyles:{0:{fontStyle:"bold"},2:{fontStyle:"bold"},3:{halign:"right",textColor:NAVY,fontStyle:"bold"},4:{halign:"center",fontSize:7},5:{halign:"center"},6:{fontSize:7}}
           });
-          curY=doc.lastAutoTable.finalY+10;
+          curY=doc.lastAutoTable.finalY+8;
         }
 
-        // ══ PÁGINA 3: ACTIVIDAD + COMPROMISOS ═════════════════
-        doc.addPage();
-        addPageHeader("Actividad y Compromisos");
-        curY=22;
-
-        // Lotes sin movimiento
-        curY=addSectionTitle("Lotes en Pipeline Sin Movimiento (+30 días)",curY,120);
-        if(!lotesSinMov.length){
-          doc.setFillColor(230,247,237);
-          doc.roundedRect(mg,curY,pW-mg*2,13,2,2,"F");
-          doc.setTextColor(...GREEN);
-          doc.setFont("helvetica","bold");
-          doc.setFontSize(9);
-          doc.text("✓  Todos los lotes en pipeline tienen actividad reciente — Excelente ritmo comercial",pW/2,curY+8,{align:"center"});
-          curY+=19;
+        // PAGINA 3 — LOTES SIN ACTIVIDAD
+        doc.addPage();addPageHeader("Inventario y Riesgos Comerciales");curY=22;
+        if(lotesSinActividad.length>0){
+          doc.setFillColor(255,242,242);doc.roundedRect(mg,curY,pW-mg*2,18,2,2,"F");
+          doc.setFillColor(...RED);doc.rect(mg,curY,3.5,18,"F");
+          doc.setTextColor(...RED);doc.setFont("helvetica","bold");doc.setFontSize(9);
+          doc.text("ATENCION: "+lotesSinActividad.length+" lote"+(lotesSinActividad.length>1?"s":"")+" sin actividad comercial detectado"+(lotesSinActividad.length>1?"s":""),mg+7,curY+8);
+          doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor([100,30,30]);
+          doc.text("Valor total sin movimiento: "+fm(valorEnRiesgo)+"  — Requieren atencion inmediata",mg+7,curY+14);
+          curY+=24;
         } else {
-          doc.autoTable({
-            startY:curY,
-            head:[["Lote","Desarrollo","Etapa","Valor","Días sin contacto"]],
-            body:lotesSinMov.slice(0,10).map(l=>{
+          doc.setFillColor(230,247,237);doc.roundedRect(mg,curY,pW-mg*2,14,2,2,"F");
+          doc.setFillColor(...GREEN);doc.rect(mg,curY,3.5,14,"F");
+          doc.setTextColor(...GREEN);doc.setFont("helvetica","bold");doc.setFontSize(9);
+          doc.text("EXCELENTE: Todos los lotes tienen actividad comercial reciente",mg+7,curY+9);curY+=20;
+        }
+        curY=addSection("Lotes sin Actividad Comercial — Ordenados por Valor",curY,110);
+        if(lotesSinActividad.length>0){
+          const maxR=Math.min(lotesSinActividad.length,14);
+          doc.autoTable({startY:curY,head:[["#","Lote","Desarrollo","Situacion","Valor","Prioridad"]],
+            body:lotesSinActividad.slice(0,maxR).map((l,i)=>{
               const crm=crmData[l.id]||{};
+              const pros=(crm.prospectos||[]).filter(p=>p&&(p.pipeline||"Prospecto")!=="Perdido");
               const dias=crm.lastContact?Math.floor((NOW-new Date(crm.lastContact).getTime())/864e5):null;
-              return [l.nombre||String(l.id||""),l.desarrollo||"—",getLotePip(l.id),fmtMoney(l.precio_total||0),dias!==null?dias+"d":"Sin registro"];
+              const sit=pros.length===0?"Sin prospecto asignado":(getLotePip(l.id)+" — "+dias+"d sin contacto");
+              const pri=i<3?"CRITICA":i<7?"ALTA":"MEDIA";
+              return [(i+1)+".",l.nombre||String(l.id||""),l.desarrollo||"—",sit,fm(l.precio_total||0),pri];
             }),
-            margin:{left:mg,right:mg},
-            headStyles:{fillColor:RED,textColor:WHITE,fontStyle:"bold",fontSize:8},
-            bodyStyles:{fontSize:8,textColor:[30,50,70]},
-            alternateRowStyles:{fillColor:[255,250,250]},
-            columnStyles:{2:{fontStyle:"bold"},3:{halign:"right"},4:{halign:"center",fontStyle:"bold",textColor:RED}}
+            margin:{left:mg,right:mg},headStyles:{fillColor:RED,textColor:WHITE,fontStyle:"bold",fontSize:7.5},
+            bodyStyles:{fontSize:7.5,textColor:DARK},alternateRowStyles:{fillColor:[255,250,250]},
+            columnStyles:{0:{halign:"center",cellWidth:8},3:{fontSize:7},4:{halign:"right",fontStyle:"bold",textColor:NAVY},5:{halign:"center",fontStyle:"bold",fontSize:7}},
+            didParseCell:(d)=>{if(d.column.index===5&&d.section==="body"){const v=d.cell.raw;if(v==="CRITICA")d.cell.styles.textColor=RED;else if(v==="ALTA")d.cell.styles.textColor=[234,88,12];else d.cell.styles.textColor=[202,138,4];}}
           });
-          curY=doc.lastAutoTable.finalY+10;
+          curY=doc.lastAutoTable.finalY+6;
+          if(lotesSinActividad.length>maxR){doc.setTextColor(...GREY);doc.setFont("helvetica","italic");doc.setFontSize(7);doc.text("... y "+(lotesSinActividad.length-maxR)+" lotes adicionales sin actividad",mg,curY+4);curY+=10;}
+        } else {
+          doc.setTextColor(...GREY);doc.setFont("helvetica","italic");doc.setFontSize(9);
+          doc.text("No hay lotes sin actividad en este periodo",mg,curY+8);curY+=16;
+        }
+        if(interacciones30d>0&&curY<pH-60){
+          curY+=4;curY=addSection("Actividad Registrada — Ultimos 30 dias",curY,90);
+          const aRows=Object.entries(interaccionesByAsesor).sort((a,b)=>b[1]-a[1]).map(([as,n])=>[as,n+"",(n/interacciones30d*100).toFixed(0)+"%"]);
+          aRows.push(["TOTAL",interacciones30d+"","100%"]);
+          doc.autoTable({startY:curY,head:[["Asesor","Interacciones","% del Total"]],body:aRows,margin:{left:mg,right:mg},tableWidth:100,
+            headStyles:{fillColor:NAVY,textColor:WHITE,fontStyle:"bold",fontSize:8},bodyStyles:{fontSize:8,textColor:DARK},alternateRowStyles:{fillColor:OFFWH},
+            columnStyles:{1:{halign:"center",fontStyle:"bold"},2:{halign:"center"}},
+            didParseCell:(d)=>{if(d.row.index===aRows.length-1){d.cell.styles.fontStyle="bold";d.cell.styles.fillColor=[215,230,248];}}
+          });curY=doc.lastAutoTable.finalY+8;
         }
 
-        // Compromisos
-        if(curY>pH-90){doc.addPage();addPageHeader("Compromisos");curY=22;}
-        curY=addSectionTitle("Nuestros Compromisos — Próximas Acciones",curY,100);
-        const compromisos=[
-          "Contacto semanal con todos los prospectos activos en etapas Propuesta, Apartado y Contrato.",
-          "Registro completo de todas las interacciones en MacroPro para trazabilidad y rendición de cuentas.",
-          "Presentación de fichas técnicas y propuestas formales a todos los prospectos calificados en proceso.",
-          lotesSinMov.length>0?`Activación urgente de ${lotesSinMov.length} lote${lotesSinMov.length>1?"s":""} sin movimiento dentro de los próximos 7 días hábiles.`:"Mantenimiento del ritmo comercial activo y apertura de nuevos prospectos para los lotes disponibles.",
-          "Reporte de avance quincenal con actualización de estatus, nuevos ingresos y cierres del período.",
-        ];
-        compromisos.forEach((c,i)=>{
-          if(curY>pH-30){doc.addPage();addPageHeader("Compromisos");curY=22;}
-          doc.setFillColor(...OFFWH);
-          doc.roundedRect(mg,curY,pW-mg*2,12,1.5,1.5,"F");
-          doc.setFillColor(...GOLD);
-          doc.roundedRect(mg,curY,3,12,1,1,"F");
-          doc.setTextColor(...NAVY);
-          doc.setFont("helvetica","bold");
-          doc.setFontSize(8);
-          doc.text((i+1)+".",mg+5,curY+7.5);
-          doc.setFont("helvetica","normal");
-          const lines=doc.splitTextToSize(c,pW-mg*2-15);
-          doc.text(lines[0]||"",mg+11,curY+7.5);
-          curY+=15;
+        // PAGINA 4 — COMPROMISOS
+        doc.addPage();addPageHeader("Compromisos y Plan de Accion");curY=22;
+        curY=addSection("Compromisos Formales de Grupo Guia",curY,90);
+        [
+          {t:"Seguimiento activo de prospectos",d:"Contacto semanal con cada prospecto en etapas Propuesta, Apartado y Contrato. Registro de cada interaccion en MacroPro con fecha, canal y resultado."},
+          {t:"Atencion urgente a lotes sin actividad",d:lotesSinActividad.length>0?"Asignacion de prospecto o reactivacion de seguimiento en los "+lotesSinActividad.length+" lotes identificados dentro de los proximos 7 dias habiles.":"Mantenimiento del ritmo comercial activo y apertura de nuevos prospectos para los lotes disponibles."},
+          {t:"Reporte quincenal de avance",d:"Reporte de gestion cada dos semanas con actualizacion de estatus, nuevas calificaciones, cierres y movimientos del periodo."},
+          {t:"Documentacion completa del proceso",d:"Cada prospeccion, visita, presentacion y negociacion registrada con fecha, resultado y proxima accion en MacroPro para trazabilidad total."},
+          {t:"Comunicacion directa con el equipo",d:"Canal abierto con "+cmdDev+" para alineacion de condiciones, fichas tecnicas y seguimiento conjunto de oportunidades prioritarias."},
+        ].forEach((c,i)=>{
+          if(curY>pH-26){doc.addPage();addPageHeader("Compromisos");curY=22;}
+          doc.setFillColor(...OFFWH);doc.roundedRect(mg,curY,pW-mg*2,16,1.5,1.5,"F");
+          doc.setFillColor(...GOLD);doc.roundedRect(mg,curY,3.5,16,1,1,"F");
+          doc.setTextColor(...NAVY);doc.setFont("helvetica","bold");doc.setFontSize(8);
+          doc.text((i+1)+".  "+c.t,mg+6,curY+6.5);
+          doc.setFont("helvetica","normal");doc.setFontSize(7.5);doc.setTextColor(...DARK);
+          doc.text(doc.splitTextToSize(c.d,pW-mg*2-12)[0]||"",mg+6,curY+12);curY+=19;
         });
+        curY+=6;
+        if(curY>pH-32){doc.addPage();addPageHeader("Cierre");curY=22;}
+        doc.setFillColor(...NAVY);doc.roundedRect(mg,curY,pW-mg*2,28,3,3,"F");
+        doc.setFillColor(...GOLD);doc.rect(mg,curY+27.5,pW-mg*2,0.5,"F");
+        doc.setTextColor(...WHITE);doc.setFont("helvetica","bold");doc.setFontSize(11);
+        doc.text("Grupo Guia  —  Equipo Comercial MacroPro",pW/2,curY+10,{align:"center"});
+        doc.setFont("helvetica","normal");doc.setFontSize(7.5);doc.setTextColor(155,180,205);
+        doc.text("Generado automaticamente por MacroPro  |  Sistema de Gestion de Macrolotes  |  Grupo Guia",pW/2,curY+17,{align:"center"});
+        doc.text(cmdDev+"  |  "+fechaStr,pW/2,curY+23,{align:"center"});
 
-        // Bloque de cierre
-        curY+=4;
-        if(curY>pH-35){doc.addPage();addPageHeader("Cierre");curY=22;}
-        doc.setFillColor(...NAVY);
-        doc.roundedRect(mg,curY,pW-mg*2,26,3,3,"F");
-        doc.setFillColor(...GOLD);
-        doc.rect(mg,curY+25.5,pW-mg*2,0.5,"F");
-        doc.setTextColor(...WHITE);
-        doc.setFont("helvetica","bold");
-        doc.setFontSize(10);
-        doc.text("Grupo Guía · Equipo Comercial MacroPro",pW/2,curY+10,{align:"center"});
-        doc.setFont("helvetica","normal");
-        doc.setFontSize(7.5);
-        doc.setTextColor(160,185,210);
-        doc.text("Generado automáticamente por MacroPro · Sistema de Gestión de Macrolotes · Grupo Guía",pW/2,curY+17,{align:"center"});
-        doc.text(fechaStr,pW/2,curY+23,{align:"center"});
-
-        // Footer todas las páginas (excepto portada)
-        const totalPgs=doc.internal.getNumberOfPages();
-        for(let i=2;i<=totalPgs;i++){
+        // FOOTER todas las paginas (excepto portada)
+        const tp=doc.internal.getNumberOfPages();
+        for(let i=2;i<=tp;i++){
           doc.setPage(i);
-          doc.setDrawColor(...GOLD);
-          doc.setLineWidth(0.3);
-          doc.line(mg,pH-11,pW-mg,pH-11);
-          doc.setFont("helvetica","normal");
-          doc.setFontSize(6.5);
-          doc.setTextColor(150,150,150);
-          doc.text("MacroPro · Grupo Guía",mg,pH-6);
-          doc.text(cmdDev+" · Reporte de Gestión de Macrolotes",pW/2,pH-6,{align:"center"});
-          doc.text("Pág. "+(i-1)+" / "+(totalPgs-1),pW-mg,pH-6,{align:"right"});
+          doc.setDrawColor(...GOLD);doc.setLineWidth(0.3);doc.line(mg,pH-11,pW-mg,pH-11);
+          doc.setFont("helvetica","normal");doc.setFontSize(6.5);doc.setTextColor(150,150,150);
+          doc.text("MacroPro  |  Grupo Guia",mg,pH-6);
+          doc.text(cmdDev+"  |  Reporte de Gestion de Macrolotes",pW/2,pH-6,{align:"center"});
+          doc.text("Pag. "+(i-1)+" / "+(tp-1),pW-mg,pH-6,{align:"right"});
         }
-
-        const slug=cmdDev.replace(/[^a-zA-Z0-9]/g,"-");
-        doc.save("Reporte_"+slug+"_"+ahora.toISOString().slice(0,10)+".pdf");
-        toast("✅ Reporte PDF generado para "+cmdDev);
+        doc.save("Reporte_"+cmdDev.replace(/[^a-zA-Z0-9]/g,"-")+"_"+ahora.toISOString().slice(0,10)+".pdf");
+        toast("Reporte generado para "+cmdDev);
       } catch(err){
-        console.error("Error PDF:",err);
-        toast("⚠ Error generando PDF: "+err.message);
+        console.error("Error PDF:",err);toast("Error generando PDF: "+err.message);
       } finally {
         setPdfGenerandoCmd(false);
       }
