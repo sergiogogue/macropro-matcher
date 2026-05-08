@@ -8875,9 +8875,10 @@ function MacroProMatcher() {
         if(prospectos.length===0) return e.pipeline||"Disponible";
         let masAvanzada = "Disponible"; let maxOrden = 0;
         prospectos.forEach(p=>{
-          if(!p||!p.pipeline) return;
-          const ord = stageOrder[p.pipeline]||0;
-          if(ord>maxOrden){ maxOrden=ord; masAvanzada=p.pipeline; }
+          if(!p) return;
+          const stage = p.pipeline||"Prospecto";
+          const ord = stageOrder[stage]||0;
+          if(ord>maxOrden){ maxOrden=ord; masAvanzada=stage; }
         });
         return masAvanzada;
       };
@@ -9205,9 +9206,10 @@ function MacroProMatcher() {
         const crm = crmData[lot.id];
         if(!crm||!crm.prospectos) return;
         crm.prospectos.forEach((p)=>{
-          if(!p||!p.pipeline) return;
-          if(p.pipeline==="Perdido"||p.pipeline==="Vendido") return;
-          if(ejecFiltroEtapa!=="Todos"&&p.pipeline!==ejecFiltroEtapa) return;
+          if(!p) return;
+          const _pipeE = p.pipeline||"Prospecto";
+          if(_pipeE==="Perdido"||_pipeE==="Vendido") return;
+          if(ejecFiltroEtapa!=="Todos"&&_pipeE!==ejecFiltroEtapa) return;
           const asesorP = p.asesor||crm.asesorResponsable||"Sin asignar";
           if(ejecFiltroAsesor!=="Todos"&&asesorP!==ejecFiltroAsesor) return;
           prospectosActivos.push({
@@ -9215,7 +9217,7 @@ function MacroProMatcher() {
             asesor: asesorP,
             lote: lot.nombre||"—",
             desarrollo: lot.desarrollo||"—",
-            etapa: p.pipeline,
+            etapa: _pipeE,
             valor: lot.precio_total||0,
             temperatura: p.temperatura||"—",
             notaInterna: p.nota||p.notas||""
@@ -9311,9 +9313,10 @@ function MacroProMatcher() {
       if(prospectos.length===0) return e.pipeline||"Disponible";
       let masAvanzada = "Disponible"; let maxOrden = 0;
       prospectos.forEach(p=>{
-        if(!p||!p.pipeline) return;
-        const ord = stageOrder[p.pipeline]||0;
-        if(ord>maxOrden){ maxOrden=ord; masAvanzada=p.pipeline; }
+        if(!p) return;
+        const stage = p.pipeline||"Prospecto";
+        const ord = stageOrder[stage]||0;
+        if(ord>maxOrden){ maxOrden=ord; masAvanzada=stage; }
       });
       return masAvanzada;
     };
@@ -9368,7 +9371,7 @@ function MacroProMatcher() {
       const crm = crmData[lot.id];
       if(!crm||!crm.prospectos) return;
       crm.prospectos.forEach((p,idx)=>{
-        if(!p||!p.pipeline) return;
+        if(!p) return;
         const pipelineP = p.pipeline||"Prospecto";
         if(pipelineP==="Perdido"||pipelineP==="Vendido") return;
         if(ejecFiltroEtapa!=="Todos"&&pipelineP!==ejecFiltroEtapa) return;
