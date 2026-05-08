@@ -3191,17 +3191,27 @@ function MacroProMatcher() {
   };
   // 🛡️ v3 BACKUP COMPLETO — un archivo JSON con todo (inventario + clientes + CRM + metadata)
   const exportCRMJson = () => {
+    // Leer desde localStorage como fuente de verdad (más confiable que React state)
+    let _inv=inventory||[], _cli=clients||[], _crm=crmData||{};
+    try {
+      const rC=localStorage.getItem('macropro_crm_v1');
+      const rI=localStorage.getItem('macropro_inventory_v1');
+      const rL=localStorage.getItem('macropro_clients_v1');
+      if(rC){const p=JSON.parse(rC);if(Object.keys(p).length>=Object.keys(_crm).length)_crm=p;}
+      if(rI){const p=JSON.parse(rI);if(Array.isArray(p)&&p.length>=_inv.length)_inv=p;}
+      if(rL){const p=JSON.parse(rL);if(Array.isArray(p)&&p.length>=_cli.length)_cli=p;}
+    }catch(e){}
     const backup = {
       version: "v3-backup-completo",
       generado_en: new Date().toISOString(),
       contadores: {
-        lotes: (inventory||[]).length,
-        clientes: (clients||[]).length,
-        crm_seguimientos: Object.keys(crmData||{}).length
+        lotes: _inv.length,
+        clientes: _cli.length,
+        crm_seguimientos: Object.keys(_crm).length
       },
-      inventory: inventory||[],
-      clients: clients||[],
-      crmData: crmData||{}
+      inventory: _inv,
+      clients: _cli,
+      crmData: _crm
     };
     const b = new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
     const u = URL.createObjectURL(b);
@@ -8222,6 +8232,13 @@ function MacroProMatcher() {
     }
     if(!confirm("⚠ Esto sobrescribirá tu data local con la versión en Supabase. ¿Continuar?")) return;
     try {
+      // 🛡️ Guardar backup local ANTES de sobrescribir
+      try {
+        localStorage.setItem('macropro_crm_predownload_bk', localStorage.getItem('macropro_crm_v1')||'{}');
+        localStorage.setItem('macropro_inv_predownload_bk', localStorage.getItem('macropro_inventory_v1')||'[]');
+        localStorage.setItem('macropro_cli_predownload_bk', localStorage.getItem('macropro_clients_v1')||'[]');
+      } catch(eBk){ console.warn('No se pudo guardar backup pre-descarga', eBk); }
+
       setSupabaseProgress({tabla:"lotes", hechos:0, total:0, mensaje:"Descargando inventario..."});
       
       // Lotes
@@ -9288,6 +9305,326 @@ function MacroProMatcher() {
     }
   };
 
+
+  // ═══════════════════════════════════════════════════════════════
+  // VIEW: 🎯 COMANDO — CENTRO DE COMANDO TÁCTICO OPERATIVO
+  // ═══════════════════════════════════════════════════════════════
+  const ViewComando = () => {
+    const [cmdDev, setCmdDev] = React.useState("Todos");
+    const [cmdDesarrollo, setCmdDesarrollo] = React.useState("Todos");
+    const [cmdAsesor, setCmdAsesor] = React.useState("Todos");
+    const NOW = Date.now();
+    const srcInv = inventory.length>0?inventory:SAMPLE_INVENTORY;
+
+    // ─── Helpers locales ────────────────────────────────────────
+    const getStageOrd=(s)=>({"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Vendido":7,"Perdido":0,"Disponible":0}[s]||0);
+    const getLotePip=(lotId)=>{
+      const e=crmData[lotId];
+      if(!e) return "Disponible";
+      if(e.pipeline==="Vendido"||e.pipeline==="Perdido") return e.pipeline;
+      const pros=e.prospectos||[];
+      if(pros.length===0) return e.pipeline||"Disponible";
+      let max="Disponible",maxO=0;
+      pros.forEach(p=>{ if(!p) return; const s=p.pipeline||"Prospecto"; const o=getStageOrd(s); if(o>maxO){maxO=o;max=s;} });
+      return max;
+    };
+    const getLoteAsesor=(lot)=>{
+      const crm=crmData[lot.id]||{};
+      if(crm.asesorResponsable) return crm.asesorResponsable;
+      if(lot.asesor&&lot.asesor.trim()) return lot.asesor.trim();
+      for(const p of (crm.prospectos||[])){ if(p&&p.asesor) return p.asesor; }
+      return null;
+    };
+    const fmtMoney=v=>v>=1e9?"$"+(v/1e9).toFixed(2)+"B":v>=1e6?"$"+(v/1e6).toFixed(1)+"M":v>0?"$"+(v/1000).toFixed(0)+"K":"$0";
+
+    // ─── Opciones de filtros ────────────────────────────────────
+    const devs=[...new Set(srcInv.map(l=>l.desarrollador||l.desarrollo).filter(Boolean))].sort();
+    const desarrollos=[...new Set(srcInv.filter(l=>cmdDev==="Todos"||(l.desarrollador||l.desarrollo)===cmdDev).map(l=>l.desarrollo).filter(Boolean))].sort();
+    const asesores=[...new Set([
+      ...Object.values(crmData).flatMap(e=>{ const a=[]; if(e.asesorResponsable) a.push(e.asesorResponsable); (e.prospectos||[]).forEach(p=>{if(p&&p.asesor)a.push(p.asesor);}); return a; }),
+      ...srcInv.filter(l=>l.asesor&&l.asesor.trim()).map(l=>l.asesor.trim())
+    ].filter(Boolean))].sort();
+
+    // ─── Inventario filtrado ────────────────────────────────────
+    const lotesFiltrados=srcInv.filter(l=>{
+      if(cmdDev!=="Todos"&&(l.desarrollador||l.desarrollo)!==cmdDev) return false;
+      if(cmdDesarrollo!=="Todos"&&l.desarrollo!==cmdDesarrollo) return false;
+      if(cmdAsesor!=="Todos"&&getLoteAsesor(l)!==cmdAsesor) return false;
+      return true;
+    });
+
+    // ─── Prospectos activos filtrados ───────────────────────────
+    const prospectosActivos=[];
+    lotesFiltrados.forEach(lot=>{
+      const crm=crmData[lot.id]; if(!crm||!crm.prospectos) return;
+      crm.prospectos.forEach((p,idx)=>{
+        if(!p) return;
+        const pip=p.pipeline||"Prospecto";
+        if(pip==="Perdido"||pip==="Vendido") return;
+        if(!ACTIVE_STAGES.includes(pip)) return;
+        const asesor=p.asesor||crm.asesorResponsable||"Sin asignar";
+        if(cmdAsesor!=="Todos"&&asesor!==cmdAsesor) return;
+        const acts=p.actividades||[];
+        const proximaAct=acts.filter(a=>!a.completada&&a.fecha).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha))[0];
+        const diasSinContacto=crm.lastContact?Math.floor((NOW-new Date(crm.lastContact).getTime())/864e5):null;
+        prospectosActivos.push({lot,prospecto:p,prospectoIdx:idx,pipeline:pip,asesor,proximaAct,diasSinContacto,valor:lot.precio_total||0});
+      });
+    });
+
+    // ─── KPIs Pulso ────────────────────────────────────────────
+    const totalValorPipeline=prospectosActivos.reduce((a,p)=>a+p.valor,0);
+    const totalPonderado=prospectosActivos.reduce((a,p)=>a+(p.valor*(STAGE_PROBABILITY[p.pipeline]||0)),0);
+    const lotesSinMov30=lotesFiltrados.filter(l=>{
+      const crm=crmData[l.id]||{}; const pip=getLotePip(l.id);
+      if(!ACTIVE_STAGES.includes(pip)) return false;
+      if(!crm.lastContact) return true;
+      return Math.floor((NOW-new Date(crm.lastContact).getTime())/864e5)>30;
+    }).length;
+
+    // ─── Acción del Día ─────────────────────────────────────────
+    const accionDelDia=[...prospectosActivos]
+      .filter(p=>["En negociación","Propuesta","Apartado","Contrato"].includes(p.pipeline))
+      .sort((a,b)=>{ const oA=getStageOrd(a.pipeline),oB=getStageOrd(b.pipeline); if(oB!==oA) return oB-oA; return (b.diasSinContacto||999)-(a.diasSinContacto||999); })[0]
+      || prospectosActivos[0];
+
+    // ─── Mapa de Calor ──────────────────────────────────────────
+    const CALOR_CONFIG=[
+      {nivel:"activo",color:"#16a34a",label:"Activo ≤30d"},
+      {nivel:"tibio",color:"#ca8a04",label:"Tibio 31-60d"},
+      {nivel:"frio",color:"#ea580c",label:"Frío 61-120d"},
+      {nivel:"congelado",color:"#dc2626",label:"Congelado >120d"},
+      {nivel:"sin_contacto",color:"#7c3aed",label:"Sin contacto"},
+      {nivel:"huerfano",color:"#334155",label:"Sin prospecto"},
+      {nivel:"disponible",color:"#cbd5e1",label:"Disponible"},
+      {nivel:"vendido",color:"#22c55e",label:"Vendido"},
+    ];
+    const getCalor=(lotId)=>{
+      const crm=crmData[lotId]||{}; const pip=getLotePip(lotId);
+      if(pip==="Vendido") return "vendido";
+      if(pip==="Perdido") return "disponible";
+      const pros=(crm.prospectos||[]).filter(p=>p&&(p.pipeline||"Prospecto")!=="Perdido"&&(p.pipeline||"Prospecto")!=="Vendido");
+      if(pros.length===0&&!crm.seguimientoAsesor) return "huerfano";
+      if(!crm.lastContact) return "sin_contacto";
+      const dias=Math.floor((NOW-new Date(crm.lastContact).getTime())/864e5);
+      if(dias<=30) return "activo"; if(dias<=60) return "tibio"; if(dias<=120) return "frio"; return "congelado";
+    };
+    const calores={};
+    CALOR_CONFIG.forEach(c=>{calores[c.nivel]=0;});
+    lotesFiltrados.forEach(l=>{const n=getCalor(l.id);calores[n]=(calores[n]||0)+1;});
+    const caloresData=CALOR_CONFIG.map(c=>({...c,count:calores[c.nivel]||0})).filter(c=>c.count>0||c.nivel==="activo"||c.nivel==="huerfano");
+
+    // ─── Lotes Huérfanos Top 10 ─────────────────────────────────
+    const lotesHuerfanos=lotesFiltrados
+      .filter(l=>{
+        const crm=crmData[l.id]||{}; const pip=getLotePip(l.id);
+        if(pip==="Vendido"||pip==="Perdido") return false;
+        const pros=(crm.prospectos||[]).filter(p=>p&&(p.pipeline||"Prospecto")!=="Perdido");
+        return pros.length===0&&!crm.seguimientoAsesor;
+      })
+      .map(l=>{
+        const diasH=l.fecha_ingreso?Math.floor((NOW-new Date(l.fecha_ingreso).getTime())/864e5):null;
+        const score=Math.round(((l.precio_total||0)/1e6)*10+(diasH||0)*0.05);
+        return {...l,diasHuerfano:diasH,score};
+      })
+      .sort((a,b)=>b.score-a.score).slice(0,10);
+
+    // ─── Alertas Críticas ───────────────────────────────────────
+    const alertas=[];
+    prospectosActivos.filter(p=>["Propuesta","Apartado","Contrato"].includes(p.pipeline)&&!p.proximaAct&&(p.diasSinContacto===null||p.diasSinContacto>7))
+      .forEach(p=>alertas.push({tipo:"⚠️ Sin actividad agendada",desc:`${p.prospecto.nombre} · ${p.pipeline} · ${p.lot.nombre}`,color:"#dc2626",valor:p.valor,urgencia:3}));
+    prospectosActivos.filter(p=>p.diasSinContacto&&p.diasSinContacto>60&&["En negociación","Propuesta"].includes(p.pipeline))
+      .forEach(p=>alertas.push({tipo:"🧊 Prospecto congelado",desc:`${p.prospecto.nombre} · ${p.diasSinContacto}d sin contacto · ${p.lot.nombre}`,color:"#7c3aed",valor:p.valor,urgencia:2}));
+    lotesFiltrados.filter(l=>(l.precio_total||0)>5e6&&!getLoteAsesor(l)&&getLotePip(l.id)!=="Vendido"&&getLotePip(l.id)!=="Perdido").slice(0,3)
+      .forEach(l=>alertas.push({tipo:"👤 Lote premium sin asesor",desc:`${l.nombre} · ${l.desarrollo} · ${fmtMoney(l.precio_total)}`,color:"#ea580c",valor:l.precio_total,urgencia:2}));
+    alertas.sort((a,b)=>b.urgencia-a.urgencia||b.valor-a.valor);
+
+    return (
+      <div style={{padding:"20px 24px",maxWidth:1400,margin:"0 auto"}}>
+
+        {/* HEADER */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>MacroPro · Grupo Guía</div>
+            <div style={{fontSize:24,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>🎯 Centro de Comando</div>
+            <div style={{fontSize:11,color:B.grey3,marginTop:2}}>Vista táctica operativa · tiempo real</div>
+          </div>
+          <div style={{fontSize:11,color:B.grey3,fontWeight:600}}>{new Date().toLocaleDateString("es-MX",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+        </div>
+
+        {/* FILTROS GLOBALES */}
+        <div style={{background:B.navy,borderRadius:12,padding:"14px 18px",marginBottom:20,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+          <span style={{fontSize:10,fontWeight:700,color:B.gold,letterSpacing:1.5,textTransform:"uppercase",marginRight:4,flexShrink:0}}>🔽 Filtros</span>
+          <select value={cmdDev} onChange={e=>{setCmdDev(e.target.value);setCmdDesarrollo("Todos");}} style={{padding:"6px 10px",borderRadius:7,border:"none",fontSize:11,fontWeight:600,background:"rgba(255,255,255,0.12)",color:"#fff",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
+            <option value="Todos" style={{color:B.navy,background:"#fff"}}>Todos los desarrolladores</option>
+            {devs.map(d=><option key={d} value={d} style={{color:B.navy,background:"#fff"}}>{d}</option>)}
+          </select>
+          {cmdDev!=="Todos"&&(
+            <select value={cmdDesarrollo} onChange={e=>setCmdDesarrollo(e.target.value)} style={{padding:"6px 10px",borderRadius:7,border:"none",fontSize:11,fontWeight:600,background:"rgba(255,255,255,0.12)",color:"#fff",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
+              <option value="Todos" style={{color:B.navy,background:"#fff"}}>Todos los desarrollos</option>
+              {desarrollos.map(d=><option key={d} value={d} style={{color:B.navy,background:"#fff"}}>{d}</option>)}
+            </select>
+          )}
+          <select value={cmdAsesor} onChange={e=>setCmdAsesor(e.target.value)} style={{padding:"6px 10px",borderRadius:7,border:"none",fontSize:11,fontWeight:600,background:"rgba(255,255,255,0.12)",color:"#fff",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
+            <option value="Todos" style={{color:B.navy,background:"#fff"}}>Todos los asesores</option>
+            {asesores.map(a=><option key={a} value={a} style={{color:B.navy,background:"#fff"}}>{a}</option>)}
+          </select>
+          <span style={{marginLeft:"auto",fontSize:10,color:"rgba(255,255,255,0.5)",flexShrink:0}}>{lotesFiltrados.length} lotes · {prospectosActivos.length} activos</span>
+          {(cmdDev!=="Todos"||cmdDesarrollo!=="Todos"||cmdAsesor!=="Todos")&&(
+            <button onClick={()=>{setCmdDev("Todos");setCmdDesarrollo("Todos");setCmdAsesor("Todos");}} style={{background:"rgba(245,179,53,0.15)",border:"1px solid "+B.gold,borderRadius:6,padding:"4px 10px",color:B.gold,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>✕ Limpiar</button>
+          )}
+        </div>
+
+        {/* SECCIÓN 1: PULSO + ACCIÓN DEL DÍA */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          <div style={{background:B.white,borderRadius:12,padding:"16px 20px",boxShadow:"0 2px 12px rgba(0,43,73,0.07)"}}>
+            <div style={{fontSize:11,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:14}}>📊 Pulso del Negocio</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              {[
+                {icon:"👤",label:"Prospectos activos",val:prospectosActivos.length,col:"#3B82F6",sub:"en pipeline"},
+                {icon:"💰",label:"Valor pipeline",val:fmtMoney(totalValorPipeline),col:B.gold,sub:"bruto total"},
+                {icon:"🎯",label:"Forecast ponderado",val:fmtMoney(totalPonderado),col:"#8B5CF6",sub:"probabilidad cierre"},
+                {icon:"⚠️",label:"Sin movimiento +30d",val:lotesSinMov30,col:lotesSinMov30>0?"#dc2626":B.grey3,sub:"requieren acción"},
+              ].map((k,i)=>(
+                <div key={i} style={{background:B.offW,borderRadius:9,padding:"11px 13px",borderLeft:"3px solid "+k.col}}>
+                  <div style={{fontSize:9,color:B.grey3,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,marginBottom:3}}>{k.icon} {k.label}</div>
+                  <div style={{fontSize:22,fontWeight:800,color:k.col,lineHeight:1}}>{k.val}</div>
+                  <div style={{fontSize:9,color:B.grey3,marginTop:3}}>{k.sub}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{background:"linear-gradient(135deg,"+B.navy+",#0a3d5c)",borderRadius:12,padding:"16px 20px",color:"#fff"}}>
+            <div style={{fontSize:10,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase",marginBottom:12}}>🔥 Acción #1 del Día</div>
+            {accionDelDia?(
+              <div>
+                <div style={{fontSize:17,fontWeight:800,marginBottom:7,lineHeight:1.2}}>{accionDelDia.prospecto.nombre}</div>
+                <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+                  <span style={{background:(PIPELINE_COLORS[accionDelDia.pipeline]||B.gold)+"55",border:"1px solid "+(PIPELINE_COLORS[accionDelDia.pipeline]||B.gold),borderRadius:6,padding:"2px 9px",fontSize:10,fontWeight:700}}>{accionDelDia.pipeline}</span>
+                  <span style={{background:"rgba(255,255,255,0.1)",borderRadius:6,padding:"2px 9px",fontSize:10,color:"rgba(255,255,255,0.7)"}}>{accionDelDia.lot.nombre}</span>
+                </div>
+                <div style={{fontSize:11,color:"rgba(255,255,255,0.65)",marginBottom:8}}>{accionDelDia.lot.desarrollo} · {fmtMoney(accionDelDia.valor)}</div>
+                {accionDelDia.diasSinContacto!==null&&(
+                  <div style={{background:accionDelDia.diasSinContacto>30?"rgba(220,38,38,0.2)":"rgba(245,179,53,0.15)",borderRadius:7,padding:"6px 10px",fontSize:11,color:accionDelDia.diasSinContacto>30?"#fca5a5":B.gold,marginBottom:6}}>
+                    {accionDelDia.diasSinContacto>30?"🚨":"⏱"} {accionDelDia.diasSinContacto===0?"Contactado hoy":accionDelDia.diasSinContacto+"d sin contacto"}
+                  </div>
+                )}
+                {accionDelDia.proximaAct?(
+                  <div style={{fontSize:10,color:"rgba(255,255,255,0.6)",marginBottom:10}}>📅 {accionDelDia.proximaAct.descripcion||accionDelDia.proximaAct.tipo} · {accionDelDia.proximaAct.fecha}</div>
+                ):(
+                  <div style={{background:"rgba(239,68,68,0.2)",borderRadius:6,padding:"5px 9px",fontSize:10,color:"#fca5a5",fontWeight:600,marginBottom:10}}>⚠ Sin actividad agendada — agenda hoy</div>
+                )}
+                <button onClick={()=>setView("crm")} style={{background:B.gold,color:B.navy,border:"none",borderRadius:7,padding:"7px 16px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ir al CRM →</button>
+              </div>
+            ):(
+              <div style={{textAlign:"center",padding:"24px 0",color:"rgba(255,255,255,0.5)"}}>
+                <div style={{fontSize:36,marginBottom:8}}>🎉</div>
+                <div style={{fontSize:13,fontWeight:600}}>Sin deals urgentes</div>
+                <div style={{fontSize:11,marginTop:4}}>Agrega prospectos desde el CRM</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* SECCIÓN 2: MAPA DE CALOR */}
+        <div style={{background:B.white,borderRadius:12,padding:"16px 20px",marginBottom:14,boxShadow:"0 2px 12px rgba(0,43,73,0.07)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+            <div style={{fontSize:13,fontWeight:700,color:B.navy}}>🗺 Mapa de Calor del Inventario</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {caloresData.map(c=>(
+                <span key={c.nivel} style={{display:"flex",alignItems:"center",gap:4,fontSize:9,color:B.grey4,fontWeight:600}}>
+                  <span style={{width:9,height:9,borderRadius:2,background:c.color,display:"inline-block",flexShrink:0}}/>
+                  {c.label} ({c.count})
+                </span>
+              ))}
+            </div>
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+            {lotesFiltrados.map(l=>{
+              const nivel=getCalor(l.id);
+              const cfg=CALOR_CONFIG.find(c=>c.nivel===nivel)||CALOR_CONFIG[6];
+              const dias=crmData[l.id]&&crmData[l.id].lastContact?Math.floor((NOW-new Date(crmData[l.id].lastContact).getTime())/864e5):null;
+              return (
+                <div key={l.id}
+                  title={`${l.nombre}\n${l.desarrollo}\n${cfg.label}${dias!==null?" · "+dias+"d":""}\n${fmtMoney(l.precio_total||0)}`}
+                  onClick={()=>setView("crm")}
+                  style={{width:26,height:26,borderRadius:4,background:cfg.color,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:6,color:"#fff",fontWeight:800,opacity:nivel==="disponible"?0.35:0.8,transition:"all 0.15s",userSelect:"none"}}
+                  onMouseEnter={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.transform="scale(1.2)";}}
+                  onMouseLeave={e=>{e.currentTarget.style.opacity=nivel==="disponible"?"0.35":"0.8";e.currentTarget.style.transform="scale(1)";}}>
+                  {l.nombre.replace(/[^A-Z0-9]/gi,"").substring(0,2).toUpperCase()}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* SECCIÓN 3+4: HUÉRFANOS + ALERTAS */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+
+          {/* Lotes Huérfanos Top 10 */}
+          <div style={{background:B.white,borderRadius:12,padding:"16px 20px",boxShadow:"0 2px 12px rgba(0,43,73,0.07)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:700,color:B.navy}}>📋 Lotes Huérfanos · Top 10</div>
+              {lotesHuerfanos.length>0&&<span style={{background:"#fee2e2",color:"#dc2626",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{lotesFiltrados.filter(l=>{const crm=crmData[l.id]||{};const pip=getLotePip(l.id);if(pip==="Vendido"||pip==="Perdido")return false;const pros=(crm.prospectos||[]).filter(p=>p&&(p.pipeline||"Prospecto")!=="Perdido");return pros.length===0&&!crm.seguimientoAsesor;}).length} total</span>}
+            </div>
+            {lotesHuerfanos.length===0?(
+              <div style={{textAlign:"center",padding:24,color:B.grey3}}>
+                <div style={{fontSize:28,marginBottom:6}}>✅</div>
+                <div style={{fontSize:12,fontWeight:600}}>Todos los lotes tienen prospecto</div>
+              </div>
+            ):(
+              <div style={{overflowY:"auto",maxHeight:300}}>
+                {lotesHuerfanos.map((l,i)=>(
+                  <div key={l.id} onClick={()=>setView("crm")} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 6px",borderBottom:"1px solid "+B.grey1,cursor:"pointer",transition:"background 0.1s"}}
+                    onMouseEnter={e=>e.currentTarget.style.background=B.offW}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <div style={{width:24,height:24,borderRadius:6,background:i<3?"#dc2626":i<6?"#ea580c":B.grey2,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,flexShrink:0}}>{i+1}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:700,color:B.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nombre}</div>
+                      <div style={{fontSize:9,color:B.grey3}}>{l.desarrollo} · {fmtMoney(l.precio_total||0)}</div>
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontSize:10,fontWeight:800,color:"#dc2626"}}>Score {l.score}</div>
+                      {l.diasHuerfano&&<div style={{fontSize:9,color:B.grey3}}>{l.diasHuerfano}d</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Alertas Críticas */}
+          <div style={{background:B.white,borderRadius:12,padding:"16px 20px",boxShadow:"0 2px 12px rgba(0,43,73,0.07)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:700,color:B.navy}}>🚨 Alertas Críticas</div>
+              {alertas.length>0&&<span style={{background:"#fee2e2",color:"#dc2626",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>{alertas.length}</span>}
+            </div>
+            {alertas.length===0?(
+              <div style={{textAlign:"center",padding:24,color:B.grey3}}>
+                <div style={{fontSize:28,marginBottom:6}}>✅</div>
+                <div style={{fontSize:12,fontWeight:600}}>Sin alertas críticas</div>
+              </div>
+            ):(
+              <div style={{overflowY:"auto",maxHeight:300}}>
+                {alertas.slice(0,8).map((a,i)=>(
+                  <div key={i} style={{display:"flex",gap:8,padding:"8px 0",borderBottom:"1px solid "+B.grey1,alignItems:"flex-start"}}>
+                    <div style={{width:5,borderRadius:3,background:a.color,flexShrink:0,alignSelf:"stretch",minHeight:36}}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:10,fontWeight:700,color:a.color}}>{a.tipo}</div>
+                      <div style={{fontSize:11,color:B.navy,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.desc}</div>
+                      <div style={{fontSize:9,color:B.grey3,marginTop:1}}>{fmtMoney(a.valor)}</div>
+                    </div>
+                    <button onClick={()=>setView("crm")} style={{background:B.offW,border:"1px solid "+B.grey1,borderRadius:5,padding:"3px 8px",fontSize:9,fontWeight:600,cursor:"pointer",flexShrink:0,color:B.navy,fontFamily:"'DM Sans',sans-serif"}}>Ver →</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+      </div>
+    );
+  };
 
   // ═══════════════════════════════════════════════════════════════
   // VIEW: ⬡ EJECUTIVO — CEO COCKPIT (vista ejecutiva profesional)
@@ -11163,7 +11500,7 @@ function MacroProMatcher() {
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["dashboard","📊 Dashboard"],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["asesores","🤝 Asesores"+(solicitudesAsesor.filter(a=>a.pipeline!=="Match"&&a.pipeline!=="Cerrado sin match").length>0?" ("+solicitudesAsesor.filter(a=>a.pipeline!=="Match"&&a.pipeline!=="Cerrado sin match").length+")":"")],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["comando","🎯 Comando"],["crm","🎯 CRM"+crmNavCount],["dashboard","📊 Dashboard"],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["asesores","🤝 Asesores"+(solicitudesAsesor.filter(a=>a.pipeline!=="Match"&&a.pipeline!=="Cerrado sin match").length>0?" ("+solicitudesAsesor.filter(a=>a.pipeline!=="Match"&&a.pipeline!=="Cerrado sin match").length+")":"")],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <button onClick={()=>{setApiKeyInput(localStorage.getItem("macropro_api_key")||"");setShowApiModal(true);}} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:apiKey?"#22c55e":"#ef4444",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title={apiKey?"API Key configurada ✓":"Sin API Key — click para configurar"}>{apiKey?"🔑":"⚠️"}</button>
@@ -11194,6 +11531,7 @@ function MacroProMatcher() {
         </div>
       </nav>
       {view==="home"&&<ViewHome/>}
+      {view==="comando"&&<ViewComando/>}
       {view==="crm"&&<ViewCRM/>}
       {view==="dashboard"&&<ViewDashboard/>}
       {view==="ejecutivo"&&<ViewEjecutivo/>}
