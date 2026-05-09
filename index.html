@@ -3236,6 +3236,27 @@ function MacroProMatcher() {
         const tieneCli = Array.isArray(data.clients);
         const tieneCRM = data.crmData && typeof data.crmData === "object";
         if(!tieneInv && !tieneCli && !tieneCRM) {
+          // Detectar formato legacy (v18): objeto con keys de lotes directamente
+          // Ej: {"KU-17-r119": {pipeline, interacciones, prospectos}, ...}
+          const keys = Object.keys(data);
+          const esLegacyCRM = keys.length > 0 && keys.every(k => {
+            const v = data[k];
+            return v && typeof v === "object" && (v.pipeline !== undefined || v.prospectos !== undefined || v.interacciones !== undefined);
+          });
+          if(esLegacyCRM) {
+            if(!window.confirm(
+              `⚠️ RESTAURAR BACKUP (formato antiguo)\n\n` +
+              `Se detectó un backup de versión anterior con ${keys.length} registros CRM.\n` +
+              `Solo se restaurarán los datos CRM (sin inventario ni clientes).\n\n` +
+              `CRM actuales: ${Object.keys(crmData||{}).length} → ${keys.length}\n\n` +
+              `¿Continuar?`
+            )) return;
+            const migrated = migrateCRM(data);
+            setCrmData(migrated);
+            saveCRM(migrated);
+            toast(`✓ Backup legacy restaurado: ${keys.length} registros CRM`);
+            return;
+          }
           throw new Error("El JSON no tiene inventory, clients ni crmData");
         }
         const partes = [];
