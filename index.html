@@ -4810,23 +4810,47 @@ function MacroProMatcher() {
         return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
       };
       // Centroides por desarrollo (avg lat/lng de lotes con coords)
-      const centroideMap = {};
+      // Precio/m² y área por desarrollo desde inventario
+      const invDataMap = {};
       inventory.forEach(l=>{
-        if(!l.lat||!l.lng) return;
         const d=l.desarrollo||"Sin desarrollo";
-        if(!centroideMap[d]) centroideMap[d]={lats:[],lngs:[],pm2s:[]};
-        centroideMap[d].lats.push(l.lat);
-        centroideMap[d].lngs.push(l.lng);
-        if(l.precio_m2>0) centroideMap[d].pm2s.push(l.precio_m2);
+        if(!invDataMap[d]) invDataMap[d]={pm2s:[],areas:[]};
+        if(l.precio_m2>0) invDataMap[d].pm2s.push(l.precio_m2);
+        if(l.sup_m2>0) invDataMap[d].areas.push(l.sup_m2);
       });
-      const desarrollosConCoords = Object.entries(centroideMap).map(([nombre,{lats,lngs,pm2s}])=>({
-        nombre,
-        lat: lats.reduce((a,b)=>a+b,0)/lats.length,
-        lng: lngs.reduce((a,b)=>a+b,0)/lngs.length,
-        pm2_ancla: pm2s.length>0 ? pm2s.reduce((a,b)=>a+b,0)/pm2s.length : 0,
-        nLotes: lats.length
-      }));
+      // Coordenadas: busca primero en archivo de competencia (coords GDL verificadas)
+      // Fallback: centroide del inventario si el desarrollo no está en competencia
+      const getCoordDesarrollo = (devName) => {
+        if(!devName) return null;
+        const palabras = devName.toUpperCase().split(/\s+/).filter(w=>w.length>3);
+        // 1. Búsqueda en archivo de competencia por palabras clave
+        const matchComp = competencia.find(c=>{
+          const cn = c.nombre.toUpperCase();
+          return palabras.some(w=>cn.includes(w));
+        });
+        if(matchComp && matchComp.lat && matchComp.lng) return {lat:matchComp.lat, lng:matchComp.lng, fuente:"competencia"};
+        // 2. Centroide del inventario (fallback)
+        const lats=[],lngs=[];
+        inventory.forEach(l=>{
+          if((l.desarrollo||"")=== devName && l.lat && l.lng) { lats.push(l.lat); lngs.push(l.lng); }
+        });
+        if(lats.length>0) return {lat:lats.reduce((a,b)=>a+b,0)/lats.length, lng:lngs.reduce((a,b)=>a+b,0)/lngs.length, fuente:"inventario"};
+        return null;
+      };
       const todosDesarrollos = [...new Set(inventory.map(l=>l.desarrollo).filter(Boolean))].sort();
+      const desarrollosConCoords = todosDesarrollos.map(nombre=>{
+        const coords = getCoordDesarrollo(nombre);
+        if(!coords) return null;
+        const d = invDataMap[nombre]||{pm2s:[],areas:[]};
+        return {
+          nombre,
+          lat: coords.lat,
+          lng: coords.lng,
+          pm2_ancla: d.pm2s.length>0 ? d.pm2s.reduce((a,b)=>a+b,0)/d.pm2s.length : 0,
+          nLotes: (invDataMap[nombre]?.pm2s||[]).length,
+          fuente: coords.fuente
+        };
+      }).filter(Boolean);
       // Selección de ancla
       const anclaKey = benchDesarrolloAncla || (desarrollosConCoords[0]?.nombre||"");
       const ancla = desarrollosConCoords.find(d=>d.nombre===anclaKey) || desarrollosConCoords[0];
@@ -4905,7 +4929,8 @@ function MacroProMatcher() {
               <select value={anclaKey} onChange={e=>setBenchDesarrolloAncla(e.target.value)} style={{...s.select,minWidth:200}}>
                 {todosDesarrollos.map(d=>{
                   const tieneCoords=desarrollosConCoords.some(x=>x.nombre===d);
-                  return <option key={d} value={d} disabled={!tieneCoords}>{d}{!tieneCoords?" (sin coordenadas)":""}</option>;
+                  const fuente=desarrollosConCoords.find(x=>x.nombre===d)?.fuente;
+                  return <option key={d} value={d} disabled={!tieneCoords}>{d}{!tieneCoords?" (sin coordenadas)":fuente==="competencia"?" ✓":""}</option>;
                 })}
               </select>
             </div>
