@@ -405,6 +405,41 @@ if (typeof window !== 'undefined') {
 }
 
 
+// ─── ICS CALENDAR EXPORT ──────────────────────────────────────────
+function descargarICS(activity, lote, prospecto, durMinutes){
+  try{
+    if(!activity||!activity.fecha){ console.warn("descargarICS: actividad sin fecha"); return false; }
+    const tipo = activity.tipo||"Actividad";
+    const desc = activity.descripcion||"";
+    const fecha = activity.fecha; // YYYY-MM-DD
+    const hora = activity.hora||"09:00";
+    const dur = durMinutes||60;
+    const [hh,mm] = hora.split(":").map(Number);
+    const dtStart = fecha.replace(/-/g,"")+"T"+String(hh).padStart(2,"0")+String(mm).padStart(2,"0")+"00";
+    const endH = hh + Math.floor((mm+dur)/60), endM = (mm+dur)%60;
+    const dtEnd = fecha.replace(/-/g,"")+"T"+String(endH).padStart(2,"0")+String(endM).padStart(2,"0")+"00";
+    const uid = (activity.id||("act-"+Date.now()))+"@macropro.grupoguia.mx";
+    const prospectoStr = prospecto?(" · "+( prospecto.nombre||"")):"";
+    const loteStr = lote?(" | "+lote.nombre+" "+( lote.desarrollo||"")):"";
+    const summary = tipo+(desc?" — "+desc:"")+prospectoStr+loteStr;
+    const icsBody = [
+      "BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//MacroPro//Grupo Guía//ES","CALSCALE:GREGORIAN","METHOD:PUBLISH",
+      "BEGIN:VEVENT",
+      "UID:"+uid,"DTSTART:"+dtStart,"DTEND:"+dtEnd,
+      "SUMMARY:"+summary.replace(/,/g,"\\,").replace(/;/g,"\\;").replace(/\n/g,"\\n"),
+      "DESCRIPTION:Generado por MacroPro · Grupo Guía\\nhttps://sergiogogue.github.io/macropro-matcher/",
+      "END:VEVENT","END:VCALENDAR"
+    ].join("\r\n");
+    const blob = new Blob([icsBody],{type:"text/calendar;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href=url; a.download="MacroPro_"+(tipo).replace(/[^a-z0-9]/gi,"_")+"_"+fecha+".ics";
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); },300);
+    return true;
+  }catch(err){ console.error("Error generando ICS:",err); return false; }
+}
+
 // ─── METAS · CONSTANTES MÍNIMAS ──────────────────────────────────
 const METAS_KEY = "macropro_metas_v1";
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
@@ -1311,6 +1346,7 @@ function MacroProMatcher() {
   const [matchesActuales, setMatchesActuales] = React.useState([]);
   const [solicitudFiltroPipeline, setSolicitudFiltroPipeline] = React.useState(()=>localStorage.getItem("macropro_solicitud_filtro_pipeline")||"Todos");
   const [showImportModal, setShowImportModal] = React.useState(false);
+  const [showICSExportModal, setShowICSExportModal] = React.useState(false);
   const [showQuickProspModal, setShowQuickProspModal] = React.useState(false);
   const [quickProspData, setQuickProspData] = React.useState(null); // {lot, p, prospectoIdx, crm}
 
@@ -2586,7 +2622,7 @@ function MacroProMatcher() {
   // ─── VIEW QUICK SEARCH ────────────────────────────────────────────
   const ViewQuickSearch = () => {
     // Estado LOCAL para los inputs — evita que el cursor salte al re-renderizar
-    const [modoSearch, setModoSearch] = useState("lotes"); // "lotes" | "clientes"
+    const [modoSearch, setModoSearch] = useState("clientes"); // "lotes" | "clientes" — default: clientes
     const [localUso, setLocalUso] = useState(quickSearchCriteria.uso||"");
     const [localSupMin, setLocalSupMin] = useState(quickSearchCriteria.sup_min||"");
     const [localSupMax, setLocalSupMax] = useState(quickSearchCriteria.sup_max||"");
@@ -3941,7 +3977,7 @@ function MacroProMatcher() {
       const asesores=[...new Set(allProspectos.map(p=>p.cli&&p.cli.asesor).filter(Boolean))];
       const filtered=allProspectos.filter(p=>{
         if(filterDevCompania!=="Todos"&&p.lot&&getCompaniaDev(p.lot.desarrollador||p.lot.desarrollo)!==filterDevCompania) return false;
-        if(filterDesarrolloGlobal!=="Todos"&&p.lot&&(p.lot.desarrollador||p.lot.desarrollo)!==filterDesarrolloGlobal) return false;
+        if(filterDesarrolloGlobal!=="Todos"&&p.lot&&p.lot.desarrollo!==filterDesarrolloGlobal) return false;
         if(filterAsesor!=="Todos"&&(!p.cli||p.cli.asesor!==filterAsesor)) return false;
         if(filterPipeline!=="Todos"&&p.pipeline!==filterPipeline) return false;
         return true;
@@ -6491,7 +6527,21 @@ Respuesta: [respuesta exacta, conversacional]
                     </>
                   )}
                 </div>
-                <div style={{padding:"14px 22px",borderTop:"1px solid "+B.grey1,display:"flex",gap:10,justifyContent:"flex-end",background:B.offW}}>
+                <div style={{padding:"14px 22px",borderTop:"1px solid "+B.grey1,display:"flex",gap:10,justifyContent:"flex-end",background:B.offW,flexWrap:"wrap"}}>
+                  {(()=>{
+                    const fechaActiva=isComplete?(actExisting&&actExisting.fecha):activityForm.fecha;
+                    if(!fechaActiva) return null;
+                    const handleICS=()=>{
+                      const lote=inventory.find(x=>x.id===showActivityModal.lotId);
+                      const entry=crmData[showActivityModal.lotId]||{};
+                      const prospecto=(entry.prospectos||[])[showActivityModal.prospectoIdx]||null;
+                      const actObj=isComplete?actExisting:{id:"act-tmp-"+Date.now(),tipo:activityForm.tipo,descripcion:activityForm.descripcion,fecha:activityForm.fecha,hora:activityForm.hora||""};
+                      const ok=descargarICS(actObj,lote,prospecto);
+                      if(ok) toast("📥 Evento descargado — ábrelo para agregar a tu Calendar");
+                      else toast("⚠ No se pudo generar el archivo");
+                    };
+                    return <button onClick={handleICS} title="Descargar como .ics (Google Calendar, Apple Calendar, Outlook)" style={{background:"#dbeafe",border:"1.5px solid #93c5fd",color:"#1e40af",borderRadius:8,padding:"10px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginRight:"auto"}}>📥 Calendar (.ics)</button>;
+                  })()}
                   <button onClick={()=>setShowActivityModal(null)} style={{background:B.white,border:"1.5px solid "+B.grey1,color:B.grey4,borderRadius:8,padding:"10px 18px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancelar</button>
                   <button onClick={()=>{
                     if(isComplete){
