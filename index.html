@@ -1305,6 +1305,12 @@ function MacroProMatcher() {
   const [importPreview, setImportPreview] = React.useState(null);
   const [showSolicitudModal, setShowSolicitudModal] = React.useState(false);
   const [editingSolicitud, setEditingSolicitud] = React.useState(null);
+  const [splitsDetectados, setSplitsDetectados] = React.useState([]);
+  const [solicitudActiva, setSolicitudActiva] = React.useState(null);
+  const [showMatchesModal, setShowMatchesModal] = React.useState(false);
+  const [matchesActuales, setMatchesActuales] = React.useState([]);
+  const [solicitudFiltroPipeline, setSolicitudFiltroPipeline] = React.useState(()=>localStorage.getItem("macropro_solicitud_filtro_pipeline")||"Todos");
+  const [showImportModal, setShowImportModal] = React.useState(false);
 
   // Asignación rápida de asesor a lote sin cliente — usable desde cualquier vista
   const [quickAssignLot,setQuickAssignLot]=React.useState(null); // {id, nombre, desarrollo}
