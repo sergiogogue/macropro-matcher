@@ -760,6 +760,33 @@ function MacroProMatcher() {
       window.removeEventListener('appinstalled',installedHandler);
     };
   },[]);
+  // ── NOTIFICACIONES: actividades vencidas y a 1 día ────────────
+  const notifActs = React.useMemo(()=>{
+    const hoy=new Date(); hoy.setHours(0,0,0,0);
+    const acts=[];
+    Object.entries(crmData||{}).forEach(([lotId,crm])=>{
+      const lot=inventory.find(l=>l.id===lotId);
+      const lotNombre=lot?.nombre||lotId;
+      const lotDes=lot?.desarrollo||"";
+      (crm.prospectos||[]).forEach(p=>{
+        (p.actividades||[]).filter(a=>!a.completada).forEach(a=>{
+          const diff=Math.floor((new Date(a.fecha+"T12:00:00")-hoy)/864e5);
+          if(diff<0||diff===1) acts.push({lotId,lotNombre,lotDes,prospecto:p.nombre,actividad:a,diff,tipo:diff<0?"vencida":"mañana"});
+        });
+      });
+      (crm.seguimientoAsesor?.actividades||[]).filter(a=>!a.completada).forEach(a=>{
+        const diff=Math.floor((new Date(a.fecha+"T12:00:00")-hoy)/864e5);
+        if(diff<0||diff===1) acts.push({lotId,lotNombre,lotDes,prospecto:crm.seguimientoAsesor?.asesor||"Sin asesor",actividad:a,diff,tipo:diff<0?"vencida":"mañana"});
+      });
+    });
+    return acts.sort((a,b)=>a.diff-b.diff);
+  },[crmData,inventory]);
+  React.useEffect(()=>{
+    if(!notifAutoShownRef.current&&notifActs.length>0){
+      notifAutoShownRef.current=true;
+      setShowNotifModal(true);
+    }
+  },[notifActs.length]);
   const triggerPWAInstall=()=>{
     if(window.__triggerPWAInstall){
       window.__triggerPWAInstall().then(accepted=>{
@@ -801,6 +828,8 @@ function MacroProMatcher() {
   const saveCRM=(d)=>{try{localStorage.setItem(CRM_KEY,JSON.stringify(d));}catch(e){}};
   const [crmData,setCrmData]=React.useState(()=>loadCRM());
   const updateCRM=(id,patch)=>{setCrmData(prev=>{const next={...prev,[id]:{...(prev[id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]}), ...patch}};saveCRM(next);return next;});};
+  const [showNotifModal, setShowNotifModal] = React.useState(false);
+  const notifAutoShownRef = React.useRef(false);
 
   // Asignación rápida de asesor a lote sin cliente — usable desde cualquier vista
   const [quickAssignLot,setQuickAssignLot]=React.useState(null); // {id, nombre, desarrollo}
@@ -5212,6 +5241,17 @@ Respuesta: [respuesta exacta, conversacional]
         const data = await res.json();
         const text = data.content?.find(b=>b.type==="text")?.text||"";
         setAnalisisResult(text);
+        // Auto-guardar en CRM como interacción especial
+        const crmActual = crmData[lot.id]||{};
+        const interacciones = [...(crmActual.interacciones||[]), {
+          fecha: new Date().toISOString().slice(0,10),
+          canal: "🧠 Análisis IA",
+          contacto: p.nombre,
+          reaccion: "Generado",
+          nota: text
+        }];
+        updateCRM(lot.id, {interacciones});
+        toast("✅ Análisis generado y guardado en CRM");
       } catch(err){ toast("⚠ "+err.message); setAnalisisTarget(null); }
       finally { setAnalisisLoading(false); }
     };
@@ -6343,6 +6383,10 @@ Respuesta: [respuesta exacta, conversacional]
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <button onClick={()=>{setApiKeyInput(localStorage.getItem("macropro_api_key")||"");setShowApiModal(true);}} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:apiKey?"#22c55e":"#ef4444",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title={apiKey?"API Key configurada ✓":"Sin API Key — click para configurar"}>{apiKey?"🔑":"⚠️"}</button>
+          <button onClick={()=>setShowNotifModal(true)} style={{position:"relative",padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:notifActs.length>0?"#ef4444":B.grey3,fontSize:16,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center"}} title={notifActs.length>0?`${notifActs.length} actividad(es) urgente(s)`:"Sin actividades urgentes"}>
+            🔔
+            {notifActs.length>0&&<span style={{position:"absolute",top:4,right:4,background:"#ef4444",color:"#fff",borderRadius:"50%",width:16,height:16,fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid "+B.navy}}>{notifActs.length>9?"9+":notifActs.length}</span>}
+          </button>
           {pwaInstalled&&(
             <div title="MacroPro instalado como app en este dispositivo" style={{padding:"7px 10px",fontSize:13,color:"#8B5CF6",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📱</div>
           )}
@@ -6371,6 +6415,67 @@ Respuesta: [respuesta exacta, conversacional]
       <ModalApiKey/>
       <ModalMigrate/>
       {showAddClient&&<ModalAddClient/>}
+      {/* Modal Notificaciones */}
+      {showNotifModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,27,46,0.75)",zIndex:4000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"80px 16px 20px"}} onClick={e=>e.target===e.currentTarget&&setShowNotifModal(false)}>
+          <div style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:520,maxHeight:"80vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,43,73,0.4)"}}>
+            {/* Header */}
+            <div style={{background:`linear-gradient(135deg,#dc2626,#991b1b)`,borderRadius:"20px 20px 0 0",padding:"18px 22px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:10,fontWeight:700,color:"#fca5a5",letterSpacing:2,textTransform:"uppercase",marginBottom:3}}>⚠ Actividades urgentes</div>
+                <div style={{fontSize:17,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>
+                  {notifActs.filter(a=>a.tipo==="vencida").length>0&&`${notifActs.filter(a=>a.tipo==="vencida").length} vencida${notifActs.filter(a=>a.tipo==="vencida").length>1?"s":""}`}
+                  {notifActs.filter(a=>a.tipo==="vencida").length>0&&notifActs.filter(a=>a.tipo==="mañana").length>0&&" · "}
+                  {notifActs.filter(a=>a.tipo==="mañana").length>0&&`${notifActs.filter(a=>a.tipo==="mañana").length} vence${notifActs.filter(a=>a.tipo==="mañana").length>1?"n":""} mañana`}
+                </div>
+              </div>
+              <button onClick={()=>setShowNotifModal(false)} style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:8,padding:"6px 12px",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
+            </div>
+            {/* Lista */}
+            <div style={{padding:"16px 20px"}}>
+              {["vencida","mañana"].map(tipo=>{
+                const grupo = notifActs.filter(a=>a.tipo===tipo);
+                if(grupo.length===0) return null;
+                const esVencida = tipo==="vencida";
+                return (
+                  <div key={tipo} style={{marginBottom:16}}>
+                    <div style={{fontSize:10,fontWeight:800,color:esVencida?"#dc2626":"#d97706",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>
+                      {esVencida?"🔴 Vencidas":"🟡 Vence mañana"}
+                    </div>
+                    {grupo.map((item,i)=>{
+                      const tiposAct=[{id:"Llamada",icon:"📞"},{id:"WhatsApp",icon:"📱"},{id:"Email",icon:"✉️"},{id:"Visita al terreno",icon:"🚗"},{id:"Reunión",icon:"🤝"},{id:"Propuesta",icon:"📋"},{id:"Seguimiento",icon:"🔄"},{id:"Otro",icon:"📌"}];
+                      const tipoIcon=tiposAct.find(t=>t.id===item.actividad.tipo)?.icon||"📌";
+                      const diasLabel=item.diff<0?`${Math.abs(item.diff)}d vencida`:"mañana";
+                      return (
+                        <div key={i} onClick={()=>{setShowNotifModal(false);setView("crm");setActiveTab("kanban");}} style={{background:esVencida?"#fff5f5":"#fffbeb",border:`1px solid ${esVencida?"#fecaca":"#fde68a"}`,borderRadius:10,padding:"10px 13px",marginBottom:7,cursor:"pointer",transition:"all 0.15s"}}
+                          onMouseEnter={e=>e.currentTarget.style.transform="translateX(3px)"}
+                          onMouseLeave={e=>e.currentTarget.style.transform="translateX(0)"}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,fontWeight:700,color:"#1e293b",marginBottom:2}}>{tipoIcon} {item.actividad.descripcion||item.actividad.tipo}</div>
+                              <div style={{fontSize:11,color:"#64748b"}}>👤 {item.prospecto} · 🏗 {item.lotNombre}{item.lotDes&&<span style={{color:"#94a3b8"}}> · {item.lotDes}</span>}</div>
+                              {item.actividad.nota&&<div style={{fontSize:10,color:"#94a3b8",marginTop:2,fontStyle:"italic"}}>{item.actividad.nota.slice(0,60)}{item.actividad.nota.length>60?"...":""}</div>}
+                            </div>
+                            <div style={{flexShrink:0,textAlign:"right"}}>
+                              <span style={{fontSize:10,fontWeight:700,background:esVencida?"#fee2e2":"#fef9c3",color:esVencida?"#dc2626":"#92400e",padding:"2px 7px",borderRadius:5}}>{diasLabel}</span>
+                              <div style={{fontSize:9,color:"#94a3b8",marginTop:3}}>{item.actividad.fecha}</div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Footer */}
+            <div style={{padding:"12px 20px 18px",borderTop:"1px solid #f1f5f9",display:"flex",gap:8}}>
+              <button onClick={()=>{setShowNotifModal(false);setView("crm");setActiveTab("midia");}} style={{flex:1,padding:"9px",background:"#002B49",color:"#fff",border:"none",borderRadius:9,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📅 Ver en Mi Día</button>
+              <button onClick={()=>setShowNotifModal(false)} style={{padding:"9px 16px",background:"#f1f5f9",color:"#64748b",border:"none",borderRadius:9,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
       {selectedLotDetail&&<ModalFichaTecnica lot={selectedLotDetail} onClose={()=>setSelectedLotDetail(null)}/>}
       {/* Modal rápido: Asignar asesor a lote desde cualquier vista */}
       {quickAssignLot&&(
