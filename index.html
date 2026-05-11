@@ -2486,6 +2486,8 @@ function MacroProMatcher() {
     const [analisisResult, setAnalisisResult] = React.useState(null);
     const [analisisLoading, setAnalisisLoading] = React.useState(false);
     const [analisisTarget, setAnalisisTarget] = React.useState(null); // {lot, p, cli, crm}
+    const [analisisCompetidores, setAnalisisCompetidores] = React.useState([]);
+    const [analisisAncla, setAnalisisAncla] = React.useState(null);
     // Modales de seguimiento por asesor
     const [showSeguimientoModal, setShowSeguimientoModal] = React.useState(null); // {lotId, lot}
     const [seguimientoForm, setSeguimientoForm] = React.useState({asesor:"",notas:""});
@@ -4905,13 +4907,15 @@ function MacroProMatcher() {
         .filter(c => c.distancia <= benchRadio)
         .sort((a,b)=>a.distancia-b.distancia);
       // KPIs
-      const conPrecio = competidoresEnRadio.filter(c=>c.pm2_lote>0);
-      const preciosPM2 = conPrecio.map(c=>c.pm2_lote);
+      const conPrecio = competidoresEnRadio.filter(c=>(c.pm2_lote||c.pm2_dpto||c.pm2_casa)>0);
+      const getPm2=(c)=>c.pm2_lote||c.pm2_dpto||c.pm2_casa||0;
+      const getPm2Tipo=(c)=>c.pm2_lote?"lote":c.pm2_dpto?"depto":c.pm2_casa?"casa":"—";
+      const preciosPM2 = conPrecio.map(c=>getPm2(c));
       const promMercado = preciosPM2.length>0 ? preciosPM2.reduce((a,b)=>a+b,0)/preciosPM2.length : 0;
       const minMercado = preciosPM2.length>0 ? Math.min(...preciosPM2) : 0;
       const maxMercado = preciosPM2.length>0 ? Math.max(...preciosPM2) : 0;
       const pm2Ancla = ancla?.pm2_ancla||0;
-      const masBaratos = conPrecio.filter(c=>c.pm2_lote<pm2Ancla).length;
+      const masBaratos = conPrecio.filter(c=>getPm2(c)<pm2Ancla).length;
       const percentil = conPrecio.length>0 ? Math.round(masBaratos/conPrecio.length*100) : null;
       const areasProm = competidoresEnRadio.filter(c=>c.area_lote>0).map(c=>c.area_lote);
       const areaMercado = areasProm.length>0 ? areasProm.reduce((a,b)=>a+b,0)/areasProm.length : 0;
@@ -4940,7 +4944,7 @@ function MacroProMatcher() {
       // Histograma (rangos precio/m²)
       const ranges=[[0,5000],[5000,10000],[10000,15000],[15000,20000],[20000,99999]];
       const histLabels=["$0–5k","$5–10k","$10–15k","$15–20k","$20k+"];
-      const histCounts=ranges.map(([mn,mx])=>conPrecio.filter(c=>c.pm2_lote>=mn&&c.pm2_lote<mx).length);
+      const histCounts=ranges.map(([mn,mx])=>conPrecio.filter(c=>getPm2(c)>=mn&&getPm2(c)<mx).length);
       const histMax=Math.max(...histCounts,1);
       const pm2AnclaRange=ranges.findIndex(([mn,mx])=>pm2Ancla>=mn&&pm2Ancla<mx);
       // Sub-helpers de UI
@@ -5045,15 +5049,15 @@ function MacroProMatcher() {
                         <td style={{...tdStyle,textAlign:"center"}}><span style={{fontSize:10,background:B.blue+"22",color:B.blue,padding:"2px 8px",borderRadius:4,fontWeight:700}}>TÚ</span></td>
                       </tr>}
                       {sorted.map((c,i)=>{
-                        const {label,bg,col}=vsBadge(c.pm2_lote);
+                        const {label,bg,col}=vsBadge(getPm2(c));
                         return <tr key={i} style={{background:i%2===0?B.white:B.offW}}>
                           <td style={{...tdStyle,fontWeight:600,color:B.navy,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nombre}</td>
                           <td style={{...tdStyle,color:B.grey4,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.desarrollador||"—"}</td>
                           <td style={{...tdStyle,color:B.grey4,whiteSpace:"nowrap"}}>{c.tipo}</td>
-                          <td style={{...tdStyle,textAlign:"right",fontWeight:c.pm2_lote?700:400,color:c.pm2_lote?B.navy:B.grey3}}>{c.pm2_lote?`$${Math.round(c.pm2_lote).toLocaleString("es-MX")}`:"Sin precio"}</td>
+                          <td style={{...tdStyle,textAlign:"right",fontWeight:getPm2(c)?700:400,color:getPm2(c)?B.navy:B.grey3}}>{getPm2(c)?`$${Math.round(getPm2(c)).toLocaleString("es-MX")}`:""}<span style={{fontSize:9,color:B.grey3,marginLeft:3}}>{getPm2(c)?getPm2Tipo(c):"Sin precio"}</span></td>
                           <td style={{...tdStyle,textAlign:"right",color:B.grey4}}>{c.area_lote?`${Math.round(c.area_lote)} m²`:"—"}</td>
                           <td style={{...tdStyle,textAlign:"right",color:B.grey4}}>{c.distancia.toFixed(1)} km</td>
-                          <td style={{...tdStyle,textAlign:"center"}}>{c.pm2_lote?<span style={{fontSize:10,background:bg,color:col,padding:"2px 7px",borderRadius:4,fontWeight:700,whiteSpace:"nowrap"}}>{label}</span>:<span style={{color:B.grey3,fontSize:10}}>—</span>}</td>
+                          <td style={{...tdStyle,textAlign:"center"}}>{getPm2(c)?<span style={{fontSize:10,background:bg,color:col,padding:"2px 7px",borderRadius:4,fontWeight:700,whiteSpace:"nowrap"}}>{label}</span>:<span style={{color:B.grey3,fontSize:10}}>—</span>}</td>
                         </tr>;
                       })}
                     </tbody>
@@ -5133,19 +5137,27 @@ function MacroProMatcher() {
           const matchComp = competencia.find(c=>palabras.some(w=>c.nombre.toUpperCase().includes(w)));
           if(matchComp){
             const radio = benchRadio||3;
+            const getPm2c = (c)=>c.pm2_lote||c.pm2_dpto||c.pm2_casa||0;
             const cercanos = competencia
-              .filter(c=>c.lat&&c.lng&&(c.tipo==="horizontal"||c.tipo==="mixto")&&c.pm2_lote>0)
-              .map(c=>({...c,dist:haversineKmCRM(matchComp.lat,matchComp.lng,c.lat,c.lng)}))
+              .filter(c=>c.lat&&c.lng&&getPm2c(c)>0)
+              .map(c=>({...c,dist:haversineKmCRM(matchComp.lat,matchComp.lng,c.lat,c.lng),pm2_efectivo:getPm2c(c)}))
               .filter(c=>c.dist<=radio)
               .sort((a,b)=>a.dist-b.dist)
-              .slice(0,5);
+              .slice(0,6);
+            // Guardar para el modal
+            setAnalisisCompetidores(cercanos);
+            setAnalisisAncla({...matchComp, nombre:lot.desarrollo, pm2_ancla:lot.precio_m2||0});
             if(cercanos.length>0){
               const pm2Lot = lot.precio_m2||0;
-              compCtx = `\nCOMPETENCIA EN ${radio}km (horizontal/mixto con precio):\n`+cercanos.map(c=>{
-                const vs = pm2Lot>0?(c.pm2_lote<pm2Lot*0.95?"más barato":c.pm2_lote>pm2Lot*1.05?"más caro":"similar"):"—";
-                return `• ${c.nombre} (${c.desarrollador||"—"}): $${Math.round(c.pm2_lote).toLocaleString("es-MX")}/m² · ${c.area_lote?Math.round(c.area_lote)+"m²":"—"} · ${c.dist.toFixed(1)}km · ${vs}`;
+              compCtx = `\nCOMPETENCIA EN ${radio}km (con precio/m²):\n`+cercanos.map(c=>{
+                const vs = pm2Lot>0?(c.pm2_efectivo<pm2Lot*0.95?"más barato":c.pm2_efectivo>pm2Lot*1.05?"más caro":"similar"):"—";
+                const tipo = c.pm2_lote?"lote":c.pm2_dpto?"depto":"casa";
+                return `• ${c.nombre} (${c.desarrollador||"—"}): $${Math.round(c.pm2_efectivo).toLocaleString("es-MX")}/m² ${tipo} · ${c.area_lote?Math.round(c.area_lote)+"m²":"—"} · ${c.dist.toFixed(1)}km · ${vs}`;
               }).join("\n");
             }
+          } else {
+            setAnalisisCompetidores([]);
+            setAnalisisAncla(null);
           }
         }
         // Últimas 3 interacciones
@@ -5210,52 +5222,115 @@ Respuesta: [respuesta exacta, conversacional]
       const {lot,p} = analisisTarget||{};
       const secciones = analisisResult ? analisisResult.split(/\n(?=🎯|⚡|💬|🛡|📊)/).filter(Boolean) : [];
       const colores = {"🎯":"#7c3aed","⚡":"#d97706","💬":"#0369a1","🛡":"#dc2626","📊":"#16a34a"};
+      const pm2Ancla = analisisAncla?.pm2_ancla||lot?.precio_m2||0;
+      const vsBench = (pm2) => !pm2||!pm2Ancla?{label:"—",bg:"#f3f4f6",col:"#9ca3af"}:pm2<pm2Ancla*0.95?{label:"más barato",bg:"#dcfce7",col:"#16a34a"}:pm2>pm2Ancla*1.05?{label:"más caro",bg:"#fee2e2",col:"#dc2626"}:{label:"similar",bg:"#fef9c3",col:"#854d0e"};
+      const fmtK = (v)=>v>=1000?`$${Math.round(v/1000)}k`:`$${v}`;
       return (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,27,46,0.82)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={e=>e.target===e.currentTarget&&!analisisLoading&&(setAnalisisTarget(null),setAnalisisResult(null))}>
-          <div style={{background:B.white,borderRadius:20,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,43,73,0.4)"}}>
+        <div style={{position:"fixed",inset:0,background:"rgba(0,27,46,0.82)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}} onClick={e=>e.target===e.currentTarget&&!analisisLoading&&(setAnalisisTarget(null),setAnalisisResult(null),setAnalisisCompetidores([]),setAnalisisAncla(null))}>
+          <div style={{background:B.white,borderRadius:20,width:"100%",maxWidth:680,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,43,73,0.4)",display:"flex",flexDirection:"column"}}>
             {/* Header */}
-            <div style={{background:`linear-gradient(135deg,${B.navy},#1e3a5f)`,borderRadius:"20px 20px 0 0",padding:"20px 24px"}}>
+            <div style={{background:`linear-gradient(135deg,${B.navy},#1e3a5f)`,borderRadius:"20px 20px 0 0",padding:"18px 22px",flexShrink:0}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div>
-                  <div style={{fontSize:10,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>🧠 Análisis IA · Prospecto</div>
-                  <div style={{fontSize:18,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>{p?.nombre||"Prospecto"}</div>
-                  {lot&&<div style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:3}}>{lot.nombre} · {lot.desarrollo}</div>}
+                  <div style={{fontSize:10,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase",marginBottom:3}}>🧠 Análisis IA · Prospecto</div>
+                  <div style={{fontSize:17,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>{p?.nombre||"Prospecto"}</div>
+                  {lot&&<div style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:2}}>{lot.nombre} · {lot.desarrollo} · {lot.sup_m2?lot.sup_m2.toLocaleString("es-MX")+" m²":""}{lot.precio_m2?` · $${lot.precio_m2.toLocaleString("es-MX")}/m²`:""}</div>}
                 </div>
-                {!analisisLoading&&<button onClick={()=>{setAnalisisTarget(null);setAnalisisResult(null);}} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,padding:"6px 12px",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>}
+                {!analisisLoading&&<button onClick={()=>{setAnalisisTarget(null);setAnalisisResult(null);setAnalisisCompetidores([]);setAnalisisAncla(null);}} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,padding:"6px 12px",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>}
               </div>
             </div>
-            {/* Body */}
-            <div style={{padding:"20px 24px"}}>
-              {analisisLoading&&(
-                <div style={{textAlign:"center",padding:"40px 0"}}>
-                  <div style={{fontSize:36,marginBottom:12,animation:"spin 1s linear infinite",display:"inline-block"}}>⚙️</div>
-                  <div style={{fontSize:14,fontWeight:700,color:B.navy,marginBottom:4}}>Analizando prospecto…</div>
-                  <div style={{fontSize:12,color:B.grey3}}>Cruzando perfil, lote e inteligencia de mercado</div>
-                </div>
-              )}
-              {!analisisLoading && secciones.length>0 && secciones.map((sec,i)=>{
-                const emoji = sec.match(/^(🎯|⚡|💬|🛡|📊)/)?.[1]||"";
-                const col = colores[emoji]||B.navy;
-                const lines = sec.split("\n").filter(Boolean);
-                const titulo = lines[0];
-                const cuerpo = lines.slice(1).join("\n");
-                return (
-                  <div key={i} style={{marginBottom:16,borderLeft:`3px solid ${col}`,paddingLeft:14}}>
-                    <div style={{fontSize:12,fontWeight:800,color:col,marginBottom:6,textTransform:"uppercase",letterSpacing:0.8}}>{titulo}</div>
-                    <div style={{fontSize:13,color:B.navy,lineHeight:1.65,whiteSpace:"pre-line"}}>{cuerpo}</div>
+            {/* Loading */}
+            {analisisLoading&&(
+              <div style={{textAlign:"center",padding:"48px 0",flex:1}}>
+                <div style={{fontSize:38,marginBottom:10}}>⚙️</div>
+                <div style={{fontSize:14,fontWeight:700,color:B.navy,marginBottom:4}}>Analizando prospecto…</div>
+                <div style={{fontSize:12,color:B.grey3}}>Cruzando perfil, lote e inteligencia de mercado</div>
+              </div>
+            )}
+            {!analisisLoading&&(
+              <div style={{overflowY:"auto",flex:1}}>
+                {/* ── MINI BENCHMARK ── */}
+                {analisisAncla&&(
+                  <div style={{borderBottom:`1px solid ${B.grey1}`}}>
+                    <div style={{background:"#f8fafc",padding:"14px 22px 0"}}>
+                      <div style={{fontSize:10,fontWeight:800,color:B.gold,letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>📊 Competencia en radio {benchRadio}km</div>
+                      {/* Tabla compacta */}
+                      <div style={{overflowX:"auto",marginBottom:12}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                          <thead>
+                            <tr style={{borderBottom:`1px solid ${B.grey1}`}}>
+                              {["Desarrollo","Tipo","$/m²","Área","Dist.","vs tú"].map((h,i)=>(
+                                <th key={i} style={{padding:"4px 8px",fontSize:9,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:0.7,textAlign:i>1?"right":i===5?"center":"left"}}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {/* Fila ancla */}
+                            <tr style={{background:"#eff6ff",borderBottom:`1px solid ${B.grey1}`}}>
+                              <td style={{padding:"5px 8px",fontWeight:700,color:B.blue,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>★ {analisisAncla.nombre.split(" ").slice(0,2).join(" ")}</td>
+                              <td style={{padding:"5px 8px",color:B.grey4}}>—</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",fontWeight:800,color:B.blue}}>{pm2Ancla>0?`$${Math.round(pm2Ancla).toLocaleString("es-MX")}`:"—"}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",color:B.grey4}}>{lot?.sup_m2?`${Math.round(lot.sup_m2).toLocaleString("es-MX")} m²`:"—"}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",color:B.grey4}}>—</td>
+                              <td style={{padding:"5px 8px",textAlign:"center"}}><span style={{fontSize:9,background:B.blue+"22",color:B.blue,padding:"1px 6px",borderRadius:4,fontWeight:700}}>TÚ</span></td>
+                            </tr>
+                            {analisisCompetidores.slice(0,5).map((c,i)=>{
+                              const pm2c = c.pm2_efectivo||c.pm2_lote||0;
+                              const {label,bg,col} = vsBench(pm2c);
+                              const tipoLabel = c.pm2_lote?"lote":c.pm2_dpto?"dpto":"casa";
+                              return <tr key={i} style={{borderBottom:`1px solid ${B.grey1}`,background:i%2===0?B.white:B.offW}}>
+                                <td style={{padding:"5px 8px",color:B.navy,fontWeight:600,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nombre}</td>
+                                <td style={{padding:"5px 8px",color:B.grey4,whiteSpace:"nowrap"}}>{c.tipo}<span style={{fontSize:8,color:B.grey3,marginLeft:2}}>{tipoLabel}</span></td>
+                                <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,color:pm2c?B.navy:B.grey3}}>{pm2c?`$${Math.round(pm2c).toLocaleString("es-MX")}`:"—"}</td>
+                                <td style={{padding:"5px 8px",textAlign:"right",color:B.grey4}}>{c.area_lote?`${Math.round(c.area_lote)} m²`:"—"}</td>
+                                <td style={{padding:"5px 8px",textAlign:"right",color:B.grey4,whiteSpace:"nowrap"}}>{c.dist?.toFixed(1)||c.distancia?.toFixed(1)||"—"} km</td>
+                                <td style={{padding:"5px 8px",textAlign:"center"}}>{pm2c?<span style={{fontSize:9,background:bg,color:col,padding:"1px 6px",borderRadius:4,fontWeight:700,whiteSpace:"nowrap"}}>{label}</span>:<span style={{color:B.grey3}}>—</span>}</td>
+                              </tr>;
+                            })}
+                            {analisisCompetidores.length===0&&<tr><td colSpan={6} style={{padding:"10px 8px",textAlign:"center",color:B.grey3,fontSize:11}}>Sin competidores con precio en el radio</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                      {/* Mini mapa */}
+                      {analisisAncla.lat&&analisisAncla.lng&&(
+                        <div style={{marginBottom:14,borderRadius:10,overflow:"hidden",border:`1px solid ${B.grey1}`}}>
+                          <LeafletMap
+                            ancla={analisisAncla}
+                            competitors={analisisCompetidores.map(c=>({...c,distancia:c.dist||0,pm2_lote:c.pm2_efectivo||c.pm2_lote||0}))}
+                            radio={benchRadio||3}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                );
-              })}
-              {!analisisLoading && analisisResult && secciones.length===0 && (
-                <div style={{fontSize:13,color:B.navy,lineHeight:1.7,whiteSpace:"pre-line"}}>{analisisResult}</div>
-              )}
-            </div>
+                )}
+                {/* ── ANÁLISIS IA ── */}
+                <div style={{padding:"18px 22px"}}>
+                  {secciones.length>0 && secciones.map((sec,i)=>{
+                    const emoji = sec.match(/^(🎯|⚡|💬|🛡|📊)/)?.[1]||"";
+                    const col = colores[emoji]||B.navy;
+                    const lines = sec.split("\n").filter(Boolean);
+                    const titulo = lines[0];
+                    const cuerpo = lines.slice(1).join("\n");
+                    return (
+                      <div key={i} style={{marginBottom:16,borderLeft:`3px solid ${col}`,paddingLeft:14}}>
+                        <div style={{fontSize:11,fontWeight:800,color:col,marginBottom:5,textTransform:"uppercase",letterSpacing:0.8}}>{titulo}</div>
+                        <div style={{fontSize:13,color:B.navy,lineHeight:1.65,whiteSpace:"pre-line"}}>{cuerpo}</div>
+                      </div>
+                    );
+                  })}
+                  {analisisResult && secciones.length===0 && (
+                    <div style={{fontSize:13,color:B.navy,lineHeight:1.7,whiteSpace:"pre-line"}}>{analisisResult}</div>
+                  )}
+                </div>
+              </div>
+            )}
             {/* Footer */}
             {!analisisLoading && analisisResult && (
-              <div style={{padding:"12px 24px 20px",borderTop:`1px solid ${B.grey1}`,display:"flex",gap:8}}>
+              <div style={{padding:"12px 22px 18px",borderTop:`1px solid ${B.grey1}`,display:"flex",gap:8,flexShrink:0}}>
                 <button onClick={()=>{navigator.clipboard?.writeText(analisisResult);toast("✅ Análisis copiado");}} style={{...s.btn("ghost"),fontSize:12,padding:"7px 14px",border:`1px solid ${B.grey1}`}}>📋 Copiar</button>
                 <button onClick={()=>iaAnalisisProspecto(lot,p,analisisTarget.cli,analisisTarget.crm)} style={{...s.btn("navy"),fontSize:12,padding:"7px 14px"}}>🔄 Regenerar</button>
-                <button onClick={()=>{setAnalisisTarget(null);setAnalisisResult(null);}} style={{...s.btn("primary"),fontSize:12,padding:"7px 14px",marginLeft:"auto"}}>Cerrar</button>
+                <button onClick={()=>{setAnalisisTarget(null);setAnalisisResult(null);setAnalisisCompetidores([]);setAnalisisAncla(null);}} style={{...s.btn("primary"),fontSize:12,padding:"7px 14px",marginLeft:"auto"}}>Cerrar</button>
               </div>
             )}
           </div>
