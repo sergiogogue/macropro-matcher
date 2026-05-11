@@ -786,6 +786,10 @@ function MacroProMatcher() {
       notifAutoShownRef.current=true;
       setShowNotifModal(true);
     }
+    if(window.__crmCorrupto){
+      window.__crmCorrupto=false;
+      toast("⚠ CRM reiniciado por datos corruptos. Usa '⬆ Importar' para restaurar tu backup JSON.");
+    }
   },[notifActs.length]);
   const triggerPWAInstall=()=>{
     if(window.__triggerPWAInstall){
@@ -831,6 +835,8 @@ function MacroProMatcher() {
     }catch(e){
       console.warn("⚠ CRM corrupto — limpiando. Error:",e.message);
       try{localStorage.removeItem(CRM_KEY);}catch(_){}
+      // Avisar al usuario en el próximo tick (después del render)
+      setTimeout(()=>{ try{ window.__crmCorrupto=true; }catch(_){} },100);
       return {};
     }
   };
@@ -1461,14 +1467,24 @@ function MacroProMatcher() {
       }
       const _k=localStorage.getItem("macropro_api_key");
       if(!_k){setLoading(false);clearInterval(interval);setShowApiModal(true);return;}
-      const response=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":_k,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:2000,messages:[{role:"user",content:prompt}]})});
+      const response=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":_k,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:4000,messages:[{role:"user",content:prompt}]})});
       if(!response.ok){const t=await response.text();if(response.status===401){localStorage.removeItem("macropro_api_key");throw new Error("API Key inválida. Recarga e ingresa tu key nuevamente.");}if(response.status===429)throw new Error("Demasiadas solicitudes. Espera un momento.");throw new Error("Error HTTP "+response.status);}
       if(!response)return;
       const data=await response.json();
       if(data.error) throw new Error(data.error.message||JSON.stringify(data.error));
       const text=data.content?.find(b=>b.type==="text")?.text||"";
       const clean=text.replace(/```json|```/g,"").trim();
-      const parsed=JSON.parse(clean);
+      // Parse resiliente: si el JSON está truncado, rescata resultados parciales
+      let parsed;
+      try{
+        parsed=JSON.parse(clean);
+      }catch(e){
+        // Intentar rescatar objetos completos del array con regex
+        const parciales=(clean.match(/\{[^{}]*"id"[^{}]*"score"[^{}]*\}/g)||[])
+          .map(s=>{try{return JSON.parse(s);}catch{return null;}}).filter(Boolean);
+        if(parciales.length>0){parsed={resultados:parciales};toast("⚠ Respuesta parcial — mostrando "+parciales.length+" resultados rescatados");}
+        else throw new Error("Respuesta IA inválida. Intenta de nuevo.");
+      }
       const enriched=parsed.resultados.map(r=>{const item=mode==="clientToLots"?(targets.find(l=>l.id===r.id)||targets.find(l=>l.nombre===r.nombre)):(targets.find(c=>c.id===r.id)||targets.find(c=>c.nombre===r.nombre));return{...r,data:item};}).filter(r=>r.data).sort((a,b)=>b.score-a.score);
       const finalResults=enriched.length>0?enriched:targets.slice(0,8).map((item,i)=>({id:item.id,score:70-i*5,match_label:i===0?"Match Probable":"Match Posible",razon_principal:"Perfil compatible con el filtro seleccionado.",argumentos:["Interés en uso de suelo compatible","Presupuesto en rango","Ciudad de interés alineada"],objecion:"Requiere validación directa",respuesta_objecion:"Presentar lotes disponibles",urgencia:"Media",data:item}));
       setMatchResults({mode,subject,results:finalResults});
