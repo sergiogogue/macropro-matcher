@@ -1204,6 +1204,8 @@ function MacroProMatcher() {
   const [benchTipos, setBenchTipos] = useState(["horizontal","mixto","vertical"]);
   const [benchSortCol, setBenchSortCol] = useState("distancia");
   const [benchSortDir, setBenchSortDir] = useState("asc");
+  const [benchFiltroDesarrollador, setBenchFiltroDesarrollador] = useState("Todos");
+  const [benchFiltroNombre, setBenchFiltroNombre] = useState("");
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedLot, setSelectedLot] = useState(null);
   const [matchResults, setMatchResults] = useState(null);
@@ -5802,6 +5804,8 @@ function MacroProMatcher() {
         .filter(c => c.lat && c.lng && benchTipos.includes(c.tipo))
         .map(c => ({...c, distancia: haversineKm(ancla.lat,ancla.lng,c.lat,c.lng)}))
         .filter(c => c.distancia <= benchRadio)
+        .filter(c => benchFiltroDesarrollador==="Todos" || (c.desarrollador||"—")===benchFiltroDesarrollador)
+        .filter(c => !benchFiltroNombre.trim() || (c.nombre||"").toLowerCase().includes(benchFiltroNombre.trim().toLowerCase()))
         .sort((a,b)=>a.distancia-b.distancia);
       // KPIs
       const conPrecio = competidoresEnRadio.filter(c=>(c.pm2_lote||c.pm2_dpto||c.pm2_casa)>0);
@@ -5900,6 +5904,30 @@ function MacroProMatcher() {
               <b style={{color:B.navy,fontSize:18}}>{competidoresEnRadio.length}</b> competidores<br/>
               <span style={{fontSize:10}}>en {benchRadio} km desde {anclaKey.split(" ")[0]||"ancla"}</span>
             </div>
+          </div>
+          {/* ── FILA 2: Filtros de desarrollador + nombre ── */}
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16,paddingTop:12,borderTop:"1px solid "+B.grey1,alignItems:"flex-end"}}>
+            <div style={{flex:1,minWidth:180}}>
+              <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:5}}>Desarrollador</div>
+              <select value={benchFiltroDesarrollador} onChange={e=>setBenchFiltroDesarrollador(e.target.value)}
+                style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1.5px solid "+(benchFiltroDesarrollador!=="Todos"?B.gold:B.grey1),fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",background:B.white,color:B.navy}}>
+                <option value="Todos">Todos los desarrolladores</option>
+                {[...new Set(competencia.map(c=>c.desarrollador).filter(Boolean))].sort().map(d=>(
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{flex:1,minWidth:180}}>
+              <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:5}}>Buscar por nombre</div>
+              <input value={benchFiltroNombre} onChange={e=>setBenchFiltroNombre(e.target.value)} placeholder="Ej: Capital Norte..."
+                style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1.5px solid "+(benchFiltroNombre?B.gold:B.grey1),fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"}}/>
+            </div>
+            {(benchFiltroDesarrollador!=="Todos"||benchFiltroNombre)&&(
+              <button onClick={()=>{setBenchFiltroDesarrollador("Todos");setBenchFiltroNombre("");}}
+                style={{padding:"7px 14px",borderRadius:8,border:"1px solid "+B.grey1,background:B.offW,color:B.grey4,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",alignSelf:"flex-end"}}>
+                ✕ Limpiar
+              </button>
+            )}
           </div>
           {/* ── KPIs ── */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:12,marginBottom:18}}>
