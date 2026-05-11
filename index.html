@@ -2443,6 +2443,9 @@ function MacroProMatcher() {
     const [noteText, setNoteText] = React.useState("");
     const [drawerLotes, setDrawerLotes] = React.useState(null); // {titulo, lotes, diasMin}
     const [drawerInventario, setDrawerInventario] = React.useState(null); // {titulo, lotes, semColor}
+    const [analisisResult, setAnalisisResult] = React.useState(null);
+    const [analisisLoading, setAnalisisLoading] = React.useState(false);
+    const [analisisTarget, setAnalisisTarget] = React.useState(null); // {lot, p, cli, crm}
     // Modales de seguimiento por asesor
     const [showSeguimientoModal, setShowSeguimientoModal] = React.useState(null); // {lotId, lot}
     const [seguimientoForm, setSeguimientoForm] = React.useState({asesor:"",notas:""});
@@ -4212,6 +4215,7 @@ function MacroProMatcher() {
                         {PIPELINE_STAGES.map(s=><option key={s} value={s}>{s}</option>)}
                       </select>
                       {!VALID_STAGES_SET.has(pStage)&&<span style={{fontSize:9,color:"#dc2626",fontWeight:700}}>← Elige etapa nueva</span>}
+                      <button onClick={()=>iaAnalisisProspecto(l,p,cli,crm)} style={{marginLeft:"auto",padding:"5px 12px",background:"linear-gradient(135deg,#7c3aed,#5b21b6)",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:5}} title="Análisis IA del prospecto">🧠 Analizar</button>
                     </div>
                   </div>
                 );
@@ -5068,6 +5072,158 @@ function MacroProMatcher() {
     };
 
     // ══════════════════════════════════════════════════════════════
+    // IA ANÁLISIS DE PROSPECTO
+    // ══════════════════════════════════════════════════════════════
+    const haversineKmCRM = (la1,lo1,la2,lo2) => {
+      const R=6371,dL=(la2-la1)*Math.PI/180,dN=(lo2-lo1)*Math.PI/180;
+      const a=Math.sin(dL/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dN/2)**2;
+      return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+    };
+    const iaAnalisisProspecto = async (lot, p, cli, crm) => {
+      const _k = localStorage.getItem("macropro_api_key");
+      if(!_k){ setShowApiModal(true); return; }
+      setAnalisisTarget({lot,p,cli,crm});
+      setAnalisisResult(null);
+      setAnalisisLoading(true);
+      try {
+        // Contexto de competencia por radio
+        let compCtx = "";
+        if(competencia.length > 0){
+          const palabras = (lot.desarrollo||"").toUpperCase().split(/\s+/).filter(w=>w.length>3);
+          const matchComp = competencia.find(c=>palabras.some(w=>c.nombre.toUpperCase().includes(w)));
+          if(matchComp){
+            const radio = benchRadio||3;
+            const cercanos = competencia
+              .filter(c=>c.lat&&c.lng&&(c.tipo==="horizontal"||c.tipo==="mixto")&&c.pm2_lote>0)
+              .map(c=>({...c,dist:haversineKmCRM(matchComp.lat,matchComp.lng,c.lat,c.lng)}))
+              .filter(c=>c.dist<=radio)
+              .sort((a,b)=>a.dist-b.dist)
+              .slice(0,5);
+            if(cercanos.length>0){
+              const pm2Lot = lot.precio_m2||0;
+              compCtx = `\nCOMPETENCIA EN ${radio}km (horizontal/mixto con precio):\n`+cercanos.map(c=>{
+                const vs = pm2Lot>0?(c.pm2_lote<pm2Lot*0.95?"más barato":c.pm2_lote>pm2Lot*1.05?"más caro":"similar"):"—";
+                return `• ${c.nombre} (${c.desarrollador||"—"}): $${Math.round(c.pm2_lote).toLocaleString("es-MX")}/m² · ${c.area_lote?Math.round(c.area_lote)+"m²":"—"} · ${c.dist.toFixed(1)}km · ${vs}`;
+              }).join("\n");
+            }
+          }
+        }
+        // Últimas 3 interacciones
+        const inters = (crm.interacciones||[]).slice(-3).reverse();
+        const interCtx = inters.length>0
+          ? inters.map(i=>`  ${i.fecha} · ${i.canal} · ${i.reaccion}${i.nota?" — "+i.nota.slice(0,80):""}`).join("\n")
+          : "  Sin interacciones registradas";
+        const prompt = `Eres un estratega comercial inmobiliario de alto nivel. Analiza este caso y responde en español con formato claro.
+
+PROSPECTO: ${p.nombre}${p.empresa||cli?.empresa?" | "+(p.empresa||cli?.empresa):""}
+TEMPERATURA: ${cli?.temperatura||"No definida"} | ETAPA: ${p.pipeline||"Prospecto"} | ASESOR: ${cli?.asesor||"—"}
+PRESUPUESTO: ${cli?.presupuesto_max?fmtM(cli.presupuesto_max):"No definido"} | PLAZO DE CIERRE: ${cli?.plazo_cierre||"No definido"}
+INTERESES: ${(cli?.uso_interes||[]).join(", ")||"—"} | CIUDADES: ${(cli?.ciudad_interes||[]).join(", ")||"—"}
+
+LOTE ASIGNADO: ${lot.nombre} | ${lot.desarrollo} | ${lot.ciudad}
+SUPERFICIE: ${lot.sup_m2||"—"}m² | PRECIO/m²: $${lot.precio_m2?lot.precio_m2.toLocaleString("es-MX"):"—"} | TOTAL: ${fmtM(lot.precio_total)}
+USO DE SUELO: ${lot.uso||"—"} | FORTALEZA: ${lot.fortaleza||"—"}
+${compCtx}
+ÚLTIMAS INTERACCIONES:
+${interCtx}
+
+Genera el análisis con EXACTAMENTE estas 5 secciones (sin introducción ni cierre):
+
+🎯 DIAGNÓSTICO
+[Temperatura real, urgencia estimada, probabilidad de cierre en %, señales clave del prospecto]
+
+⚡ PRÓXIMA ACCIÓN (48h)
+[Una acción concreta y específica para el asesor]
+
+💬 ARGUMENTOS DE VENTA
+• [Argumento 1 personalizado para este prospecto y este lote]
+• [Argumento 2 basado en sus intereses/presupuesto]
+• [Argumento 3 diferenciador vs competencia si aplica]
+
+🛡 MANEJO DE OBJECIÓN
+Objeción probable: [la más probable dado el perfil]
+Respuesta: [respuesta exacta, conversacional]
+
+📊 POSICIONAMIENTO
+[1-2 líneas: cómo se posiciona este lote vs lo que existe en la zona, con dato específico]`;
+
+        const res = await fetch("https://api.anthropic.com/v1/messages",{
+          method:"POST",
+          headers:{"Content-Type":"application/json","x-api-key":_k,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+          body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1200,messages:[{role:"user",content:prompt}]})
+        });
+        if(!res.ok){
+          if(res.status===401){localStorage.removeItem("macropro_api_key");throw new Error("API Key inválida.");}
+          if(res.status===429) throw new Error("Demasiadas solicitudes. Espera un momento.");
+          throw new Error("Error HTTP "+res.status);
+        }
+        const data = await res.json();
+        const text = data.content?.find(b=>b.type==="text")?.text||"";
+        setAnalisisResult(text);
+      } catch(err){ toast("⚠ "+err.message); setAnalisisTarget(null); }
+      finally { setAnalisisLoading(false); }
+    };
+
+    // ── MODAL ANÁLISIS IA ────────────────────────────────────────
+    const ModalAnalisisProspecto = () => {
+      if(!analisisTarget && !analisisLoading) return null;
+      const {lot,p} = analisisTarget||{};
+      const secciones = analisisResult ? analisisResult.split(/\n(?=🎯|⚡|💬|🛡|📊)/).filter(Boolean) : [];
+      const colores = {"🎯":"#7c3aed","⚡":"#d97706","💬":"#0369a1","🛡":"#dc2626","📊":"#16a34a"};
+      return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,27,46,0.82)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={e=>e.target===e.currentTarget&&!analisisLoading&&(setAnalisisTarget(null),setAnalisisResult(null))}>
+          <div style={{background:B.white,borderRadius:20,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,43,73,0.4)"}}>
+            {/* Header */}
+            <div style={{background:`linear-gradient(135deg,${B.navy},#1e3a5f)`,borderRadius:"20px 20px 0 0",padding:"20px 24px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>🧠 Análisis IA · Prospecto</div>
+                  <div style={{fontSize:18,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>{p?.nombre||"Prospecto"}</div>
+                  {lot&&<div style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginTop:3}}>{lot.nombre} · {lot.desarrollo}</div>}
+                </div>
+                {!analisisLoading&&<button onClick={()=>{setAnalisisTarget(null);setAnalisisResult(null);}} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,padding:"6px 12px",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>}
+              </div>
+            </div>
+            {/* Body */}
+            <div style={{padding:"20px 24px"}}>
+              {analisisLoading&&(
+                <div style={{textAlign:"center",padding:"40px 0"}}>
+                  <div style={{fontSize:36,marginBottom:12,animation:"spin 1s linear infinite",display:"inline-block"}}>⚙️</div>
+                  <div style={{fontSize:14,fontWeight:700,color:B.navy,marginBottom:4}}>Analizando prospecto…</div>
+                  <div style={{fontSize:12,color:B.grey3}}>Cruzando perfil, lote e inteligencia de mercado</div>
+                </div>
+              )}
+              {!analisisLoading && secciones.length>0 && secciones.map((sec,i)=>{
+                const emoji = sec.match(/^(🎯|⚡|💬|🛡|📊)/)?.[1]||"";
+                const col = colores[emoji]||B.navy;
+                const lines = sec.split("\n").filter(Boolean);
+                const titulo = lines[0];
+                const cuerpo = lines.slice(1).join("\n");
+                return (
+                  <div key={i} style={{marginBottom:16,borderLeft:`3px solid ${col}`,paddingLeft:14}}>
+                    <div style={{fontSize:12,fontWeight:800,color:col,marginBottom:6,textTransform:"uppercase",letterSpacing:0.8}}>{titulo}</div>
+                    <div style={{fontSize:13,color:B.navy,lineHeight:1.65,whiteSpace:"pre-line"}}>{cuerpo}</div>
+                  </div>
+                );
+              })}
+              {!analisisLoading && analisisResult && secciones.length===0 && (
+                <div style={{fontSize:13,color:B.navy,lineHeight:1.7,whiteSpace:"pre-line"}}>{analisisResult}</div>
+              )}
+            </div>
+            {/* Footer */}
+            {!analisisLoading && analisisResult && (
+              <div style={{padding:"12px 24px 20px",borderTop:`1px solid ${B.grey1}`,display:"flex",gap:8}}>
+                <button onClick={()=>{navigator.clipboard?.writeText(analisisResult);toast("✅ Análisis copiado");}} style={{...s.btn("ghost"),fontSize:12,padding:"7px 14px",border:`1px solid ${B.grey1}`}}>📋 Copiar</button>
+                <button onClick={()=>iaAnalisisProspecto(lot,p,analisisTarget.cli,analisisTarget.crm)} style={{...s.btn("navy"),fontSize:12,padding:"7px 14px"}}>🔄 Regenerar</button>
+                <button onClick={()=>{setAnalisisTarget(null);setAnalisisResult(null);}} style={{...s.btn("primary"),fontSize:12,padding:"7px 14px",marginLeft:"auto"}}>Cerrar</button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    // ══════════════════════════════════════════════════════════════
     // RENDER PRINCIPAL
     // ══════════════════════════════════════════════════════════════
     return (
@@ -5673,6 +5829,7 @@ function MacroProMatcher() {
         )}
         {ModalInteraccion()}
         {ModalFichaCliente()}
+        {ModalAnalisisProspecto()}
       </div>
     );
   };
