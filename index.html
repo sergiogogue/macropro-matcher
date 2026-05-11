@@ -412,7 +412,443 @@ const MESES_LARGO = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","A
 function loadMetas(){try{const r=localStorage.getItem(METAS_KEY);return r?JSON.parse(r):{};}catch(e){return {};}}
 function saveMetas(d){try{localStorage.setItem(METAS_KEY,JSON.stringify(d));}catch(e){}}
 
-// ─── BRAND TOKENS ─────────────────────────────────────────────────
+// ─── METAS · FUNCIONES UTILITARIAS ───────────────────────────────
+function calcularMetasResumen(metas, filtroDesarrollador, filtroDesarrollo){
+  let planUdsTotal=0, planMontoTotal=0, realUdsTotal=0, realMontoTotal=0;
+  const porDesarrollo=[];
+  Object.entries(metas||{}).forEach(([nombre, d])=>{
+    if(!d||!d.plan||!d.real) return;
+    if(filtroDesarrollador&&filtroDesarrollador!=="Todos"&&d.desarrollador!==filtroDesarrollador) return;
+    if(filtroDesarrollo&&filtroDesarrollo!=="Todos"&&nombre!==filtroDesarrollo) return;
+    const planU=(d.plan.uds||[]).reduce((a,b)=>a+(b||0),0);
+    const planM=(d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
+    const realU=(d.real.uds||[]).reduce((a,b)=>a+(b||0),0);
+    const realM=(d.real.monto||[]).reduce((a,b)=>a+(b||0),0);
+    planUdsTotal+=planU; planMontoTotal+=planM; realUdsTotal+=realU; realMontoTotal+=realM;
+    porDesarrollo.push({nombre, desarrollador:d.desarrollador, planUds:planU, planMonto:planM, realUds:realU, realMonto:realM});
+  });
+  const cumplUds=planUdsTotal>0?(realUdsTotal/planUdsTotal):(realUdsTotal>0?1.5:0);
+  const cumplMonto=planMontoTotal>0?(realMontoTotal/planMontoTotal):(realMontoTotal>0?1.5:0);
+  return { planUdsTotal, planMontoTotal, realUdsTotal, realMontoTotal, cumplUds, cumplMonto, porDesarrollo };
+}
+// Helper: calcular meta acumulada al mes actual (para % cumplimiento mensual)
+function calcularMetaAlMes(planArr, mesIdx){
+  let acum=0;
+  for(let i=0;i<=mesIdx&&i<12;i++) acum+=(planArr[i]||0);
+  return acum;
+}
+// Helper: estatus visual basado en cumplimiento
+function getEstatusMeta(cumpl, planTotal, realTotal){
+  if(planTotal===0&&realTotal===0) return {label:"Sin meta", icon:"➖", bg:"#f3f4f6", color:"#6b7280"};
+  if(planTotal===0&&realTotal>0) return {label:"Adelantado", icon:"✅", bg:"#dcfce7", color:"#15803d"};
+  if(cumpl>=1) return {label:"Adelantado", icon:"✅", bg:"#dcfce7", color:"#15803d"};
+  if(cumpl>=0.85) return {label:"En meta", icon:"✅", bg:"#dbeafe", color:"#1e40af"};
+  if(cumpl>=0.5) return {label:"Cerca", icon:"⚡", bg:"#fef3c7", color:"#b45309"};
+  return {label:"Rezagado", icon:"🔴", bg:"#fee2e2", color:"#b91c1c"};
+}
+// Formato corto sin "MXN" para dashboard ($1,234)
+function fmtMiles(n){ if(!n&&n!==0) return "$0"; return "$"+new Intl.NumberFormat("es-MX",{maximumFractionDigits:0}).format(n||0); }
+
+// ─── METAS · MOMENTUM DESDE KANBAN ────────────────────────────────
+// Mapeo BASE desarrollo → desarrollador (extraído del inventario real, fuente de verdad)
+// Reglas: el INVENTARIO manda. Si un lote tiene desarrollador X, ese lote pertenece a X
+// independientemente del mapeo. Para desarrollos sin lotes en inventario (o ambiguos)
+// se usa este mapeo de respaldo.
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO ASESORES · Seguimiento de solicitudes de brokers/intermediarios
+// Estos asesores externos traen requisitos de sus clientes finales
+// y nosotros buscamos matches en nuestro inventario.
+// ═══════════════════════════════════════════════════════════════
+const SOLICITUDES_ASESOR_KEY = "macropro_solicitudes_asesor_v1";
+const SOLICITUDES_PIPELINE = [
+  "Nueva solicitud",
+  "Buscando opciones",
+  "Opciones enviadas",
+  "En revisión",
+  "Visita agendada",
+  "Match",
+  "Cerrado sin match"
+];
+const SOLICITUDES_PIPELINE_COLORS = {
+  "Nueva solicitud":     { bg:"#dbeafe", color:"#1e40af", border:"#3b82f6" },
+  "Buscando opciones":   { bg:"#e0e7ff", color:"#4338ca", border:"#6366f1" },
+  "Opciones enviadas":   { bg:"#fef3c7", color:"#92400e", border:"#f59e0b" },
+  "En revisión":         { bg:"#fed7aa", color:"#9a3412", border:"#ea580c" },
+  "Visita agendada":     { bg:"#fce7f3", color:"#be185d", border:"#ec4899" },
+  "Match":               { bg:"#dcfce7", color:"#15803d", border:"#16a34a" },
+  "Cerrado sin match":   { bg:"#f1f5f9", color:"#475569", border:"#94a3b8" }
+};
+const SOLICITUDES_PIPELINE_ICONS = {
+  "Nueva solicitud":"🆕",
+  "Buscando opciones":"🔍",
+  "Opciones enviadas":"📤",
+  "En revisión":"👀",
+  "Visita agendada":"🚗",
+  "Match":"✅",
+  "Cerrado sin match":"🔒"
+};
+const TIPOS_CLIENTE_FINAL = ["Usuario final","Inversionista","Desarrollador","Retailer","Otro"];
+const USOS_SUELO_OPCIONES = ["H1","H2","H3","H4","Comercial","Mixto","Industrial","Habitacional","Reserva","Sin definir"];
+const FORMAS_PAGO = ["Contado","Crédito bancario","Financiamiento desarrollador","Mixto","Por definir"];
+const PLAZOS_DECISION = ["Urgente (< 30 días)","Mediano (30-90 días)","Largo (> 90 días)","Sin definir"];
+
+function loadSolicitudesAsesor(){
+  try{
+    const raw = localStorage.getItem(SOLICITUDES_ASESOR_KEY);
+    if(!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)?parsed:[];
+  }catch(e){ console.warn("Error cargando asesores:",e); return []; }
+}
+function saveSolicitudesAsesor(arr){
+  try{ localStorage.setItem(SOLICITUDES_ASESOR_KEY, JSON.stringify(arr||[])); }catch(e){ console.warn("Error guardando asesores:",e); }
+}
+function nuevaSolicitudAsesor(){
+  return {
+    id: "asesor-"+Date.now()+"-"+Math.floor(Math.random()*1000),
+    pipeline: "Nueva solicitud",
+    fechaCreacion: new Date().toISOString(),
+    fechaUltimaActividad: new Date().toISOString(),
+    asesorResponsableGG: "", // asesor de Grupo Guía
+    // Bloque 1: Identificación del asesor externo
+    asesorNombre: "",
+    asesorTelefono: "",
+    asesorEmpresa: "",
+    asesorEmail: "",
+    // Bloque 2: Cliente final
+    clienteNombre: "",
+    clienteGiro: "",
+    clienteTipo: "",
+    // Bloque 3: Requerimiento técnico
+    superficieMin: "",
+    superficieMax: "",
+    frenteMinimo: "",
+    alturaLibre: "",
+    usoSuelo: "",
+    estado: "",
+    ciudad: "",
+    // Bloque 4: Comercial
+    precioMaximo: "",
+    formaPago: "",
+    plazoDecision: "",
+    // Bloque 5: Adicional
+    notas: "",
+    // Bloque 6: Auto
+    historial: [], // [{fecha, tipo, descripcion}]
+    matchesEncontrados: [], // ids de lotes
+    lotesEnviados: [], // ids de lotes que se le mandaron al asesor
+    loteMatch: null, // id del lote que finalmente cerró
+    convertidoAProspecto: false, // bandera de integración con CRM
+    actividades: [] // [{id, tipo, descripcion, fecha, hora, completada, creadaEn}]
+  };
+}
+
+// Plantillas de actividades sugeridas según etapa del pipeline
+// Cada plantilla genera una actividad pre-llenada con descripción + días desde hoy
+const PLANTILLAS_ACTIVIDAD_POR_ETAPA = {
+  "Nueva solicitud": [
+    { tipo:"Llamada", descripcion:"Llamar al asesor para confirmar requerimientos", diasDesde:1 },
+    { tipo:"Seguimiento", descripcion:"Revisar inventario y armar primera lista de opciones", diasDesde:2 }
+  ],
+  "Buscando opciones": [
+    { tipo:"Email", descripcion:"Enviar opciones de macrolotes al asesor", diasDesde:1 },
+    { tipo:"WhatsApp", descripcion:"Compartir fichas técnicas por WhatsApp", diasDesde:1 }
+  ],
+  "Opciones enviadas": [
+    { tipo:"Seguimiento", descripcion:"Pedir feedback sobre las opciones enviadas", diasDesde:3 },
+    { tipo:"Llamada", descripcion:"Llamar al asesor para conocer interés del cliente", diasDesde:5 }
+  ],
+  "En revisión": [
+    { tipo:"Seguimiento", descripcion:"Confirmar si el cliente final está interesado", diasDesde:2 },
+    { tipo:"WhatsApp", descripcion:"Resolver dudas técnicas pendientes", diasDesde:3 }
+  ],
+  "Visita agendada": [
+    { tipo:"Llamada", descripcion:"Confirmar visita 1 día antes", diasDesde:0 },
+    { tipo:"Visita al terreno", descripcion:"Visita con asesor y cliente al terreno", diasDesde:3 },
+    { tipo:"Seguimiento", descripcion:"Llamada post-visita para impresiones", diasDesde:4 }
+  ],
+  "Match": [
+    { tipo:"Seguimiento", descripcion:"Acompañar el proceso de cierre con el asesor", diasDesde:2 }
+  ],
+  "Cerrado sin match": [
+    { tipo:"Seguimiento", descripcion:"Mantener contacto para futuras oportunidades", diasDesde:30 }
+  ]
+};
+
+// Crear actividad nueva con valores por defecto sensatos
+function nuevaActividadSolicitud(tipo, descripcion, diasDesde){
+  const fecha = new Date();
+  fecha.setDate(fecha.getDate() + (diasDesde||1));
+  return {
+    id: "act-sol-"+Date.now()+"-"+Math.floor(Math.random()*1000),
+    tipo: tipo||"Seguimiento",
+    descripcion: descripcion||"",
+    fecha: fecha.toISOString().slice(0,10),
+    hora: "10:00",
+    completada: false,
+    creadaEn: new Date().toISOString()
+  };
+}
+
+// Match automático: busca lotes del inventario que cumplan con los criterios
+function buscarMatchesParaSolicitud(solicitud, inventory){
+  if(!solicitud||!Array.isArray(inventory)) return [];
+  const supMin = parseFloat(solicitud.superficieMin)||0;
+  const supMax = parseFloat(solicitud.superficieMax)||Infinity;
+  const frenteMin = parseFloat(solicitud.frenteMinimo)||0;
+  const precioMax = parseFloat(solicitud.precioMaximo)||Infinity;
+  const estado = (solicitud.estado||"").trim().toLowerCase();
+  const ciudad = (solicitud.ciudad||"").trim().toLowerCase();
+  const usoSuelo = (solicitud.usoSuelo||"").trim().toLowerCase();
+  return inventory.map(lot=>{
+    if(!lot) return null;
+    const sup = parseFloat(lot.superficie)||0;
+    const frente = parseFloat(lot.frente)||0;
+    const precio = parseFloat(lot.precio_total)||0;
+    const lotEstado = (lot.estado||"").trim().toLowerCase();
+    const lotCiudad = (lot.ciudad||"").trim().toLowerCase();
+    const lotUso = (lot.uso_suelo||"").trim().toLowerCase();
+    let score = 0;
+    let razones = [];
+    let descalificadores = [];
+    // Filtros duros (obligatorios)
+    if(supMin>0 && sup<supMin){ descalificadores.push(`Superficie ${sup}m² < mínimo ${supMin}m²`); }
+    else if(sup>=supMin) { score+=20; razones.push(`Superficie ${sup}m² ✓`); }
+    if(supMax<Infinity && sup>supMax){ descalificadores.push(`Superficie ${sup}m² > máximo ${supMax}m²`); }
+    if(frenteMin>0 && frente>0 && frente<frenteMin){ descalificadores.push(`Frente ${frente}m < mínimo ${frenteMin}m`); }
+    else if(frenteMin>0&&frente>=frenteMin){ score+=15; razones.push(`Frente ${frente}m ✓`); }
+    if(precioMax<Infinity && precio>precioMax){ descalificadores.push(`Precio $${precio.toLocaleString()} > máximo $${precioMax.toLocaleString()}`); }
+    else if(precio>0&&precio<=precioMax){ score+=20; razones.push(`Precio en rango ✓`); }
+    // Filtros suaves (suman puntos)
+    if(estado&&lotEstado){
+      // Normalización Cancún/Cancun
+      const norm = (s)=>s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+      if(norm(lotEstado).includes(norm(estado))||norm(estado).includes(norm(lotEstado))){
+        score+=15; razones.push(`Estado coincide ✓`);
+      }
+    }
+    if(ciudad&&lotCiudad){
+      const norm = (s)=>s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+      if(norm(lotCiudad).includes(norm(ciudad))||norm(ciudad).includes(norm(lotCiudad))){
+        score+=15; razones.push(`Ciudad coincide ✓`);
+      }
+    }
+    if(usoSuelo&&lotUso){
+      if(lotUso.includes(usoSuelo)||usoSuelo.includes(lotUso)){
+        score+=15; razones.push(`Uso de suelo compatible ✓`);
+      }
+    }
+    return { lot, score, razones, descalificadores, descalificado:descalificadores.length>0 };
+  })
+  .filter(m=>m!==null)
+  .sort((a,b)=>b.score-a.score);
+}
+// ═══════════════════════════════════════════════════════════════
+
+const MAPEO_DESARROLLADOR_BASE = {
+  // === Desarrollos TYA ===
+  "Kulkana":"TYA","Terrasoles":"TYA","Capital Sur":"TYA","Alva":"TYA",
+  "Punto Sur":"TYA","Las Rosas":"TYA",
+  // === Desarrollos HITO ===
+  "Capital Norte":"HITO",  // Capital Norte mayoritariamente es HITO (split real con Corretaje a nivel de lote)
+  // === Desarrollos Corretaje ===
+  "Corretaje":"Corretaje","Corretaje Norte":"Corretaje",
+  // === Desarrollos Garvi ===
+  "Garvi":"Garvi","Altika":"Garvi","Esenika Boreales":"Garvi","Luxia Amado Nervo":"Garvi",
+  // === Desarrollos Favier ===
+  "Tare":"Favier",
+  // === Desarrollos GyG ===
+  "Valle Imperial":"GyG"
+};
+// Lista canónica de desarrolladores reales (del inventario)
+const DESARROLLADORES_OFICIALES = ["TYA","HITO","Corretaje","Garvi","Favier","GyG"];
+const MAPEO_DESARROLLADOR_KEY = "macropro_mapeo_desarrolladores_v1";
+
+// Carga el mapeo desde localStorage (enriquecido por imports + auto-aprendizaje)
+function loadMapeoDesarrollador(){
+  try{
+    const stored = localStorage.getItem(MAPEO_DESARROLLADOR_KEY);
+    if(stored){
+      const parsed = JSON.parse(stored);
+      return { ...MAPEO_DESARROLLADOR_BASE, ...parsed };
+    }
+  }catch(e){ console.warn("Error cargando mapeo:",e); }
+  return { ...MAPEO_DESARROLLADOR_BASE };
+}
+function saveMapeoDesarrollador(mapeo){
+  try{ localStorage.setItem(MAPEO_DESARROLLADOR_KEY, JSON.stringify(mapeo)); }catch(e){}
+}
+
+// Auto-aprende mapeo desde el inventario (la fuente de verdad real)
+// Devuelve un mapeo desarrollo→desarrollador donde TODOS los desarrollos vienen de lotes reales.
+// Si un desarrollo tiene múltiples desarrolladores (split), gana el MAYORITARIO.
+// Devuelve también los splits detectados como advertencia.
+function aprenderMapeoDesdeInventario(inventory){
+  const conteo = {}; // {desarrollo: {desarrollador: count}}
+  if(!Array.isArray(inventory)) return { mapeo:{}, splits:[] };
+  inventory.forEach(lot=>{
+    if(!lot) return;
+    const desarrollo = (lot.desarrollo||"").trim();
+    const desarrollador = (lot.desarrollador||"").trim();
+    if(!desarrollo||!desarrollador) return;
+    if(!conteo[desarrollo]) conteo[desarrollo] = {};
+    conteo[desarrollo][desarrollador] = (conteo[desarrollo][desarrollador]||0)+1;
+  });
+  const mapeo = {};
+  const splits = [];
+  Object.entries(conteo).forEach(([desarrollo, devs])=>{
+    const entries = Object.entries(devs).sort((a,b)=>b[1]-a[1]);
+    if(entries.length===0) return;
+    mapeo[desarrollo] = entries[0][0]; // gana el mayoritario
+    if(entries.length>1){
+      splits.push({
+        desarrollo,
+        desarrolladorPrincipal: entries[0][0],
+        countPrincipal: entries[0][1],
+        otros: entries.slice(1).map(([d,c])=>({desarrollador:d, count:c}))
+      });
+    }
+  });
+  return { mapeo, splits };
+}
+
+// Sincroniza el mapeo persistido con el aprendido del inventario
+// Esto se ejecuta una vez al cargar la app si hay inventario disponible
+function sincronizarMapeoConInventario(inventory){
+  if(!Array.isArray(inventory)||inventory.length===0) return null;
+  const { mapeo:aprendido, splits } = aprenderMapeoDesdeInventario(inventory);
+  if(Object.keys(aprendido).length===0) return null;
+  // Fusionar: lo aprendido del inventario tiene MÁS PRIORIDAD que lo persistido
+  const actual = loadMapeoDesarrollador();
+  const fusionado = { ...actual, ...aprendido };
+  saveMapeoDesarrollador(fusionado);
+  return { aprendido, splits, total:Object.keys(aprendido).length };
+}
+
+// Función inteligente: orden de prioridad
+// 1. Mapeo activo (que incluye lo aprendido del inventario + base + storage)
+// 2. Heurísticas por substring (para desarrollos no registrados)
+// 3. Fallback: el nombre como desarrollador propio
+function inferirDesarrollador(nombreDesarrollo, mapeoActivo){
+  if(!nombreDesarrollo) return "Otros";
+  const mapeo = mapeoActivo || loadMapeoDesarrollador();
+  // 1. Match exacto
+  if(mapeo[nombreDesarrollo]) return mapeo[nombreDesarrollo];
+  // 2. Match case-insensitive
+  const lc = nombreDesarrollo.toLowerCase().trim();
+  for(const [k,v] of Object.entries(mapeo)){
+    if(k.toLowerCase().trim()===lc) return v;
+  }
+  // 3. Heurísticas por substring
+  if(lc.includes("capital norte")||lc.startsWith("cn-")||lc.startsWith("cn ")) return "HITO";
+  if(lc.includes("corretaje")) return "Corretaje";
+  if(lc.includes("garvi")) return "Garvi";
+  if(lc.includes("hito")) return "HITO";
+  if(lc.includes("favier")) return "Favier";
+  if(lc.includes("gyg")||lc==="g&g"||lc==="g y g") return "GyG";
+  if(["kulkana","terrasoles","capital sur","alva","punto sur","las rosas"].includes(lc)) return "TYA";
+  // 4. Fallback razonable: tratar el nombre como desarrollador propio
+  // (mejor que "Otros" — el usuario puede corregirlo)
+  return nombreDesarrollo;
+}
+
+// Lista dinámica de desarrolladores activos (en metas + oficiales)
+function getDesarrolladoresActivos(metasData, inventory){
+  const set = new Set();
+  Object.values(metasData||{}).forEach(d=>{ if(d&&d.desarrollador) set.add(d.desarrollador); });
+  DESARROLLADORES_OFICIALES.forEach(d=>set.add(d));
+  if(Array.isArray(inventory)){
+    inventory.forEach(lot=>{ if(lot&&lot.desarrollador) set.add(lot.desarrollador); });
+  }
+  return [...set].sort();
+}
+// Lista de desarrollos que pertenecen a un desarrollador (filtro inteligente)
+// Combina: metas existentes + mapeo + inventario real
+function getDesarrollosPorDesarrollador(desarrollador, metasData, inventory, mapeoActivo){
+  if(!desarrollador||desarrollador==="Todos") return null; // null = mostrar todos
+  const set = new Set();
+  const mapeo = mapeoActivo || loadMapeoDesarrollador();
+  // 1. Desde metasData
+  Object.entries(metasData||{}).forEach(([nombre, d])=>{
+    if(d&&d.desarrollador===desarrollador) set.add(nombre);
+  });
+  // 2. Desde mapeo
+  Object.entries(mapeo).forEach(([des, dev])=>{
+    if(dev===desarrollador) set.add(des);
+  });
+  // 3. Desde inventario (fuente de verdad)
+  if(Array.isArray(inventory)){
+    inventory.forEach(lot=>{
+      if(lot&&lot.desarrollador===desarrollador && lot.desarrollo) set.add(lot.desarrollo);
+    });
+  }
+  return [...set].sort();
+}
+// Calcula momentum desde el CRM Kanban: lotes en Apartado o Contrato
+// Devuelve estructura: { porDesarrollo:{[nombre]:{uds:[12], monto:[12], lotes:[...]}}, totalUds:[12], totalMonto:[12], allLotes:[...] }
+function calcularMomentumKanban(crmData, inventory, filtroDesarrollador, filtroDesarrollo){
+  const ETAPAS_MOMENTUM = new Set(["Apartado","Contrato"]);
+  const porDesarrollo = {};
+  const totalUds = new Array(12).fill(0);
+  const totalMonto = new Array(12).fill(0);
+  const allLotes = [];
+  if(!crmData||!inventory) return { porDesarrollo, totalUds, totalMonto, allLotes };
+  inventory.forEach(lot=>{
+    const crm = crmData[lot.id];
+    if(!crm||!crm.prospectos||crm.prospectos.length===0) return;
+    // Aplicar filtros de desarrollador/desarrollo
+    const lotDev = lot.desarrollo||"Otros";
+    const lotDesarrollador = lot.desarrollador||inferirDesarrollador(lotDev);
+    if(filtroDesarrollador&&filtroDesarrollador!=="Todos"&&lotDesarrollador!==filtroDesarrollador) return;
+    if(filtroDesarrollo&&filtroDesarrollo!=="Todos"&&lotDev!==filtroDesarrollo) return;
+    // Buscar el prospecto MÁS avanzado del lote en etapa de momentum
+    let mejorProspecto = null; let mejorEtapa = null;
+    crm.prospectos.forEach(p=>{
+      if(!p||!p.pipeline) return;
+      if(!ETAPAS_MOMENTUM.has(p.pipeline)) return;
+      // "Contrato" más avanzado que "Apartado"
+      const ord = p.pipeline==="Contrato"?2:1;
+      const ordMejor = mejorEtapa==="Contrato"?2:(mejorEtapa==="Apartado"?1:0);
+      if(ord>ordMejor){ mejorProspecto=p; mejorEtapa=p.pipeline; }
+    });
+    if(!mejorProspecto) return;
+    // Determinar mes destino: próxima actividad agendada
+    let mesIdx = new Date().getMonth(); // fallback: mes actual
+    let fechaUsada = null;
+    const acts = mejorProspecto.actividades||[];
+    const proxima = acts.filter(a=>!a.completada&&a.fecha).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha))[0];
+    if(proxima&&proxima.fecha){
+      try{
+        const d = new Date(proxima.fecha);
+        if(!isNaN(d.getTime())){
+          // Solo cuenta si es del año actual (2026 — basamos en fecha actual)
+          const yearActual = new Date().getFullYear();
+          if(d.getFullYear()===yearActual){
+            mesIdx = d.getMonth();
+            fechaUsada = proxima.fecha;
+          }
+        }
+      }catch(e){}
+    }
+    // Acumular: 1 unidad + monto del lote, en el mes detectado
+    const monto = Math.round((lot.precio_total||0)/1000); // miles MXN
+    if(!porDesarrollo[lotDev]) porDesarrollo[lotDev] = { uds:new Array(12).fill(0), monto:new Array(12).fill(0), lotes:[] };
+    porDesarrollo[lotDev].uds[mesIdx] += 1;
+    porDesarrollo[lotDev].monto[mesIdx] += monto;
+    porDesarrollo[lotDev].lotes.push({
+      id:lot.id, nombre:lot.nombre, desarrollo:lotDev, desarrollador:lotDesarrollador,
+      etapa:mejorEtapa, mesIdx, fechaUsada, monto, prospecto:mejorProspecto.nombre||"(sin nombre)"
+    });
+    totalUds[mesIdx] += 1;
+    totalMonto[mesIdx] += monto;
+    allLotes.push({
+      id:lot.id, nombre:lot.nombre, desarrollo:lotDev, desarrollador:lotDesarrollador,
+      etapa:mejorEtapa, mesIdx, fechaUsada, monto, prospecto:mejorProspecto.nombre||"(sin nombre)"
+    });
+  });
+  return { porDesarrollo, totalUds, totalMonto, allLotes };
+}
+
 const B = {
   navy:"#002B49", navyD:"#001a2e", navyL:"#0a3d5c",
   gold:"#F5B335", goldD:"#d4952a", goldL:"#ffd678",
