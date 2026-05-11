@@ -824,8 +824,17 @@ function MacroProMatcher() {
     }catch(err){console.warn("migrateCRM:",err);}
     return d;
   };
-  const loadCRM=()=>{try{return migrateCRM(JSON.parse(localStorage.getItem(CRM_KEY)||"{}"));}catch(e){return {};}};
-  const saveCRM=(d)=>{try{localStorage.setItem(CRM_KEY,JSON.stringify(d));}catch(e){}};
+  const loadCRM=()=>{
+    try{
+      const raw=localStorage.getItem(CRM_KEY)||"{}";
+      return migrateCRM(JSON.parse(raw));
+    }catch(e){
+      console.warn("⚠ CRM corrupto — limpiando. Error:",e.message);
+      try{localStorage.removeItem(CRM_KEY);}catch(_){}
+      return {};
+    }
+  };
+  const saveCRM=(d)=>{try{localStorage.setItem(CRM_KEY,JSON.stringify(d));}catch(e){console.warn("⚠ No se pudo guardar CRM:",e.message);}};
   const [crmData,setCrmData]=React.useState(()=>loadCRM());
   const updateCRM=(id,patch)=>{setCrmData(prev=>{const next={...prev,[id]:{...(prev[id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]}), ...patch}};saveCRM(next);return next;});};
   const [showNotifModal, setShowNotifModal] = React.useState(false);
@@ -5241,14 +5250,15 @@ Respuesta: [respuesta exacta, conversacional]
         const data = await res.json();
         const text = data.content?.find(b=>b.type==="text")?.text||"";
         setAnalisisResult(text);
-        // Auto-guardar en CRM como interacción especial
+        // Auto-guardar en CRM — truncar para evitar corrupción de localStorage
+        const notaGuardada = text.length>800 ? text.slice(0,800)+"…\n[Ver análisis completo en modal 🧠]" : text;
         const crmActual = crmData[lot.id]||{};
         const interacciones = [...(crmActual.interacciones||[]), {
           fecha: new Date().toISOString().slice(0,10),
           canal: "🧠 Análisis IA",
           contacto: p.nombre,
           reaccion: "Generado",
-          nota: text
+          nota: notaGuardada
         }];
         updateCRM(lot.id, {interacciones});
         toast("✅ Análisis generado y guardado en CRM");
