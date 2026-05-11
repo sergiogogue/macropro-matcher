@@ -2736,17 +2736,21 @@ function MacroProMatcher() {
       if(!lotId){toast("⚠ Selecciona un lote de entrada");return;}
       const lot=srcInv.find(l=>l.id===lotId);
       if(!lot){toast("⚠ Lote no encontrado");return;}
-      const crm=crmData[lotId]||{pipeline:"Disponible",interacciones:[],prospectos:[]};
+      // Leer directo de localStorage para no depender del estado React
+      const crmActual=loadCRM();
+      const crm=crmActual[lotId]||{pipeline:"Disponible",interacciones:[],prospectos:[]};
       const yaExiste=(crm.prospectos||[]).some(p=>p.nombre===cli.nombre);
       if(yaExiste){toast("⚠ "+cli.nombre+" ya está en ese lote");return;}
       const nuevoProsp={nombre:cli.nombre,empresa:cli.empresa||"",temperatura:cli.temperatura||"",pipeline:"Prospecto",asesor:cli.asesor||"",nota:"Agregado desde búsqueda",fechaCreacion:new Date().toISOString().slice(0,10),actividades:[]};
       const prospectos=[...(crm.prospectos||[]),nuevoProsp];
-      updateCRM(lotId,{prospectos,lastContact:new Date().toISOString().slice(0,10)});
-      const newAgregados=new Set(agregados);
-      newAgregados.add(cli.id||cli.nombre);
-      setAgregados(newAgregados);
+      const newEntry={...crm,prospectos,lastContact:new Date().toISOString().slice(0,10)};
+      const newCRM={...crmActual,[lotId]:newEntry};
+      // Guardar solo en localStorage — sin setCrmData para NO disparar re-render del App
+      saveCRM(newCRM);
+      // Actualizar solo estado local del componente
+      setAgregados(prev=>{const s=new Set(prev);s.add(cli.id||cli.nombre);return s;});
       setLotePickerId(null);
-      toast("✅ "+cli.nombre+" agregado como Prospecto en "+lot.nombre);
+      toast("✅ "+cli.nombre+" agregado · ve al Kanban para verlo");
     };
 
     const tempOrd={"Caliente":0,"Tibio":1,"Frío":2,"Frio":2};
