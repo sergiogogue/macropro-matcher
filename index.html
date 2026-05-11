@@ -2586,6 +2586,7 @@ function MacroProMatcher() {
   // ─── VIEW QUICK SEARCH ────────────────────────────────────────────
   const ViewQuickSearch = () => {
     // Estado LOCAL para los inputs — evita que el cursor salte al re-renderizar
+    const [modoSearch, setModoSearch] = useState("lotes"); // "lotes" | "clientes"
     const [localUso, setLocalUso] = useState(quickSearchCriteria.uso||"");
     const [localSupMin, setLocalSupMin] = useState(quickSearchCriteria.sup_min||"");
     const [localSupMax, setLocalSupMax] = useState(quickSearchCriteria.sup_max||"");
@@ -2646,12 +2647,90 @@ function MacroProMatcher() {
       return todos.sort();
     })();
 
+    // ── MODO CLIENTES POR DESARROLLO ────────────────────────────────
+    const [ciudadCli, setCiudadCli] = useState("");
+    const [desarrolloCli, setDesarrolloCli] = useState("");
+    const [lotePickerId, setLotePickerId] = useState(null); // clienteId que tiene abierto el picker
+    const [loteElegido, setLoteElegido] = useState({}); // {clienteId: lotId}
+    const [agregados, setAgregados] = useState(new Set()); // clienteIds ya agregados
+
+    const cliSrc2 = clients.length>0?clients:DEMO_CLIENTS;
+    const ciudadesInv = [...new Set(srcInv.map(l=>l.ciudad).filter(Boolean))].sort();
+    const desarrollosDeCiudad = ciudadCli
+      ? [...new Set(srcInv.filter(l=>l.ciudad===ciudadCli).map(l=>l.desarrollo).filter(Boolean))].sort()
+      : [...new Set(srcInv.map(l=>l.desarrollo).filter(Boolean))].sort();
+
+    const lotesDelDesarrollo = desarrolloCli
+      ? srcInv.filter(l=>l.desarrollo===desarrolloCli)
+      : (ciudadCli ? srcInv.filter(l=>l.ciudad===ciudadCli) : []);
+
+    // Clientes que coinciden con el desarrollo seleccionado
+    const clientesMatch = (()=>{
+      if(!desarrolloCli&&!ciudadCli) return [];
+      const tiposDesarrollo = new Set(lotesDelDesarrollo.flatMap(l=>l.usos_todos&&l.usos_todos.length>0?l.usos_todos:[l.uso||""]));
+      const precioMinDev = lotesDelDesarrollo.reduce((min,l)=>Math.min(min,l.precio_total||Infinity),Infinity);
+      const precioMaxDev = lotesDelDesarrollo.reduce((max,l)=>Math.max(max,l.precio_total||0),0);
+
+      return cliSrc2.map(cli=>{
+        let score=0;
+        // Match por uso de interés
+        const usosInteres = cli.uso_interes||[];
+        const matchUso = usosInteres.some(u=>tiposDesarrollo.has(u));
+        if(matchUso) score+=40;
+        // Match por presupuesto
+        const pMax = cli.presupuesto_max||0;
+        const pMin = cli.presupuesto_min||0;
+        if(pMax>0&&pMax>=precioMinDev) score+=30;
+        if(pMin>0&&pMin<=precioMaxDev) score+=10;
+        // Temperatura
+        if(cli.temperatura==="Caliente") score+=20;
+        else if(cli.temperatura==="Tibio") score+=10;
+        return {...cli,_score:score};
+      })
+      .filter(cli=>cli._score>0)
+      .sort((a,b)=>b._score-a._score);
+    })();
+
+    const agregarAlKanban=(cli)=>{
+      const lotId=loteElegido[cli.id||cli.nombre];
+      if(!lotId){toast("⚠ Selecciona un lote de entrada");return;}
+      const lot=srcInv.find(l=>l.id===lotId);
+      if(!lot){toast("⚠ Lote no encontrado");return;}
+      const crm=crmData[lotId]||{pipeline:"Disponible",interacciones:[],prospectos:[]};
+      const yaExiste=(crm.prospectos||[]).some(p=>p.nombre===cli.nombre);
+      if(yaExiste){toast("⚠ "+cli.nombre+" ya está en ese lote");return;}
+      const nuevoProsp={nombre:cli.nombre,empresa:cli.empresa||"",temperatura:cli.temperatura||"",pipeline:"Prospecto",asesor:cli.asesor||"",nota:"Agregado desde búsqueda por ciudad/desarrollo",fechaCreacion:new Date().toISOString().slice(0,10),actividades:[]};
+      const prospectos=[...(crm.prospectos||[]),nuevoProsp];
+      updateCRM(lotId,{prospectos,lastContact:new Date().toISOString().slice(0,10)});
+      const newAgregados=new Set(agregados);
+      newAgregados.add(cli.id||cli.nombre);
+      setAgregados(newAgregados);
+      setLotePickerId(null);
+      toast("✅ "+cli.nombre+" agregado como Prospecto en "+lot.nombre);
+    };
+
+    const tempOrd={"Caliente":0,"Tibio":1,"Frío":2,"Frio":2};
+    const tCol2=(t)=>t==="Caliente"?B.red:t==="Tibio"?B.gold:t==="Frío"||t==="Frio"?"#3B82F6":B.grey3;
+
     return (
       <div style={s.page}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
           <button style={s.btn("ghost")} onClick={()=>setView("home")}>← Inicio</button>
-          {hayFiltros&&<button style={s.btn("ghost")} onClick={limpiarTodo}>🔄 Limpiar filtros</button>}
+          {hayFiltros&&modoSearch==="lotes"&&<button style={s.btn("ghost")} onClick={limpiarTodo}>🔄 Limpiar filtros</button>}
         </div>
+
+        {/* ── TABS ── */}
+        <div style={{display:"flex",gap:0,marginBottom:24,background:B.white,borderRadius:12,padding:4,border:"1px solid "+B.grey1,boxShadow:"0 2px 8px rgba(0,43,73,0.06)"}}>
+          {[["lotes","🔍 Buscar Lotes","Encuentra lotes por criterios técnicos"],["clientes","👥 Clientes por Desarrollo","¿Quién puede estar interesado en un desarrollo específico?"]].map(([m,l,sub])=>(
+            <button key={m} onClick={()=>setModoSearch(m)} style={{flex:1,padding:"10px 16px",borderRadius:9,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",background:modoSearch===m?B.navy:"transparent",color:modoSearch===m?"#fff":B.grey3,transition:"all 0.15s",textAlign:"left"}}>
+              <div style={{fontSize:13,fontWeight:700}}>{l}</div>
+              <div style={{fontSize:10,opacity:0.75,marginTop:1}}>{sub}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* ══ MODO LOTES (existente, intacto) ══ */}
+        {modoSearch==="lotes"&&(<>
         <div style={s.sectionTitle}>🔍 Búsqueda Rápida de Macrolotes</div>
         <div style={{...s.sectionSub,marginBottom:20}}>Encuentra el lote ideal sin registrar al cliente — filtra por cualquier combinación</div>
         <div style={{background:B.white,padding:28,borderRadius:16,boxShadow:"0 4px 14px rgba(0,43,73,0.08)",marginBottom:24,border:`1px solid ${B.grey1}`}}>
@@ -2847,6 +2926,117 @@ function MacroProMatcher() {
             </div>
           );
         })()}
+        </>)}
+
+        {/* ══ MODO CLIENTES POR DESARROLLO ══ */}
+        {modoSearch==="clientes"&&(
+          <div>
+            <div style={s.sectionTitle}>👥 Clientes por Ciudad / Desarrollo</div>
+            <div style={{...s.sectionSub,marginBottom:20}}>Encuentra clientes que pueden estar interesados en un desarrollo específico y agrégalos al Kanban</div>
+            {/* Filtros */}
+            <div style={{background:B.white,padding:24,borderRadius:14,border:"1px solid "+B.grey1,marginBottom:20,boxShadow:"0 2px 8px rgba(0,43,73,0.06)"}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+                <div>
+                  <label style={{display:"block",fontSize:12,fontWeight:700,color:B.navy,marginBottom:6}}>1. Ciudad del desarrollo</label>
+                  <select value={ciudadCli} onChange={e=>{setCiudadCli(e.target.value);setDesarrolloCli("");}} style={{width:"100%",padding:"11px 14px",border:"2px solid "+(ciudadCli?B.gold:B.grey1),borderRadius:9,fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
+                    <option value="">— Selecciona ciudad —</option>
+                    {ciudadesInv.map(c=><option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:12,fontWeight:700,color:B.navy,marginBottom:6}}>2. Desarrollo específico</label>
+                  <select value={desarrolloCli} onChange={e=>setDesarrolloCli(e.target.value)} style={{width:"100%",padding:"11px 14px",border:"2px solid "+(desarrolloCli?B.gold:B.grey1),borderRadius:9,fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
+                    <option value="">— Selecciona desarrollo —</option>
+                    {desarrollosDeCiudad.map(d=><option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+              </div>
+              {lotesDelDesarrollo.length>0&&(
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <span style={{fontSize:11,color:B.grey3,alignSelf:"center"}}>Lotes en este desarrollo:</span>
+                  {lotesDelDesarrollo.slice(0,5).map(l=>(
+                    <span key={l.id} style={{fontSize:10,fontWeight:700,background:B.offW,border:"1px solid "+B.grey1,borderRadius:6,padding:"3px 8px",color:B.navy}}>{l.nombre}</span>
+                  ))}
+                  {lotesDelDesarrollo.length>5&&<span style={{fontSize:10,color:B.grey3,alignSelf:"center"}}>+{lotesDelDesarrollo.length-5} más</span>}
+                </div>
+              )}
+            </div>
+
+            {/* Resultados */}
+            {(desarrolloCli||ciudadCli)&&clientesMatch.length===0&&(
+              <div style={{textAlign:"center",padding:"40px 20px",background:B.white,borderRadius:12,border:"1px solid "+B.grey1}}>
+                <div style={{fontSize:32,marginBottom:8}}>🤷</div>
+                <div style={{fontSize:14,fontWeight:700,color:B.navy}}>Sin clientes con match para este desarrollo</div>
+                <div style={{fontSize:12,color:B.grey3,marginTop:4}}>Revisa uso de interés y presupuesto en el catálogo de clientes</div>
+              </div>
+            )}
+            {clientesMatch.length>0&&(
+              <div style={{background:B.white,borderRadius:14,border:"1px solid "+B.grey1,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,43,73,0.06)"}}>
+                <div style={{padding:"14px 20px",background:B.navy,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{clientesMatch.length} cliente{clientesMatch.length!==1?"s":""} con potencial para {desarrolloCli||ciudadCli}</div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.6)"}}>Ordenados por temperatura y presupuesto</div>
+                </div>
+                {clientesMatch.map((cli,idx)=>{
+                  const yaAgregado=agregados.has(cli.id||cli.nombre);
+                  const tC=tCol2(cli.temperatura);
+                  const pickerAbierto=lotePickerId===(cli.id||cli.nombre);
+                  return (
+                    <div key={cli.id||idx} style={{padding:"12px 20px",borderBottom:"1px solid "+B.grey1,background:yaAgregado?"#f0fdf4":idx%2===0?B.offW:B.white,opacity:yaAgregado?0.8:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                        {/* Info cliente */}
+                        <div style={{flex:1,minWidth:200}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                            <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{cli.nombre}</div>
+                            {cli.temperatura&&<span style={{fontSize:9,fontWeight:700,background:tC,color:"#fff",borderRadius:8,padding:"1px 7px"}}>{cli.temperatura}</span>}
+                            {yaAgregado&&<span style={{fontSize:9,fontWeight:700,background:"#16a34a",color:"#fff",borderRadius:8,padding:"1px 7px"}}>✅ Agregado</span>}
+                          </div>
+                          {cli.empresa&&<div style={{fontSize:10,color:B.grey4}}>{cli.empresa}</div>}
+                          <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap"}}>
+                            {(cli.uso_interes||[]).map(u=><span key={u} style={{fontSize:9,background:B.blueL,color:B.navy,borderRadius:5,padding:"1px 6px",fontWeight:600}}>{u}</span>)}
+                            {cli.presupuesto_max>0&&<span style={{fontSize:9,color:B.grey3}}>Hasta {fmtM(cli.presupuesto_max)}</span>}
+                            {cli.asesor&&<span style={{fontSize:9,color:B.grey4}}>👤 {cli.asesor}</span>}
+                          </div>
+                        </div>
+                        {/* Botón agregar */}
+                        {!yaAgregado&&(
+                          <div style={{flexShrink:0}}>
+                            {!pickerAbierto?(
+                              <button onClick={()=>{setLotePickerId(cli.id||cli.nombre);if(lotesDelDesarrollo.length===1)setLoteElegido(prev=>({...prev,[cli.id||cli.nombre]:lotesDelDesarrollo[0].id}));}}
+                                style={{padding:"8px 14px",background:B.navy,color:B.gold,border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}}>
+                                ＋ Agregar a {desarrolloCli||ciudadCli}
+                              </button>
+                            ):(
+                              <div style={{display:"flex",flexDirection:"column",gap:6,padding:"10px",background:B.offW,borderRadius:8,border:"1px solid "+B.grey1,minWidth:220}}>
+                                <div style={{fontSize:10,fontWeight:700,color:B.navy}}>Selecciona lote de entrada:</div>
+                                <select value={loteElegido[cli.id||cli.nombre]||""} onChange={e=>setLoteElegido(prev=>({...prev,[cli.id||cli.nombre]:e.target.value}))}
+                                  style={{padding:"6px 8px",borderRadius:6,border:"1px solid "+B.grey1,fontSize:11,fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
+                                  <option value="">— Elige un lote —</option>
+                                  {lotesDelDesarrollo.map(l=><option key={l.id} value={l.id}>{l.nombre}</option>)}
+                                </select>
+                                <div style={{fontSize:9,color:B.grey3,fontStyle:"italic"}}>Puedes reasignarlo después desde el Kanban</div>
+                                <div style={{display:"flex",gap:6}}>
+                                  <button onClick={()=>agregarAlKanban(cli)} style={{flex:1,padding:"6px",background:"#16a34a",color:"#fff",border:"none",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✅ Confirmar</button>
+                                  <button onClick={()=>setLotePickerId(null)} style={{padding:"6px 10px",background:B.grey1,color:B.grey4,border:"none",borderRadius:6,fontSize:11,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✕</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {!desarrolloCli&&!ciudadCli&&(
+              <div style={{textAlign:"center",padding:"48px 20px",background:B.white,borderRadius:12,border:"1px dashed "+B.grey1}}>
+                <div style={{fontSize:36,marginBottom:10}}>🏙</div>
+                <div style={{fontSize:14,fontWeight:700,color:B.navy,marginBottom:4}}>Selecciona una ciudad y desarrollo</div>
+                <div style={{fontSize:12,color:B.grey3}}>Te mostramos qué clientes del catálogo tienen mayor probabilidad de interés</div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -6620,6 +6810,7 @@ Respuesta: [respuesta exacta, conversacional]
         {ModalInteraccion()}
         {ModalFichaCliente()}
         {ModalAnalisisProspecto()}
+        {showQuickProspModal&&quickProspData&&<QuickProspectoModal/>}
       </div>
     );
   };
@@ -8965,7 +9156,6 @@ Respuesta: [respuesta exacta, conversacional]
       <ModalApiKey/>
       <ModalMigrate/>
       {showAddClient&&<ModalAddClient/>}
-      {showQuickProspModal&&quickProspData&&<QuickProspectoModal/>}
       {showPDFModal&&(
         <div onClick={()=>!pdfGenerando&&setShowPDFModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:540,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden"}}>
