@@ -6485,11 +6485,7 @@ Respuesta: [respuesta exacta, conversacional]
 
   // ─── GENERAR PDF EJECUTIVO ──────────────────────────────────
   const generarPDFEjecutivo = async (modo) => {
-    // modo: "ceo" (interno, todo) | "cliente" (externo, oculta notas)
-    if(typeof window.jspdf === "undefined") {
-      toast("⚠ jsPDF no cargado. Recarga la página.");
-      return;
-    }
+    if(typeof window.jspdf === "undefined"){ toast("jsPDF no cargado. Recarga la pagina."); return; }
     setPdfGenerando(true);
     try {
       const { jsPDF } = window.jspdf;
@@ -6497,452 +6493,557 @@ Respuesta: [respuesta exacta, conversacional]
       const pageW = doc.internal.pageSize.getWidth();
       const pageH = doc.internal.pageSize.getHeight();
       const margin = 14;
-      let cursorY = margin;
-
-      // ─── HELPERS ───
-      const fmtMoney = (v) => {
-        if(!v||v===0) return "$0";
-        if(v>=1e9) return "$"+(v/1e9).toFixed(2)+"B";
-        if(v>=1e6) return "$"+(v/1e6).toFixed(1)+"M";
-        if(v>=1e3) return "$"+(v/1e3).toFixed(0)+"k";
-        return "$"+v.toFixed(0);
-      };
-      const fmtMoneyFull = (v) => "$"+(v||0).toLocaleString("es-MX",{maximumFractionDigits:0});
+      let Y = margin;
+      const navy=[0,43,73], gold=[196,154,34], white=[255,255,255], grey=[100,116,139],
+            red=[220,38,38], green=[22,163,74], amber=[217,119,6], lightgrey=[241,245,249];
       const ahora = new Date();
-      const fechaReporte = ahora.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
+      const mesActual = ahora.getMonth();
+      const fmtMoney=(v)=>{if(!v||v===0)return "$0";if(v>=1e9)return "$"+(v/1e9).toFixed(2)+"B";if(v>=1e6)return "$"+(v/1e6).toFixed(1)+"M";if(v>=1e3)return "$"+Math.round(v/1e3)+"k";return "$"+v.toFixed(0);};
+      const fechaStr = ahora.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
+      const MESES_ES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+      const ACTIVE_STAGES=["Prospecto","Contactado","En negociacion","Propuesta","Apartado","Contrato"];
+      const stageProb={"Prospecto":0.05,"Contactado":0.15,"En negociacion":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
+      const tempColor=(t)=>t==="Caliente"?[220,38,38]:t==="Tibio"?[217,119,6]:t==="Frio"||t==="Frio"?[37,99,235]:[107,114,128];
+      const stageColor=(s)=>s==="Contrato"?green:s==="Propuesta"||s==="Apartado"?amber:s==="En negociacion"?[8,145,178]:grey;
 
-      // Datos base con filtros aplicados
+      // Datos filtrados
       const srcInvE = inventory.length>0?inventory:SAMPLE_INVENTORY;
       const lotesFiltrados = srcInvE.filter(l=>{
         if(ejecFiltroDesarrollador!=="Todos"&&(l.desarrollador||l.desarrollo)!==ejecFiltroDesarrollador) return false;
         if(ejecFiltroDesarrollo!=="Todos"&&l.desarrollo!==ejecFiltroDesarrollo) return false;
         return true;
       });
-
-      const stageOrder={"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Vendido":7,"Perdido":0,"Disponible":0};
-      const stageProb={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
-      const ACTIVE_STAGES_LOCAL = ["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
-
-      const getLotePipelineLocal = (lotId) => {
-        const e = crmData[lotId];
-        if(!e) return "Disponible";
-        if(e.pipeline==="Vendido"||e.pipeline==="Perdido") return e.pipeline;
-        const prospectos = e.prospectos||[];
+      const getLotePipelineLocal=(lotId)=>{
+        const e=crmData[lotId]; if(!e) return "Disponible";
+        const prospectos=e.prospectos||[];
         if(prospectos.length===0) return e.pipeline||"Disponible";
-        let masAvanzada = "Disponible"; let maxOrden = 0;
-        prospectos.forEach(p=>{
-          if(!p||!p.pipeline) return;
-          const ord = stageOrder[p.pipeline]||0;
-          if(ord>maxOrden){ maxOrden=ord; masAvanzada=p.pipeline; }
-        });
-        return masAvanzada;
+        let best="Disponible"; let maxOrd=0;
+        const ord={"Prospecto":1,"Contactado":2,"En negociacion":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Vendido":7};
+        prospectos.forEach(p=>{ if(p&&p.pipeline){ const o=ord[p.pipeline]||0; if(o>maxOrd){maxOrd=o;best=p.pipeline;} } });
+        return best;
       };
 
-      // ─── PORTADA ───
-      // Banda azul superior
-      doc.setFillColor(0, 43, 73);
-      doc.rect(0, 0, pageW, 50, "F");
-      // Banda dorada
-      doc.setFillColor(212, 175, 55);
-      doc.rect(0, 50, pageW, 2, "F");
-
-      // Título principal
-      doc.setTextColor(255, 255, 255);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(28);
-      doc.text("MacroPro", margin, 24);
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "normal");
-      doc.text("by Grupo Guía", margin, 31);
-
-      // Tipo de reporte
-      doc.setFontSize(10);
-      doc.setTextColor(212, 175, 55);
-      const tipoReporte = modo==="ceo" ? "REPORTE EJECUTIVO INTERNO · CEO" : "REPORTE EJECUTIVO · CLIENTE";
-      doc.text(tipoReporte, pageW - margin, 24, {align:"right"});
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(9);
-      doc.text(fechaReporte, pageW - margin, 31, {align:"right"});
-
-      cursorY = 64;
-
-      // Subtítulo de filtros aplicados
-      doc.setTextColor(0, 43, 73);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(20);
-      doc.text("Vista Ejecutiva", margin, cursorY);
-      cursorY += 8;
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(100, 116, 139);
-      const filtrosTexto = [
-        ejecFiltroDesarrollador!=="Todos" ? "Desarrollador: "+ejecFiltroDesarrollador : null,
-        ejecFiltroDesarrollo!=="Todos" ? "Desarrollo: "+ejecFiltroDesarrollo : null,
-        ejecFiltroAsesor!=="Todos" ? "Asesor: "+ejecFiltroAsesor : null,
-      ].filter(Boolean).join(" · ") || "Todos los desarrollos";
-      doc.text("Alcance: "+filtrosTexto, margin, cursorY);
-      cursorY += 10;
-
-      // ─── SECCIÓN 1: HERO - CIERRE VS META ───
-      const mesActual = ahora.getMonth();
-      let metaAnualMonto=0, realYTDMonto=0, metaYTDMonto=0, realYTDUds=0;
-      Object.entries(metasData||{}).forEach(([nombre, d])=>{
-        if(!d||!d.plan||!d.real) return;
-        if(ejecFiltroDesarrollador!=="Todos" && d.desarrollador!==ejecFiltroDesarrollador) return;
-        if(ejecFiltroDesarrollo!=="Todos" && nombre!==ejecFiltroDesarrollo) return;
-        metaAnualMonto += (d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
-        realYTDMonto += (d.real.monto||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
-        metaYTDMonto += (d.plan.monto||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
-        realYTDUds += (d.real.uds||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
-      });
-      const cumplYTD = metaYTDMonto>0 ? realYTDMonto/metaYTDMonto : 0;
-      const cumplAnual = metaAnualMonto>0 ? realYTDMonto/metaAnualMonto : 0;
-      const gapAnual = metaAnualMonto - realYTDMonto;
-
-      // Caja Hero
-      doc.setFillColor(0, 43, 73);
-      doc.roundedRect(margin, cursorY, pageW-margin*2, 50, 3, 3, "F");
-      doc.setTextColor(212, 175, 55);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.text("🎯 CIERRE "+ahora.getFullYear(), margin+5, cursorY+8);
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(22);
-      doc.text(fmtMoney(realYTDMonto), margin+5, cursorY+22);
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text("de "+fmtMoney(metaAnualMonto)+" meta anual ("+(cumplAnual*100).toFixed(1)+"%)", margin+5, cursorY+30);
-
-      // Mini KPIs en Hero
-      const kpiX = margin + 100;
-      doc.setFontSize(8);
-      doc.setTextColor(180, 180, 180);
-      doc.text("VENDIDO YTD", kpiX, cursorY+10);
-      doc.setTextColor(255, 255, 255);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text(realYTDUds+" uds", kpiX, cursorY+16);
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(180, 180, 180);
-      doc.text("META YTD", kpiX, cursorY+24);
-      doc.setTextColor(cumplYTD>=0.95 ? 167 : 253, cumplYTD>=0.95 ? 243 : 230, cumplYTD>=0.95 ? 208 : 138);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text((cumplYTD*100).toFixed(0)+"%", kpiX, cursorY+30);
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(180, 180, 180);
-      doc.text("GAP A META", kpiX+30, cursorY+10);
-      doc.setTextColor(gapAnual<=0 ? 167 : 254, gapAnual<=0 ? 243 : 215, gapAnual<=0 ? 208 : 170);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text(fmtMoney(gapAnual), kpiX+30, cursorY+16);
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(180, 180, 180);
-      doc.text("MESES RESTANTES", kpiX+30, cursorY+24);
-      doc.setTextColor(255, 255, 255);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text((12-mesActual-1)+"", kpiX+30, cursorY+30);
-
-      // Status badge
-      const statusColor = cumplYTD>=0.95 ? [22,163,74] : (cumplYTD>=0.75 ? [245,158,11] : [220,38,38]);
-      const statusText = cumplYTD>=0.95 ? "ON TRACK" : (cumplYTD>=0.75 ? "EN RIESGO" : "BEHIND");
-      doc.setFillColor(...statusColor);
-      doc.roundedRect(pageW-margin-30, cursorY+5, 25, 6, 2, 2, "F");
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "bold");
-      doc.text(statusText, pageW-margin-17.5, cursorY+9, {align:"center"});
-
-      cursorY += 58;
-
-      // ─── SECCIÓN 2: PIPELINE HEALTH ───
-      doc.setTextColor(0, 43, 73);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(13);
-      doc.text("📊 Salud del Pipeline", margin, cursorY);
-      cursorY += 6;
-
-      const pipelinePorEtapa = {};
-      ACTIVE_STAGES_LOCAL.forEach(s=>{ pipelinePorEtapa[s] = {count:0, valor:0, ponderado:0}; });
+      // Prospectos activos con detalle completo
+      const prospActivos=[];
       lotesFiltrados.forEach(lot=>{
-        const pip = getLotePipelineLocal(lot.id);
-        if(!ACTIVE_STAGES_LOCAL.includes(pip)) return;
-        const valor = lot.precio_total||0;
-        pipelinePorEtapa[pip].count++;
-        pipelinePorEtapa[pip].valor += valor;
-        pipelinePorEtapa[pip].ponderado += valor * stageProb[pip];
-      });
-
-      const pipeRows = ACTIVE_STAGES_LOCAL.map(s=>{
-        const d = pipelinePorEtapa[s];
-        return [s, d.count.toString(), fmtMoney(d.valor), (stageProb[s]*100).toFixed(0)+"%", fmtMoney(d.ponderado)];
-      });
-      const totalPipelineValor = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.valor,0);
-      const totalPipelinePonderado = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.ponderado,0);
-      const totalPipelineCount = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.count,0);
-      pipeRows.push(["TOTAL ACTIVO", totalPipelineCount.toString(), fmtMoney(totalPipelineValor), "—", fmtMoney(totalPipelinePonderado)]);
-
-      doc.autoTable({
-        startY: cursorY,
-        head: [["Etapa", "Lotes", "Valor", "Prob.", "Ponderado"]],
-        body: pipeRows,
-        theme: "striped",
-        headStyles: {fillColor:[0,43,73], textColor:[255,255,255], fontSize:9, fontStyle:"bold"},
-        bodyStyles: {fontSize:9, textColor:[51,65,85]},
-        columnStyles: {0:{fontStyle:"bold"}, 1:{halign:"right"}, 2:{halign:"right"}, 3:{halign:"right"}, 4:{halign:"right",textColor:[212,175,55],fontStyle:"bold"}},
-        margin: {left:margin, right:margin},
-        didParseCell: function(data) {
-          // Última fila (TOTAL) en negritas con fondo destacado
-          if(data.row.index === pipeRows.length-1){
-            data.cell.styles.fillColor = [248, 250, 252];
-            data.cell.styles.fontStyle = "bold";
-            data.cell.styles.textColor = [0, 43, 73];
-          }
-        }
-      });
-      cursorY = doc.lastAutoTable.finalY + 10;
-
-      // ─── SECCIÓN 3: PERFORMANCE POR DESARROLLADOR ───
-      // Verificar si hay espacio o nueva página
-      if(cursorY > pageH - 60) { doc.addPage(); cursorY = margin + 5; }
-
-      doc.setTextColor(0, 43, 73);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(13);
-      doc.text("🏢 Performance por Desarrollador", margin, cursorY);
-      cursorY += 6;
-
-      const performancePorDev = {};
-      Object.entries(metasData||{}).forEach(([nombre, d])=>{
-        if(!d||!d.plan||!d.real||!d.desarrollador) return;
-        if(ejecFiltroDesarrollador!=="Todos" && d.desarrollador!==ejecFiltroDesarrollador) return;
-        const dev = d.desarrollador;
-        if(!performancePorDev[dev]) performancePorDev[dev] = {planMonto:0,realMonto:0,metaYTDMonto:0,desarrollos:0};
-        performancePorDev[dev].planMonto += (d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
-        performancePorDev[dev].realMonto += (d.real.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
-        performancePorDev[dev].metaYTDMonto += (d.plan.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
-        performancePorDev[dev].desarrollos++;
-      });
-      const ranking = Object.entries(performancePorDev)
-        .map(([dev,d])=>({dev,...d,cumplYTD: d.metaYTDMonto>0?d.realMonto/d.metaYTDMonto:0}))
-        .sort((a,b)=>b.cumplYTD - a.cumplYTD);
-
-      if(ranking.length>0){
-        const devRows = ranking.map((d,i)=>{
-          const medalla = i===0?"🥇":(i===1?"🥈":(i===2?"🥉":"  "));
-          return [medalla+" "+d.dev, d.desarrollos+"", fmtMoney(d.realMonto), fmtMoney(d.metaYTDMonto), (d.cumplYTD*100).toFixed(0)+"%"];
+        const crm=crmData[lot.id]; if(!crm||!crm.prospectos) return;
+        crm.prospectos.forEach((p,idx)=>{
+          if(!p||!p.pipeline) return;
+          const pip=p.pipeline;
+          if(pip==="Perdido"||pip==="Vendido") return;
+          if(ejecFiltroEtapa!=="Todos"&&pip!==ejecFiltroEtapa) return;
+          const asesor=p.asesor||crm.asesorResponsable||"Sin asignar";
+          if(ejecFiltroAsesor!=="Todos"&&asesor!==ejecFiltroAsesor) return;
+          const acts=(p.actividades||[]).filter(a=>!a.completada).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+          const proximaAct=acts[0]||null;
+          const actVencida=proximaAct&&new Date(proximaAct.fecha+"T12:00:00")<new Date()?true:false;
+          const diasEnPipeline=crm.lastContact?Math.floor((Date.now()-new Date(crm.lastContact).getTime())/864e5):null;
+          const interacciones=(crm.interacciones||[]).length;
+          prospActivos.push({lot,p,pip,asesor,proximaAct,actVencida,diasEnPipeline,interacciones,
+            temperatura:p.temperatura||"Sin definir",nota:p.nota||"",valor:lot.precio_total||0});
         });
-        doc.autoTable({
-          startY: cursorY,
-          head: [["Desarrollador", "# Des.", "Vendido YTD", "Meta YTD", "Cumpl."]],
-          body: devRows,
-          theme: "striped",
-          headStyles: {fillColor:[0,43,73], textColor:[255,255,255], fontSize:9, fontStyle:"bold"},
-          bodyStyles: {fontSize:9, textColor:[51,65,85]},
-          columnStyles: {0:{fontStyle:"bold"}, 1:{halign:"center"}, 2:{halign:"right"}, 3:{halign:"right"}, 4:{halign:"right",fontStyle:"bold"}},
-          margin: {left:margin, right:margin},
-        });
-        cursorY = doc.lastAutoTable.finalY + 10;
-      } else {
-        doc.setFont("helvetica","italic");
+      });
+
+      // KPIs de meta
+      let metaAnual=0,realYTD=0,metaYTD=0,realUds=0;
+      Object.entries(metasData||{}).forEach(([nombre,d])=>{
+        if(!d||!d.plan||!d.real) return;
+        if(ejecFiltroDesarrollador!=="Todos"&&d.desarrollador!==ejecFiltroDesarrollador) return;
+        if(ejecFiltroDesarrollo!=="Todos"&&nombre!==ejecFiltroDesarrollo) return;
+        metaAnual+=(d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
+        realYTD+=(d.real.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+        metaYTD+=(d.plan.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+        realUds+=(d.real.uds||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+      });
+      const cumplYTD=metaYTD>0?realYTD/metaYTD:0;
+      const cumplAnual=metaAnual>0?realYTD/metaAnual:0;
+      const status=cumplYTD>=0.95?"ON TRACK":cumplYTD>=0.75?"EN RIESGO":"BEHIND";
+      const statusCol=cumplYTD>=0.95?green:cumplYTD>=0.75?amber:red;
+
+      // Pipeline por etapa
+      const pipeEtapa={};
+      ACTIVE_STAGES.forEach(s=>{ pipeEtapa[s]={count:0,valor:0,ponderado:0}; });
+      lotesFiltrados.forEach(lot=>{
+        const pip=getLotePipelineLocal(lot.id);
+        if(!ACTIVE_STAGES.includes(pip)) return;
+        const val=lot.precio_total||0;
+        pipeEtapa[pip].count++;
+        pipeEtapa[pip].valor+=val;
+        pipeEtapa[pip].ponderado+=val*(stageProb[pip]||0);
+      });
+      const totalBruto=Object.values(pipeEtapa).reduce((a,e)=>a+e.valor,0);
+      const totalPonderado=Object.values(pipeEtapa).reduce((a,e)=>a+e.ponderado,0);
+
+      // Forecast 30/60/90
+      const hoy=new Date(); hoy.setHours(0,0,0,0);
+      const forecast30=prospActivos.filter(p=>{
+        if(!p.proximaAct) return false;
+        const d=new Date(p.proximaAct.fecha+"T12:00:00");
+        return d>=hoy&&Math.floor((d-hoy)/864e5)<=30;
+      });
+
+      // ─── HELPERS DE LAYOUT ───
+      const checkPage=(needed)=>{ if(Y+needed>pageH-18){doc.addPage();Y=margin+5;} };
+      const sectionHeader=(title,color=navy)=>{
+        checkPage(16);
+        doc.setFillColor(...color);
+        doc.rect(margin,Y,pageW-margin*2,8,"F");
+        doc.setTextColor(...white);
+        doc.setFont("helvetica","bold");
         doc.setFontSize(9);
-        doc.setTextColor(150,150,150);
-        doc.text("Sin metas configuradas para los desarrolladores filtrados", margin, cursorY);
-        cursorY += 10;
-      }
+        doc.text(title,margin+3,Y+5.5);
+        Y+=12;
+        doc.setTextColor(0,0,0);
+      };
+      const addFooter=()=>{
+        const total=doc.internal.getNumberOfPages();
+        for(let i=1;i<=total;i++){
+          doc.setPage(i);
+          doc.setDrawColor(...gold); doc.setLineWidth(0.3);
+          doc.line(margin,pageH-12,pageW-margin,pageH-12);
+          doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...grey);
+          doc.text("MacroPro  |  Grupo Guia",margin,pageH-7);
+          doc.text(modo==="ceo"?"CONFIDENCIAL - Uso interno":"Reporte Ejecutivo",pageW/2,pageH-7,{align:"center"});
+          doc.text("Pagina "+i+" de "+total,pageW-margin,pageH-7,{align:"right"});
+        }
+      };
 
-      // ─── SECCIÓN 4: TOP DEALS EN PIPELINE ───
-      if(cursorY > pageH - 70) { doc.addPage(); cursorY = margin + 5; }
+      // ══════════════════════════════════════════
+      // PORTADA
+      // ══════════════════════════════════════════
+      doc.setFillColor(...navy); doc.rect(0,0,pageW,52,"F");
+      doc.setFillColor(...gold); doc.rect(0,52,pageW,2,"F");
+      doc.setTextColor(...white); doc.setFont("helvetica","bold"); doc.setFontSize(26);
+      doc.text("MacroPro",margin,24);
+      doc.setFontSize(10); doc.setFont("helvetica","normal");
+      doc.text("by Grupo Guia",margin,31);
+      doc.setFontSize(9); doc.setTextColor(...gold);
+      doc.text(modo==="ceo"?"REPORTE EJECUTIVO INTERNO  |  CEO":"REPORTE EJECUTIVO  |  CLIENTE",pageW-margin,24,{align:"right"});
+      doc.setTextColor(...white); doc.setFontSize(8);
+      doc.text(fechaStr,pageW-margin,31,{align:"right"});
+      Y=66;
+      doc.setTextColor(...navy); doc.setFont("helvetica","bold"); doc.setFontSize(19);
+      doc.text("Vista Ejecutiva",margin,Y); Y+=7;
+      doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(...grey);
+      const alcance=[ejecFiltroDesarrollador!=="Todos"?"Desarrollador: "+ejecFiltroDesarrollador:null,ejecFiltroDesarrollo!=="Todos"?"Desarrollo: "+ejecFiltroDesarrollo:null,ejecFiltroAsesor!=="Todos"?"Asesor: "+ejecFiltroAsesor:null].filter(Boolean).join("  |  ")||"Todos los desarrollos";
+      doc.text("Alcance: "+alcance,margin,Y); Y+=9;
 
-      doc.setTextColor(0, 43, 73);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(13);
-      doc.text("💎 Top Deals en Pipeline", margin, cursorY);
-      cursorY += 6;
-
-      const topDeals = lotesFiltrados.map(l=>({
-        lot:l, valor:l.precio_total||0, pipeline:getLotePipelineLocal(l.id),
-        ponderado:(l.precio_total||0)*stageProb[getLotePipelineLocal(l.id)]
-      }))
-      .filter(d=>ACTIVE_STAGES_LOCAL.includes(d.pipeline))
-      .sort((a,b)=>b.ponderado - a.ponderado)
-      .slice(0,10);
-
-      if(topDeals.length>0){
-        const dealRows = topDeals.map((d,i)=>[
-          (i+1)+"", d.lot.nombre||"—", d.lot.desarrollo||"—", d.pipeline, fmtMoney(d.valor), fmtMoney(d.ponderado)
-        ]);
-        doc.autoTable({
-          startY: cursorY,
-          head: [["#", "Lote", "Desarrollo", "Etapa", "Valor", "Ponderado"]],
-          body: dealRows,
-          theme: "striped",
-          headStyles: {fillColor:[0,43,73], textColor:[255,255,255], fontSize:9, fontStyle:"bold"},
-          bodyStyles: {fontSize:8, textColor:[51,65,85]},
-          columnStyles: {0:{halign:"center",cellWidth:8}, 4:{halign:"right"}, 5:{halign:"right",textColor:[212,175,55],fontStyle:"bold"}},
-          margin: {left:margin, right:margin},
+      // ── HERO KPIs ──
+      doc.setFillColor(...navy); doc.roundedRect(margin,Y,pageW-margin*2,48,3,3,"F");
+      doc.setTextColor(...gold); doc.setFont("helvetica","bold"); doc.setFontSize(8);
+      doc.text("CIERRE "+ahora.getFullYear(),margin+5,Y+8);
+      doc.setTextColor(...white); doc.setFontSize(20);
+      doc.text(fmtMoney(realYTD),margin+5,Y+21);
+      doc.setFontSize(9); doc.setFont("helvetica","normal");
+      doc.text("de "+fmtMoney(metaAnual)+" meta anual  ("+Math.round(cumplAnual*100)+"%)",margin+5,Y+28);
+      // Mini KPIs
+      const kx=margin+85;
+      [[{l:"VENDIDO YTD",v:realUds+" uds"},{l:"META YTD",v:Math.round(cumplYTD*100)+"%"}],[{l:"PIPELINE BRUTO",v:fmtMoney(totalBruto)},{l:"PONDERADO",v:fmtMoney(totalPonderado)}]].forEach((row,ri)=>{
+        row.forEach((k,ki)=>{
+          const kx2=kx+(ki*45);
+          doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(160,160,160);
+          doc.text(k.l,kx2,Y+8+(ri*20));
+          doc.setFont("helvetica","bold"); doc.setFontSize(11);
+          const kc=ri===0&&ki===1?(cumplYTD>=0.95?[167,243,208]:cumplYTD>=0.75?[253,230,138]:[254,202,202]):white;
+          doc.setTextColor(...kc);
+          doc.text(k.v,kx2,Y+14+(ri*20));
         });
-        cursorY = doc.lastAutoTable.finalY + 10;
+      });
+      // Status badge
+      doc.setFillColor(...statusCol); doc.roundedRect(pageW-margin-28,Y+5,23,7,2,2,"F");
+      doc.setTextColor(...white); doc.setFontSize(7); doc.setFont("helvetica","bold");
+      doc.text(status,pageW-margin-16.5,Y+10,{align:"center"});
+      Y+=56;
+
+
+      // ══════════════════════════════════════════
+      // SECCION 0: RESUMEN NARRATIVO
+      // ══════════════════════════════════════════
+      checkPage(28);
+      doc.setFillColor(248,250,252);
+      doc.rect(margin,Y,pageW-margin*2,1,"F");
+      Y+=4;
+      // Construir texto narrativo
+      const totalActivos=prospActivos.length;
+      const mejorDeal=prospActivos.sort((a,b)=>(stageProb[b.pip]||0)-(stageProb[a.pip]||0))[0]||null;
+      // Restaurar orden original
+      prospActivos.sort((a,b)=>(stageProb[b.pip]||0)-(stageProb[a.pip]||0));
+      const calientes=prospActivos.filter(p=>p.temperatura==="Caliente").length;
+      const actVencidaCount=prospActivos.filter(p=>p.actVencida).length;
+      const sinSiguiente=prospActivos.filter(p=>!p.proximaAct).length;
+      const interaccionesMes=lotesFiltrados.reduce((acc,lot)=>{
+        const crm=crmData[lot.id]; if(!crm||!crm.interacciones) return acc;
+        const mes=new Date(); mes.setDate(1); mes.setHours(0,0,0,0);
+        return acc+(crm.interacciones.filter(i=>new Date(i.fecha||i.date||0)>=mes)).length;
+      },0);
+      let narrativa="";
+      if(totalActivos===0){
+        narrativa="Sin prospectos activos para el alcance seleccionado. Se recomienda iniciar prospectacion activa.";
+      } else {
+        narrativa+=(ejecFiltroDesarrollo!=="Todos"?ejecFiltroDesarrollo:"El desarrollo")+" cuenta con "+totalActivos+" prospecto(s) activo(s)";
+        if(calientes>0) narrativa+=", de los cuales "+calientes+" estan calientes";
+        narrativa+=". ";
+        if(mejorDeal) narrativa+="El deal mas avanzado es "+mejorDeal.p.nombre+" ("+mejorDeal.pip+", "+fmtMoney(mejorDeal.valor)+")";
+        if(mejorDeal&&mejorDeal.proximaAct) narrativa+=" con proxima accion el "+mejorDeal.proximaAct.fecha;
+        narrativa+=". ";
+        if(actVencidaCount>0) narrativa+="ALERTA: "+actVencidaCount+" actividad(es) vencida(s) requieren atencion inmediata. ";
+        if(sinSiguiente>0) narrativa+=sinSiguiente+" prospecto(s) no tienen siguiente paso agendado. ";
+        if(interaccionesMes>0) narrativa+="Este mes se registraron "+interaccionesMes+" interaccion(es) con clientes.";
+      }
+      doc.setFillColor(0,43,73); doc.rect(margin,Y,3,18,"F");
+      doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(0,43,73);
+      doc.text("RESUMEN EJECUTIVO",margin+6,Y+5);
+      doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(51,65,85);
+      const narrativaLines=doc.splitTextToSize(narrativa,pageW-margin*2-10);
+      doc.text(narrativaLines,margin+6,Y+11);
+      Y+=Math.max(22,narrativaLines.length*4.5+8);
+
+      // ══════════════════════════════════════════
+      // SECCION 1: PIPELINE SALUD
+      // ══════════════════════════════════════════
+      sectionHeader("1 | SALUD DEL PIPELINE");
+      const pipeRows=ACTIVE_STAGES.map(s=>{
+        const d=pipeEtapa[s];
+        return [s,d.count+"",fmtMoney(d.valor),Math.round((stageProb[s]||0)*100)+"%",fmtMoney(d.ponderado)];
+      });
+      pipeRows.push(["TOTAL ACTIVO",Object.values(pipeEtapa).reduce((a,e)=>a+e.count,0)+"",fmtMoney(totalBruto),"—",fmtMoney(totalPonderado)]);
+      doc.autoTable({startY:Y,head:[["Etapa","Lotes","Valor Bruto","Prob.","Ponderado"]],body:pipeRows,theme:"striped",
+        headStyles:{fillColor:[0,43,73],textColor:white,fontSize:8,fontStyle:"bold"},
+        bodyStyles:{fontSize:8,textColor:[51,65,85]},
+        columnStyles:{0:{fontStyle:"bold"},1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right",textColor:gold,fontStyle:"bold"}},
+        margin:{left:margin,right:margin},
+        didParseCell:(data)=>{ if(data.row.index===pipeRows.length-1){data.cell.styles.fillColor=[248,250,252];data.cell.styles.fontStyle="bold";data.cell.styles.textColor=[0,43,73];} }
+      });
+      Y=doc.lastAutoTable.finalY+8;
+
+      // ══════════════════════════════════════════
+      // SECCION 2: PROSPECTOS - ESTADO ACTUAL Y PROXIMA ACCION
+      // ══════════════════════════════════════════
+      checkPage(20);
+      sectionHeader("2 | PROSPECTOS ACTIVOS  |  ESTADO Y PROXIMA ACCION",[8,145,178]);
+      if(prospActivos.length===0){
+        doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...grey);
+        doc.text("Sin prospectos activos para los filtros seleccionados.",margin,Y); Y+=10;
+      } else {
+        const tempLegend={"Caliente":"(C)","Tibio":"(T)","Frio":"(F)"};
+        const cols=modo==="ceo"
+          ?["Cliente","T","Etapa","Asesor","Dias","Interacc.","Proxima Accion","Fecha"]
+          :["Cliente","T","Etapa","Asesor","Proxima Accion","Fecha"];
+        const rows=prospActivos.slice(0,20).map(r=>{
+          const temp=tempLegend[r.temperatura]||"-";
+          const prox=r.proximaAct?(r.actVencida?"[VENCIDA] ":"")+r.proximaAct.tipo+(r.proximaAct.descripcion?" - "+r.proximaAct.descripcion.slice(0,35):""):"Sin actividad agendada";
+          const fecha=r.proximaAct?r.proximaAct.fecha:"-";
+          const base=[r.p.nombre,temp,r.pip,r.asesor,prox,fecha];
+          if(modo==="ceo") return [r.p.nombre,temp,r.pip,r.asesor,r.diasEnPipeline!==null?r.diasEnPipeline+"d":"-",r.interacciones+"",prox,fecha];
+          return base;
+        });
+        doc.autoTable({startY:Y,head:[cols],body:rows,theme:"striped",
+          headStyles:{fillColor:[8,145,178],textColor:white,fontSize:7,fontStyle:"bold"},
+          bodyStyles:{fontSize:7,textColor:[51,65,85]},
+          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:35},1:{halign:"center",cellWidth:8},2:{cellWidth:28},3:{cellWidth:22},4:{cellWidth:55},5:{cellWidth:20}},
+          margin:{left:margin,right:margin},
+          didParseCell:(data)=>{
+            if(data.section==="body"&&data.column.index===1){
+              const v=data.cell.raw;
+              data.cell.styles.textColor=v==="(C)"?red:v==="(T)"?amber:[37,99,235];
+              data.cell.styles.fontStyle="bold";
+            }
+            if(data.section==="body"&&data.cell.raw&&String(data.cell.raw).startsWith("[VENCIDA]")){
+              data.cell.styles.textColor=red; data.cell.styles.fontStyle="bold";
+            }
+          }
+        });
+        Y=doc.lastAutoTable.finalY+8;
       }
 
-      // ─── SECCIÓN 5: RIESGOS Y ALERTAS (solo CEO) ───
+      // ══════════════════════════════════════════
+      // SECCION 3: TEMPERATURA Y URGENCIA
+      // ══════════════════════════════════════════
+      checkPage(40);
+      sectionHeader("3 | TEMPERATURA DE PROSPECTOS  Y  URGENCIA");
+      const byTemp={Caliente:[],Tibio:[],Frio:[],Sin:[]}; 
+      const vencidos=[]; const sinActividad=[];
+      prospActivos.forEach(p=>{
+        const k=p.temperatura==="Caliente"?"Caliente":p.temperatura==="Tibio"?"Tibio":p.temperatura==="Frio"||p.temperatura==="Frío"?"Frio":"Sin";
+        byTemp[k].push(p);
+        if(p.actVencida) vencidos.push(p);
+        if(!p.proximaAct) sinActividad.push(p);
+      });
+      const tempBlocks=[[byTemp.Caliente,"CALIENTES",red],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.Sin,"SIN TEMP",grey]];
+      const bw=(pageW-margin*2)/4;
+      tempBlocks.forEach(([arr,label,col],i)=>{
+        const bx=margin+i*bw;
+        doc.setFillColor(...col); doc.roundedRect(bx,Y,bw-3,22,2,2,"F");
+        doc.setTextColor(...white); doc.setFont("helvetica","bold"); doc.setFontSize(16);
+        doc.text(arr.length+"",bx+bw/2-1.5,Y+13,{align:"center"});
+        doc.setFontSize(7); doc.setFont("helvetica","normal");
+        doc.text(label,bx+bw/2-1.5,Y+19,{align:"center"});
+      });
+      Y+=28;
+      if(vencidos.length>0||sinActividad.length>0){
+        doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(...red);
+        if(vencidos.length>0) doc.text("ACCION REQUERIDA: "+vencidos.length+" actividad(es) vencida(s) - "+vencidos.map(p=>p.p.nombre).slice(0,3).join(", ")+(vencidos.length>3?"...":""),margin,Y);
+        Y+=5;
+        doc.setTextColor(...amber);
+        if(sinActividad.length>0) doc.text("SIN SIGUIENTE PASO: "+sinActividad.length+" prospecto(s) sin actividad agendada - "+sinActividad.map(p=>p.p.nombre).slice(0,3).join(", ")+(sinActividad.length>3?"...":""),margin,Y);
+        Y+=8;
+      }
+
+
+      // ══════════════════════════════════════════
+      // SECCION 3B: ACTIVIDAD DEL PERIODO
+      // ══════════════════════════════════════════
+      checkPage(30);
+      sectionHeader("+ | ACTIVIDAD DEL PERIODO  |  ESTE MES",[75,85,99]);
+      const hoyMs=Date.now();
+      const inicioMes=new Date(ahora.getFullYear(),ahora.getMonth(),1).getTime();
+      let totalInteracc=0,llamadas=0,visitas=0,propuestas=0,nuevosProsp=0,diasEnStage=[];
+      lotesFiltrados.forEach(lot=>{
+        const crm=crmData[lot.id]; if(!crm) return;
+        // Interacciones del mes
+        (crm.interacciones||[]).forEach(i=>{
+          const t=new Date(i.fecha||i.date||0).getTime();
+          if(t>=inicioMes){ totalInteracc++;
+            const tipo=(i.tipo||i.canal||"").toLowerCase();
+            if(tipo.includes("llam")||tipo.includes("tel")||tipo.includes("whats")) llamadas++;
+            else if(tipo.includes("visit")||tipo.includes("reuni")) visitas++;
+            else if(tipo.includes("prop")) propuestas++;
+          }
+        });
+        // Nuevos prospectos este mes
+        (crm.prospectos||[]).forEach(p=>{
+          if(p&&p.fechaCreacion&&new Date(p.fechaCreacion).getTime()>=inicioMes) nuevosProsp++;
+          // Días promedio en etapa activa
+          if(p&&p.pipeline&&["Prospecto","Contactado","En negociacion","Propuesta","Apartado","Contrato"].includes(p.pipeline)){
+            if(crm.lastContact){
+              const d=Math.floor((hoyMs-new Date(crm.lastContact).getTime())/864e5);
+              diasEnStage.push({stage:p.pipeline,dias:d,nombre:p.nombre});
+            }
+          }
+        });
+      });
+      const avgDias=diasEnStage.length>0?Math.round(diasEnStage.reduce((a,d)=>a+d.dias,0)/diasEnStage.length):0;
+      const actMetrics=[[totalInteracc+"","INTERACCIONES",[0,43,73]],[llamadas+"","LLAMADAS / WA",[8,145,178]],[visitas+"","VISITAS",[22,163,74]],[propuestas+"","PROPUESTAS",[139,92,246]],[nuevosProsp+"","NUEVOS PROSP.",[217,119,6]],[avgDias+"d","DIAS PROM. PIPELINE",[100,116,139]]];
+      const mw=(pageW-margin*2)/6;
+      actMetrics.forEach(([val,lbl,col],i)=>{
+        const bx=margin+i*mw;
+        doc.setFillColor(...col); doc.roundedRect(bx,Y,mw-2,20,2,2,"F");
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+        doc.text(val,bx+mw/2-1,Y+12,{align:"center"});
+        doc.setFontSize(6); doc.setFont("helvetica","normal");
+        doc.text(lbl,bx+mw/2-1,Y+17,{align:"center"});
+      });
+      Y+=26;
+
+      // ══════════════════════════════════════════
+      // SECCION 4: TOP DEALS
+      // ══════════════════════════════════════════
+      checkPage(20);
+      sectionHeader("4 | TOP DEALS EN PIPELINE",[22,163,74]);
+      const topDeals=lotesFiltrados.map(l=>({lot:l,pip:getLotePipelineLocal(l.id),ponderado:(l.precio_total||0)*(stageProb[getLotePipelineLocal(l.id)]||0)}))
+        .filter(d=>ACTIVE_STAGES.includes(d.pip)).sort((a,b)=>b.ponderado-a.ponderado).slice(0,8);
+      if(topDeals.length>0){
+        const dealRows=topDeals.map((d,i)=>[(i+1)+"",d.lot.nombre||"—",d.lot.desarrollo||"—",d.pip,fmtMoney(d.lot.precio_total||0),fmtMoney(d.ponderado)]);
+        doc.autoTable({startY:Y,head:[["#","Lote","Desarrollo","Etapa","Valor","Ponderado"]],body:dealRows,theme:"striped",
+          headStyles:{fillColor:[22,163,74],textColor:white,fontSize:8,fontStyle:"bold"},
+          bodyStyles:{fontSize:8},
+          columnStyles:{0:{halign:"center",cellWidth:8},4:{halign:"right"},5:{halign:"right",textColor:gold,fontStyle:"bold"}},
+          margin:{left:margin,right:margin}
+        });
+        Y=doc.lastAutoTable.finalY+8;
+      }
+
+      // ══════════════════════════════════════════
+      // SECCION 5: FORECAST 30/60/90 DIAS
+      // ══════════════════════════════════════════
+      checkPage(30);
+      sectionHeader("5 | FORECAST PROXIMOS 90 DIAS",[139,92,246]);
+      const periodos=[["PROXIMOS 30 DIAS",0,30],["+30 A 60 DIAS",31,60],["+60 A 90 DIAS",61,90]];
+      const fRows=periodos.map(([lbl,min,max])=>{
+        const deals=prospActivos.filter(p=>{
+          if(!p.proximaAct) return false;
+          const diff=Math.floor((new Date(p.proximaAct.fecha+"T12:00:00")-hoy)/864e5);
+          return diff>=min&&diff<=max;
+        });
+        const val=deals.reduce((a,p)=>a+p.valor,0);
+        return [lbl,deals.length+"",fmtMoney(val),deals.map(p=>p.p.nombre).slice(0,3).join(", ")+(deals.length>3?"...":"")];
+      });
+      doc.autoTable({startY:Y,head:[["Periodo","Deals","Valor","Prospectos"]],body:fRows,theme:"grid",
+        headStyles:{fillColor:[139,92,246],textColor:white,fontSize:8,fontStyle:"bold"},
+        bodyStyles:{fontSize:8},
+        columnStyles:{0:{fontStyle:"bold",cellWidth:35},1:{halign:"right",cellWidth:12},2:{halign:"right",cellWidth:25},3:{cellWidth:"auto"}},
+        margin:{left:margin,right:margin}
+      });
+      Y=doc.lastAutoTable.finalY+8;
+
+      // ══════════════════════════════════════════
+      // SECCION 6: PERFORMANCE POR DESARROLLADOR
+      // ══════════════════════════════════════════
+      checkPage(20);
+      sectionHeader("6 | PERFORMANCE POR DESARROLLADOR");
+      const perfDev={};
+      Object.entries(metasData||{}).forEach(([nombre,d])=>{
+        if(!d||!d.plan||!d.real||!d.desarrollador) return;
+        if(ejecFiltroDesarrollador!=="Todos"&&d.desarrollador!==ejecFiltroDesarrollador) return;
+        const dev=d.desarrollador;
+        if(!perfDev[dev]) perfDev[dev]={plan:0,real:0,metaYTD:0,devs:0};
+        perfDev[dev].plan+=(d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
+        perfDev[dev].real+=(d.real.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+        perfDev[dev].metaYTD+=(d.plan.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+        perfDev[dev].devs++;
+      });
+      const perfRows=Object.entries(perfDev).map(([dev,d])=>[dev,d.devs+"",fmtMoney(d.real),fmtMoney(d.metaYTD),(d.metaYTD>0?Math.round(d.real/d.metaYTD*100):0)+"%"]).sort((a,b)=>parseInt(b[4])-parseInt(a[4]));
+      if(perfRows.length>0){
+        doc.autoTable({startY:Y,head:[["Desarrollador","# Des.","Vendido YTD","Meta YTD","Cumpl."]],body:perfRows,theme:"striped",
+          headStyles:{fillColor:navy,textColor:white,fontSize:8,fontStyle:"bold"},
+          bodyStyles:{fontSize:8},
+          columnStyles:{0:{fontStyle:"bold"},1:{halign:"center"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right",fontStyle:"bold"}},
+          margin:{left:margin,right:margin}
+        });
+        Y=doc.lastAutoTable.finalY+8;
+      }
+
+
+      // ══════════════════════════════════════════
+      // SECCION 7: LOTES DISPONIBLES
+      // ══════════════════════════════════════════
+      checkPage(20);
+      const lotesDisponibles=lotesFiltrados.filter(l=>{
+        const pip=getLotePipelineLocal(l.id);
+        return pip==="Disponible";
+      }).sort((a,b)=>(a.precio_total||0)-(b.precio_total||0));
+      if(lotesDisponibles.length>0){
+        sectionHeader("7 | INVENTARIO DISPONIBLE",[107,114,128]);
+        const dispRows=lotesDisponibles.slice(0,12).map(l=>[
+          l.nombre||"—", l.uso||"—",
+          l.sup_m2?(l.sup_m2.toLocaleString("es-MX",{maximumFractionDigits:0})+" m²"):"—",
+          l.precio_m2?("$"+Math.round(l.precio_m2).toLocaleString("es-MX")+"/m²"):"—",
+          fmtMoney(l.precio_total||0),
+          l.entrega||"—"
+        ]);
+        doc.autoTable({startY:Y,head:[["Lote","Uso","Superficie","Precio/m²","Precio Total","Entrega"]],body:dispRows,theme:"striped",
+          headStyles:{fillColor:[107,114,128],textColor:white,fontSize:8,fontStyle:"bold"},
+          bodyStyles:{fontSize:7.5,textColor:[51,65,85]},
+          columnStyles:{2:{halign:"right"},3:{halign:"right"},4:{halign:"right",fontStyle:"bold"}},
+          margin:{left:margin,right:margin}
+        });
+        Y=doc.lastAutoTable.finalY+8;
+        if(lotesDisponibles.length>12){
+          doc.setFont("helvetica","italic"); doc.setFontSize(7); doc.setTextColor(...grey);
+          doc.text("* Se muestran los primeros 12 lotes. Total disponible: "+lotesDisponibles.length,margin,Y);
+          Y+=6;
+        }
+      }
+
+      // ══════════════════════════════════════════
+      // SECCION 7B: POSICIONAMIENTO VS MERCADO
+      // ══════════════════════════════════════════
+      const compData=JSON.parse(localStorage.getItem("macropro_mercado_competencia")||"null");
+      if(compData&&compData.length>0&&lotesFiltrados.length>0){
+        checkPage(30);
+        sectionHeader("8 | POSICIONAMIENTO VS MERCADO  |  RADIO 3KM",[16,185,129]);
+        // Get reference coords from our lots
+        const refLot=lotesFiltrados.find(l=>l.lat&&l.lng)||lotesFiltrados[0];
+        const refLat=refLot&&refLot.lat?refLot.lat:null;
+        const refLng=refLot&&refLot.lng?refLot.lng:null;
+        const haversine=(lat1,lng1,lat2,lng2)=>{
+          const R=6371; const dLat=(lat2-lat1)*Math.PI/180; const dLng=(lng2-lng1)*Math.PI/180;
+          const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+          return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+        };
+        const nuestrosPreciosM2=lotesFiltrados.map(l=>l.precio_m2).filter(p=>p>0);
+        const nuestroPromedio=nuestrosPreciosM2.length>0?nuestrosPreciosM2.reduce((a,b)=>a+b,0)/nuestrosPreciosM2.length:0;
+        let compCercanos=[];
+        if(refLat&&refLng){
+          compCercanos=compData.filter(c=>c.lat&&c.lng&&haversine(refLat,refLng,c.lat,c.lng)<=3)
+            .filter(c=>(c.pm2_lote||c.pm2_dpto||c.pm2_casa)>0)
+            .map(c=>({...c,precio:c.pm2_lote||c.pm2_dpto||c.pm2_casa,dist:haversine(refLat,refLng,c.lat,c.lng)}))
+            .sort((a,b)=>a.dist-b.dist).slice(0,8);
+        }
+        if(nuestroPromedio>0&&compCercanos.length>0){
+          const mercadoPromedio=compCercanos.reduce((a,c)=>a+c.precio,0)/compCercanos.length;
+          const diff=((nuestroPromedio-mercadoPromedio)/mercadoPromedio*100);
+          const posColor=diff<=-10?green:diff<=10?amber:red;
+          // KPI de posicion
+          doc.setFillColor(...posColor); doc.roundedRect(margin,Y,pageW-margin*2,14,2,2,"F");
+          doc.setTextColor(...white); doc.setFont("helvetica","bold"); doc.setFontSize(10);
+          const posText=diff<=-10?"PRECIO COMPETITIVO - Por debajo del mercado":diff<=10?"PRECIO EN RANGO DE MERCADO":"PRECIO POR ENCIMA DEL MERCADO";
+          doc.text(posText,pageW/2,Y+5.5,{align:"center"});
+          doc.setFontSize(8); doc.setFont("helvetica","normal");
+          doc.text("Nuestro: $"+Math.round(nuestroPromedio).toLocaleString("es-MX")+"/m²   |   Mercado 3km: $"+Math.round(mercadoPromedio).toLocaleString("es-MX")+"/m²   |   Diferencia: "+(diff>0?"+":"")+diff.toFixed(1)+"%",pageW/2,Y+11,{align:"center"});
+          Y+=18;
+          const compRows=compCercanos.map(c=>[c.nombre||"—",c.tipo||"—","$"+Math.round(c.precio).toLocaleString("es-MX")+"/m²",c.dist.toFixed(1)+"km",(diff<=-10?"<":diff<=10?"=":">"+(c.precio>nuestroPromedio?" Nosotros mas caro":""))]);
+          const diffColMap=compCercanos.map(c=>c.precio>nuestroPromedio?green:red);
+          doc.autoTable({startY:Y,head:[["Competidor","Tipo","Precio/m²","Distancia","vs Nosotros"]],body:compRows,theme:"striped",
+            headStyles:{fillColor:[16,185,129],textColor:white,fontSize:7.5,fontStyle:"bold"},
+            bodyStyles:{fontSize:7.5},
+            columnStyles:{2:{halign:"right",fontStyle:"bold"},3:{halign:"center"},4:{halign:"center"}},
+            margin:{left:margin,right:margin},
+            didParseCell:(data)=>{
+              if(data.section==="body"&&data.column.index===2){
+                const idx=data.row.index;
+                if(idx<compCercanos.length) data.cell.styles.textColor=compCercanos[idx].precio>nuestroPromedio?green:red;
+              }
+            }
+          });
+          Y=doc.lastAutoTable.finalY+8;
+        } else {
+          doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...grey);
+          doc.text(refLat?"Sin competidores con coordenadas en radio 3km.":"Sin coordenadas disponibles para este desarrollo.",margin,Y); Y+=10;
+        }
+      }
+
+      // ══════════════════════════════════════════
+      // SECCION 7: RIESGOS Y ALERTAS (solo CEO)
+      // ══════════════════════════════════════════
       if(modo==="ceo"){
-        if(cursorY > pageH - 70) { doc.addPage(); cursorY = margin + 5; }
-
-        doc.setTextColor(0, 43, 73);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(13);
-        doc.text("🚨 Riesgos y Alertas (solo interno)", margin, cursorY);
-        cursorY += 6;
-
-        // Lotes sin movimiento
-        const lotesSinMov60 = lotesFiltrados.filter(l=>{
+        checkPage(20);
+        sectionHeader("7 | RIESGOS Y ALERTAS  [CONFIDENCIAL]",red);
+        const alertas=[];
+        const sinMov60=lotesFiltrados.filter(l=>{
           const e=crmData[l.id]; if(!e||!e.lastContact) return false;
           const pip=getLotePipelineLocal(l.id);
           if(pip==="Perdido"||pip==="Vendido"||pip==="Disponible") return false;
-          const dias=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));
-          return dias>60;
+          return Math.floor((Date.now()-new Date(e.lastContact).getTime())/864e5)>60;
         });
-
-        const lotesPremium = lotesFiltrados.filter(l=>{
-          if((l.precio_total||0) < 5e6) return false;
-          const pip = getLotePipelineLocal(l.id);
+        const sinAsesor=lotesFiltrados.filter(l=>{
+          if((l.precio_total||0)<5e6) return false;
+          const pip=getLotePipelineLocal(l.id);
           if(pip==="Vendido"||pip==="Perdido") return false;
-          const crm = crmData[l.id];
+          const crm=crmData[l.id];
           if(!crm) return true;
-          const tieneAsesor = crm.asesorResponsable || (crm.prospectos||[]).some(p=>p.asesor);
-          return !tieneAsesor;
+          return !(crm.asesorResponsable||(crm.prospectos||[]).some(p=>p.asesor));
         });
-
-        const alertas = [];
-        if(lotesSinMov60.length>0) alertas.push(["📉 Lotes sin movimiento +60d", lotesSinMov60.length+"", lotesSinMov60.slice(0,3).map(l=>l.nombre).join(", ")]);
-        if(lotesPremium.length>0) alertas.push(["💎 Lotes premium sin asesor", lotesPremium.length+"", lotesPremium.slice(0,3).map(l=>l.nombre+" ("+fmtMoney(l.precio_total)+")").join(", ")]);
-
+        if(vencidos.length>0) alertas.push(["Actividades vencidas",vencidos.length+"",vencidos.slice(0,3).map(p=>p.p.nombre).join(", ")]);
+        if(sinActividad.length>0) alertas.push(["Prospectos sin prox. accion",sinActividad.length+"",sinActividad.slice(0,3).map(p=>p.p.nombre).join(", ")]);
+        if(sinMov60.length>0) alertas.push(["Lotes sin movimiento +60d",sinMov60.length+"",sinMov60.slice(0,3).map(l=>l.nombre).join(", ")]);
+        if(sinAsesor.length>0) alertas.push(["Lotes premium sin asesor",sinAsesor.length+"",sinAsesor.slice(0,3).map(l=>l.nombre+" ("+fmtMoney(l.precio_total)+")").join(", ")]);
         if(alertas.length>0){
-          doc.autoTable({
-            startY: cursorY,
-            head: [["Tipo de alerta", "Cantidad", "Ejemplos"]],
-            body: alertas,
-            theme: "striped",
-            headStyles: {fillColor:[220,38,38], textColor:[255,255,255], fontSize:9, fontStyle:"bold"},
-            bodyStyles: {fontSize:8, textColor:[51,65,85]},
-            columnStyles: {0:{fontStyle:"bold",cellWidth:55}, 1:{halign:"center",cellWidth:18}, 2:{cellWidth:"auto"}},
-            margin: {left:margin, right:margin},
+          doc.autoTable({startY:Y,head:[["Tipo de Alerta","Cantidad","Ejemplos"]],body:alertas,theme:"striped",
+            headStyles:{fillColor:red,textColor:white,fontSize:8,fontStyle:"bold"},
+            bodyStyles:{fontSize:8},
+            columnStyles:{0:{fontStyle:"bold",cellWidth:55},1:{halign:"center",cellWidth:18},2:{cellWidth:"auto"}},
+            margin:{left:margin,right:margin}
           });
-          cursorY = doc.lastAutoTable.finalY + 10;
+          Y=doc.lastAutoTable.finalY+8;
         } else {
-          doc.setFont("helvetica","italic");
-          doc.setFontSize(9);
-          doc.setTextColor(22,163,74);
-          doc.text("✅ Sin alertas críticas", margin, cursorY);
-          cursorY += 10;
+          doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...green);
+          doc.text("Sin alertas criticas activas.",margin,Y); Y+=10;
         }
       }
 
-      // ─── SECCIÓN 6: PROSPECTOS ACTIVOS DETALLADOS ───
-      if(cursorY > pageH - 70) { doc.addPage(); cursorY = margin + 5; }
-
-      doc.setTextColor(0, 43, 73);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(13);
-      doc.text("👥 Prospectos Activos", margin, cursorY);
-      cursorY += 6;
-
-      const prospectosActivos = [];
-      lotesFiltrados.forEach(lot=>{
-        const crm = crmData[lot.id];
-        if(!crm||!crm.prospectos) return;
-        crm.prospectos.forEach((p)=>{
-          if(!p||!p.pipeline) return;
-          if(p.pipeline==="Perdido"||p.pipeline==="Vendido") return;
-          if(ejecFiltroEtapa!=="Todos"&&p.pipeline!==ejecFiltroEtapa) return;
-          const asesorP = p.asesor||crm.asesorResponsable||"Sin asignar";
-          if(ejecFiltroAsesor!=="Todos"&&asesorP!==ejecFiltroAsesor) return;
-          prospectosActivos.push({
-            nombre: p.nombre||"—",
-            asesor: asesorP,
-            lote: lot.nombre||"—",
-            desarrollo: lot.desarrollo||"—",
-            etapa: p.pipeline,
-            valor: lot.precio_total||0,
-            temperatura: p.temperatura||"—",
-            notaInterna: p.nota||p.notas||""
-          });
-        });
-      });
-
-      if(prospectosActivos.length>0){
-        const cols = modo==="ceo"
-          ? ["Cliente","Asesor","Lote","Desarrollo","Etapa","Valor","Temp.","Nota interna"]
-          : ["Cliente","Asesor","Lote","Desarrollo","Etapa","Valor"];
-        const rows = prospectosActivos.map(p=>{
-          const base = [p.nombre, p.asesor, p.lote, p.desarrollo, p.etapa, fmtMoney(p.valor)];
-          if(modo==="ceo") {
-            base.push(p.temperatura);
-            base.push(p.notaInterna ? (p.notaInterna.length>40 ? p.notaInterna.substring(0,40)+"..." : p.notaInterna) : "—");
-          }
-          return base;
-        });
-        doc.autoTable({
-          startY: cursorY,
-          head: [cols],
-          body: rows,
-          theme: "striped",
-          headStyles: {fillColor:[0,43,73], textColor:[255,255,255], fontSize:8, fontStyle:"bold"},
-          bodyStyles: {fontSize:7, textColor:[51,65,85]},
-          columnStyles: {5:{halign:"right",fontStyle:"bold"}},
-          margin: {left:margin, right:margin},
-        });
-        cursorY = doc.lastAutoTable.finalY + 10;
-      } else {
-        doc.setFont("helvetica","italic");
-        doc.setFontSize(9);
-        doc.setTextColor(150,150,150);
-        doc.text("Sin prospectos activos para los filtros aplicados", margin, cursorY);
-        cursorY += 10;
-      }
-
-      // ─── FOOTER en cada página ───
-      const totalPaginas = doc.internal.getNumberOfPages();
-      for(let i=1; i<=totalPaginas; i++){
-        doc.setPage(i);
-        // Línea dorada
-        doc.setDrawColor(212, 175, 55);
-        doc.setLineWidth(0.3);
-        doc.line(margin, pageH-12, pageW-margin, pageH-12);
-        // Texto footer
-        doc.setFont("helvetica","normal");
-        doc.setFontSize(7);
-        doc.setTextColor(150,150,150);
-        doc.text("MacroPro · Grupo Guía", margin, pageH-7);
-        doc.text(modo==="ceo" ? "CONFIDENCIAL · Uso interno" : "Reporte Ejecutivo", pageW/2, pageH-7, {align:"center"});
-        doc.text("Página "+i+" de "+totalPaginas, pageW-margin, pageH-7, {align:"right"});
-      }
-
-      // ─── DESCARGAR ───
-      const filtroSlug = (ejecFiltroDesarrollador!=="Todos"?ejecFiltroDesarrollador:"Todos")+(ejecFiltroDesarrollo!=="Todos"?"_"+ejecFiltroDesarrollo:"");
-      const fechaSlug = ahora.toISOString().slice(0,10);
-      const filename = "MacroPro_Reporte_"+(modo==="ceo"?"CEO":"Cliente")+"_"+filtroSlug.replace(/[^a-zA-Z0-9]/g,"-")+"_"+fechaSlug+".pdf";
-      doc.save(filename);
-      toast("✅ Reporte PDF descargado");
+      addFooter();
+      const filtroSlug=(ejecFiltroDesarrollador!=="Todos"?ejecFiltroDesarrollador:"Todos")+(ejecFiltroDesarrollo!=="Todos"?"_"+ejecFiltroDesarrollo:"");
+      doc.save("MacroPro_Reporte_"+(modo==="ceo"?"CEO":"Cliente")+"_"+filtroSlug.replace(/[^a-zA-Z0-9]/g,"-")+"_"+ahora.toISOString().slice(0,10)+".pdf");
+      toast("Reporte PDF descargado");
       setShowPDFModal(false);
-    } catch(err) {
-      console.error("Error generando PDF:",err);
-      toast("⚠ Error generando PDF: "+err.message);
+    } catch(err){
+      console.error("Error PDF:",err);
+      toast("Error generando PDF: "+err.message);
     } finally {
       setPdfGenerando(false);
     }
-  };
-
-  const ViewEjecutivo = () => {
+  }; const ViewEjecutivo = () => {
     // ════════════════════════════════════════════════════════════════
     // CEO COCKPIT — Vista ejecutiva de alto nivel para toma de decisiones
     // 6 secciones: Hero · Performance vs Plan · Pipeline Health · 
