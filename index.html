@@ -1347,6 +1347,10 @@ function MacroProMatcher() {
   const [solicitudFiltroPipeline, setSolicitudFiltroPipeline] = React.useState(()=>localStorage.getItem("macropro_solicitud_filtro_pipeline")||"Todos");
   const [showImportModal, setShowImportModal] = React.useState(false);
   const [showICSExportModal, setShowICSExportModal] = React.useState(false);
+  // ── BÚSQUEDA: estado persistente entre re-renders ────────────────
+  const [searchModo, setSearchModo] = React.useState("clientes");
+  const [searchCiudad, setSearchCiudad] = React.useState("");
+  const [searchDesarrollo, setSearchDesarrollo] = React.useState("");
   const [showQuickProspModal, setShowQuickProspModal] = React.useState(false);
   const [quickProspData, setQuickProspData] = React.useState(null); // {lot, p, prospectoIdx, crm}
 
@@ -2622,7 +2626,9 @@ function MacroProMatcher() {
   // ─── VIEW QUICK SEARCH ────────────────────────────────────────────
   const ViewQuickSearch = () => {
     // Estado LOCAL para los inputs — evita que el cursor salte al re-renderizar
-    const [modoSearch, setModoSearch] = useState("clientes"); // "lotes" | "clientes" — default: clientes
+    const [modoSearch, setModoSearch] = [searchModo, setSearchModo];
+    const [ciudadCli, setCiudadCli] = [searchCiudad, setSearchCiudad];
+    const [desarrolloCli, setDesarrolloCli] = [searchDesarrollo, setSearchDesarrollo];
     const [localUso, setLocalUso] = useState(quickSearchCriteria.uso||"");
     const [localSupMin, setLocalSupMin] = useState(quickSearchCriteria.sup_min||"");
     const [localSupMax, setLocalSupMax] = useState(quickSearchCriteria.sup_max||"");
@@ -2684,8 +2690,6 @@ function MacroProMatcher() {
     })();
 
     // ── MODO CLIENTES POR DESARROLLO ────────────────────────────────
-    const [ciudadCli, setCiudadCli] = useState("");
-    const [desarrolloCli, setDesarrolloCli] = useState("");
     const [lotePickerId, setLotePickerId] = useState(null); // clienteId que tiene abierto el picker
     const [loteElegido, setLoteElegido] = useState({}); // {clienteId: lotId}
     const [agregados, setAgregados] = useState(new Set()); // clienteIds ya agregados
@@ -2735,12 +2739,9 @@ function MacroProMatcher() {
       const crm=crmData[lotId]||{pipeline:"Disponible",interacciones:[],prospectos:[]};
       const yaExiste=(crm.prospectos||[]).some(p=>p.nombre===cli.nombre);
       if(yaExiste){toast("⚠ "+cli.nombre+" ya está en ese lote");return;}
-      const nuevoProsp={nombre:cli.nombre,empresa:cli.empresa||"",temperatura:cli.temperatura||"",pipeline:"Prospecto",asesor:cli.asesor||"",nota:"Agregado desde búsqueda por ciudad/desarrollo",fechaCreacion:new Date().toISOString().slice(0,10),actividades:[]};
+      const nuevoProsp={nombre:cli.nombre,empresa:cli.empresa||"",temperatura:cli.temperatura||"",pipeline:"Prospecto",asesor:cli.asesor||"",nota:"Agregado desde búsqueda",fechaCreacion:new Date().toISOString().slice(0,10),actividades:[]};
       const prospectos=[...(crm.prospectos||[]),nuevoProsp];
-      const newEntry={...crm,prospectos,lastContact:new Date().toISOString().slice(0,10)};
-      const newCRM={...crmData,[lotId]:newEntry};
-      saveCRM(newCRM);
-      setCrmData(newCRM);
+      updateCRM(lotId,{prospectos,lastContact:new Date().toISOString().slice(0,10)});
       const newAgregados=new Set(agregados);
       newAgregados.add(cli.id||cli.nombre);
       setAgregados(newAgregados);
