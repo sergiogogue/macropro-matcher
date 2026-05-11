@@ -2737,7 +2737,10 @@ function MacroProMatcher() {
       if(yaExiste){toast("⚠ "+cli.nombre+" ya está en ese lote");return;}
       const nuevoProsp={nombre:cli.nombre,empresa:cli.empresa||"",temperatura:cli.temperatura||"",pipeline:"Prospecto",asesor:cli.asesor||"",nota:"Agregado desde búsqueda por ciudad/desarrollo",fechaCreacion:new Date().toISOString().slice(0,10),actividades:[]};
       const prospectos=[...(crm.prospectos||[]),nuevoProsp];
-      updateCRM(lotId,{prospectos,lastContact:new Date().toISOString().slice(0,10)});
+      const newEntry={...crm,prospectos,lastContact:new Date().toISOString().slice(0,10)};
+      const newCRM={...crmData,[lotId]:newEntry};
+      saveCRM(newCRM);
+      setCrmData(newCRM);
       const newAgregados=new Set(agregados);
       newAgregados.add(cli.id||cli.nombre);
       setAgregados(newAgregados);
