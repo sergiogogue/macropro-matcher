@@ -1299,6 +1299,12 @@ function MacroProMatcher() {
   const [showPDFModal, setShowPDFModal] = React.useState(false);
   const [pdfGenerando, setPdfGenerando] = React.useState(false);
   const [solicitudesAsesor] = React.useState([]);
+  const [metasFiltroDesarrollador, setMetasFiltroDesarrollador] = React.useState(()=>localStorage.getItem("macropro_metas_filtro_dev")||"Todos");
+  const [metasFiltroDesarrollo, setMetasFiltroDesarrollo] = React.useState(()=>localStorage.getItem("macropro_metas_filtro_desarrollo")||"Todos");
+  const [metasModoVista, setMetasModoVista] = React.useState("uds");
+  const [importPreview, setImportPreview] = React.useState(null);
+  const [showSolicitudModal, setShowSolicitudModal] = React.useState(false);
+  const [editingSolicitud, setEditingSolicitud] = React.useState(null);
 
   // Asignación rápida de asesor a lote sin cliente — usable desde cualquier vista
   const [quickAssignLot,setQuickAssignLot]=React.useState(null); // {id, nombre, desarrollo}
