@@ -1507,23 +1507,63 @@ function MacroProMatcher() {
     React.useEffect(()=>{
       if(!window.L || !mapRef.current || !ancla) return;
       if(leafRef.current){ leafRef.current.remove(); leafRef.current=null; }
-      const map = window.L.map(mapRef.current,{zoomControl:true}).setView([ancla.lat,ancla.lng],12);
+      const map = window.L.map(mapRef.current,{zoomControl:true}).setView([ancla.lat,ancla.lng],13);
       window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap",maxZoom:18}).addTo(map);
-      window.L.circle([ancla.lat,ancla.lng],{radius:radio*1000,color:"#C49A22",weight:2,fillColor:"#C49A22",fillOpacity:0.06}).addTo(map);
-      const anclaIcon = window.L.divIcon({html:'<div style="font-size:22px;line-height:1;">⭐</div>',className:"",iconAnchor:[12,12]});
-      window.L.marker([ancla.lat,ancla.lng],{icon:anclaIcon}).addTo(map).bindPopup(`<b>${ancla.nombre}</b><br>${ancla.pm2_ancla?'$'+Math.round(ancla.pm2_ancla).toLocaleString('es-MX')+'/m²':''}`);
+      // Círculo de radio punteado
+      window.L.circle([ancla.lat,ancla.lng],{radius:radio*1000,color:"#C49A22",weight:2,dashArray:"8 5",fillColor:"#C49A22",fillOpacity:0.07}).addTo(map);
+      // Precio corto legible en pins
+      const fmtPin=(v)=>v>=1000000?`$${(v/1000000).toFixed(1)}M`:v>=1000?`$${Math.round(v/1000)}k`:`$${v}`;
+      // ── PIN ANCLA (badge dorado con punta) ──
+      const nombreCorto = ancla.nombre.split(" ").slice(0,2).join(" ");
+      const pm2txt = ancla.pm2_ancla>0 ? fmtPin(ancla.pm2_ancla)+"/m²" : "Grupo Guía";
+      const anclaHtml = `<div style="display:inline-flex;flex-direction:column;align-items:center;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.4));">
+        <div style="background:#C49A22;color:#002B49;border-radius:10px 10px 10px 2px;padding:6px 11px;font-size:11px;font-weight:800;white-space:nowrap;border:2.5px solid #fff;line-height:1.35;text-align:center;">
+          ★ ${nombreCorto}<br><span style="font-size:10px;opacity:0.85;">${pm2txt}</span>
+        </div>
+        <div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid #C49A22;"></div>
+      </div>`;
+      const anclaIcon = window.L.divIcon({html:anclaHtml,className:"",iconAnchor:[60,52]});
+      window.L.marker([ancla.lat,ancla.lng],{icon:anclaIcon,zIndexOffset:1000})
+        .addTo(map)
+        .bindPopup(`<div style="font-family:sans-serif;min-width:160px;padding:2px 0;"><b style="font-size:13px;color:#002B49;">${ancla.nombre}</b><br><span style="color:#C49A22;font-weight:700;font-size:12px;">Grupo Guía</span><br>${ancla.pm2_ancla>0?"<b>$"+Math.round(ancla.pm2_ancla).toLocaleString("es-MX")+"/m²</b>":""}</div>`);
+      // ── PINS COMPETIDORES ──
       competitors.forEach(c=>{
         if(!c.lat||!c.lng) return;
-        const col = !c.pm2_lote ? "#9ca3af" : c.pm2_lote < ancla.pm2_ancla ? "#16a34a" : c.pm2_lote > ancla.pm2_ancla*1.05 ? "#dc2626" : "#d97706";
-        const icon = window.L.divIcon({html:`<div style="width:12px;height:12px;border-radius:50%;background:${col};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);"></div>`,className:"",iconAnchor:[6,6]});
-        const pm2txt = c.pm2_lote ? `$${Math.round(c.pm2_lote).toLocaleString('es-MX')}/m²` : "Sin precio/m²";
-        window.L.marker([c.lat,c.lng],{icon}).addTo(map).bindPopup(`<b>${c.nombre}</b><br><span style='color:#555;font-size:11px;'>${c.desarrollador}</span><br>${pm2txt}<br>${c.area_lote?Math.round(c.area_lote)+' m² prom':''}<br><small>${c.distancia.toFixed(1)} km</small>`);
+        const tienePrecio = c.pm2_lote>0;
+        const pm2Ancla = ancla.pm2_ancla||0;
+        const col = !tienePrecio?"#94a3b8":c.pm2_lote<pm2Ancla*0.95?"#16a34a":c.pm2_lote>pm2Ancla*1.05?"#dc2626":"#d97706";
+        const esHoriz = c.tipo==="horizontal"||c.tipo==="mixto";
+        let iconHtml, iw, ih;
+        if(tienePrecio && esHoriz){
+          // Badge precio con punta — mismo estilo que ancla pero color reactivo
+          iconHtml=`<div style="display:inline-flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 5px rgba(0,0,0,0.35));">
+            <div style="background:${col};color:#fff;border-radius:8px 8px 8px 2px;padding:4px 9px;font-size:10px;font-weight:800;white-space:nowrap;border:2px solid #fff;line-height:1.3;">
+              ${fmtPin(c.pm2_lote)}/m²
+            </div>
+            <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid ${col};"></div>
+          </div>`;
+          iw=52; ih=38;
+        } else if(tienePrecio){
+          // Círculo con precio para verticales
+          iconHtml=`<div style="width:36px;height:36px;border-radius:50%;background:${col};border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#fff;text-align:center;line-height:1.1;">${fmtPin(c.pm2_lote).replace("$","")}/m²</div>`;
+          iw=18; ih=18;
+        } else {
+          // Punto gris tenue para sin precio
+          iconHtml=`<div style="width:10px;height:10px;border-radius:50%;background:#cbd5e1;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>`;
+          iw=5; ih=5;
+        }
+        const icon = window.L.divIcon({html:iconHtml,className:"",iconAnchor:[iw,ih]});
+        const vsBadge = !tienePrecio||!pm2Ancla?"":c.pm2_lote<pm2Ancla*0.95?`<span style="background:#dcfce7;color:#16a34a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:4px;">más barato</span>`:c.pm2_lote>pm2Ancla*1.05?`<span style="background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:4px;">más caro</span>`:`<span style="background:#fef9c3;color:#854d0e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:4px;">similar</span>`;
+        const popupPm2 = tienePrecio?`<b style="color:${col};">$${Math.round(c.pm2_lote).toLocaleString("es-MX")}/m²</b>${vsBadge}`:`<span style="color:#999;">Sin precio/m²</span>`;
+        window.L.marker([c.lat,c.lng],{icon})
+          .addTo(map)
+          .bindPopup(`<div style="font-family:sans-serif;min-width:170px;padding:2px 0;"><b style="font-size:12px;color:#002B49;">${c.nombre}</b><br><span style="color:#888;font-size:11px;">${c.desarrollador||"—"}</span><br>${popupPm2}<br>${c.area_lote?`<span style="color:#555;font-size:11px;">${Math.round(c.area_lote)} m² prom</span><br>`:""}<span style="color:#999;font-size:10px;">${c.tipo} · ${c.distancia.toFixed(1)} km</span></div>`);
       });
       leafRef.current = map;
       return ()=>{ if(leafRef.current){leafRef.current.remove();leafRef.current=null;} };
     },[ancla,competitors,radio]);
     if(!window.L) return <div style={{background:"#f1f5f9",borderRadius:12,padding:"32px",textAlign:"center",color:"#64748b",fontSize:13}}>⏳ Cargando mapa…</div>;
-    return <div ref={mapRef} style={{height:360,borderRadius:12,overflow:"hidden",border:"1px solid #e2e8f0"}}/>;
+    return <div ref={mapRef} style={{height:420,borderRadius:12,overflow:"hidden",border:"1px solid #e2e8f0"}}/>;
   });
 
   const ViewHome = () => (
