@@ -2712,24 +2712,32 @@ function MacroProMatcher() {
       const tiposDesarrollo = new Set(lotesDelDesarrollo.flatMap(l=>l.usos_todos&&l.usos_todos.length>0?l.usos_todos:[l.uso||""]));
       const precioMinDev = lotesDelDesarrollo.reduce((min,l)=>Math.min(min,l.precio_total||Infinity),Infinity);
       const precioMaxDev = lotesDelDesarrollo.reduce((max,l)=>Math.max(max,l.precio_total||0),0);
+      // Ciudad/estado del desarrollo para match geográfico
+      const devCiudad = (ciudadCli||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+      const devEstado = lotesDelDesarrollo[0]?.estado||"";
+      const normStr = s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
 
       return cliSrc2.map(cli=>{
         let score=0;
+        // ── MATCH GEOGRÁFICO (requerido para aparecer) ──
+        const ciudadesCliente = (cli.ciudad_interes||[]).map(c=>normStr(c));
+        const geoMatch = ciudadesCliente.some(c=>
+          c.includes(devCiudad)||devCiudad.includes(c)||
+          (devEstado&&normStr(devEstado).split(" ").some(w=>w.length>3&&c.includes(w)))
+        );
+        if(!geoMatch) return null; // ← solo muestra clientes con interés geográfico real
+        score+=50; // base por match geográfico
         // Match por uso de interés
         const usosInteres = cli.uso_interes||[];
-        const matchUso = usosInteres.some(u=>tiposDesarrollo.has(u));
-        if(matchUso) score+=40;
+        if(usosInteres.some(u=>tiposDesarrollo.has(u))) score+=30;
         // Match por presupuesto
-        const pMax = cli.presupuesto_max||0;
-        const pMin = cli.presupuesto_min||0;
-        if(pMax>0&&pMax>=precioMinDev) score+=30;
-        if(pMin>0&&pMin<=precioMaxDev) score+=10;
+        if((cli.presupuesto_max||0)>=precioMinDev) score+=15;
         // Temperatura
-        if(cli.temperatura==="Caliente") score+=20;
-        else if(cli.temperatura==="Tibio") score+=10;
+        if(cli.temperatura==="Caliente"||cli.temperatura?.includes("Caliente")) score+=15;
+        else if(cli.temperatura==="Tibio"||cli.temperatura?.includes("Tibio")) score+=5;
         return {...cli,_score:score};
       })
-      .filter(cli=>cli._score>0)
+      .filter(Boolean)
       .sort((a,b)=>b._score-a._score);
     })();
 
