@@ -1744,29 +1744,48 @@ function MacroProMatcher() {
               cos:parseFloat(getVal(row,"COS"))||0,
               cus:parseFloat(getVal(row,"CUS"))||0,
               lat:(()=>{
-                const parseDMS=(s)=>{
-                  const dms=String(s).trim().match(/(\d+)[°º]\s*(\d+)[''']\s*([\d.]+)["""]\s*([NSns]?)/);
-                  if(dms) return parseFloat(dms[1])+parseFloat(dms[2])/60+parseFloat(dms[3])/3600;
-                  return null;
-                };
-                // getValExact: evita que "Lat" coincida con "Restricción Lateral"
-                let v=getValExact(row,"Latitud","Latitud GPS","Coord Lat","CoordLat","Lat","lat","latitude");
-                if(!v&&row[61]!==undefined&&row[61]!=="") v=row[61];
-                const dms=parseDMS(v); if(dms!==null) return dms;
-                const n=parseFloat(String(v).replace(/,/g,"."));
-                return(!isNaN(n)&&Math.abs(n)>1&&Math.abs(n)<90)?n:null;
+                // Columna BJ (índice 61) = Latitud — confirmado en Excel v8.5
+                const raw61 = row[61];
+                const raw62 = row[62]; // usar para validar que no son fechas
+                // Intenta por nombre de columna primero (exacto)
+                let v = null;
+                for(let ci=0;ci<headers.length;ci++){
+                  const h=headers[ci];
+                  if(h==="Latitud"||h==="Latitud GPS"||h==="Coord Lat"||h==="CoordLat"){
+                    if(row[ci]!==undefined&&row[ci]!==""){v=row[ci];break;}
+                  }
+                }
+                // Fallback absoluto: columna 61
+                if(v===null||v==="") v=raw61;
+                if(v===null||v==="") return null;
+                // Parser DMS: 20°46'11.96"N
+                const sv=String(v).trim();
+                const dms=sv.match(/(\d+)[°º]\s*(\d+)[''']\s*([\d.]+)["""]\s*([NSns]?)/);
+                if(dms) return parseFloat(dms[1])+parseFloat(dms[2])/60+parseFloat(dms[3])/3600;
+                const n=parseFloat(sv.replace(/,/g,"."));
+                return(!isNaN(n)&&n>10&&n<35)?n:null; // México: lat 10-35°N
               })(),
               lng:(()=>{
-                const parseDMS=(s)=>{
-                  const dms=String(s).trim().match(/(\d+)[°º]\s*(\d+)[''']\s*([\d.]+)["""]\s*([OoWw]?)/);
-                  if(dms){ const dec=parseFloat(dms[1])+parseFloat(dms[2])/60+parseFloat(dms[3])/3600; return -dec; }
-                  return null;
-                };
-                let v=getValExact(row,"Longitud","Longitud GPS","Coord Lng","CoordLng","Lng","lng","longitude");
-                if(!v&&row[62]!==undefined&&row[62]!=="") v=row[62];
-                const dms=parseDMS(v); if(dms!==null) return dms;
-                const n=parseFloat(String(v).replace(/,/g,"."));
-                return(!isNaN(n)&&Math.abs(n)>1&&Math.abs(n)<180)?n:null;
+                // Columna BK (índice 62) = Longitud — confirmado en Excel v8.5
+                let v = null;
+                for(let ci=0;ci<headers.length;ci++){
+                  const h=headers[ci];
+                  if(h==="Longitud"||h==="Longitud GPS"||h==="Coord Lng"||h==="CoordLng"){
+                    if(row[ci]!==undefined&&row[ci]!==""){v=row[ci];break;}
+                  }
+                }
+                if(v===null||v==="") v=row[62];
+                if(v===null||v==="") return null;
+                const sv=String(v).trim();
+                const dms=sv.match(/(\d+)[°º]\s*(\d+)[''']\s*([\d.]+)["""]\s*([OoWw]?)/);
+                if(dms){const d=parseFloat(dms[1])+parseFloat(dms[2])/60+parseFloat(dms[3])/3600;return -d;}
+                const n=parseFloat(sv.replace(/,/g,"."));
+                // México: lng -80 a -120, puede venir positivo o negativo
+                if(!isNaN(n)){
+                  const abs=Math.abs(n);
+                  if(abs>=80&&abs<=120) return n<0?n:-n; // forzar negativo
+                }
+                return null;
               })(),
               niveles:String(getVal(row,"Niveles Permitidos")||""),
               viv_max:parseInt(getVal(row,"Viviendas Máx"))||0,
