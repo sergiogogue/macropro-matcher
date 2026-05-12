@@ -1812,7 +1812,12 @@ function MacroProMatcher() {
         if(mapped.length>0){
           setInventory(mapped);
           setFilterCity("Todas"); setFilterDesarrollo("Todos"); setFilterUso("Todos");
-          toast(`✓ ${mapped.length} lotes cargados desde "${file.name}"`);
+          const conCoords=mapped.filter(l=>l.lat&&l.lng);
+          const devCoords={};
+          conCoords.forEach(l=>{if(!devCoords[l.desarrollo])devCoords[l.desarrollo]={lat:l.lat,lng:l.lng};});
+          const vi=devCoords["Valle Imperial"];
+          console.log("📍 COORDS:",devCoords);
+          toast(`✓ ${mapped.length} lotes · ${conCoords.length} con coords · Valle Imperial: ${vi?vi.lat.toFixed(4)+","+vi.lng.toFixed(4):"SIN COORDS"}`);
         } else toast("⚠ No se encontraron lotes. Verifica el formato del Excel.");
       } catch(err){ toast("⚠ Error al leer inventario: "+err.message); }
     };
