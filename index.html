@@ -2124,6 +2124,8 @@ function MacroProMatcher() {
           .bindPopup(`<div style="font-family:sans-serif;min-width:170px;padding:2px 0;"><b style="font-size:12px;color:#002B49;">${c.nombre}</b><br><span style="color:#888;font-size:11px;">${c.desarrollador||"—"}</span><br>${popupPm2}<br>${c.area_lote?`<span style="color:#555;font-size:11px;">${Math.round(c.area_lote)} m² prom</span><br>`:""}<span style="color:#999;font-size:10px;">${c.tipo} · ${c.distancia.toFixed(1)} km</span></div>`);
       });
       leafRef.current = map;
+      // Force Leaflet to recalculate size after render
+      setTimeout(()=>{ if(leafRef.current) leafRef.current.invalidateSize(); }, 100);
       return ()=>{ if(leafRef.current){leafRef.current.remove();leafRef.current=null;} };
     },[ancla,competitors,radio]);
     if(!window.L) return <div style={{background:"#f1f5f9",borderRadius:12,padding:"32px",textAlign:"center",color:"#64748b",fontSize:13}}>⏳ Cargando mapa…</div>;
