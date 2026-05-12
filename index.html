@@ -57,6 +57,17 @@
       window.addEventListener('load', function() {
         navigator.serviceWorker.register('service-worker.js').then(function(reg) {
           console.log('✅ Service Worker registrado:', reg.scope);
+          // Forzar actualización inmediata si hay nueva versión
+          reg.update();
+          if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+          reg.addEventListener('updatefound', function(){
+            const newWorker = reg.installing;
+            if(newWorker) newWorker.addEventListener('statechange', function(){
+              if(newWorker.state==='installed' && navigator.serviceWorker.controller){
+                newWorker.postMessage({type:'SKIP_WAITING'});
+              }
+            });
+          });
         }).catch(function(err) {
           console.warn('⚠ Service Worker no se pudo registrar:', err);
         });
@@ -1276,15 +1287,20 @@ function MacroProMatcher() {
   const VALID_STAGES_SET=new Set(["Prospecto","Contactado","En negociación","Propuesta","Contrato","Cierre","Perdido"]);
   const migrateCRM=(d)=>{
     try{
+      // MIGRACIÓN DE IDs: convierte claves "ML_135-r94" → "ML_135"
+      // Garantiza compatibilidad si el CRM fue guardado con IDs que tenían sufijo -rN
+      const keysOld=Object.keys(d||{}).filter(k=>/-r\d+$/.test(k));
+      keysOld.forEach(oldKey=>{
+        const newKey=oldKey.replace(/-r\d+$/,'');
+        if(!d[newKey]){ d[newKey]=d[oldKey]; } // migrar solo si la clave limpia no existe
+        delete d[oldKey];
+      });
       Object.keys(d||{}).forEach(id=>{
         const e=d[id]; if(!e) return;
-        // 1) Migrar pipeline del lote
         if(e.pipeline&&STAGE_MIGRATION[e.pipeline]) e.pipeline=STAGE_MIGRATION[e.pipeline];
-        // 2) Migrar pipeline de cada prospecto + rellenar con el del lote si falta
         if(Array.isArray(e.prospectos)) e.prospectos.forEach(p=>{
           if(!p) return;
           if(p.pipeline&&STAGE_MIGRATION[p.pipeline]) p.pipeline=STAGE_MIGRATION[p.pipeline];
-          // Si prospecto no tiene pipeline o tiene uno inválido, heredar del lote o poner "Prospecto"
           if(!p.pipeline||!VALID_STAGES_SET.has(p.pipeline)){
             p.pipeline=(e.pipeline&&VALID_STAGES_SET.has(e.pipeline))?e.pipeline:"Prospecto";
           }
@@ -1665,6 +1681,14 @@ function MacroProMatcher() {
           }
           return "";
         };
+        // getValExact: coincidencia EXACTA — evita que "Lat" encuentre "Restricción Lateral"
+        const getValExact = (row,...names) => {
+          for(const name of names){
+            const idx=headers.findIndex(h=>norm(h)===norm(name));
+            if(idx>=0&&row[idx]!==undefined&&row[idx]!=="") return row[idx];
+          }
+          return "";
+        };
         const cleanNum = (v) => parseFloat(String(v).replace(/[$,\s]/g,""))||0;
         const mapped = raw.slice(headerRow+1)
           .filter(row=>row[0]&&String(row[0]).trim()!==""&&!String(row[0]).includes("Ej:"))
@@ -1674,7 +1698,7 @@ function MacroProMatcher() {
             let total=cleanNum(getVal(row,"Precio Total"));
             if(!total&&sup&&pm2) total=sup*pm2;
             return {
-              id:String(getVal(row,"ID Macrolote")||("LOT-"+(i+1)))+"-r"+i,
+              id:String(getVal(row,"ID Macrolote")||("LOT-"+(i+1))),
               nombre:String(getVal(row,"Nombre / Clave")||`Lote ${i+1}`),
               desarrollo:String(getVal(row,"Desarrollo / Proyecto")||"").trim(),
               desarrollador:String(getVal(row,"Empresa Desarrolladora","Desarrollador","Empresa Propietaria","Propietario")||"").trim(),
@@ -1726,7 +1750,8 @@ function MacroProMatcher() {
                   if(dms) return parseFloat(dms[1])+parseFloat(dms[2])/60+parseFloat(dms[3])/3600;
                   return null;
                 };
-                let v=getVal(row,"Latitud","Lat","lat","latitude","Latitud GPS","Coord Lat","CoordLat");
+                // getValExact: evita que "Lat" coincida con "Restricción Lateral"
+                let v=getValExact(row,"Latitud","Latitud GPS","Coord Lat","CoordLat","Lat","lat","latitude");
                 if(!v&&row[61]!==undefined&&row[61]!=="") v=row[61];
                 const dms=parseDMS(v); if(dms!==null) return dms;
                 const n=parseFloat(String(v).replace(/,/g,"."));
@@ -1738,7 +1763,7 @@ function MacroProMatcher() {
                   if(dms){ const dec=parseFloat(dms[1])+parseFloat(dms[2])/60+parseFloat(dms[3])/3600; return -dec; }
                   return null;
                 };
-                let v=getVal(row,"Longitud","Lng","lng","longitude","Longitud GPS","Coord Lng","CoordLng");
+                let v=getValExact(row,"Longitud","Longitud GPS","Coord Lng","CoordLng","Lng","lng","longitude");
                 if(!v&&row[62]!==undefined&&row[62]!=="") v=row[62];
                 const dms=parseDMS(v); if(dms!==null) return dms;
                 const n=parseFloat(String(v).replace(/,/g,"."));
@@ -1853,7 +1878,7 @@ function MacroProMatcher() {
           const ciudades=[g(row,"ciudad1"),g(row,"ciudad2"),g(row,"ciudad3")].filter(Boolean);
           const usos=[g(row,"uso1"),g(row,"uso2"),g(row,"uso3")].map(v=>(v||"").trim()).filter(v=>v&&v.toUpperCase()!=="N/A"&&v!=="-");
           return {
-            id:(g(row,"id")||("CLI-"+String(i+1).padStart(3,"0")))+"-r"+i,
+            id:(g(row,"id")||("CLI-"+String(i+1).padStart(3,"0"))),
             nombre:g(row,"nombre")||`Cliente ${i+1}`,
             empresa:g(row,"empresa"),asesor:g(row,"asesor"),
             ciudad_interes:ciudades,uso_interes:usos,
