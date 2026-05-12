@@ -7331,6 +7331,90 @@ Respuesta: [respuesta exacta, conversacional]
         Y=doc.lastAutoTable.finalY+8;
       }
 
+      // ══════════════════════════════════════════
+      // SECCION METAS: PLAN VS REAL POR DESARROLLO
+      // ══════════════════════════════════════════
+      const metasEntries=Object.entries(metasData||{}).filter(([nombre,d])=>{
+        if(!d||!d.plan||!d.real) return false;
+        if(ejecFiltroDesarrollador!=="Todos"&&d.desarrollador!==ejecFiltroDesarrollador) return false;
+        if(ejecFiltroDesarrollo!=="Todos"&&nombre!==ejecFiltroDesarrollo) return false;
+        return true;
+      });
+      if(metasEntries.length>0){
+        checkPage(20);
+        sectionHeader("METAS  |  PLAN VS REAL POR DESARROLLO",[16,185,129]);
+        // Tabla resumen por desarrollo
+        const metaRows=metasEntries.map(([nombre,d])=>{
+          const planAnualUds=(d.plan.uds||[]).reduce((a,b)=>a+(b||0),0);
+          const planAnualMonto=(d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
+          const realUdsD=(d.real.uds||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+          const realMontoD=(d.real.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+          const planYTDUds=(d.plan.uds||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+          const planYTDMonto=(d.plan.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+          const cumplUds=planYTDUds>0?Math.round(realUdsD/planYTDUds*100):0;
+          const cumplMonto=planYTDMonto>0?Math.round(realMontoD/planYTDMonto*100):0;
+          const gapMonto=planAnualMonto-realMontoD;
+          return [nombre,d.desarrollador||"—",planAnualUds+" uds",fmtMoney(planAnualMonto),realUdsD+" uds",fmtMoney(realMontoD),cumplMonto+"%",fmtMoney(gapMonto>0?gapMonto:0)];
+        });
+        doc.autoTable({startY:Y,
+          head:[["Desarrollo","Desarrollador","Plan Anual Uds","Plan Anual $","Real YTD Uds","Real YTD $","Cumpl. YTD","Gap a Meta"]],
+          body:metaRows,theme:"striped",
+          headStyles:{fillColor:[16,185,129],textColor:white,fontSize:7.5,fontStyle:"bold"},
+          bodyStyles:{fontSize:7.5,textColor:[51,65,85]},
+          columnStyles:{0:{fontStyle:"bold",cellWidth:32},1:{cellWidth:24},2:{halign:"right",cellWidth:18},3:{halign:"right",cellWidth:22},4:{halign:"right",cellWidth:18},5:{halign:"right",cellWidth:22},6:{halign:"right",fontStyle:"bold",cellWidth:16},7:{halign:"right",cellWidth:22}},
+          margin:{left:margin,right:margin},
+          didParseCell:(data)=>{
+            if(data.section==="body"&&data.column.index===6){
+              const v=parseInt(data.cell.raw)||0;
+              data.cell.styles.textColor=v>=100?green:v>=75?amber:red;
+            }
+          }
+        });
+        Y=doc.lastAutoTable.finalY+10;
+
+        // Gráfico mensual Plan vs Real para cada desarrollo (barras simples con jsPDF)
+        metasEntries.forEach(([nombre,d])=>{
+          checkPage(52);
+          const planM=(d.plan.monto||[]);
+          const realM=(d.real.monto||[]);
+          const maxVal=Math.max(...planM,...realM.map(v=>v||0),1);
+          const bw=10, gap=2, chartH=28, chartX=margin, chartY=Y+14;
+          doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(...navy);
+          doc.text(nombre+" — Plan vs Real mensual ($)",margin,Y+8);
+          doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...grey);
+          doc.text("("+ahora.getFullYear()+")",margin+doc.getTextWidth(nombre+" — Plan vs Real mensual ($)")+3,Y+8);
+          // Barras
+          MESES_ES.forEach((mes,i)=>{
+            const x=chartX+i*(bw+gap);
+            const ph=planM[i]>0?(planM[i]/maxVal)*chartH:0;
+            const rh=(realM[i]||0)>0?((realM[i]||0)/maxVal)*chartH:0;
+            // Plan (barra fondo, gris claro)
+            doc.setFillColor(220,230,240);
+            doc.rect(x,chartY+chartH-ph,bw/2-0.5,ph,"F");
+            // Real (barra frontal, verde o rojo)
+            const rc=(realM[i]||0)>=planM[i]?green:[(realM[i]||0)>0?amber[0]:180,(realM[i]||0)>0?amber[1]:180,(realM[i]||0)>0?amber[2]:180];
+            doc.setFillColor(...(i<=mesActual?((realM[i]||0)>=planM[i]?green:amber):lightgrey));
+            doc.rect(x+bw/2+0.5,chartY+chartH-rh,bw/2-0.5,rh,"F");
+            // Label mes
+            doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...grey);
+            doc.text(mes,x+bw/2,chartY+chartH+4,{align:"center"});
+            // Marker mes actual
+            if(i===mesActual){ doc.setFillColor(...gold); doc.circle(x+bw/2,chartY+chartH+7,0.8,"F"); }
+          });
+          // Leyenda
+          const lx=chartX+MESES_ES.length*(bw+gap)+4;
+          doc.setFillColor(220,230,240); doc.rect(lx,chartY+4,5,3,"F");
+          doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(...grey);
+          doc.text("Plan",lx+6,chartY+6.5);
+          doc.setFillColor(...green); doc.rect(lx,chartY+9,5,3,"F");
+          doc.text("Real",lx+6,chartY+11.5);
+          // Línea base
+          doc.setDrawColor(200,210,220); doc.setLineWidth(0.2);
+          doc.line(chartX,chartY+chartH,chartX+MESES_ES.length*(bw+gap),chartY+chartH);
+          Y+=chartH+22;
+        });
+      }
+
 
       // ══════════════════════════════════════════
       // SECCION 7: LOTES DISPONIBLES
