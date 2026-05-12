@@ -1564,6 +1564,37 @@ function MacroProMatcher() {
     }
   };
 
+  const bajarDeSupabase = async () => {
+    if(!sb){ toast("⚠ Sin conexión a Supabase"); return; }
+    try {
+      setMigrateState(s=>({...s, running:true, stage:'bajar', error:null}));
+      const { data, error } = await sb.from('crm_lotes').select('*');
+      if(error) throw error;
+      if(!data||data.length===0){ toast("⚠ No hay datos CRM en Supabase"); setMigrateState(s=>({...s,running:false})); return; }
+      // Convertir formato Supabase → formato local
+      const crmLocal = {};
+      data.forEach(row => {
+        const id = row.lote_id;
+        if(!id) return;
+        crmLocal[id] = {
+          pipeline: row.pipeline||"Disponible",
+          lastContact: row.last_contact||null,
+          asesorResponsable: row.asesor||"",
+          interacciones: row.interacciones ? JSON.parse(row.interacciones) : [],
+          prospectos: row.prospectos ? JSON.parse(row.prospectos) : [],
+          devFeedback: row.dev_feedback ? JSON.parse(row.dev_feedback) : [],
+        };
+      });
+      saveCRM(crmLocal);
+      setCrmData(crmLocal);
+      setMigrateState(s=>({...s,running:false}));
+      toast(`✅ ${data.length} seguimientos descargados de Supabase`);
+      setShowMigrateModal(false);
+    } catch(err) {
+      setMigrateState(s=>({...s,running:false,error:err.message}));
+      toast("❌ Error al bajar de Supabase: "+err.message);
+    }
+  };
   const runMigrationTodo = async () => {
     // Orden obligatorio: lotes → clientes → crm (CRM depende de lotes existiendo)
     setMigrateState(s => ({ ...s, results: null, error: null }));
@@ -9238,6 +9269,15 @@ Respuesta: [respuesta exacta, conversacional]
               ❌ Error: {error}
             </div>
           )}
+
+          {/* Botón Bajar de Supabase */}
+          <button
+            onClick={bajarDeSupabase}
+            disabled={running || !sb}
+            style={{width:"100%",padding:"12px",background:(running||!sb)?B.grey1:"linear-gradient(135deg,#059669,#047857)",color:"#fff",border:"none",borderRadius:10,cursor:(running||!sb)?"not-allowed":"pointer",fontSize:13,fontWeight:800,fontFamily:"'DM Sans',sans-serif",marginBottom:12,boxShadow:(running||!sb)?"none":"0 4px 14px rgba(5,150,105,0.35)"}}>
+            {running && migrateState.stage==='bajar' ? "⏳ Descargando..." : "⬇️ Bajar de Supabase"}
+          </button>
+          <div style={{fontSize:10,color:B.grey3,textAlign:"center",marginBottom:14}}>↑ Descarga CRM desde la nube a este dispositivo</div>
 
           {/* Botón principal: Migrar TODO */}
           <button
