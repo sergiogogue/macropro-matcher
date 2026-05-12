@@ -2129,7 +2129,7 @@ function MacroProMatcher() {
       return ()=>{ if(leafRef.current){leafRef.current.remove();leafRef.current=null;} };
     },[ancla,competitors,radio]);
     if(!window.L) return <div style={{background:"#f1f5f9",borderRadius:12,padding:"32px",textAlign:"center",color:"#64748b",fontSize:13}}>⏳ Cargando mapa…</div>;
-    return <div ref={mapRef} style={{height:620,borderRadius:12,overflow:"hidden",border:"1px solid #e2e8f0"}}/>;
+    return <div ref={mapRef} style={{height:900,width:"100%",borderRadius:12,overflow:"hidden",border:"1px solid #e2e8f0"}}/>;
   });
 
   const ViewHome = () => (
@@ -5889,7 +5889,7 @@ function MacroProMatcher() {
         </div>
       );
       return (
-        <div style={{maxWidth:1200,margin:"0 auto"}}>
+        <div style={{width:"100%"}}>
           {/* ── FILTROS ── */}
           <div style={{background:B.white,borderRadius:14,padding:"16px 20px",marginBottom:18,boxShadow:"0 2px 8px rgba(0,43,73,0.06)",display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-end",border:`1px solid ${B.grey1}`}}>
             <div>
