@@ -1679,8 +1679,8 @@ function MacroProMatcher() {
               desarrollo:String(getVal(row,"Desarrollo / Proyecto")||"").trim(),
               desarrollador:String(getVal(row,"Empresa Desarrolladora","Desarrollador","Empresa Propietaria","Propietario")||"").trim(),
               tipo:String(getVal(row,"Tipo de Inventario")||"").trim(),
-              ciudad:String(getVal(row,"Ciudad / Municipio")||"").trim(),
-              estado:String(getVal(row,"Estado")||"").trim(),
+              ciudad:String(getVal(row,"Ciudad / Municipio","Ciudad/Municipio","Ciudad","Municipio","Ciudad Municipio","ciudad","municipio")||"").trim(),
+              estado:String(getVal(row,"Estado","Estado / Entidad","Entidad","estado")||"").trim(),
               colonia:String(getVal(row,"Colonia / Corredor")||"").trim(),
               uso:(()=>{
                 // Función especial: busca uso de suelo EXCLUYENDO "Clave Uso de Suelo"
@@ -2705,18 +2705,25 @@ function MacroProMatcher() {
       // Ciudad/estado del desarrollo para match geográfico
       const devCiudad = (ciudadCli||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
       const devEstado = lotesDelDesarrollo[0]?.estado||"";
+      // Si el usuario eligió ciudad explícitamente, exigir match geográfico
+      // Si no hay ciudad seleccionada, no filtrar por geo (match por uso/presupuesto)
+      const requireGeo = ciudadCli.trim() !== "";
       const normStr = s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
 
       return cliSrc2.map(cli=>{
         let score=0;
-        // ── MATCH GEOGRÁFICO (requerido para aparecer) ──
         const ciudadesCliente = (cli.ciudad_interes||[]).map(c=>normStr(c));
-        const geoMatch = ciudadesCliente.some(c=>
-          c.includes(devCiudad)||devCiudad.includes(c)||
-          (devEstado&&normStr(devEstado).split(" ").some(w=>w.length>3&&c.includes(w)))
-        );
-        if(!geoMatch) return null; // ← solo muestra clientes con interés geográfico real
-        score+=50; // base por match geográfico
+        
+        if(requireGeo){
+          const geoMatch = ciudadesCliente.length===0
+            ? false // sin datos geográficos del cliente → no aplica
+            : ciudadesCliente.some(c=>
+                c.includes(devCiudad)||devCiudad.includes(c)||
+                (devEstado&&normStr(devEstado).split(" ").some(w=>w.length>3&&c.includes(w)))
+              );
+          if(!geoMatch) return null;
+          score+=50;
+        }
         // Match por uso de interés
         const usosInteres = cli.uso_interes||[];
         if(usosInteres.some(u=>tiposDesarrollo.has(u))) score+=30;
