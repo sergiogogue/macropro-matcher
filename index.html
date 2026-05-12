@@ -1721,14 +1721,26 @@ function MacroProMatcher() {
               cos:parseFloat(getVal(row,"COS"))||0,
               cus:parseFloat(getVal(row,"CUS"))||0,
               lat:(()=>{
+                const parseDMS=(s)=>{
+                  const dms=String(s).trim().match(/(\d+)[°º]\s*(\d+)[''']\s*([\d.]+)["""]\s*([NSns]?)/);
+                  if(dms) return parseFloat(dms[1])+parseFloat(dms[2])/60+parseFloat(dms[3])/3600;
+                  return null;
+                };
                 let v=getVal(row,"Latitud","Lat","lat","latitude","Latitud GPS","Coord Lat","CoordLat");
-                if(!v&&row[60]!==undefined&&row[60]!=="") v=row[60];
+                if(!v&&row[61]!==undefined&&row[61]!=="") v=row[61];
+                const dms=parseDMS(v); if(dms!==null) return dms;
                 const n=parseFloat(String(v).replace(/,/g,"."));
                 return(!isNaN(n)&&Math.abs(n)>1&&Math.abs(n)<90)?n:null;
               })(),
               lng:(()=>{
+                const parseDMS=(s)=>{
+                  const dms=String(s).trim().match(/(\d+)[°º]\s*(\d+)[''']\s*([\d.]+)["""]\s*([OoWw]?)/);
+                  if(dms){ const dec=parseFloat(dms[1])+parseFloat(dms[2])/60+parseFloat(dms[3])/3600; return -dec; }
+                  return null;
+                };
                 let v=getVal(row,"Longitud","Lng","lng","longitude","Longitud GPS","Coord Lng","CoordLng");
-                if(!v&&row[61]!==undefined&&row[61]!=="") v=row[61];
+                if(!v&&row[62]!==undefined&&row[62]!=="") v=row[62];
+                const dms=parseDMS(v); if(dms!==null) return dms;
                 const n=parseFloat(String(v).replace(/,/g,"."));
                 return(!isNaN(n)&&Math.abs(n)>1&&Math.abs(n)<180)?n:null;
               })(),
@@ -5766,24 +5778,21 @@ function MacroProMatcher() {
         if(l.precio_m2>0) invDataMap[d].pm2s.push(l.precio_m2);
         if(l.sup_m2>0) invDataMap[d].areas.push(l.sup_m2);
       });
-      // Coordenadas: busca primero en archivo de competencia (coords GDL verificadas)
-      // Fallback: centroide del inventario si el desarrollo no está en competencia
+      // Coordenadas del ancla: SOLO inventario propio
+      // Nunca usar archivo de competencia para posicionar nuestros desarrollos
+      // (la competencia son competidores, no nuestros lotes)
       const getCoordDesarrollo = (devName) => {
         if(!devName) return null;
-        const palabras = devName.toUpperCase().split(/\s+/).filter(w=>w.length>3);
-        // 1. Búsqueda en archivo de competencia por palabras clave
-        const matchComp = competencia.find(c=>{
-          const cn = c.nombre.toUpperCase();
-          return palabras.some(w=>cn.includes(w));
-        });
-        if(matchComp && matchComp.lat && matchComp.lng) return {lat:matchComp.lat, lng:matchComp.lng, fuente:"competencia"};
-        // 2. Centroide del inventario (fallback)
         const lats=[],lngs=[];
         inventory.forEach(l=>{
           if((l.desarrollo||"")=== devName && l.lat && l.lng) { lats.push(l.lat); lngs.push(l.lng); }
         });
-        if(lats.length>0) return {lat:lats.reduce((a,b)=>a+b,0)/lats.length, lng:lngs.reduce((a,b)=>a+b,0)/lngs.length, fuente:"inventario"};
-        return null;
+        if(lats.length>0) return {
+          lat:lats.reduce((a,b)=>a+b,0)/lats.length,
+          lng:lngs.reduce((a,b)=>a+b,0)/lngs.length,
+          fuente:"inventario"
+        };
+        return null; // sin coordenadas en inventario → no aparece como ancla
       };
       const todosDesarrollos = [...new Set(inventory.map(l=>l.desarrollo).filter(Boolean))].sort();
       const desarrollosConCoords = todosDesarrollos.map(nombre=>{
@@ -5805,9 +5814,11 @@ function MacroProMatcher() {
         : "";
       const anclaKey = benchDesarrolloAncla || anclaKeyFromFilter || (desarrollosConCoords[0]?.nombre||"");
       const ancla = desarrollosConCoords.find(d=>d.nombre===anclaKey) || desarrollosConCoords[0];
-      // Competidores filtrados por radio y tipo
+      // Competidores filtrados por radio y tipo — excluye el desarrollo ancla
+      const anclaNameNorm = (ancla?.nombre||"").toLowerCase().trim();
       const competidoresEnRadio = !ancla ? [] : competencia
         .filter(c => c.lat && c.lng && benchTipos.includes(c.tipo))
+        .filter(c => c.nombre.toLowerCase().trim() !== anclaNameNorm) // excluir propio desarrollo
         .map(c => ({...c, distancia: haversineKm(ancla.lat,ancla.lng,c.lat,c.lng)}))
         .filter(c => c.distancia <= benchRadio)
         .filter(c => benchFiltroDesarrollador==="Todos" || (c.desarrollador||"—")===benchFiltroDesarrollador)
