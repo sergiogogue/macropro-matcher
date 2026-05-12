@@ -1566,33 +1566,37 @@ function MacroProMatcher() {
 
   const bajarDeSupabase = async () => {
     if(!sb){ toast("⚠ Sin conexión a Supabase"); return; }
+    setMigrateState(s=>({...s, running:true, stage:'bajar', error:null, results:null}));
     try {
-      setMigrateState(s=>({...s, running:true, stage:'bajar', error:null}));
-      const { data, error } = await sb.from('crm_lotes').select('*');
-      if(error) throw error;
-      if(!data||data.length===0){ toast("⚠ No hay datos CRM en Supabase"); setMigrateState(s=>({...s,running:false})); return; }
-      // Convertir formato Supabase → formato local
+      const { data, error } = await sb.from('crm_lotes').select('lote_id,pipeline,asesor_asignado,prospectos,interacciones,dev_feedback,seguimientos_asesor');
+      if(error) throw new Error("crm_lotes: "+error.message);
+      if(!data||data.length===0){
+        setMigrateState(s=>({...s,running:false}));
+        toast("⚠ No hay datos CRM en Supabase — tabla vacía");
+        return;
+      }
       const crmLocal = {};
       data.forEach(row => {
         const id = row.lote_id;
         if(!id) return;
+        const parseJ = (v) => { try{ return v?JSON.parse(JSON.stringify(v)):[];}catch(e){return [];} };
         crmLocal[id] = {
           pipeline: row.pipeline||"Disponible",
-          lastContact: row.last_contact||null,
-          asesorResponsable: row.asesor||"",
-          interacciones: row.interacciones ? JSON.parse(row.interacciones) : [],
-          prospectos: row.prospectos ? JSON.parse(row.prospectos) : [],
-          devFeedback: row.dev_feedback ? JSON.parse(row.dev_feedback) : [],
+          asesorResponsable: row.asesor_asignado||"",
+          interacciones: parseJ(row.interacciones),
+          prospectos: parseJ(row.prospectos),
+          devFeedback: parseJ(row.dev_feedback),
+          seguimientosAsesor: parseJ(row.seguimientos_asesor),
         };
       });
       saveCRM(crmLocal);
       setCrmData(crmLocal);
-      setMigrateState(s=>({...s,running:false}));
-      toast(`✅ ${data.length} seguimientos descargados de Supabase`);
+      setMigrateState(s=>({...s,running:false,results:{crm:{success:true,message:`✓ ${data.length} seguimientos descargados`}}}));
+      toast(`✅ ${data.length} seguimientos CRM recuperados de Supabase`);
       setShowMigrateModal(false);
     } catch(err) {
       setMigrateState(s=>({...s,running:false,error:err.message}));
-      toast("❌ Error al bajar de Supabase: "+err.message);
+      toast("❌ Error al bajar CRM: "+err.message);
     }
   };
   const runMigrationTodo = async () => {
