@@ -1182,7 +1182,7 @@ function MacroProMatcher() {
   const [competencia, setCompetenciaRaw] = useState(()=>loadPersisted(STORAGE_KEYS.competencia,[]));
   const setCompetencia=(data)=>{setCompetenciaRaw(data);savePersisted(STORAGE_KEYS.competencia,data);};
   const competenciaFileRef = React.useRef(null);
-  const [benchRadio, setBenchRadio] = useState(3);
+  const [benchRadio, setBenchRadio] = useState(10);
   const [benchDesarrolloAncla, setBenchDesarrolloAncla] = useState("");
   const [benchTipos, setBenchTipos] = useState(["horizontal","mixto","vertical"]);
   const [benchSortCol, setBenchSortCol] = useState("distancia");
@@ -2083,32 +2083,30 @@ function MacroProMatcher() {
       // ── PINS COMPETIDORES ──
       competitors.forEach(c=>{
         if(!c.lat||!c.lng) return;
-        const tienePrecio = c.pm2_lote>0;
+        const pm2ef = c.pm2_lote||c.pm2_dpto||c.pm2_casa||0;
+        const tienePrecio = pm2ef>0;
         const pm2Ancla = ancla.pm2_ancla||0;
-        const col = !tienePrecio?"#94a3b8":c.pm2_lote<pm2Ancla*0.95?"#16a34a":c.pm2_lote>pm2Ancla*1.05?"#dc2626":"#d97706";
+        const col = !tienePrecio?"#94a3b8":pm2ef<pm2Ancla*0.95?"#16a34a":pm2ef>pm2Ancla*1.05?"#dc2626":"#d97706";
         const esHoriz = c.tipo==="horizontal"||c.tipo==="mixto";
         let iconHtml, iw, ih;
         if(tienePrecio && esHoriz){
-          // Badge precio con punta — mismo estilo que ancla pero color reactivo
           iconHtml=`<div style="display:inline-flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 5px rgba(0,0,0,0.35));">
             <div style="background:${col};color:#fff;border-radius:8px 8px 8px 2px;padding:4px 9px;font-size:10px;font-weight:800;white-space:nowrap;border:2px solid #fff;line-height:1.3;">
-              ${fmtPin(c.pm2_lote)}/m²
+              ${fmtPin(pm2ef)}/m²
             </div>
             <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid ${col};"></div>
           </div>`;
           iw=52; ih=38;
         } else if(tienePrecio){
-          // Círculo con precio para verticales
-          iconHtml=`<div style="width:36px;height:36px;border-radius:50%;background:${col};border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#fff;text-align:center;line-height:1.1;">${fmtPin(c.pm2_lote).replace("$","")}/m²</div>`;
+          iconHtml=`<div style="width:36px;height:36px;border-radius:50%;background:${col};border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#fff;text-align:center;line-height:1.1;">${fmtPin(pm2ef).replace("$","")}/m²</div>`;
           iw=18; ih=18;
         } else {
-          // Punto gris tenue para sin precio
           iconHtml=`<div style="width:10px;height:10px;border-radius:50%;background:#cbd5e1;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>`;
           iw=5; ih=5;
         }
         const icon = window.L.divIcon({html:iconHtml,className:"",iconAnchor:[iw,ih]});
-        const vsBadge = !tienePrecio||!pm2Ancla?"":c.pm2_lote<pm2Ancla*0.95?`<span style="background:#dcfce7;color:#16a34a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:4px;">más barato</span>`:c.pm2_lote>pm2Ancla*1.05?`<span style="background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:4px;">más caro</span>`:`<span style="background:#fef9c3;color:#854d0e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:4px;">similar</span>`;
-        const popupPm2 = tienePrecio?`<b style="color:${col};">$${Math.round(c.pm2_lote).toLocaleString("es-MX")}/m²</b>${vsBadge}`:`<span style="color:#999;">Sin precio/m²</span>`;
+        const vsBadge = !tienePrecio||!pm2Ancla?"":pm2ef<pm2Ancla*0.95?`<span style="background:#dcfce7;color:#16a34a;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:4px;">más barato</span>`:pm2ef>pm2Ancla*1.05?`<span style="background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:4px;">más caro</span>`:`<span style="background:#fef9c3;color:#854d0e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:4px;">similar</span>`;
+        const popupPm2 = tienePrecio?`<b style="color:${col};">$${Math.round(pm2ef).toLocaleString("es-MX")}/m²</b>${vsBadge}`:`<span style="color:#999;">Sin precio/m²</span>`;
         window.L.marker([c.lat,c.lng],{icon})
           .addTo(map)
           .bindPopup(`<div style="font-family:sans-serif;min-width:170px;padding:2px 0;"><b style="font-size:12px;color:#002B49;">${c.nombre}</b><br><span style="color:#888;font-size:11px;">${c.desarrollador||"—"}</span><br>${popupPm2}<br>${c.area_lote?`<span style="color:#555;font-size:11px;">${Math.round(c.area_lote)} m² prom</span><br>`:""}<span style="color:#999;font-size:10px;">${c.tipo} · ${c.distancia.toFixed(1)} km</span></div>`);
@@ -5894,7 +5892,7 @@ function MacroProMatcher() {
             <div>
               <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:5}}>Radio</div>
               <div style={{display:"flex",gap:4}}>
-                {[3,5,10].map(r=>(
+                {[3,5,10,15,20].map(r=>(
                   <button key={r} onClick={()=>setBenchRadio(r)} style={{padding:"7px 16px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"'DM Sans',sans-serif",background:benchRadio===r?B.gold:"transparent",color:benchRadio===r?B.navy:B.grey4,outline:`1px solid ${benchRadio===r?B.gold:B.grey1}`,transition:"all 0.15s"}}>{r} km</button>
                 ))}
               </div>
