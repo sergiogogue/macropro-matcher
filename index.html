@@ -405,6 +405,40 @@ if (typeof window !== 'undefined') {
 }
 
 
+// ─── MATCH ASESOR ──────────────────────────────────────────────────
+function buscarMatchesParaSolicitud(solicitud, inventory){
+  if(!solicitud||!Array.isArray(inventory)) return [];
+  const supMin=parseFloat(solicitud.superficieMin)||0;
+  const supMax=parseFloat(solicitud.superficieMax)||Infinity;
+  const frenteMin=parseFloat(solicitud.frenteMinimo)||0;
+  const precioMax=parseFloat(solicitud.precioMaximo)||Infinity;
+  const estado=(solicitud.estado||"").trim().toLowerCase();
+  const ciudad=(solicitud.ciudad||"").trim().toLowerCase();
+  const usoSuelo=(solicitud.usoSuelo||"").trim().toLowerCase();
+  const norm=(s)=>s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  return inventory.map(lot=>{
+    if(!lot) return null;
+    const sup=parseFloat(lot.superficie)||0;
+    const frente=parseFloat(lot.frente)||0;
+    const precio=parseFloat(lot.precio_total)||0;
+    const lotEstado=(lot.estado||"").trim().toLowerCase();
+    const lotCiudad=(lot.ciudad||"").trim().toLowerCase();
+    const lotUso=(lot.uso_suelo||"").trim().toLowerCase();
+    let score=0; let razones=[]; let descalificadores=[];
+    if(supMin>0&&sup<supMin) descalificadores.push(`Superficie ${sup}m² < mínimo ${supMin}m²`);
+    else if(sup>=supMin){score+=20;razones.push(`Superficie ${sup}m² ✓`);}
+    if(supMax<Infinity&&sup>supMax) descalificadores.push(`Superficie ${sup}m² > máximo ${supMax}m²`);
+    if(frenteMin>0&&frente>0&&frente<frenteMin) descalificadores.push(`Frente ${frente}m < mínimo ${frenteMin}m`);
+    else if(frenteMin>0&&frente>=frenteMin){score+=15;razones.push(`Frente ${frente}m ✓`);}
+    if(precioMax<Infinity&&precio>precioMax) descalificadores.push(`Precio > máximo`);
+    else if(precio>0&&precio<=precioMax){score+=20;razones.push(`Precio en rango ✓`);}
+    if(estado&&lotEstado&&(norm(lotEstado).includes(norm(estado))||norm(estado).includes(norm(lotEstado)))){score+=15;razones.push(`Estado ✓`);}
+    if(ciudad&&lotCiudad&&(norm(lotCiudad).includes(norm(ciudad))||norm(ciudad).includes(norm(lotCiudad)))){score+=15;razones.push(`Ciudad ✓`);}
+    if(usoSuelo&&lotUso&&(lotUso.includes(usoSuelo)||usoSuelo.includes(lotUso))){score+=15;razones.push(`Uso ✓`);}
+    return {lot,score,razones,descalificadores,descalificado:descalificadores.length>0};
+  }).filter(m=>m!==null).sort((a,b)=>b.score-a.score);
+}
+
 // ─── ICS CALENDAR EXPORT ──────────────────────────────────────────
 function descargarICS(activity, lote, prospecto, durMinutes){
   try{
@@ -626,58 +660,7 @@ function nuevaActividadSolicitud(tipo, descripcion, diasDesde){
 }
 
 // Match automático: busca lotes del inventario que cumplan con los criterios
-function buscarMatchesParaSolicitud(solicitud, inventory){
-  if(!solicitud||!Array.isArray(inventory)) return [];
-  const supMin = parseFloat(solicitud.superficieMin)||0;
-  const supMax = parseFloat(solicitud.superficieMax)||Infinity;
-  const frenteMin = parseFloat(solicitud.frenteMinimo)||0;
-  const precioMax = parseFloat(solicitud.precioMaximo)||Infinity;
-  const estado = (solicitud.estado||"").trim().toLowerCase();
-  const ciudad = (solicitud.ciudad||"").trim().toLowerCase();
-  const usoSuelo = (solicitud.usoSuelo||"").trim().toLowerCase();
-  return inventory.map(lot=>{
-    if(!lot) return null;
-    const sup = parseFloat(lot.superficie)||0;
-    const frente = parseFloat(lot.frente)||0;
-    const precio = parseFloat(lot.precio_total)||0;
-    const lotEstado = (lot.estado||"").trim().toLowerCase();
-    const lotCiudad = (lot.ciudad||"").trim().toLowerCase();
-    const lotUso = (lot.uso_suelo||"").trim().toLowerCase();
-    let score = 0;
-    let razones = [];
-    let descalificadores = [];
-    // Filtros duros (obligatorios)
-    if(supMin>0 && sup<supMin){ descalificadores.push(`Superficie ${sup}m² < mínimo ${supMin}m²`); }
-    else if(sup>=supMin) { score+=20; razones.push(`Superficie ${sup}m² ✓`); }
-    if(supMax<Infinity && sup>supMax){ descalificadores.push(`Superficie ${sup}m² > máximo ${supMax}m²`); }
-    if(frenteMin>0 && frente>0 && frente<frenteMin){ descalificadores.push(`Frente ${frente}m < mínimo ${frenteMin}m`); }
-    else if(frenteMin>0&&frente>=frenteMin){ score+=15; razones.push(`Frente ${frente}m ✓`); }
-    if(precioMax<Infinity && precio>precioMax){ descalificadores.push(`Precio $${precio.toLocaleString()} > máximo $${precioMax.toLocaleString()}`); }
-    else if(precio>0&&precio<=precioMax){ score+=20; razones.push(`Precio en rango ✓`); }
-    // Filtros suaves (suman puntos)
-    if(estado&&lotEstado){
-      // Normalización Cancún/Cancun
-      const norm = (s)=>s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-      if(norm(lotEstado).includes(norm(estado))||norm(estado).includes(norm(lotEstado))){
-        score+=15; razones.push(`Estado coincide ✓`);
-      }
-    }
-    if(ciudad&&lotCiudad){
-      const norm = (s)=>s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-      if(norm(lotCiudad).includes(norm(ciudad))||norm(ciudad).includes(norm(lotCiudad))){
-        score+=15; razones.push(`Ciudad coincide ✓`);
-      }
-    }
-    if(usoSuelo&&lotUso){
-      if(lotUso.includes(usoSuelo)||usoSuelo.includes(lotUso)){
-        score+=15; razones.push(`Uso de suelo compatible ✓`);
-      }
-    }
-    return { lot, score, razones, descalificadores, descalificado:descalificadores.length>0 };
-  })
-  .filter(m=>m!==null)
-  .sort((a,b)=>b.score-a.score);
-}
+
 // ═══════════════════════════════════════════════════════════════
 
 const MAPEO_DESARROLLADOR_BASE = {
@@ -1174,7 +1157,7 @@ function MacroProMatcher() {
   const [filterPipeline, setFilterPipeline] = React.useState("Todos");
   const [filterDesarrolloCRM, setFilterDesarrolloCRM] = React.useState("Todos");
   const [filterDesarrolloGlobal, setFilterDesarrolloGlobalRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterDesarrolloGlobal,"Todos"));
-  const setFilterDesarrolloGlobal=(v)=>{setFilterDesarrolloGlobalRaw(v);savePersisted(STORAGE_KEYS.filterDesarrolloGlobal,v);};
+  const setFilterDesarrolloGlobal=(v)=>{setFilterDesarrolloGlobalRaw(v);savePersisted(STORAGE_KEYS.filterDesarrolloGlobal,v);setBenchDesarrolloAncla("");};
   const [filterDevCompania, setFilterDevCompaniaRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterDevCompania,"Todos"));
   const setFilterDevCompania=(v)=>{setFilterDevCompaniaRaw(v);savePersisted(STORAGE_KEYS.filterDevCompania,v);};
   const [filterSemaforo, setFilterSemaforo] = React.useState("Todos");
@@ -1344,6 +1327,13 @@ function MacroProMatcher() {
   const [editingSolicitud, setEditingSolicitud] = React.useState(null);
   const [splitsDetectados, setSplitsDetectados] = React.useState([]);
   const [solicitudActiva, setSolicitudActiva] = React.useState(null);
+  const buscarMatchesAsesor=(solicitud)=>{
+    const inv=inventory.length>0?inventory:SAMPLE_INVENTORY;
+    const matches=buscarMatchesParaSolicitud(solicitud,inv);
+    setMatchesActuales(matches);
+    setSolicitudActiva(solicitud);
+    setShowMatchesModal(true);
+  };
   const [showMatchesModal, setShowMatchesModal] = React.useState(false);
   const [matchesActuales, setMatchesActuales] = React.useState([]);
   const [solicitudFiltroPipeline, setSolicitudFiltroPipeline] = React.useState(()=>localStorage.getItem("macropro_solicitud_filtro_pipeline")||"Todos");
@@ -5804,8 +5794,11 @@ function MacroProMatcher() {
           fuente: coords.fuente
         };
       }).filter(Boolean);
-      // Selección de ancla
-      const anclaKey = benchDesarrolloAncla || (desarrollosConCoords[0]?.nombre||"");
+      // Selección de ancla — se sincroniza con el filtro de desarrollo activo
+      const anclaKeyFromFilter = filterDesarrolloGlobal!=="Todos"
+        ? desarrollosConCoords.find(d=>d.nombre===filterDesarrolloGlobal)?.nombre||""
+        : "";
+      const anclaKey = benchDesarrolloAncla || anclaKeyFromFilter || (desarrollosConCoords[0]?.nombre||"");
       const ancla = desarrollosConCoords.find(d=>d.nombre===anclaKey) || desarrollosConCoords[0];
       // Competidores filtrados por radio y tipo
       const competidoresEnRadio = !ancla ? [] : competencia
