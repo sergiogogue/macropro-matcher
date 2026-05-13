@@ -1641,9 +1641,9 @@ function MacroProMatcher() {
   const PIPELINE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Contrato","Cierre","Perdido"];
   const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Contactado":"#3B82F6","En negociación":B.gold,"Propuesta":"#8B5CF6","Contrato":"#06B6D4","Cierre":"#22c55e","Perdido":"#ef4444"};
   // Probabilidades estándar industria para forecast ponderado
-  const STAGE_PROBABILITY={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"Propuesta":0.55,"Contrato":0.80,"Cierre":1.00,"Perdido":0.00,"Disponible":0.00};
+  const STAGE_PROBABILITY={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.80,"Cierre":1.00,"Perdido":0.00,"Disponible":0.00};
   // Etapas activas (excluye terminales)
-  const ACTIVE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Contrato"];
+  const ACTIVE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
   const CANAL_OPTS=["Llamada","WhatsApp","Visita al terreno","Reunión presencial","Presentación virtual","Email","Otro"];
   const REACCION_OPTS=["Muy interesado","Interesado","Pendiente de info","Objeción de precio","Objeción técnica","No aplica","Archivado"];
 
@@ -2062,11 +2062,26 @@ function MacroProMatcher() {
         prompt=`Estratega inmobiliario México. Rankea estos lotes para el cliente. Solo JSON, sin texto extra.\nCLIENTE: ${subject.nombre}|${subject.empresa}|Ciudades:${subject.ciudad_interes?.join(",")}|Usos:${subject.uso_interes?.join(",")}|Ppto:${fmtM(subject.presupuesto_min)}-${fmtM(subject.presupuesto_max)}|Sup:${subject.sup_min}-${subject.sup_max}m²|DealBreakers:${subject.deal_breakers?.join(",")||"ninguno"}\nLOTES (${top.length}):\n${top.map(l=>`${l.id}|${l.nombre}|${l.ciudad}|${(l.usos_todos&&l.usos_todos.length>0?l.usos_todos.join("/"):l.uso)}|${l.sup_m2}m²|$${l.precio_m2}/m²|${fmtM(l.precio_total)}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CN-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion max","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}\nRankea los ${top.length} lotes mayor a menor score.`;
       } else {
         const isFiltro=subject.id==="FILTRO";
-        const filtered=targets.filter(c=>{ const cOk=!c.ciudad_interes?.length||c.ciudad_interes.some(ci=>mCiudad(subject.ciudad,[ci])); const pOk=!c.presupuesto_max||c.presupuesto_max>=(subject.precio_total||0)*0.7; const sOk=!c.sup_max||c.sup_max>=(subject.sup_m2||0)*0.7; return isFiltro?true:(cOk&&pOk&&sOk); });
-        const top=(filtered.length>0?filtered:targets);
+        // Usos del lote (puede tener varios)
+        const lotUsos=subject.usos_todos&&subject.usos_todos.length>0?subject.usos_todos:[subject.uso].filter(Boolean);
+        const filtered=targets.filter(c=>{
+          if(isFiltro) return true;
+          // 1. USO: al menos un uso del cliente debe coincidir con un uso del lote
+          const uOk=!c.uso_interes?.length||!lotUsos.length||mUso(lotUsos,c.uso_interes);
+          // 2. CIUDAD: ciudad del lote en ciudades de interés del cliente
+          const cOk=!c.ciudad_interes?.length||c.ciudad_interes.some(ci=>mCiudad(subject.ciudad,[ci]));
+          // 3. PRESUPUESTO: cliente puede pagar al menos 50% del precio del lote
+          const pOk=!c.presupuesto_max||!subject.precio_total||c.presupuesto_max>=(subject.precio_total||0)*0.5;
+          // 4. SUPERFICIE: superficie del lote dentro del rango del cliente (tolerancia 50%)
+          const supLote=subject.sup_m2||0;
+          const sOk=!supLote||(!c.sup_min&&!c.sup_max)||((!c.sup_min||supLote>=c.sup_min*0.5)&&(!c.sup_max||supLote<=c.sup_max*2));
+          return uOk&&cOk&&pOk&&sOk;
+        });
+        // Fallback: si nadie pasa el filtro estricto, usar los que al menos coincidan en uso
+        const topFinal=filtered.length>0?filtered:(targets.filter(c=>mUso(lotUsos,c.uso_interes)||!c.uso_interes?.length).length>0?targets.filter(c=>mUso(lotUsos,c.uso_interes)||!c.uso_interes?.length):targets);
         prompt=isFiltro
-          ?`Estratega inmobiliario México. Rankea estos clientes por probabilidad de comprar uso "${subject.uso}" en ${subject.ciudad!=="Todas"?subject.ciudad:"México"}. Solo JSON.\nUSO: ${subject.uso}|Ciudad: ${subject.ciudad!=="Todas"?subject.ciudad:"Cualquiera"}\nCLIENTES (${top.length}):\n${top.map(c=>`${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}`
-          :`Estratega inmobiliario México. Rankea estos clientes para el lote. Solo JSON.\nLOTE: ${subject.id}|${subject.nombre}|${subject.ciudad}|${subject.uso}|${subject.sup_m2}m²|$${subject.precio_m2}/m²|${fmtM(subject.precio_total)}|${subject.fortaleza?.substring(0,100)}\nCLIENTES (${top.length}):\n${top.map(c=>`${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}`;
+          ?`Estratega inmobiliario México. Rankea estos clientes por probabilidad de comprar uso "${subject.uso}" en ${subject.ciudad!=="Todas"?subject.ciudad:"México"}. Solo JSON.\nUSO: ${subject.uso}|Ciudad: ${subject.ciudad!=="Todas"?subject.ciudad:"Cualquiera"}\nCLIENTES (${topFinal.length}):\n${topFinal.map(c=>`${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}`
+          :`Estratega inmobiliario México. Rankea estos clientes para el lote. Solo JSON.\nLOTE: ${subject.id}|${subject.nombre}|${subject.ciudad}|${lotUsos.join("/")}|${subject.sup_m2}m²|$${subject.precio_m2}/m²|${fmtM(subject.precio_total)}|${subject.fortaleza?.substring(0,100)}\nCLIENTES (${topFinal.length}):\n${topFinal.map(c=>`${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}`;
       }
       const _k=localStorage.getItem("macropro_api_key");
       if(!_k){setLoading(false);clearInterval(interval);setShowApiModal(true);return;}
@@ -7105,7 +7120,7 @@ Respuesta: [respuesta exacta, conversacional]
       const fmtMoney=(v)=>{if(!v||v===0)return "$0";if(v>=1e9)return "$"+(v/1e9).toFixed(2)+"B";if(v>=1e6)return "$"+(v/1e6).toFixed(1)+"M";if(v>=1e3)return "$"+Math.round(v/1e3)+"k";return "$"+v.toFixed(0);};
       const fechaStr = ahora.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
       const MESES_ES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-      const ACTIVE_STAGES=["Prospecto","Contactado","En negociacion","Propuesta","Apartado","Contrato"];
+      const ACTIVE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
       const stageProb={"Prospecto":0.05,"Contactado":0.15,"En negociacion":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
       const tempColor=(t)=>t==="Caliente"?[220,38,38]:t==="Tibio"?[217,119,6]:t==="Frio"||t==="Frio"?[37,99,235]:[107,114,128];
       const stageColor=(s)=>s==="Contrato"?green:s==="Propuesta"||s==="Apartado"?amber:s==="En negociacion"?[8,145,178]:grey;
