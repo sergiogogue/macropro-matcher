@@ -2657,7 +2657,7 @@ function MacroProMatcher() {
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:7,flexWrap:"wrap"}}>
                     <span style={{fontSize:17,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{item.nombre}</span>
                     <Tag label={r.match_label} color={scoreColor(r.score)} bg={r.score>=80?B.greenL:r.score>=60?"#fff8e7":B.blueL}/>
-                    {isClientMode&&(item.usos_todos&&item.usos_todos.length>0?item.usos_todos:[item.uso].filter(Boolean)).map(u=><Tag key={u} label={u} color={B.navy} bg={B.blueL}/>)}
+                    {isClientMode&&(item.usos_todos&&item.usos_todos.length>0?item.usos_todos:[item.uso].filter(Boolean)).map((u,ui)=><Tag key={u+"-"+ui} label={u} color={B.navy} bg={B.blueL}/>)}
                     {isClientMode&&<Tag label={item.ciudad} color={B.navy} bg={B.grey1}/>}
                     {isClientMode&&item.desarrollo&&<Tag label={item.desarrollo} color={B.goldD} bg="#FFF9EC"/>}
                     {!isClientMode&&<Tag label={item.temperatura||""} color={tempColor(item.temperatura)} bg={tempBg(item.temperatura)}/>}
@@ -2843,11 +2843,12 @@ function MacroProMatcher() {
       if(yaExiste){toast("⚠ "+cli.nombre+" ya está en ese lote");return;}
       const nuevoProsp={nombre:cli.nombre,empresa:cli.empresa||"",temperatura:cli.temperatura||"",pipeline:"Prospecto",asesor:cli.asesor||"",nota:"Agregado desde búsqueda",fechaCreacion:new Date().toISOString().slice(0,10),actividades:[]};
       const prospectos=[...(crm.prospectos||[]),nuevoProsp];
-      const newEntry={...crm,prospectos,lastContact:new Date().toISOString().slice(0,10)};
+      const pipNuevo=crm.pipeline==="Disponible"?"Prospecto":crm.pipeline||"Prospecto";
+      const newEntry={...crm,prospectos,pipeline:pipNuevo,lastContact:new Date().toISOString().slice(0,10)};
       const newCRM={...crmActual,[lotId]:newEntry};
-      // Guardar solo en localStorage — sin setCrmData para NO disparar re-render del App
+      // Guardar en localStorage Y actualizar estado React para reflejar en Kanban
       saveCRM(newCRM);
-      // Actualizar solo estado local del componente
+      setCrmData(newCRM);
       setAgregados(prev=>{const s=new Set(prev);s.add(cli.id||cli.nombre);return s;});
       setLotePickerId(null);
       toast("✅ "+cli.nombre+" agregado · ve al Kanban para verlo");
@@ -3136,7 +3137,7 @@ function MacroProMatcher() {
                           </div>
                           {cli.empresa&&<div style={{fontSize:10,color:B.grey4}}>{cli.empresa}</div>}
                           <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap"}}>
-                            {(cli.uso_interes||[]).map(u=><span key={u} style={{fontSize:9,background:B.blueL,color:B.navy,borderRadius:5,padding:"1px 6px",fontWeight:600}}>{u}</span>)}
+                            {(cli.uso_interes||[]).map((u,ui)=><span key={u+"-"+ui} style={{fontSize:9,background:B.blueL,color:B.navy,borderRadius:5,padding:"1px 6px",fontWeight:600}}>{u}</span>)}
                             {cli.presupuesto_max>0&&<span style={{fontSize:9,color:B.grey3}}>Hasta {fmtM(cli.presupuesto_max)}</span>}
                             {cli.asesor&&<span style={{fontSize:9,color:B.grey4}}>👤 {cli.asesor}</span>}
                           </div>
@@ -7080,13 +7081,13 @@ Respuesta: [respuesta exacta, conversacional]
       const status=cumplYTD>=0.95?"ON TRACK":cumplYTD>=0.75?"EN RIESGO":"BEHIND";
       const statusCol=cumplYTD>=0.95?green:cumplYTD>=0.75?amber:red;
 
-      // Pipeline por etapa
+      // Pipeline por etapa — conteo por prospecto individual (no por lote)
       const pipeEtapa={};
       ACTIVE_STAGES.forEach(s=>{ pipeEtapa[s]={count:0,valor:0,ponderado:0}; });
-      lotesFiltrados.forEach(lot=>{
-        const pip=getLotePipelineLocal(lot.id);
+      prospActivos.forEach(item=>{
+        const pip=item.pip;
         if(!ACTIVE_STAGES.includes(pip)) return;
-        const val=lot.precio_total||0;
+        const val=item.valor;
         pipeEtapa[pip].count++;
         pipeEtapa[pip].valor+=val;
         pipeEtapa[pip].ponderado+=val*(stageProb[pip]||0);
@@ -7227,7 +7228,7 @@ Respuesta: [respuesta exacta, conversacional]
         return [s,d.count+"",fmtMoney(d.valor),Math.round((stageProb[s]||0)*100)+"%",fmtMoney(d.ponderado)];
       });
       pipeRows.push(["TOTAL ACTIVO",Object.values(pipeEtapa).reduce((a,e)=>a+e.count,0)+"",fmtMoney(totalBruto),"—",fmtMoney(totalPonderado)]);
-      doc.autoTable({startY:Y,head:[["Etapa","Lotes","Valor Bruto","Prob.","Ponderado"]],body:pipeRows,theme:"striped",
+      doc.autoTable({startY:Y,head:[["Etapa","Prospectos","Valor Bruto","Prob.","Ponderado"]],body:pipeRows,theme:"striped",
         headStyles:{fillColor:[0,43,73],textColor:white,fontSize:8,fontStyle:"bold"},
         bodyStyles:{fontSize:8,textColor:[51,65,85]},
         columnStyles:{0:{fontStyle:"bold"},1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right",textColor:gold,fontStyle:"bold"}},
@@ -7545,7 +7546,7 @@ Respuesta: [respuesta exacta, conversacional]
       const compData=JSON.parse(localStorage.getItem("macropro_mercado_competencia")||"null");
       if(compData&&compData.length>0&&lotesFiltrados.length>0){
         checkPage(30);
-        sectionHeader("8 | POSICIONAMIENTO VS MERCADO  |  RADIO 3KM",[16,185,129]);
+        sectionHeader("8 | POSICIONAMIENTO VS MERCADO  |  RADIO 5KM",[16,185,129]);
         // Get reference coords from our lots
         const refLot=lotesFiltrados.find(l=>l.lat&&l.lng)||lotesFiltrados[0];
         const refLat=refLot&&refLot.lat?refLot.lat:null;
@@ -7559,7 +7560,7 @@ Respuesta: [respuesta exacta, conversacional]
         const nuestroPromedio=nuestrosPreciosM2.length>0?nuestrosPreciosM2.reduce((a,b)=>a+b,0)/nuestrosPreciosM2.length:0;
         let compCercanos=[];
         if(refLat&&refLng){
-          compCercanos=compData.filter(c=>c.lat&&c.lng&&haversine(refLat,refLng,c.lat,c.lng)<=3)
+          compCercanos=compData.filter(c=>c.lat&&c.lng&&haversine(refLat,refLng,c.lat,c.lng)<=5)
             .filter(c=>(c.pm2_lote||c.pm2_dpto||c.pm2_casa)>0)
             .map(c=>({...c,precio:c.pm2_lote||c.pm2_dpto||c.pm2_casa,dist:haversine(refLat,refLng,c.lat,c.lng)}))
             .sort((a,b)=>a.dist-b.dist).slice(0,8);
@@ -7574,7 +7575,7 @@ Respuesta: [respuesta exacta, conversacional]
           const posText=diff<=-10?"PRECIO COMPETITIVO - Por debajo del mercado":diff<=10?"PRECIO EN RANGO DE MERCADO":"PRECIO POR ENCIMA DEL MERCADO";
           doc.text(posText,pageW/2,Y+5.5,{align:"center"});
           doc.setFontSize(8); doc.setFont("helvetica","normal");
-          doc.text("Nuestro: $"+Math.round(nuestroPromedio).toLocaleString("es-MX")+"/m²   |   Mercado 3km: $"+Math.round(mercadoPromedio).toLocaleString("es-MX")+"/m²   |   Diferencia: "+(diff>0?"+":"")+diff.toFixed(1)+"%",pageW/2,Y+11,{align:"center"});
+          doc.text("Nuestro: $"+Math.round(nuestroPromedio).toLocaleString("es-MX")+"/m²   |   Mercado 5km: $"+Math.round(mercadoPromedio).toLocaleString("es-MX")+"/m²   |   Diferencia: "+(diff>0?"+":"")+diff.toFixed(1)+"%",pageW/2,Y+11,{align:"center"});
           Y+=18;
           const compRows=compCercanos.map(c=>[c.nombre||"—",c.tipo||"—","$"+Math.round(c.precio).toLocaleString("es-MX")+"/m²",c.dist.toFixed(1)+"km",(diff<=-10?"<":diff<=10?"=":">"+(c.precio>nuestroPromedio?" Nosotros mas caro":""))]);
           const diffColMap=compCercanos.map(c=>c.precio>nuestroPromedio?green:red);
@@ -7593,7 +7594,7 @@ Respuesta: [respuesta exacta, conversacional]
           Y=doc.lastAutoTable.finalY+8;
         } else {
           doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...grey);
-          doc.text(refLat?"Sin competidores con coordenadas en radio 3km.":"Sin coordenadas disponibles para este desarrollo.",margin,Y); Y+=10;
+          doc.text(refLat?"Sin competidores con coordenadas en radio 5km.":"Sin coordenadas disponibles para este desarrollo.",margin,Y); Y+=10;
         }
       }
 
