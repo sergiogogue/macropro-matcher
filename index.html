@@ -1068,7 +1068,7 @@ async function generarMatchClienteLotes(cliente, resultados) {
   ];
   info.forEach((t,i) => s1.addText(t, { x:0.5,y:3.0+i*0.45,w:12,h:0.4,fontSize:13,color:"C5D0DC" }));
   s1.addText("CONFIDENCIAL · MacroPro · Grupo Guía", { x:0.5,y:6.8,w:12,h:0.3,fontSize:9,color:"4A6175",align:"center" });
-  resultados.slice(0,8).forEach((r,i) => {
+  resultados.forEach((r,i) => {
     const slide = pptx.addSlide();
     slide.background = { color:"FFFFFF" };
     slide.addShape(pptx.ShapeType.rect, { x:0,y:0,w:13.33,h:1.4,fill:{color:"002B49"} });
@@ -1107,7 +1107,7 @@ async function generarMatchLoteClientes(lote, resultados) {
   const ficha=[`Superficie: ${(lote.sup_m2||0).toLocaleString()} m²`,`Precio/m²: $${(lote.precio_m2||0).toLocaleString()}`,`Total: ${fmtM(lote.precio_total)}`];
   ficha.forEach((t,i)=>s1.addText(t,{x:0.5,y:3.0+i*0.45,w:12,h:0.4,fontSize:13,color:"C5D0DC"}));
   s1.addText("CONFIDENCIAL · MacroPro · Grupo Guía",{x:0.5,y:6.8,w:12,h:0.3,fontSize:9,color:"4A6175",align:"center"});
-  resultados.slice(0,8).forEach((r,i)=>{
+  resultados.forEach((r,i)=>{
     const slide=pptx.addSlide();
     slide.background={color:"FFFFFF"};
     slide.addShape(pptx.ShapeType.rect,{x:0,y:0,w:13.33,h:1.4,fill:{color:"002B49"}});
@@ -1208,6 +1208,7 @@ function MacroProMatcher() {
   const [loading, setLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState("");
   const [generatingReport, setGeneratingReport] = useState(false);
+  const [selectedMatchIds, setSelectedMatchIds] = useState(new Set());
   const [filterCity, setFilterCity] = useState("Todas");
   const [filterDesarrollo, setFilterDesarrollo] = useState("Todos");
   const [filterUso, setFilterUso] = useState("Todos");
@@ -2057,7 +2058,7 @@ function MacroProMatcher() {
           const uB=mUso(b.usos_todos,subject.uso_interes)?1:0;
           if(uB!==uA)return uB-uA;
           return(a.precio_total||0)-(b.precio_total||0);
-        }).slice(0,20);
+        });
         prompt=`Estratega inmobiliario México. Rankea estos lotes para el cliente. Solo JSON, sin texto extra.\nCLIENTE: ${subject.nombre}|${subject.empresa}|Ciudades:${subject.ciudad_interes?.join(",")}|Usos:${subject.uso_interes?.join(",")}|Ppto:${fmtM(subject.presupuesto_min)}-${fmtM(subject.presupuesto_max)}|Sup:${subject.sup_min}-${subject.sup_max}m²|DealBreakers:${subject.deal_breakers?.join(",")||"ninguno"}\nLOTES (${top.length}):\n${top.map(l=>`${l.id}|${l.nombre}|${l.ciudad}|${(l.usos_todos&&l.usos_todos.length>0?l.usos_todos.join("/"):l.uso)}|${l.sup_m2}m²|$${l.precio_m2}/m²|${fmtM(l.precio_total)}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CN-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion max","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}\nRankea los ${top.length} lotes mayor a menor score.`;
       } else {
         const isFiltro=subject.id==="FILTRO";
@@ -2605,7 +2606,7 @@ function MacroProMatcher() {
     return (
       <div style={s.page}>
         <div style={{background:`linear-gradient(135deg,${B.navy},${B.navyL})`,borderRadius:16,padding:"24px 28px",marginBottom:20,display:"flex",alignItems:"center",gap:18}}>
-          <button style={{...s.btn("ghost"),color:B.grey2}} onClick={()=>setView(isClientMode?"matchClient":"matchLot")}>← Volver</button>
+          <button style={{...s.btn("ghost"),color:B.grey2}} onClick={()=>{setView(isClientMode?"matchClient":"matchLot");setSelectedMatchIds(new Set());}}>← Volver</button>
           <div style={{flex:1}}>
             <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:B.gold,textTransform:"uppercase",marginBottom:4}}>{isClientMode?"Cliente → Lotes":"Lote → Clientes"} · Resultados del Match</div>
             <div style={{fontSize:20,fontWeight:800,color:B.white,fontFamily:"'Playfair Display',serif"}}>{subject.nombre}<span style={{color:B.gold}}> · {results.length} resultados</span></div>
@@ -2614,6 +2615,26 @@ function MacroProMatcher() {
           <div style={{display:"flex",gap:6,flexDirection:"column",alignItems:"flex-end"}}>
             {results[0]&&<ScoreRing score={results[0].score} size={68}/>}
             <div style={{display:"flex",gap:5}}>
+              <button style={{background:selectedMatchIds.size>0?"#22c55e":B.grey1,color:selectedMatchIds.size>0?"#fff":B.grey3,border:"none",borderRadius:7,padding:"7px 12px",fontSize:11,fontWeight:700,cursor:selectedMatchIds.size>0?"pointer":"default",transition:"all 0.2s"}}
+                onClick={async()=>{
+                  if(selectedMatchIds.size===0){alert("Selecciona al menos un elemento con el checkbox");return;}
+                  const sel=results.filter(r=>selectedMatchIds.has(r.id||r.data?.id));
+                  setGeneratingReport(true);
+                  try{
+                    if(isClientMode){
+                      // Cliente→Lotes: subject=cliente, sel=lotes seleccionados
+                      const merged=sel.map(r=>{const d=r.data||{};return{...r,nombre:d.nombre||r.nombre||r.id,ciudad:d.ciudad||"",estado:d.estado||"",uso:d.uso||"",usos_todos:d.usos_todos||[],sup_m2:d.sup_m2||0,precio_m2:d.precio_m2||0,precio_total:d.precio_total||0,entrega:d.entrega||"",fortaleza:d.fortaleza||""};});
+                      await generarMatchClienteLotes(subject,merged);
+                    } else {
+                      // Lote→Clientes: subject=lote, sel=clientes seleccionados
+                      const merged=sel.map(r=>{const d=r.data||{};return{...r,nombre:d.nombre||r.nombre||r.id,empresa:d.empresa||"",telefono:d.telefono||"",correo:d.correo||d.email||"",asesor:d.asesor||"",presupuesto_min:d.presupuesto_min||0,presupuesto_max:d.presupuesto_max||0,sup_min:d.sup_min||0,sup_max:d.sup_max||0,temperatura:d.temperatura||""};});
+                      await generarMatchLoteClientes(subject,merged);
+                    }
+                  }catch(e){alert("Error: "+e.message);}
+                  finally{setGeneratingReport(false);}
+                }}>
+                📋 PDF Seleccionados {selectedMatchIds.size>0&&`(${selectedMatchIds.size})`}
+              </button>
               <button style={{background:B.gold,color:B.navy,border:"none",borderRadius:7,padding:"7px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}} onClick={()=>window.print()}>🖨️ Imprimir</button>
               <button disabled={generatingReport} style={{background:generatingReport?B.grey3:B.navy,color:B.gold,border:`2px solid ${B.gold}`,borderRadius:7,padding:"7px 12px",fontSize:11,fontWeight:700,cursor:generatingReport?"not-allowed":"pointer"}}
                 onClick={async()=>{setGeneratingReport(true);try{const merged=results.map(r=>{const d=r.data||{};return{...r,nombre:d.nombre||r.nombre||r.id,empresa:d.empresa||"",ciudad:d.ciudad||"",estado:d.estado||"",desarrollo:d.desarrollo||"",uso:d.uso||"",usos_todos:d.usos_todos||[],sup_m2:d.sup_m2||0,precio_m2:d.precio_m2||0,precio_total:d.precio_total||0,cos:d.cos||0,cus:d.cus||0,niveles:d.niveles||"",viv_max:d.viv_max||0,agua:d.agua||"",luz:d.luz||"",drenaje:d.drenaje||"",acceso:d.acceso||"",entrega:d.entrega||"",fortaleza:d.fortaleza||"",atributos:d.atributos||"",comprador:d.comprador||"",presupuesto_min:d.presupuesto_min||0,presupuesto_max:d.presupuesto_max||0,sup_min:d.sup_min||0,sup_max:d.sup_max||0,temperatura:d.temperatura||"",asesor:d.asesor||"",notas:d.notas||""};});if(isClientMode)await generarMatchClienteLotes(subject,merged);else await generarMatchLoteClientes(subject,merged);}catch(e){alert("Error: "+e.message);}finally{setGeneratingReport(false);}}}>
@@ -2658,6 +2679,21 @@ function MacroProMatcher() {
           return (
             <div key={r.id} className="result-card" style={s.resultCard(i)}>
               <div style={s.rankBadge(i)}>#{i+1}</div>
+              <div style={{position:"absolute",top:14,left:14,zIndex:2}}>
+                <input type="checkbox"
+                  checked={selectedMatchIds.has(r.id||r.data?.id)}
+                  onChange={e=>{
+                    const rid=r.id||r.data?.id;
+                    setSelectedMatchIds(prev=>{
+                      const s=new Set(prev);
+                      if(e.target.checked)s.add(rid); else s.delete(rid);
+                      return s;
+                    });
+                  }}
+                  style={{width:18,height:18,cursor:"pointer",accentColor:"#22c55e"}}
+                  onClick={e=>e.stopPropagation()}
+                />
+              </div>
               <div style={{display:"flex",gap:18,alignItems:"flex-start"}}>
                 <ScoreRing score={r.score} size={76}/>
                 <div style={{flex:1,minWidth:0}}>
