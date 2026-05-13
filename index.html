@@ -1923,10 +1923,10 @@ function MacroProMatcher() {
           uso1:colIdx(["uso buscado 1","uso_buscado_1","uso buscado","uso de suelo buscado","uso 1","uso1","uso"]),
           uso2:colIdx(["uso buscado 2","uso_buscado_2","uso 2","uso2"]),
           uso3:colIdx(["uso buscado 3","uso_buscado_3","uso 3","uso3"]),
-          sup_min:colIdx(["sup min","sup mín","superficie min","superficie mínima","sup  m n","sup mn"]),
-          sup_max:colIdx(["sup max","sup máx","superficie max","superficie máxima","sup  m x","sup mx"]),
+          sup_min:colIdx(["sup min","sup mín","sup. mín","superficie min","superficie mínima","sup  m n","sup mn","sup mín (m","sup min (m"]),
+          sup_max:colIdx(["sup max","sup máx","sup. máx","superficie max","superficie máxima","sup  m x","sup mx","sup máx (m","sup max (m"]),
           ppto_min:colIdx(["ppto min","ppto mín","presupuesto min","presupuesto mínimo","ppto  m n","ppto mn"]),
-          ppto_max:colIdx(["ppto max","ppto máx","presupuesto max","presupuesto máximo","ppto  m x","ppto mx"]),
+          ppto_max:colIdx(["ppto max","ppto máx","ppto. máx","presupuesto max","presupuesto máximo","ppto  m x","ppto mx","ppto. máx ($","ppto max ($"]),
           precio_m2:colIdx(["precio m2","precio max m2","precio max","precio m x","precio mx"]),
           temp:colIdx(["temperatura"]),status:colIdx(["status crm","status","estatus"]),
           notas:colIdx(["notas del asesor","notas asesor","notas","comentarios"]),
@@ -2869,11 +2869,11 @@ function MacroProMatcher() {
       const tiposDesarrollo = new Set(lotesDelDesarrollo.flatMap(l=>l.usos_todos&&l.usos_todos.length>0?l.usos_todos:[l.uso||""]));
       const precioMinDev = lotesDelDesarrollo.reduce((min,l)=>Math.min(min,l.precio_total||Infinity),Infinity);
       const precioMaxDev = lotesDelDesarrollo.reduce((max,l)=>Math.max(max,l.precio_total||0),0);
-      // Ciudad/estado del desarrollo para match geográfico
+      // Rango de superficies del desarrollo
+      const supMinDev = lotesDelDesarrollo.reduce((min,l)=>Math.min(min,l.sup_m2||Infinity),Infinity);
+      const supMaxDev = lotesDelDesarrollo.reduce((max,l)=>Math.max(max,l.sup_m2||0),0);
       const devCiudad = (ciudadCli||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
       const devEstado = lotesDelDesarrollo[0]?.estado||"";
-      // Si el usuario eligió ciudad explícitamente, exigir match geográfico
-      // Si no hay ciudad seleccionada, no filtrar por geo (match por uso/presupuesto)
       const requireGeo = ciudadCli.trim() !== "";
       const normStr = s=>s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
 
@@ -2882,10 +2882,26 @@ function MacroProMatcher() {
         const ciudadesCliente = (cli.ciudad_interes||[]).map(c=>normStr(c));
         const usosInteres = (cli.uso_interes||[]).filter(Boolean);
         
-        // 1. FILTRO DURO: si el cliente tiene usos definidos Y el desarrollo tiene usos, deben coincidir
+        // 1. FILTRO DURO: uso de suelo debe coincidir
         if(usosInteres.length>0 && tiposDesarrollo.size>0){
-          const usoMatch = usosInteres.some(u=>tiposDesarrollo.has(u));
-          if(!usoMatch) return null; // Excluir si no hay match de uso
+          if(!usosInteres.some(u=>tiposDesarrollo.has(u))) return null;
+        }
+
+        // 2. FILTRO DURO: superficie — el lote debe caber en el rango del cliente (tolerancia 50%)
+        if(cli.sup_min||cli.sup_max){
+          const cliSupMin = cli.sup_min||0;
+          const cliSupMax = cli.sup_max||Infinity;
+          // Al menos un lote del desarrollo debe estar dentro del rango del cliente
+          const supOk = lotesDelDesarrollo.some(l=>{
+            const s = l.sup_m2||0;
+            return (!cliSupMin||s>=cliSupMin*0.5)&&(!cliSupMax||s<=cliSupMax*2);
+          });
+          if(!supOk) return null;
+        }
+
+        // 3. FILTRO DURO: presupuesto — cliente debe poder pagar al menos un lote
+        if(cli.presupuesto_max&&precioMinDev){
+          if(cli.presupuesto_max < precioMinDev*0.4) return null;
         }
 
         if(requireGeo){
@@ -2898,11 +2914,8 @@ function MacroProMatcher() {
           if(!geoMatch) return null;
           score+=50;
         }
-        // Match por uso de interés
         if(usosInteres.some(u=>tiposDesarrollo.has(u))) score+=30;
-        // Match por presupuesto
         if((cli.presupuesto_max||0)>=precioMinDev) score+=15;
-        // Temperatura
         if(cli.temperatura==="Caliente"||cli.temperatura?.includes("Caliente")) score+=15;
         else if(cli.temperatura==="Tibio"||cli.temperatura?.includes("Tibio")) score+=5;
         return {...cli,_score:score};
@@ -6513,7 +6526,7 @@ Respuesta: [respuesta exacta, conversacional]
                 <select value={seguimientoForm.asesor} onChange={e=>setSeguimientoForm({...seguimientoForm,asesor:e.target.value})}
                     style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid "+B.grey1,fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:14,boxSizing:"border-box",background:B.white}}>
                     <option value="">— Selecciona asesor —</option>
-                    {[...new Set([...asesoresCatalog.map(a=>a.nombre),...allProspectos.map(x=>(x.cli&&x.cli.asesor)||x.prospecto?.asesor||"").filter(Boolean)])].sort().map(nombre=><option key={nombre} value={nombre}>{nombre}</option>)}
+                    {[...new Set([...asesoresCatalog.map(a=>a.nombre),...Object.values(crmData).flatMap(c=>[...(c.prospectos||[]).map(p=>p.asesor||""),...(c.seguimientoAsesor?[c.seguimientoAsesor.asesor||""]:[]),(c.asesorResponsable||"")]).filter(Boolean)])].sort().map(nombre=><option key={nombre} value={nombre}>{nombre}</option>)}
                   </select>
                 {false&&(
                   <input type="text" value={seguimientoForm.asesor} onChange={e=>setSeguimientoForm({...seguimientoForm,asesor:e.target.value})}
@@ -9181,9 +9194,21 @@ Respuesta: [respuesta exacta, conversacional]
   const ModalFichaClienteGlobal = ({ item, onClose }) => {
     if(!item) return null;
     const cli=item.cli; const p=item.prospecto; const crm=crmData[item.lotId]||item.crm||{};
-    const todosLotes=allProspectos.filter(x=>x.prospecto.nombre.toLowerCase().trim()===p.nombre.toLowerCase().trim());
+    // Compute todosLotes from global crmData and inventory (allProspectos not available globally)
+    const todosLotes=(()=>{
+      const result=[];
+      inventory.forEach(lot=>{
+        const crm2=crmData[lot.id]||{};
+        (crm2.prospectos||[]).forEach((prosp,idx)=>{
+          if((prosp.nombre||"").toLowerCase().trim()===(p.nombre||"").toLowerCase().trim()){
+            result.push({lot,lotId:lot.id,prospecto:prosp,prospectoIdx:idx,pipeline:prosp.pipeline||"Prospecto",crm:crm2});
+          }
+        });
+      });
+      return result;
+    })();
     // Todas las interacciones de este cliente en TODOS sus lotes
-    const todasInteracciones=todosLotes.flatMap(x=>(crmData[x.lotId]||{}).interacciones||[]).filter(i=>!i.prospecto||i.prospecto.toLowerCase()===p.nombre.toLowerCase()||true).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    const todasInteracciones=todosLotes.flatMap(x=>(crmData[x.lotId]||{}).interacciones||[]).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
     const interaccionesEste=(crm.interacciones||[]).filter(i=>!i.prospecto||i.prospecto===p.nombre);
     const canalColor={Llamada:"#3B82F6",WhatsApp:"#22c55e","Visita al terreno":"#f59e0b","Reunión":"#002B49","Reunión presencial":"#002B49","Presentación virtual":"#8B5CF6",Email:"#6b7280",Otro:"#9ca3af"};
     const [tabFicha,setTabFicha]=React.useState("resumen");
@@ -9772,7 +9797,7 @@ Respuesta: [respuesta exacta, conversacional]
               <select value={quickAssignForm.asesor} onChange={e=>setQuickAssignForm({...quickAssignForm,asesor:e.target.value})}
                   style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:14,boxSizing:"border-box",background:"#fff"}}>
                   <option value="">— Selecciona asesor —</option>
-                  {[...new Set([...asesoresCatalog.map(a=>a.nombre),...allProspectos.map(x=>(x.cli&&x.cli.asesor)||x.prospecto?.asesor||"").filter(Boolean)])].sort().map(nombre=><option key={nombre} value={nombre}>{nombre}</option>)}
+                  {[...new Set([...asesoresCatalog.map(a=>a.nombre),...Object.values(crmData).flatMap(c=>[...(c.prospectos||[]).map(p=>p.asesor||""),...(c.seguimientoAsesor?[c.seguimientoAsesor.asesor||""]:[]),(c.asesorResponsable||"")]).filter(Boolean)])].sort().map(nombre=><option key={nombre} value={nombre}>{nombre}</option>)}
                 </select>
               {false&&(
                 <input type="text" value={quickAssignForm.asesor} onChange={e=>setQuickAssignForm({...quickAssignForm,asesor:e.target.value})}
