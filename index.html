@@ -2043,6 +2043,7 @@ function MacroProMatcher() {
       const ZMG=["guadalajara","zapopan","tlajomulco","tonala","tlaquepaque","el salto","san pedro","zmg","zona metropolitana","gdl"];
       const mCiudad=(lc,bs)=>{if(!bs||!bs.length)return true;const l2=(lc||"").toLowerCase();return bs.some(b=>{const b2=(b||"").toLowerCase();if(!b2)return false;if(l2===b2||l2.includes(b2)||b2.includes(l2))return true;return ZMG.some(z=>l2.includes(z))&&ZMG.some(z=>b2.includes(z));});};
       const mUso=(lu,bu)=>{if(!bu||!bu.length)return true;if(!lu||!lu.length)return true;return bu.some(u=>lu.some(l=>l&&l.trim().toLowerCase()===u.trim().toLowerCase()));};
+      let searchPool=targets; // Se sobreescribe en cada rama con el pool filtrado
       if(mode==="clientToLots"){
         // CRÍTICO: targets YA VIENE filtrado por ciudad/desarrollo/uso manual del usuario.
         // NO volver a aplicar filtros que lo abran (eso era el bug del fallback de 3).
@@ -2059,15 +2060,18 @@ function MacroProMatcher() {
           if(uB!==uA)return uB-uA;
           return(a.precio_total||0)-(b.precio_total||0);
         });
+        searchPool=top; // clientToLots: pool de lotes filtrados
         prompt=`Estratega inmobiliario México. Rankea estos lotes para el cliente. Solo JSON, sin texto extra.\nCLIENTE: ${subject.nombre}|${subject.empresa}|Ciudades:${subject.ciudad_interes?.join(",")}|Usos:${subject.uso_interes?.join(",")}|Ppto:${fmtM(subject.presupuesto_min)}-${fmtM(subject.presupuesto_max)}|Sup:${subject.sup_min}-${subject.sup_max}m²|DealBreakers:${subject.deal_breakers?.join(",")||"ninguno"}\nLOTES (${top.length}):\n${top.map(l=>`${l.id}|${l.nombre}|${l.ciudad}|${(l.usos_todos&&l.usos_todos.length>0?l.usos_todos.join("/"):l.uso)}|${l.sup_m2}m²|$${l.precio_m2}/m²|${fmtM(l.precio_total)}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CN-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion max","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}\nRankea los ${top.length} lotes mayor a menor score.`;
       } else {
         const isFiltro=subject.id==="FILTRO";
         // Usos del lote (puede tener varios)
         const lotUsos=subject.usos_todos&&subject.usos_todos.length>0?subject.usos_todos:[subject.uso].filter(Boolean);
         const filtered=targets.filter(c=>{
-          if(isFiltro) return true;
-          // 1. USO: al menos un uso del cliente debe coincidir con un uso del lote
-          const uOk=!c.uso_interes?.length||!lotUsos.length||mUso(lotUsos,c.uso_interes);
+          // 1. USO: si el cliente tiene usos definidos Y el lote/portfolio tiene usos definidos, deben coincidir
+          const cliUsos=c.uso_interes&&Array.isArray(c.uso_interes)?c.uso_interes.filter(Boolean):[];
+          const uOk=!lotUsos.length||cliUsos.length===0||mUso(lotUsos,cliUsos);
+          if(!uOk) return false; // Excluir siempre si el uso no coincide, incluso en modo FILTRO
+          if(isFiltro) return true; // Para FILTRO, solo filtrar por uso — ciudad/ppto/sup son promedios
           // 2. CIUDAD: ciudad del lote en ciudades de interés del cliente
           const cOk=!c.ciudad_interes?.length||c.ciudad_interes.some(ci=>mCiudad(subject.ciudad,[ci]));
           // 3. PRESUPUESTO: cliente puede pagar al menos 50% del precio del lote
@@ -2075,10 +2079,15 @@ function MacroProMatcher() {
           // 4. SUPERFICIE: superficie del lote dentro del rango del cliente (tolerancia 50%)
           const supLote=subject.sup_m2||0;
           const sOk=!supLote||(!c.sup_min&&!c.sup_max)||((!c.sup_min||supLote>=c.sup_min*0.5)&&(!c.sup_max||supLote<=c.sup_max*2));
-          return uOk&&cOk&&pOk&&sOk;
+          return cOk&&pOk&&sOk;
         });
         // Fallback: si nadie pasa el filtro estricto, usar los que al menos coincidan en uso
-        const topFinal=filtered.length>0?filtered:(targets.filter(c=>mUso(lotUsos,c.uso_interes)||!c.uso_interes?.length).length>0?targets.filter(c=>mUso(lotUsos,c.uso_interes)||!c.uso_interes?.length):targets);
+        // Fallback: si nadie pasa el filtro estricto, usar solo los que coincidan en uso
+        const topFinal=filtered.length>0?filtered:targets.filter(c=>{
+          const cUsos=c.uso_interes&&Array.isArray(c.uso_interes)?c.uso_interes.filter(Boolean):[];
+          return cUsos.length===0||mUso(lotUsos,cUsos);
+        });
+        searchPool=topFinal; // lotToClients: pool de clientes filtrados
         prompt=isFiltro
           ?`Estratega inmobiliario México. Rankea estos clientes por probabilidad de comprar uso "${subject.uso}" en ${subject.ciudad!=="Todas"?subject.ciudad:"México"}. Solo JSON.\nUSO: ${subject.uso}|Ciudad: ${subject.ciudad!=="Todas"?subject.ciudad:"Cualquiera"}\nCLIENTES (${topFinal.length}):\n${topFinal.map(c=>`${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}`
           :`Estratega inmobiliario México. Rankea estos clientes para el lote. Solo JSON.\nLOTE: ${subject.id}|${subject.nombre}|${subject.ciudad}|${lotUsos.join("/")}|${subject.sup_m2}m²|$${subject.precio_m2}/m²|${fmtM(subject.precio_total)}|${subject.fortaleza?.substring(0,100)}\nCLIENTES (${topFinal.length}):\n${topFinal.map(c=>`${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}`;
@@ -2103,7 +2112,8 @@ function MacroProMatcher() {
         if(parciales.length>0){parsed={resultados:parciales};toast("⚠ Respuesta parcial — mostrando "+parciales.length+" resultados rescatados");}
         else throw new Error("Respuesta IA inválida. Intenta de nuevo.");
       }
-      const enriched=parsed.resultados.map(r=>{const item=mode==="clientToLots"?(targets.find(l=>l.id===r.id)||targets.find(l=>l.nombre===r.nombre)):(targets.find(c=>c.id===r.id)||targets.find(c=>c.nombre===r.nombre));return{...r,data:item};}).filter(r=>r.data).sort((a,b)=>b.score-a.score);
+      // CRÍTICO: enriched usa searchPool (pool filtrado por rama), no targets completo
+      const enriched=parsed.resultados.map(r=>{const item=searchPool.find(c=>c.id===r.id)||searchPool.find(c=>c.nombre===r.nombre);return{...r,data:item};}).filter(r=>r.data).sort((a,b)=>b.score-a.score);
       const finalResults=enriched.length>0?enriched:targets.slice(0,8).map((item,i)=>({id:item.id,score:70-i*5,match_label:i===0?"Match Probable":"Match Posible",razon_principal:"Perfil compatible con el filtro seleccionado.",argumentos:["Interés en uso de suelo compatible","Presupuesto en rango","Ciudad de interés alineada"],objecion:"Requiere validación directa",respuesta_objecion:"Presentar lotes disponibles",urgencia:"Media",data:item}));
       setMatchResults({mode,subject,results:finalResults});
       setView("result");
@@ -2485,7 +2495,9 @@ function MacroProMatcher() {
       const avgPm2=lotsFiltered.filter(l=>l.precio_m2>0).reduce((s,l,_,a)=>s+l.precio_m2/a.length,0);
       const avgTotal=lotsFiltered.filter(l=>l.precio_total>0).reduce((s,l,_,a)=>s+l.precio_total/a.length,0);
       const ciudades=[...new Set(lotsFiltered.map(l=>l.ciudad).filter(Boolean))];
-      return {id:"FILTRO",nombre:fUso!=="Todos"?fUso:fDev!=="Todos"?fDev:fCity!=="Todas"?fCity:"Inventario filtrado",uso:fUso!=="Todos"?fUso:"Todos",ciudad:fCity!=="Todas"?fCity:ciudades.join(", "),desarrollo:fDev!=="Todos"?fDev:"Varios",sup_m2:Math.round(avgSup),precio_m2:Math.round(avgPm2),precio_total:Math.round(avgTotal),fortaleza:`Portafolio de ${lotsFiltered.length} lotes — ${ciudades.join(", ")} — Uso: ${fUso!=="Todos"?fUso:"Varios"}`};
+      // Derivar usos_todos de los lotes filtrados para que el match pueda filtrar clientes correctamente
+      const filtroUsos=[...new Set(lotsFiltered.flatMap(l=>l.usos_todos&&l.usos_todos.length>0?l.usos_todos:[l.uso].filter(Boolean)))].filter(Boolean);
+      return {id:"FILTRO",nombre:fUso!=="Todos"?fUso:fDev!=="Todos"?fDev:fCity!=="Todas"?fCity:"Inventario filtrado",uso:fUso!=="Todos"?fUso:"Todos",usos_todos:filtroUsos,ciudad:fCity!=="Todas"?fCity:ciudades.join(", "),desarrollo:fDev!=="Todos"?fDev:"Varios",sup_m2:Math.round(avgSup),precio_m2:Math.round(avgPm2),precio_total:Math.round(avgTotal),fortaleza:`Portafolio de ${lotsFiltered.length} lotes — ${ciudades.join(", ")} — Uso: ${fUso!=="Todos"?fUso:"Varios"}`};
     })():null);
 
     return (
