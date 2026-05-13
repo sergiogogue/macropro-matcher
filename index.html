@@ -4406,6 +4406,7 @@ function MacroProMatcher() {
                         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                           <button onClick={()=>{setSelectedLotCRM(item.lot);setShowInterModal(true);}} style={{padding:"5px 10px",background:B.gold,color:B.navy,border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Interacción</button>
                           <button onClick={()=>{setShowActivityModal({mode:"create",lotId:item.lotId,prospectoIdx:item.prospectoIdx});setActivityForm({tipo:"Seguimiento",descripcion:"",fecha:addBusinessDays(new Date(),2),hora:""});}} style={{padding:"5px 10px",background:"#0EA5E9",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📅 Actividad</button>
+                          {item.proximaAct&&<button onClick={()=>{if(window.confirm("¿Eliminar esta actividad?"))deleteActivity(item.lotId,item.prospectoIdx,item.proximaAct.id);}} style={{padding:"5px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>🗑 Act.</button>}
                           <button onClick={()=>setShowTemplatesModal({item})} style={{padding:"5px 10px",background:"#25d366",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📱 WA</button>
                           <button onClick={()=>{setSelectedLotCRM(item.lot);setActiveTab("kanban");}} style={{padding:"5px 10px",background:B.offW,color:B.grey4,border:"1px solid "+B.grey1,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Ver lote</button>
                         </div>
@@ -4857,9 +4858,9 @@ function MacroProMatcher() {
     // ─── MODAL RÁPIDO DE PROSPECTO (desde Kanban) ────────────────────
     const QuickProspectoModal=()=>{
       if(!showQuickProspModal||!quickProspData) return null;
-      const {lot,p,prospectoIdx,crm}=quickProspData;
-      const [tempEdit,setTempEdit]=React.useState(p.temperatura||"");
-      const [asesorEdit,setAsesorEdit]=React.useState(p.asesor||crm.asesorResponsable||"");
+      const {lot,p,prospectoIdx,crm,cli:cliQ}=quickProspData;
+      const [tempEdit,setTempEdit]=React.useState(p.temperatura||(cliQ&&cliQ.temperatura)||"");
+      const [asesorEdit,setAsesorEdit]=React.useState(p.asesor||crm.asesorResponsable||(cliQ&&cliQ.asesor)||"");
       const [notaEdit,setNotaEdit]=React.useState(p.nota||"");
       const [tabQ,setTabQ]=React.useState("acciones");
       const [interText,setInterText]=React.useState("");
@@ -4918,7 +4919,7 @@ function MacroProMatcher() {
                 <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
                   <span style={{fontSize:9,fontWeight:700,background:stageCol[pip]||B.grey3,color:"#fff",borderRadius:10,padding:"2px 8px"}}>{pip}</span>
                   {p.temperatura&&<span style={{fontSize:9,fontWeight:700,background:tCol,color:"#fff",borderRadius:10,padding:"2px 8px"}}>🌡 {p.temperatura}</span>}
-                  {(p.asesor||crm.asesorResponsable)&&<span style={{fontSize:9,background:"rgba(255,255,255,0.15)",color:"#fff",borderRadius:10,padding:"2px 8px"}}>👤 {p.asesor||crm.asesorResponsable}</span>}
+                  {(p.asesor||crm.asesorResponsable||(cliQ&&cliQ.asesor))&&<span style={{fontSize:9,background:"rgba(255,255,255,0.15)",color:"#fff",borderRadius:10,padding:"2px 8px"}}>👤 {p.asesor||crm.asesorResponsable||(cliQ&&cliQ.asesor)}</span>}
                 </div>
               </div>
               <button onClick={()=>setShowQuickProspModal(false)} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.7)",fontSize:18,cursor:"pointer",padding:"0 0 0 12px",lineHeight:1,flexShrink:0}}>✕</button>
@@ -5108,7 +5109,7 @@ function MacroProMatcher() {
                     const temp=p.temperatura||(cli&&cli.temperatura)||null;
                     const tCol=temp==="Caliente"?B.red:temp==="Tibio"?B.gold:temp==="Frío"?"#3B82F6":null;
                     return (
-                      <div key={x.lotId+"_"+x.prospectoIdx+"_"+i} onClick={()=>{setQuickProspData({lot:x.lot,p:x.prospecto,prospectoIdx:x.prospectoIdx,crm:crmData[x.lotId]||{}});setShowQuickProspModal(true);}}
+                      <div key={x.lotId+"_"+x.prospectoIdx+"_"+i} onClick={()=>{setQuickProspData({lot:x.lot,p:x.prospecto,prospectoIdx:x.prospectoIdx,crm:crmData[x.lotId]||{},cli:x.cli||null});setShowQuickProspModal(true);}}
                         style={{background:B.white,borderRadius:10,padding:"10px 11px",marginBottom:8,cursor:"pointer",border:"1px solid "+B.grey1,transition:"all 0.15s",boxShadow:"0 1px 3px rgba(0,43,73,0.05)"}}
                         onMouseEnter={e=>{e.currentTarget.style.borderColor=col;e.currentTarget.style.boxShadow="0 3px 10px rgba(0,43,73,0.12)";}}
                         onMouseLeave={e=>{e.currentTarget.style.borderColor=B.grey1;e.currentTarget.style.boxShadow="0 1px 3px rgba(0,43,73,0.05)";}}>
@@ -5806,7 +5807,7 @@ function MacroProMatcher() {
             <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
               {!a.act.completada&&<button onClick={()=>{setShowActivityModal({mode:"complete",lotId:a.lotId,prospectoIdx:a.prospectoIdx,activity:a.act});setCompleteForm({resultado:"Positivo",nota:""});}} style={{padding:"6px 12px",background:"#16a34a",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>✓ Completar</button>}
               {!a.act.completada&&<button onClick={()=>{setShowActivityModal({mode:"edit",lotId:a.lotId,prospectoIdx:a.prospectoIdx,activity:a.act});setActivityForm({tipo:a.act.tipo,descripcion:a.act.descripcion,fecha:a.act.fecha,hora:a.act.hora||""});}} style={{padding:"6px 10px",background:B.offW,color:B.grey4,border:"1px solid "+B.grey1,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>✏ Editar</button>}
-              <button onClick={()=>{const crm=crmData[a.lotId]||{};const prosp=(crm.prospectos||[])[a.prospectoIdx];if(prosp){setQuickProspData({lot:a.lot,p:prosp,prospectoIdx:a.prospectoIdx,crm});setShowQuickProspModal(true);}}} style={{padding:"6px 10px",background:"#eff6ff",color:"#1d4ed8",border:"1px solid #bfdbfe",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>👤 Ver prospecto</button>
+              <button onClick={()=>{const crm=crmData[a.lotId]||{};const prosp=(crm.prospectos||[])[a.prospectoIdx];if(prosp){const cliMidia=clients.find(c=>c.nombre===prosp.nombre)||null;setQuickProspData({lot:a.lot,p:prosp,prospectoIdx:a.prospectoIdx,crm,cli:cliMidia});setShowQuickProspModal(true);}}} style={{padding:"6px 10px",background:"#eff6ff",color:"#1d4ed8",border:"1px solid #bfdbfe",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>👤 Ver prospecto</button>
               <button onClick={()=>{setSelectedLotCRM(a.lot);setActiveTab("kanban");}} style={{padding:"6px 10px",background:B.offW,color:B.grey4,border:"1px solid "+B.grey1,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Ver lote</button>
               <button onClick={()=>deleteActivity(a.lotId,a.prospectoIdx,a.act.id)} style={{padding:"6px 8px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:7,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>🗑</button>
             </div>
@@ -9244,7 +9245,11 @@ Respuesta: [respuesta exacta, conversacional]
                 {((cli&&cli.telefono)||p.telefono)&&<a href={"https://wa.me/52"+((cli&&cli.telefono)||p.telefono||"").replace(/[^0-9]/g,"")} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#4ade80",fontWeight:700,textDecoration:"none"}}>📱 WhatsApp</a>}
               </div>
             </div>
-            <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"#fff",fontSize:16,fontWeight:700,flexShrink:0}}>✕</button>
+            <div style={{display:"flex",gap:8,flexShrink:0}}>
+              <button onClick={()=>{onClose();const crm2=crmData[item.lotId]||{};setQuickProspData({lot:item.lot,p:item.prospecto,prospectoIdx:item.prospectoIdx,crm:crm2,cli:item.cli||null});setShowQuickProspModal(true);setTabQ&&setTabQ("editar");}}
+                style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"6px 12px",cursor:"pointer",color:"#fff",fontSize:11,fontWeight:700}}>✏️ Editar</button>
+              <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"#fff",fontSize:16,fontWeight:700}}>✕</button>
+            </div>
           </div>
 
           {/* Tabs */}
@@ -9334,6 +9339,10 @@ Respuesta: [respuesta exacta, conversacional]
                         </div>
                         <div style={{fontSize:12,color:"#374151"}}>{inter.nota}</div>
                       </div>
+                      <button onClick={()=>{if(window.confirm("¿Eliminar esta interacción?")){
+                        const lotForInter=todosLotes.find(x=>(crmData[x.lotId]?.interacciones||[]).includes(inter));
+                        if(lotForInter){const ints=(crmData[lotForInter.lotId]?.interacciones||[]).filter(i=>i!==inter);updateCRM(lotForInter.lotId,{interacciones:ints});}
+                      }}} style={{background:"transparent",border:"none",color:"#dc2626",cursor:"pointer",fontSize:16,flexShrink:0,padding:"0 4px"}}>✕</button>
                     </div>
                   ))
                 }
