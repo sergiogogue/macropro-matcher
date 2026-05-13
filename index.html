@@ -1360,6 +1360,7 @@ function MacroProMatcher() {
   const [searchDesarrollo, setSearchDesarrollo] = React.useState("");
   const [showQuickProspModal, setShowQuickProspModal] = React.useState(false);
   const [quickProspData, setQuickProspData] = React.useState(null); // {lot, p, prospectoIdx, crm}
+  const [showLotDetailModal, setShowLotDetailModal] = React.useState(false);
 
   // Asignación rápida de asesor a lote sin cliente — usable desde cualquier vista
   const [quickAssignLot,setQuickAssignLot]=React.useState(null); // {id, nombre, desarrollo}
@@ -4859,7 +4860,7 @@ function MacroProMatcher() {
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                   <button onClick={()=>{setShowQuickProspModal(false);setShowActivityModal({mode:"create",lotId:lot.id,prospectoIdx});setActivityForm({tipo:"Seguimiento",descripcion:"",fecha:addBusinessDays(new Date(),2),hora:""});}}
                     style={{flex:1,padding:"8px 10px",background:"#f59e0b",color:"#fff",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📅 Agendar actividad</button>
-                  <button onClick={()=>{setShowQuickProspModal(false);setView("crm");setSelectedLotCRM(lot);setActiveTab("kanban");}}
+                  <button onClick={()=>{setShowQuickProspModal(false);setSelectedLotCRM(lot);setShowLotDetailModal(true);}}
                     style={{flex:1,padding:"8px 10px",background:B.offW,color:B.navy,border:"1px solid "+B.grey1,borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📂 Ver detalle completo</button>
                 </div>
               </>)}
@@ -6498,7 +6499,7 @@ Respuesta: [respuesta exacta, conversacional]
         {activeTab==="kanban"&&(
           <div>
             {KanbanBoard()}
-            <div style={{marginTop:14}}>{LotPanel()}</div>
+            <div id="lot-detail-panel" style={{marginTop:14}}>{LotPanel()}</div>
           </div>
         )}
 
@@ -7021,6 +7022,23 @@ Respuesta: [respuesta exacta, conversacional]
         {ModalFichaCliente()}
         {ModalAnalisisProspecto()}
         {showQuickProspModal&&quickProspData&&<QuickProspectoModal/>}
+
+        {/* ── MODAL: Detalle completo del lote ── */}
+        {showLotDetailModal&&selectedLotCRM&&(
+          <div onClick={()=>setShowLotDetailModal(false)}
+            style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:3500,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:20,overflowY:"auto"}}>
+            <div onClick={e=>e.stopPropagation()}
+              style={{background:"#fff",borderRadius:14,width:"100%",maxWidth:720,marginTop:20,marginBottom:20,boxShadow:"0 20px 60px rgba(0,43,73,0.35)",overflow:"hidden"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 18px",background:"linear-gradient(135deg,#002B49,#003a66)",flexShrink:0}}>
+                <div style={{fontSize:13,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>{selectedLotCRM.nombre} · {selectedLotCRM.desarrollo}</div>
+                <button onClick={()=>setShowLotDetailModal(false)} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.7)",fontSize:20,cursor:"pointer",lineHeight:1,padding:"0 0 0 12px"}}>✕</button>
+              </div>
+              <div style={{padding:16,overflowY:"auto",maxHeight:"80vh"}}>
+                {LotPanel()}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
