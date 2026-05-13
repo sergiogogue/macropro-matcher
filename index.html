@@ -232,6 +232,8 @@ function clienteToSupabase(cliente) {
     asesor: cliente.asesor || null,
     tipo_comprador: cliente.tipo_comprador || null,
     ciudad_interes: Array.isArray(cliente.ciudad_interes) ? cliente.ciudad_interes : [],
+    telefono: cliente.telefono || "",
+    correo: cliente.correo || cliente.email || "",
     uso_interes: Array.isArray(cliente.uso_interes) ? cliente.uso_interes : [],
     presupuesto_min: Number(cliente.presupuesto_min) || null,
     presupuesto_max: Number(cliente.presupuesto_max) || null,
@@ -1923,6 +1925,8 @@ function MacroProMatcher() {
           precio_m2:colIdx(["precio m2","precio max m2","precio max","precio m x","precio mx"]),
           temp:colIdx(["temperatura"]),status:colIdx(["status crm","status","estatus"]),
           notas:colIdx(["notas del asesor","notas asesor","notas","comentarios"]),
+          correo:colIdx(["correo","email","e-mail","correo electronico"]),
+          telefono:colIdx(["telefono","teléfono","tel","phone","celular","movil","móvil"]),
         };
         const g=(row,key)=>{ const idx=C[key]; if(idx===undefined||idx<0||row[idx]===undefined) return ""; return String(row[idx]).trim(); };
         const toNum=(v)=>{ const s=String(v).replace(/[$\s]/g,""); if(/^\d{1,3}(\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g,""))||0; return parseFloat(s.replace(/,/g,""))||0; };
@@ -1945,6 +1949,8 @@ function MacroProMatcher() {
             precio_max_m2:toNum(g(row,"precio_m2")),sup_min:toNum(g(row,"sup_min")),sup_max:toNum(g(row,"sup_max")),
             temperatura:cleanTemp(g(row,"temp")),status:g(row,"status")||"Prospecto",
             notas:g(row,"notas"),
+            correo:g(row,"correo"),
+            telefono:g(row,"telefono"),
           };
         });
         setClients(mapped);
@@ -2056,7 +2062,7 @@ function MacroProMatcher() {
       } else {
         const isFiltro=subject.id==="FILTRO";
         const filtered=targets.filter(c=>{ const cOk=!c.ciudad_interes?.length||c.ciudad_interes.some(ci=>mCiudad(subject.ciudad,[ci])); const pOk=!c.presupuesto_max||c.presupuesto_max>=(subject.precio_total||0)*0.7; const sOk=!c.sup_max||c.sup_max>=(subject.sup_m2||0)*0.7; return isFiltro?true:(cOk&&pOk&&sOk); });
-        const top=(filtered.length>0?filtered:targets).slice(0,12);
+        const top=(filtered.length>0?filtered:targets);
         prompt=isFiltro
           ?`Estratega inmobiliario México. Rankea estos clientes por probabilidad de comprar uso "${subject.uso}" en ${subject.ciudad!=="Todas"?subject.ciudad:"México"}. Solo JSON.\nUSO: ${subject.uso}|Ciudad: ${subject.ciudad!=="Todas"?subject.ciudad:"Cualquiera"}\nCLIENTES (${top.length}):\n${top.map(c=>`${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}`
           :`Estratega inmobiliario México. Rankea estos clientes para el lote. Solo JSON.\nLOTE: ${subject.id}|${subject.nombre}|${subject.ciudad}|${subject.uso}|${subject.sup_m2}m²|$${subject.precio_m2}/m²|${fmtM(subject.precio_total)}|${subject.fortaleza?.substring(0,100)}\nCLIENTES (${top.length}):\n${top.map(c=>`${c.id}|${c.nombre}|${c.empresa}|${c.ciudad_interes?.join("/")}|${c.uso_interes?.join("/")}|${fmtM(c.presupuesto_min)}-${fmtM(c.presupuesto_max)}|${c.sup_min}-${c.sup_max}m²|${c.temperatura}`).join("\n")}\nFORMATO JSON EXACTO:{"resultados":[{"id":"CLI-001","score":85,"match_label":"Match Excelente","razon_principal":"1 oracion","argumentos":["a1","a2","a3"],"objecion":"obj","respuesta_objecion":"resp","urgencia":"urg"}]}`;
@@ -2664,7 +2670,7 @@ function MacroProMatcher() {
                     {!isClientMode&&<Tag label={item.temperatura||""} color={tempColor(item.temperatura)} bg={tempBg(item.temperatura)}/>}
                   </div>
                   <div style={{fontSize:12,color:B.grey3,marginBottom:10,display:"flex",gap:14,flexWrap:"wrap"}}>
-                    {isClientMode?(<><span>📐 {(item.sup_m2||0).toLocaleString()} m²</span><span>💲 ${(item.precio_m2||0).toLocaleString()}/m²</span><span style={{fontWeight:700,color:B.navy}}>{fmtM(item.precio_total)}</span><span>⚡ {item.entrega}</span></>):(<><span>🏢 {item.empresa}</span><span>👨‍💼 {item.asesor}</span><span>💲 {fmtM(item.presupuesto_min)}–{fmtM(item.presupuesto_max)}</span><span>📐 {(item.sup_min||0).toLocaleString()}–{(item.sup_max||0).toLocaleString()} m²</span>{item.telefono&&<span style={{color:B.navy,fontWeight:600}}>📞 {item.telefono}</span>}{item.email&&<span style={{color:B.navy,fontWeight:600}}>✉ {item.email}</span>}</>)}
+                    {isClientMode?(<><span>📐 {(item.sup_m2||0).toLocaleString()} m²</span><span>💲 ${(item.precio_m2||0).toLocaleString()}/m²</span><span style={{fontWeight:700,color:B.navy}}>{fmtM(item.precio_total)}</span><span>⚡ {item.entrega}</span></>):(<><span>🏢 {item.empresa}</span><span>👨‍💼 {item.asesor}</span><span>💲 {fmtM(item.presupuesto_min)}–{fmtM(item.presupuesto_max)}</span><span>📐 {(item.sup_min||0).toLocaleString()}–{(item.sup_max||0).toLocaleString()} m²</span>{item.telefono&&<span style={{color:B.navy,fontWeight:600}}>📞 {item.telefono}</span>}{(item.correo||item.email)&&<span style={{color:B.navy,fontWeight:600}}>✉ {item.correo||item.email}</span>}</>)}
                   </div>
                   <div style={{background:`linear-gradient(90deg,${B.gold}18,transparent)`,borderLeft:`3px solid ${B.gold}`,padding:"9px 13px",borderRadius:"0 8px 8px 0",marginBottom:10,fontSize:13,color:B.navy,fontWeight:600}}>{r.razon_principal}</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -7125,13 +7131,20 @@ Respuesta: [respuesta exacta, conversacional]
       // Pipeline por etapa — conteo por prospecto individual (no por lote)
       const pipeEtapa={};
       ACTIVE_STAGES.forEach(s=>{ pipeEtapa[s]={count:0,valor:0,ponderado:0}; });
+      const pdfLotesYaContados={};
+      ACTIVE_STAGES.forEach(s=>{pdfLotesYaContados[s]=new Set();});
       prospActivos.forEach(item=>{
         const pip=item.pip;
         if(!ACTIVE_STAGES.includes(pip)) return;
         const val=item.valor;
+        // Contar 1 prospecto siempre
         pipeEtapa[pip].count++;
-        pipeEtapa[pip].valor+=val;
-        pipeEtapa[pip].ponderado+=val*(stageProb[pip]||0);
+        // Sumar valor del lote solo una vez por etapa
+        if(!pdfLotesYaContados[pip].has(item.lot.id)){
+          pdfLotesYaContados[pip].add(item.lot.id);
+          pipeEtapa[pip].valor+=val;
+          pipeEtapa[pip].ponderado+=val*(stageProb[pip]||0);
+        }
       });
       const totalBruto=Object.values(pipeEtapa).reduce((a,e)=>a+e.valor,0);
       const totalPonderado=Object.values(pipeEtapa).reduce((a,e)=>a+e.ponderado,0);
@@ -7826,6 +7839,10 @@ Respuesta: [respuesta exacta, conversacional]
     const pipelinePorEtapa = {};
     ACTIVE_STAGES_LOCAL.forEach(s=>{ pipelinePorEtapa[s] = {count:0, valor:0, ponderado:0, lotes:[]}; });
     
+    // lotesYaContados: {etapa: Set de lot.id} — evita sumar el valor del lote más de una vez por etapa
+    const lotesYaContados = {};
+    ACTIVE_STAGES_LOCAL.forEach(s=>{ lotesYaContados[s] = new Set(); });
+
     lotesFiltrados.forEach(lot=>{
       const crm = crmData[lot.id];
       if(!crm||!crm.prospectos||crm.prospectos.length===0) return;
@@ -7837,10 +7854,15 @@ Respuesta: [respuesta exacta, conversacional]
         if(!ACTIVE_STAGES_LOCAL.includes(pip)) return;
         const asesorP = p.asesor||crm.asesorResponsable||"Sin asignar";
         if(ejecFiltroAsesor!=="Todos"&&asesorP!==ejecFiltroAsesor) return;
+        // Contar 1 prospecto siempre
         pipelinePorEtapa[pip].count++;
-        pipelinePorEtapa[pip].valor += valor;
-        pipelinePorEtapa[pip].ponderado += valor * (stageProb[pip]||0);
-        pipelinePorEtapa[pip].lotes.push(lot);
+        // Sumar valor del lote solo una vez por etapa
+        if(!lotesYaContados[pip].has(lot.id)){
+          lotesYaContados[pip].add(lot.id);
+          pipelinePorEtapa[pip].valor += valor;
+          pipelinePorEtapa[pip].ponderado += valor * (stageProb[pip]||0);
+          pipelinePorEtapa[pip].lotes.push(lot);
+        }
       });
     });
     const pipelineTotalValor = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.valor, 0);
