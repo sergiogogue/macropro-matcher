@@ -5035,6 +5035,14 @@ function MacroProMatcher() {
     };
 
     const KanbanBoard=()=>{
+      // Auto-seleccionar lote si hay solo 1 filtrado y ninguno seleccionado
+      React.useEffect(()=>{
+        if(lotsFiltered.length===1&&!selectedLotCRM){
+          setSelectedLotCRM(lotsFiltered[0]);
+        } else if(lotsFiltered.length!==1&&selectedLotCRM&&!lotsFiltered.find(l=>l.id===selectedLotCRM.id)){
+          setSelectedLotCRM(null);
+        }
+      },[lotsFiltered.map(l=>l.id).join(",")]);
       // Aplicar filtro de desarrollo sobre los prospectos
       const prospectosFiltrados=allProspectos.filter(x=>{
         if(filterDesarrolloCRM!=="Todos"&&x.lot.desarrollo!==filterDesarrolloCRM) return false;
