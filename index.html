@@ -7785,13 +7785,21 @@ Respuesta: [respuesta exacta, conversacional]
     ACTIVE_STAGES_LOCAL.forEach(s=>{ pipelinePorEtapa[s] = {count:0, valor:0, ponderado:0, lotes:[]}; });
     
     lotesFiltrados.forEach(lot=>{
-      const pip = getLotePipelineLocal(lot.id);
-      if(!ACTIVE_STAGES_LOCAL.includes(pip)) return;
+      const crm = crmData[lot.id];
+      if(!crm||!crm.prospectos||crm.prospectos.length===0) return;
       const valor = lot.precio_total||0;
-      pipelinePorEtapa[pip].count++;
-      pipelinePorEtapa[pip].valor += valor;
-      pipelinePorEtapa[pip].ponderado += valor * stageProb[pip];
-      pipelinePorEtapa[pip].lotes.push(lot);
+      crm.prospectos.forEach(p=>{
+        if(!p||!p.pipeline) return;
+        const pip = p.pipeline;
+        if(pip==="Perdido"||pip==="Vendido") return;
+        if(!ACTIVE_STAGES_LOCAL.includes(pip)) return;
+        const asesorP = p.asesor||crm.asesorResponsable||"Sin asignar";
+        if(ejecFiltroAsesor!=="Todos"&&asesorP!==ejecFiltroAsesor) return;
+        pipelinePorEtapa[pip].count++;
+        pipelinePorEtapa[pip].valor += valor;
+        pipelinePorEtapa[pip].ponderado += valor * (stageProb[pip]||0);
+        pipelinePorEtapa[pip].lotes.push(lot);
+      });
     });
     const pipelineTotalValor = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.valor, 0);
     const pipelineTotalPonderado = Object.values(pipelinePorEtapa).reduce((a,e)=>a+e.ponderado, 0);
@@ -8081,7 +8089,7 @@ Respuesta: [respuesta exacta, conversacional]
               <thead>
                 <tr style={{background:B.offW}}>
                   <th style={{textAlign:"left", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Etapa</th>
-                  <th style={{textAlign:"right", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Lotes</th>
+                  <th style={{textAlign:"right", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Prospectos</th>
                   <th style={{textAlign:"right", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Valor</th>
                   <th style={{textAlign:"right", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Prob.</th>
                   <th style={{textAlign:"right", padding:"10px 12px", fontSize:9, fontWeight:800, color:B.grey3, textTransform:"uppercase", letterSpacing:1.2}}>Ponderado</th>
