@@ -1364,6 +1364,8 @@ function MacroProMatcher() {
   const [showQuickProspModal, setShowQuickProspModal] = React.useState(false);
   const [quickProspData, setQuickProspData] = React.useState(null); // {lot, p, prospectoIdx, crm}
   const [showLotDetailModal, setShowLotDetailModal] = React.useState(false);
+  const [showFichaModal, setShowFichaModal] = React.useState(false);
+  const [selectedFichaItem, setSelectedFichaItem] = React.useState(null);
   const [highlightProspKey, setHighlightProspKey] = React.useState(null);
 
   // Asignación rápida de asesor a lote sin cliente — usable desde cualquier vista
@@ -1781,6 +1783,7 @@ function MacroProMatcher() {
               sup_m2:sup, precio_m2:pm2, precio_total:total,
               status:String(getVal(row,"Status")||"Disponible"),
               entrega:(()=>{const _e=getVal(row,"Fecha Entrega");if(!_e)return"";if(typeof _e==="number"&&_e>40000){const _d=new Date(Math.round((_e-25569)*86400*1000));const _m=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];return _m[_d.getUTCMonth()]+" "+_d.getUTCFullYear();}return String(_e);})(),
+              maps_url:String(getVal(row,"Link Google Maps","Link Maps","Google Maps","URL Maps","url_maps")||""),
               cos:parseFloat(getVal(row,"COS"))||0,
               cus:parseFloat(getVal(row,"CUS"))||0,
               lat:(()=>{
@@ -3404,8 +3407,6 @@ function MacroProMatcher() {
     // ── STATE ──────────────────────────────────────────────────────
     // ── STATE LOCAL DE VIEWCRM (los críticos están en el padre) ───
     const [showInterModal, setShowInterModal] = React.useState(false);
-    const [showFichaModal, setShowFichaModal] = React.useState(false);
-    const [selectedFichaItem, setSelectedFichaItem] = React.useState(null);
     const [showNoteModal, setShowNoteModal] = React.useState(false);
     const [interForm, setInterForm] = React.useState({fecha:new Date().toISOString().slice(0,10),canal:"Llamada",contacto:"",reaccion:"Interesado",nota:""});
     const [noteText, setNoteText] = React.useState("");
@@ -5451,118 +5452,7 @@ function MacroProMatcher() {
     // ══════════════════════════════════════════════════════════════
     // MODAL FICHA CLIENTE
     // ══════════════════════════════════════════════════════════════
-    const ModalFichaCliente=()=>{
-      if(!showFichaModal||!selectedFichaItem) return null;
-      const item=selectedFichaItem;
-      const cli=item.cli; const p=item.prospecto; const crm=item.crm;
-      // Todos los lotes en los que aparece este prospecto
-      const todosLotes=allProspectos.filter(x=>x.prospecto.nombre.toLowerCase().trim()===p.nombre.toLowerCase().trim());
-      const interacciones=crm.interacciones||[];
-      const canalColor={Llamada:"#3B82F6",WhatsApp:"#22c55e","Visita al terreno":"#f59e0b","Reunión presencial":B.navy,"Presentación virtual":"#8B5CF6",Email:"#6b7280",Otro:B.grey3};
-      return (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={e=>e.target===e.currentTarget&&setShowFichaModal(false)}>
-          <div style={{background:B.white,borderRadius:20,width:"100%",maxWidth:700,maxHeight:"88vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,43,73,0.35)"}}>
-            {/* Header */}
-            <div style={{background:"linear-gradient(135deg,"+B.navy+",#1a4a6b)",borderRadius:"20px 20px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-              <div>
-                <div style={{fontSize:10,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>📋 Ficha de Prospecto</div>
-                <div style={{fontSize:22,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif",marginBottom:2}}>{p.nombre}</div>
-                {(cli&&cli.empresa)||p.empresa?<div style={{fontSize:12,color:"rgba(255,255,255,0.7)"}}>🏢 {(cli&&cli.empresa)||p.empresa}</div>:null}
-              </div>
-              <button onClick={()=>setShowFichaModal(false)} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"#fff",fontSize:16,fontWeight:700}}>✕</button>
-            </div>
-            <div style={{padding:"20px 24px"}}>
 
-              {/* KPIs rápidos */}
-              <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
-                {[
-                  {label:"Lotes prospectados",val:todosLotes.length,col:"#3B82F6"},
-                  {label:"Interacciones totales",val:interacciones.length,col:B.gold},
-                  {label:"Pipeline actual",val:item.pipeline,col:PIPELINE_COLORS[item.pipeline]||B.grey3},
-                  {label:"Semáforo",val:semaforoLabel[item.semaforo]||"Sin seg.",col:semaforoColor[item.semaforo]||B.grey3},
-                ].map(kpi=>(
-                  <div key={kpi.label} style={{flex:"1 1 130px",background:B.offW,borderRadius:10,padding:"10px 14px",borderLeft:"3px solid "+kpi.col}}>
-                    <div style={{fontSize:9,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{kpi.label}</div>
-                    <div style={{fontSize:14,fontWeight:800,color:kpi.col}}>{kpi.val}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Datos de contacto */}
-              <div style={{marginBottom:18}}>
-                <div style={{fontSize:11,fontWeight:700,color:B.navy,textTransform:"uppercase",letterSpacing:1,marginBottom:8,borderBottom:"1px solid "+B.grey1,paddingBottom:4}}>📞 Datos de Contacto</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12,marginBottom:4}}>
-                  <div style={{background:B.offW,borderRadius:8,padding:"8px 10px"}}>
-                    <div style={{fontSize:9,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>📱 Teléfono</div>
-                    <div style={{color:(cli&&cli.telefono)||p.telefono?B.navy:B.grey3,fontWeight:(cli&&cli.telefono)||p.telefono?600:400}}>{(cli&&cli.telefono)||p.telefono||"—"}</div>
-                  </div>
-                  <div style={{background:B.offW,borderRadius:8,padding:"8px 10px"}}>
-                    <div style={{fontSize:9,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>✉ Email</div>
-                    <div style={{color:(cli&&cli.email)||p.email?B.navy:B.grey3,fontWeight:(cli&&cli.email)||p.email?600:400,wordBreak:"break-all",fontSize:11}}>{(cli&&cli.email)||p.email||"—"}</div>
-                  </div>
-                  {(cli&&cli.asesor)&&<div style={{background:"#eff6ff",borderRadius:8,padding:"8px 10px"}}>
-                    <div style={{fontSize:9,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>👤 Asesor</div>
-                    <div style={{color:"#2563AC",fontWeight:700}}>{cli.asesor}</div>
-                  </div>}
-                  {(cli&&cli.temperatura)&&<div style={{background:cli.temperatura==="Caliente"?"#fee2e2":cli.temperatura==="Frío"?"#dbeafe":"#fef3c7",borderRadius:8,padding:"8px 10px"}}>
-                    <div style={{fontSize:9,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>🌡 Temperatura</div>
-                    <div style={{color:cli.temperatura==="Caliente"?"#dc2626":cli.temperatura==="Frío"?"#2563eb":"#d97706",fontWeight:700}}>{cli.temperatura}</div>
-                  </div>}
-                </div>
-                {cli&&<div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {cli.uso_interes&&cli.uso_interes.length>0&&cli.uso_interes.map((u,ui)=><span key={u+"-"+ui} style={{padding:"2px 8px",borderRadius:10,background:B.blueL,color:B.blue,fontSize:11,fontWeight:600}}>{u}</span>)}
-                  {cli.presupuesto_max&&<span style={{padding:"2px 8px",borderRadius:10,background:"#f0fdf4",color:"#16a34a",fontSize:11,fontWeight:700}}>💰 Hasta {fmtM(cli.presupuesto_max)}</span>}
-                </div>}
-                {cli&&cli.notas&&<div style={{marginTop:8,background:B.offW,borderRadius:8,padding:"8px 12px",fontSize:11,color:B.grey4,fontStyle:"italic"}}>"{cli.notas}"</div>}
-              </div>
-
-              {/* Lotes prospectados */}
-              {todosLotes.length>0&&(
-                <div style={{marginBottom:18}}>
-                  <div style={{fontSize:11,fontWeight:700,color:B.navy,textTransform:"uppercase",letterSpacing:1,marginBottom:8,borderBottom:"1px solid "+B.grey1,paddingBottom:4}}>🏗 Lotes Prospectados ({todosLotes.length})</div>
-                  {todosLotes.map((x,idx)=>(
-                    <div key={idx} onClick={()=>{setSelectedLotCRM(x.lot);setActiveTab("kanban");setShowFichaModal(false);}} style={{background:B.offW,borderRadius:10,padding:"10px 14px",marginBottom:8,cursor:"pointer",border:"1px solid "+B.grey1,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <div>
-                        <div style={{fontWeight:700,color:B.navy,fontSize:13}}>{x.lot.nombre}</div>
-                        <div style={{fontSize:11,color:B.grey4}}>{x.lot.desarrollo} · {fmtM(x.lot.precio_total||0)}</div>
-                      </div>
-                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                        <span style={{padding:"2px 8px",borderRadius:10,fontSize:10,fontWeight:700,background:(PIPELINE_COLORS[x.pipeline]||B.grey3)+"22",color:PIPELINE_COLORS[x.pipeline]||B.grey3}}>{x.pipeline}</span>
-                        <span style={{fontSize:10,color:B.grey3}}>→</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Historial de interacciones */}
-              <div>
-                <div style={{fontSize:11,fontWeight:700,color:B.navy,textTransform:"uppercase",letterSpacing:1,marginBottom:8,borderBottom:"1px solid "+B.grey1,paddingBottom:4}}>📝 Historial Completo de Interacciones ({interacciones.length})</div>
-                {interacciones.length===0?(
-                  <div style={{background:"#fef9c3",borderRadius:8,padding:"12px 14px",fontSize:12,color:"#92400e",textAlign:"center"}}>⚠ Sin interacciones registradas aún</div>
-                ):(
-                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                    {[...interacciones].reverse().map((inter,idx)=>(
-                      <div key={idx} style={{background:B.offW,borderRadius:10,padding:"10px 14px",borderLeft:"3px solid "+(canalColor[inter.canal]||B.grey3)}}>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                            <span style={{fontSize:11,fontWeight:700,color:canalColor[inter.canal]||B.navy}}>{inter.canal}</span>
-                            <span style={{padding:"1px 7px",borderRadius:10,fontSize:10,fontWeight:700,background:"#dbeafe",color:"#2563eb"}}>{inter.reaccion}</span>
-                            {inter.contacto&&<span style={{fontSize:10,color:B.grey3}}>con {inter.contacto}</span>}
-                          </div>
-                          <span style={{fontSize:10,color:B.grey3}}>{inter.fecha}</span>
-                        </div>
-                        {inter.nota&&<div style={{fontSize:12,color:B.grey4,fontStyle:"italic",lineHeight:1.5}}>{inter.nota}</div>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    };
 
     // ══════════════════════════════════════════════════════════════
     // VISTA ASESORES — Tab dedicado
@@ -7066,7 +6956,6 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
         )}
         {ModalInteraccion()}
-        {ModalFichaCliente()}
         {ModalAnalisisProspecto()}
         {showQuickProspModal&&quickProspData&&<QuickProspectoModal/>}
 
@@ -9265,16 +9154,177 @@ Respuesta: [respuesta exacta, conversacional]
               <Field wide label="Fortaleza Principal" value={lot.fortaleza}/><Field wide label="Atributos Estratégicos" value={lot.atributos}/><Field wide label="Comprador Ideal" value={lot.comprador}/>
             </div>
           </div>
-          <div style={{padding:"14px 24px",borderTop:`1px solid ${B.grey1}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{padding:"14px 24px",borderTop:`1px solid ${B.grey1}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
             <span style={{fontSize:10,color:B.grey3}}>CONFIDENCIAL · MacroPro · Grupo Guía</span>
-            <button style={s.btn("primary")} onClick={()=>{setSelectedLot(lot);setView("matchLot");onClose();}}>🎯 Match con Clientes</button>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+              {(lot.maps_url||(lot.lat&&lot.lng))&&(
+                <a href={lot.maps_url||(lot.lat&&lot.lng?`https://www.google.com/maps?q=${lot.lat},${lot.lng}`:"")} target="_blank" rel="noopener noreferrer"
+                  style={{padding:"7px 13px",background:"#1a73e8",color:"#fff",borderRadius:8,fontSize:11,fontWeight:700,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:5}}>
+                  📍 Ver en Google Maps
+                </a>
+              )}
+              <button style={s.btn("primary")} onClick={()=>{setSelectedLot(lot);setView("matchLot");onClose();}}>🎯 Match con Clientes</button>
+            </div>
           </div>
         </div>
       </div>
     );
   };
 
-  // ─── MODAL ADD CLIENT ─────────────────────────────────────────────
+  // ─── MODAL FICHA CLIENTE GLOBAL ─────────────────────────────────────────────
+  const ModalFichaClienteGlobal = ({ item, onClose }) => {
+    if(!item) return null;
+    const cli=item.cli; const p=item.prospecto; const crm=crmData[item.lotId]||item.crm||{};
+    const todosLotes=allProspectos.filter(x=>x.prospecto.nombre.toLowerCase().trim()===p.nombre.toLowerCase().trim());
+    // Todas las interacciones de este cliente en TODOS sus lotes
+    const todasInteracciones=todosLotes.flatMap(x=>(crmData[x.lotId]||{}).interacciones||[]).filter(i=>!i.prospecto||i.prospecto.toLowerCase()===p.nombre.toLowerCase()||true).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    const interaccionesEste=(crm.interacciones||[]).filter(i=>!i.prospecto||i.prospecto===p.nombre);
+    const canalColor={Llamada:"#3B82F6",WhatsApp:"#22c55e","Visita al terreno":"#f59e0b","Reunión":"#002B49","Reunión presencial":"#002B49","Presentación virtual":"#8B5CF6",Email:"#6b7280",Otro:"#9ca3af"};
+    const [tabFicha,setTabFicha]=React.useState("resumen");
+    return (
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:4500,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+        <div style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:720,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,43,73,0.4)",display:"flex",flexDirection:"column"}}>
+          {/* Header */}
+          <div style={{background:"linear-gradient(135deg,#002B49,#1a4a6b)",borderRadius:"20px 20px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexShrink:0}}>
+            <div>
+              <div style={{fontSize:10,fontWeight:700,color:"#F5B335",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>📋 Ficha de Prospecto</div>
+              <div style={{fontSize:22,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif",marginBottom:2}}>{p.nombre}</div>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4}}>
+                {(cli&&cli.empresa)&&<span style={{fontSize:11,color:"rgba(255,255,255,0.7)"}}>🏢 {cli.empresa}</span>}
+                {(cli&&cli.asesor)&&<span style={{fontSize:11,color:"rgba(255,255,255,0.7)"}}>👤 {cli.asesor}</span>}
+                {((cli&&cli.telefono)||p.telefono)&&<a href={"https://wa.me/52"+((cli&&cli.telefono)||p.telefono||"").replace(/[^0-9]/g,"")} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#4ade80",fontWeight:700,textDecoration:"none"}}>📱 WhatsApp</a>}
+              </div>
+            </div>
+            <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"#fff",fontSize:16,fontWeight:700,flexShrink:0}}>✕</button>
+          </div>
+
+          {/* Tabs */}
+          <div style={{display:"flex",borderBottom:"2px solid #e5e7eb",flexShrink:0,background:"#f9fafb"}}>
+            {[["resumen","📊 Resumen"],["lotes","🏗 Lotes ("+todosLotes.length+")"],["historial","📋 Historial ("+todasInteracciones.length+")"],["contacto","📞 Contacto"]].map(([t,l])=>(
+              <button key={t} onClick={()=>setTabFicha(t)} style={{flex:1,padding:"11px 8px",fontSize:11,fontWeight:700,border:"none",background:"transparent",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",borderBottom:tabFicha===t?"3px solid #002B49":"3px solid transparent",color:tabFicha===t?"#002B49":"#9ca3af",transition:"all 0.15s"}}>{l}</button>
+            ))}
+          </div>
+
+          <div style={{padding:"20px 24px",flex:1,overflowY:"auto"}}>
+
+            {/* TAB: RESUMEN */}
+            {tabFicha==="resumen"&&(
+              <div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:20}}>
+                  {[
+                    {label:"Lotes prospectados",val:todosLotes.length,col:"#3B82F6"},
+                    {label:"Interacciones totales",val:todasInteracciones.length,col:"#F5B335"},
+                    {label:"Etapa actual",val:item.pipeline,col:PIPELINE_COLORS[item.pipeline]||"#9ca3af"},
+                    {label:"Temperatura",val:(p.temperatura||(cli&&cli.temperatura)||"Sin definir"),col:p.temperatura==="Caliente"||cli?.temperatura==="Caliente"?"#dc2626":p.temperatura==="Tibio"||cli?.temperatura==="Tibio"?"#d97706":"#3B82F6"},
+                  ].map(kpi=>(
+                    <div key={kpi.label} style={{background:"#f8fafc",borderRadius:10,padding:"12px 14px",borderLeft:"3px solid "+kpi.col}}>
+                      <div style={{fontSize:9,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{kpi.label}</div>
+                      <div style={{fontSize:14,fontWeight:800,color:kpi.col}}>{kpi.val}</div>
+                    </div>
+                  ))}
+                </div>
+                {cli&&cli.uso_interes&&cli.uso_interes.length>0&&(
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Usos de interés</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{cli.uso_interes.map((u,i)=><span key={i} style={{padding:"3px 10px",borderRadius:10,background:"#eff6ff",color:"#2563eb",fontSize:11,fontWeight:600}}>{u}</span>)}</div>
+                  </div>
+                )}
+                {cli&&cli.presupuesto_max&&<div style={{marginBottom:14,background:"#f0fdf4",borderRadius:10,padding:"10px 14px"}}><span style={{fontSize:10,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:1}}>Presupuesto máx: </span><span style={{fontWeight:800,color:"#16a34a",fontSize:13}}>{fmtM(cli.presupuesto_max)}</span></div>}
+                {/* Última interacción */}
+                {todasInteracciones[0]&&(
+                  <div style={{background:"#f8fafc",borderRadius:10,padding:"12px 14px",border:"1px solid #e5e7eb"}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Última interacción</div>
+                    <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{padding:"2px 8px",borderRadius:6,background:canalColor[todasInteracciones[0].tipo]||"#9ca3af",color:"#fff",fontSize:10,fontWeight:700}}>{todasInteracciones[0].tipo}</span><span style={{fontSize:11,color:"#374151"}}>{todasInteracciones[0].nota}</span><span style={{fontSize:10,color:"#9ca3af",marginLeft:"auto"}}>{todasInteracciones[0].fecha}</span></div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB: LOTES */}
+            {tabFicha==="lotes"&&(
+              <div>
+                {todosLotes.length===0?<div style={{textAlign:"center",padding:40,color:"#9ca3af"}}>Sin lotes prospectados</div>:
+                  todosLotes.map((x,idx)=>{
+                    const lotCrm=crmData[x.lotId]||{};
+                    const lotInter=(lotCrm.interacciones||[]).filter(i=>!i.prospecto||i.prospecto===p.nombre);
+                    return (
+                      <div key={idx} style={{background:"#f8fafc",borderRadius:12,padding:"14px 16px",marginBottom:10,border:"1px solid #e5e7eb"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                          <div>
+                            <div style={{fontWeight:800,color:"#002B49",fontSize:14}}>{x.lot.nombre}</div>
+                            <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{x.lot.desarrollo} · {x.lot.ciudad} · {fmtM(x.lot.precio_total||0)}</div>
+                          </div>
+                          <span style={{padding:"3px 10px",borderRadius:10,fontSize:10,fontWeight:700,background:(PIPELINE_COLORS[x.pipeline]||"#9ca3af")+"22",color:PIPELINE_COLORS[x.pipeline]||"#9ca3af",flexShrink:0}}>{x.pipeline}</span>
+                        </div>
+                        <div style={{fontSize:10,color:"#6b7280"}}>{lotInter.length} interacción{lotInter.length!==1?"es":""} en este lote</div>
+                        {lotInter.slice(0,2).map((inter,ii)=>(
+                          <div key={ii} style={{marginTop:6,background:"#fff",borderRadius:7,padding:"6px 10px",border:"1px solid #e5e7eb",display:"flex",gap:8,alignItems:"center"}}>
+                            <span style={{padding:"1px 6px",borderRadius:4,background:canalColor[inter.tipo]||"#9ca3af",color:"#fff",fontSize:9,fontWeight:700,flexShrink:0}}>{inter.tipo}</span>
+                            <span style={{fontSize:11,color:"#374151",flex:1}}>{inter.nota}</span>
+                            <span style={{fontSize:9,color:"#9ca3af",flexShrink:0}}>{inter.fecha}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })
+                }
+              </div>
+            )}
+
+            {/* TAB: HISTORIAL COMPLETO */}
+            {tabFicha==="historial"&&(
+              <div>
+                {todasInteracciones.length===0?<div style={{textAlign:"center",padding:40,color:"#9ca3af"}}>Sin interacciones registradas</div>:
+                  todasInteracciones.map((inter,idx)=>(
+                    <div key={idx} style={{display:"flex",gap:10,marginBottom:10,background:"#f8fafc",borderRadius:10,padding:"10px 14px",border:"1px solid #e5e7eb"}}>
+                      <div style={{width:3,background:canalColor[inter.tipo]||"#9ca3af",borderRadius:2,flexShrink:0}}/>
+                      <div style={{flex:1}}>
+                        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4}}>
+                          <span style={{padding:"2px 8px",borderRadius:6,background:canalColor[inter.tipo]||"#9ca3af",color:"#fff",fontSize:10,fontWeight:700}}>{inter.tipo}</span>
+                          <span style={{fontSize:10,color:"#9ca3af"}}>{inter.fecha}</span>
+                        </div>
+                        <div style={{fontSize:12,color:"#374151"}}>{inter.nota}</div>
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            )}
+
+            {/* TAB: CONTACTO */}
+            {tabFicha==="contacto"&&(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                {[
+                  {label:"📱 Teléfono",val:(cli&&cli.telefono)||p.telefono,link:(cli&&cli.telefono)||p.telefono?"tel:"+((cli&&cli.telefono)||p.telefono):null},
+                  {label:"✉ Email",val:(cli&&cli.email)||p.email,link:(cli&&cli.email)||p.email?"mailto:"+((cli&&cli.email)||p.email):null},
+                  {label:"🏢 Empresa",val:(cli&&cli.empresa)||p.empresa,link:null},
+                  {label:"👤 Asesor",val:(cli&&cli.asesor)||p.asesor,link:null},
+                  {label:"🏙 Ciudad interés",val:cli&&cli.ciudad_interes&&cli.ciudad_interes.length>0?cli.ciudad_interes.join(", "):null,link:null},
+                  {label:"📅 Registro",val:p.fechaCreacion||null,link:null},
+                ].map(({label,val,link})=>(
+                  <div key={label} style={{background:"#f8fafc",borderRadius:10,padding:"12px 14px",border:"1px solid #e5e7eb"}}>
+                    <div style={{fontSize:9,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>{label}</div>
+                    {val?link?<a href={link} style={{color:"#2563eb",fontWeight:600,fontSize:12,textDecoration:"none"}}>{val}</a>:<div style={{color:"#111827",fontWeight:600,fontSize:12}}>{val}</div>:<div style={{color:"#9ca3af",fontSize:11}}>Sin dato</div>}
+                  </div>
+                ))}
+                {((cli&&cli.telefono)||p.telefono)&&(
+                  <div style={{gridColumn:"1/-1"}}>
+                    <a href={"https://wa.me/52"+((cli&&cli.telefono)||p.telefono||"").replace(/[^0-9]/g,"")} target="_blank" rel="noopener noreferrer"
+                      style={{display:"block",textAlign:"center",background:"#22c55e",color:"#fff",borderRadius:10,padding:"12px",fontWeight:700,fontSize:13,textDecoration:"none"}}>
+                      💬 Abrir WhatsApp
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+    // ─── MODAL ADD CLIENT ─────────────────────────────────────────────
   const ModalAddClient = () => (
     <div style={s.overlay} onClick={e=>e.target===e.currentTarget&&setShowAddClient(false)}>
       <div style={s.modal}>
@@ -9535,20 +9585,20 @@ Respuesta: [respuesta exacta, conversacional]
           )}
         </div>
       </nav>
-      {view==="home"&&ViewHome()}
-      {view==="crm"&&ViewCRM()}
-      {view==="dashboard"&&ViewDashboard()}
+      {view==="home"&&<ViewHome/>}
+      {view==="crm"&&<ViewCRM/>}
+      {view==="dashboard"&&<ViewDashboard/>}
       {view==="ejecutivo"&&<ViewEjecutivo/>}
-      {view==="metas"&&ViewMetas()}
-      {view==="matchClient"&&ViewMatchClient()}
-      {view==="matchLot"&&ViewMatchLot()}
-      {view==="result"&&ViewResults()}
-      {view==="quickSearch"&&ViewQuickSearch()}
-      {view==="clients"&&ViewClients()}
-      {view==="lots"&&ViewLots()}
-      {ModalApiKey()}
-      {ModalMigrate()}
-      {showAddClient&&ModalAddClient()}
+      {view==="metas"&&<ViewMetas/>}
+      {view==="matchClient"&&<ViewMatchClient/>}
+      {view==="matchLot"&&<ViewMatchLot/>}
+      {view==="result"&&<ViewResults/>}
+      {view==="quickSearch"&&<ViewQuickSearch/>}
+      {view==="clients"&&<ViewClients/>}
+      {view==="lots"&&<ViewLots/>}
+      <ModalApiKey/>
+      <ModalMigrate/>
+      {showAddClient&&<ModalAddClient/>}
       {showPDFModal&&(
         <div onClick={()=>!pdfGenerando&&setShowPDFModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:540,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden"}}>
@@ -9634,7 +9684,10 @@ Respuesta: [respuesta exacta, conversacional]
       )}
 
 
-      {/* Modal Notificaciones */}
+      {/* Ficha Cliente Modal — GLOBAL */}
+      {showFichaModal&&selectedFichaItem&&<ModalFichaClienteGlobal item={selectedFichaItem} onClose={()=>setShowFichaModal(false)}/>}
+
+            {/* Modal Notificaciones */}
       {showNotifModal&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,27,46,0.75)",zIndex:4000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"80px 16px 20px"}} onClick={e=>e.target===e.currentTarget&&setShowNotifModal(false)}>
           <div style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:520,maxHeight:"80vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,43,73,0.4)"}}>
