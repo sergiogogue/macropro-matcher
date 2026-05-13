@@ -2880,10 +2880,17 @@ function MacroProMatcher() {
       return cliSrc2.map(cli=>{
         let score=0;
         const ciudadesCliente = (cli.ciudad_interes||[]).map(c=>normStr(c));
+        const usosInteres = (cli.uso_interes||[]).filter(Boolean);
         
+        // 1. FILTRO DURO: si el cliente tiene usos definidos Y el desarrollo tiene usos, deben coincidir
+        if(usosInteres.length>0 && tiposDesarrollo.size>0){
+          const usoMatch = usosInteres.some(u=>tiposDesarrollo.has(u));
+          if(!usoMatch) return null; // Excluir si no hay match de uso
+        }
+
         if(requireGeo){
           const geoMatch = ciudadesCliente.length===0
-            ? false // sin datos geográficos del cliente → no aplica
+            ? false
             : ciudadesCliente.some(c=>
                 c.includes(devCiudad)||devCiudad.includes(c)||
                 (devEstado&&normStr(devEstado).split(" ").some(w=>w.length>3&&c.includes(w)))
@@ -2892,7 +2899,6 @@ function MacroProMatcher() {
           score+=50;
         }
         // Match por uso de interés
-        const usosInteres = cli.uso_interes||[];
         if(usosInteres.some(u=>tiposDesarrollo.has(u))) score+=30;
         // Match por presupuesto
         if((cli.presupuesto_max||0)>=precioMinDev) score+=15;
