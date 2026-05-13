@@ -4983,10 +4983,10 @@ function MacroProMatcher() {
                   <select value={asesorEdit} onChange={e=>setAsesorEdit(e.target.value)}
                     style={{width:"100%",borderRadius:7,border:"1px solid "+B.grey1,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box",background:"#fff"}}>
                     <option value="">Sin asignar</option>
-                    {(asesoresCatalog.length>0
-                      ? asesoresCatalog.map(a=>a.nombre)
-                      : [...new Set(allProspectos.map(x=>(x.cli&&x.cli.asesor)||x.prospecto?.asesor||"").filter(Boolean))].sort()
-                    ).map(nombre=><option key={nombre} value={nombre}>{nombre}</option>)}
+                    {[...new Set([
+                      ...asesoresCatalog.map(a=>a.nombre),
+                      ...allProspectos.map(x=>(x.cli&&x.cli.asesor)||x.prospecto?.asesor||"").filter(Boolean)
+                    ])].sort().map(nombre=><option key={nombre} value={nombre}>{nombre}</option>)}
                   </select>
                 </div>
                 <div style={{marginBottom:14}}>
@@ -6614,13 +6614,12 @@ Respuesta: [respuesta exacta, conversacional]
                   Asigna un asesor responsable cuando aún no tengas nombre del cliente. Cuando el cliente aparezca, podrás convertirlo a prospecto formal conservando todas las actividades e historial.
                 </div>
                 <label style={{fontSize:10,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:0.8,display:"block",marginBottom:5}}>Asesor responsable *</label>
-                {asesoresCatalog.length>0?(
-                  <select value={seguimientoForm.asesor} onChange={e=>setSeguimientoForm({...seguimientoForm,asesor:e.target.value})}
+                <select value={seguimientoForm.asesor} onChange={e=>setSeguimientoForm({...seguimientoForm,asesor:e.target.value})}
                     style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid "+B.grey1,fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:14,boxSizing:"border-box",background:B.white}}>
                     <option value="">— Selecciona asesor —</option>
-                    {asesoresCatalog.map(a=><option key={a.id} value={a.nombre}>{a.nombre}{a.zona?" · "+a.zona:""}</option>)}
+                    {[...new Set([...asesoresCatalog.map(a=>a.nombre),...allProspectos.map(x=>(x.cli&&x.cli.asesor)||x.prospecto?.asesor||"").filter(Boolean)])].sort().map(nombre=><option key={nombre} value={nombre}>{nombre}</option>)}
                   </select>
-                ):(
+                {false&&(
                   <input type="text" value={seguimientoForm.asesor} onChange={e=>setSeguimientoForm({...seguimientoForm,asesor:e.target.value})}
                     placeholder="Nombre del asesor"
                     style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid "+B.grey1,fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:14,boxSizing:"border-box"}}/>
@@ -9711,13 +9710,12 @@ Respuesta: [respuesta exacta, conversacional]
                 Este lote no tiene cliente identificado aún. Asigna a un asesor responsable y lo agregas al CRM para darle seguimiento. Cuando tengas nombre del cliente, podrás convertirlo a prospecto formal.
               </div>
               <label style={{fontSize:10,fontWeight:800,color:"#002B49",textTransform:"uppercase",letterSpacing:0.8,display:"block",marginBottom:5,fontFamily:"'DM Sans',sans-serif"}}>Asesor responsable *</label>
-              {asesoresCatalog.length>0?(
-                <select value={quickAssignForm.asesor} onChange={e=>setQuickAssignForm({...quickAssignForm,asesor:e.target.value})}
+              <select value={quickAssignForm.asesor} onChange={e=>setQuickAssignForm({...quickAssignForm,asesor:e.target.value})}
                   style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:14,boxSizing:"border-box",background:"#fff"}}>
                   <option value="">— Selecciona asesor —</option>
-                  {asesoresCatalog.map(a=><option key={a.id} value={a.nombre}>{a.nombre}{a.zona?" · "+a.zona:""}</option>)}
+                  {[...new Set([...asesoresCatalog.map(a=>a.nombre),...allProspectos.map(x=>(x.cli&&x.cli.asesor)||x.prospecto?.asesor||"").filter(Boolean)])].sort().map(nombre=><option key={nombre} value={nombre}>{nombre}</option>)}
                 </select>
-              ):(
+              {false&&(
                 <input type="text" value={quickAssignForm.asesor} onChange={e=>setQuickAssignForm({...quickAssignForm,asesor:e.target.value})}
                   placeholder="Nombre del asesor"
                   style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:14,boxSizing:"border-box"}}/>
