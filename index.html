@@ -1839,7 +1839,7 @@ function MacroProMatcher() {
               fortaleza:String(getVal(row,"Fortaleza Principal")||""),
               atributos:String(getVal(row,"Atributos Estratégicos")||""),
               comprador:String(getVal(row,"Comprador Ideal")||""),
-              asesor:String(getVal(row,"Asesor Responsable","Asesor","Vendedor","Agente","Responsable","Asesor de Ventas","Opcionador")||""),
+              asesor:String(getVal(row,"Asesor Opcionador","Asesor Responsable","Asesor","Vendedor","Agente","Responsable","Asesor de Ventas","Opcionador")||""),
               condiciones_pago:String(getVal(row,"Condiciones de Pago")||""),
               observaciones:String(getVal(row,"Observaciones")||""),
               fecha_ingreso:(()=>{
@@ -2794,6 +2794,7 @@ function MacroProMatcher() {
     const [localPrecioM2, setLocalPrecioM2] = useState(quickSearchCriteria.precio_m2_max||"");
     const [localCiudad, setLocalCiudad] = useState(quickSearchCriteria.ciudad||"");
     const [localDesarrollo, setLocalDesarrollo] = useState(quickSearchCriteria.desarrollo||"");
+    const [localAsesor, setLocalAsesor] = useState("");
 
     const inputStyle = (val) => ({
       width:"100%", padding:"11px 14px",
@@ -2805,7 +2806,7 @@ function MacroProMatcher() {
 
     const limpiarTodo = () => {
       setLocalUso(""); setLocalSupMin(""); setLocalSupMax("");
-      setLocalPrecioM2(""); setLocalCiudad(""); setLocalDesarrollo("");
+      setLocalPrecioM2(""); setLocalCiudad(""); setLocalDesarrollo(""); setLocalAsesor("");
       setQuickSearchCriteria({ciudad:"",desarrollo:"",uso:"",sup_min:"",sup_max:"",presupuesto_max:"",precio_m2_max:""});
       setQuickSearchResults([]); setQuickSearchDone(false);
     };
@@ -2826,6 +2827,7 @@ function MacroProMatcher() {
         if(localSupMin && lote.sup_m2<parseFloat(localSupMin)) return false;
         if(localSupMax && lote.sup_m2>parseFloat(localSupMax)) return false;
         if(localPrecioM2 && lote.precio_m2>parseFloat(localPrecioM2)) return false;
+        if(localAsesor && lote.asesor!==localAsesor) return false;
         return true;
       });
       setQuickSearchResults(results);
@@ -3029,6 +3031,13 @@ function MacroProMatcher() {
                 {desarrollosDisp.map(d=><option key={d} value={d}>{d}</option>)}
               </select>
             </div>
+            <div>
+              <label style={{display:"block",color:B.grey4,fontSize:13,marginBottom:6,fontWeight:500}}>Asesor Opcionador {localAsesor&&<span style={{color:B.green}}>✓</span>}</label>
+              <select value={localAsesor} onChange={e=>setLocalAsesor(e.target.value)} style={inputStyle(localAsesor)}>
+                <option value="">Todos los asesores</option>
+                {[...new Set(srcInv.map(l=>l.asesor).filter(Boolean))].sort().map(a=><option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
           </div>
           <button onClick={buscar} style={{width:"100%",padding:"15px 28px",background:B.gold,color:B.navy,border:"none",borderRadius:12,cursor:"pointer",fontWeight:700,fontSize:15,boxShadow:`0 4px 16px ${B.gold}44`,transition:"all 0.2s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
             🔍 Buscar Lotes Disponibles
@@ -3046,7 +3055,7 @@ function MacroProMatcher() {
               <table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
                 <thead>
                   <tr style={{background:B.navy}}>
-                    {["Nombre","Ciudad","Desarrollo","Uso","Superficie","Precio/m²","Precio Total","Acción"].map((h,i)=>(
+                    {["Nombre","Ciudad","Desarrollo","Uso","Sup.","Precio/m²","Total","Asesor","Acción"].map((h,i)=>(
                       <th key={i} style={{padding:"13px 11px",textAlign:i>=4&&i<7?"right":i===7?"center":"left",color:B.white,fontSize:12,fontWeight:600,whiteSpace:"nowrap"}}>{h}</th>
                     ))}
                   </tr>
@@ -3061,6 +3070,7 @@ function MacroProMatcher() {
                       <td style={{padding:"12px 11px",textAlign:"right",fontSize:13,fontWeight:600}}>{(lote.sup_m2||0).toLocaleString()} m²</td>
                       <td style={{padding:"12px 11px",textAlign:"right",fontSize:13,fontWeight:600,color:B.blue}}>{fmt(lote.precio_m2)}</td>
                       <td style={{padding:"12px 11px",textAlign:"right",fontSize:14,fontWeight:700,color:B.green}}>{fmtM(lote.precio_total)}</td>
+                      <td style={{padding:"12px 11px",fontSize:11,color:"#2563AC",fontWeight:lote.asesor?600:400}}>{lote.asesor||"—"}</td>
                       <td style={{padding:"12px 11px",textAlign:"center"}}>
                         <div style={{display:"flex",gap:5,justifyContent:"center"}}>
                           <button onClick={()=>setSelectedLotDetail(lote)} style={{padding:"6px 12px",background:B.gold,color:B.navy,border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700}}>📋 Ficha</button>
