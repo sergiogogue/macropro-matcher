@@ -4764,26 +4764,41 @@ function MacroProMatcher() {
       const [interText,setInterText]=React.useState("");
       const [interTipo,setInterTipo]=React.useState("Llamada");
       const [saving,setSaving]=React.useState(false);
+      const [loteEdit,setLoteEdit]=React.useState(lot.id);
       const pip=p.pipeline||"Prospecto";
       const tCol=p.temperatura==="Caliente"?B.red:p.temperatura==="Tibio"?B.gold:p.temperatura==="Frío"||p.temperatura==="Frio"?"#3B82F6":B.grey3;
       const stageCol={"Prospecto":"#6b7280","Contactado":"#0ea5e9","En negociación":"#8b5cf6","Propuesta":"#f59e0b","Apartado":"#f97316","Contrato":"#22c55e","Vendido":"#16a34a","Perdido":"#dc2626"};
-      const ultimas=(crm.interacciones||[]).slice(-4).reverse();
+      const ultimas=((crmData[lot.id]||crm).interacciones||[]).slice(-4).reverse();
       const acts=(p.actividades||[]).filter(a=>!a.completada).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
       const proxAct=acts[0]||null;
       const today=new Date().toISOString().slice(0,10);
 
       const guardarCambios=()=>{
         setSaving(true);
-        const prospectos=[...(crm.prospectos||[])];
-        prospectos[prospectoIdx]={...prospectos[prospectoIdx],temperatura:tempEdit||p.temperatura,asesor:asesorEdit,nota:notaEdit};
-        updateCRM(lot.id,{prospectos});
+        const prospActualizado={...p,temperatura:tempEdit||p.temperatura,asesor:asesorEdit,nota:notaEdit};
+        if(loteEdit!==lot.id){
+          // Mover prospecto al nuevo lote
+          const prospOrigen=[...(crm.prospectos||[])];
+          prospOrigen.splice(prospectoIdx,1);
+          updateCRM(lot.id,{prospectos:prospOrigen});
+          const crmDestino=crmData[loteEdit]||{pipeline:"Prospecto",interacciones:[],prospectos:[]};
+          const prospDestino=[...(crmDestino.prospectos||[]),prospActualizado];
+          updateCRM(loteEdit,{prospectos:prospDestino,pipeline:crmDestino.pipeline==="Disponible"?"Prospecto":crmDestino.pipeline});
+          setShowQuickProspModal(false);
+          toast("✅ Prospecto movido al nuevo terreno");
+        } else {
+          const prospectos=[...(crm.prospectos||[])];
+          prospectos[prospectoIdx]=prospActualizado;
+          updateCRM(lot.id,{prospectos});
+          toast("✅ Prospecto actualizado");
+        }
         setSaving(false);
-        toast("✅ Prospecto actualizado");
       };
       const registrarInteraccion=()=>{
         if(!interText.trim()){toast("⚠ Escribe una nota");return;}
         const inter={tipo:interTipo,canal:interTipo,nota:interText.trim(),fecha:today,prospecto:p.nombre||""};
-        const ints=[...(crm.interacciones||[]),inter];
+        const crmFresh=crmData[lot.id]||crm;
+        const ints=[...(crmFresh.interacciones||[]),inter];
         updateCRM(lot.id,{interacciones:ints,lastContact:today});
         setInterText("");
         toast("✅ Interacción registrada");
@@ -4844,7 +4859,7 @@ function MacroProMatcher() {
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                   <button onClick={()=>{setShowQuickProspModal(false);setShowActivityModal({mode:"create",lotId:lot.id,prospectoIdx});setActivityForm({tipo:"Seguimiento",descripcion:"",fecha:addBusinessDays(new Date(),2),hora:""});}}
                     style={{flex:1,padding:"8px 10px",background:"#f59e0b",color:"#fff",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📅 Agendar actividad</button>
-                  <button onClick={()=>{setShowQuickProspModal(false);setSelectedLotCRM(lot);setActiveTab("kanban");}}
+                  <button onClick={()=>{setShowQuickProspModal(false);setView("crm");setSelectedLotCRM(lot);setActiveTab("kanban");}}
                     style={{flex:1,padding:"8px 10px",background:B.offW,color:B.navy,border:"1px solid "+B.grey1,borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📂 Ver detalle completo</button>
                 </div>
               </>)}
@@ -4867,6 +4882,14 @@ function MacroProMatcher() {
               {/* ── TAB: EDITAR ── */}
               {tabQ==="editar"&&(<>
                 <div style={{marginBottom:12}}>
+                  <div style={{marginBottom:12}}>
+                    <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>TERRENO ASIGNADO</label>
+                    <select value={loteEdit} onChange={e=>setLoteEdit(e.target.value)}
+                      style={{width:"100%",borderRadius:7,border:"1px solid "+B.grey1,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"}}>
+                      {srcInv.map(l=><option key={l.id} value={l.id}>{l.nombre} — {l.desarrollo}</option>)}
+                    </select>
+                    {loteEdit!==lot.id&&<div style={{fontSize:10,color:"#f59e0b",marginTop:4,fontWeight:700}}>⚠ El prospecto será movido a este terreno al guardar</div>}
+                  </div>
                   <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>TEMPERATURA</label>
                   <div style={{display:"flex",gap:6}}>
                     {["Caliente","Tibio","Frío"].map(t=>(
