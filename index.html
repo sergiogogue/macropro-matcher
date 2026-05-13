@@ -1776,7 +1776,7 @@ function MacroProMatcher() {
               })(),
               sup_m2:sup, precio_m2:pm2, precio_total:total,
               status:String(getVal(row,"Status")||"Disponible"),
-              entrega:String(getVal(row,"Fecha Entrega")||""),
+              entrega:(()=>{const _e=getVal(row,"Fecha Entrega");if(!_e)return"";if(typeof _e==="number"&&_e>40000){const _d=new Date(Math.round((_e-25569)*86400*1000));const _m=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];return _m[_d.getUTCMonth()]+" "+_d.getUTCFullYear();}return String(_e);})(),
               cos:parseFloat(getVal(row,"COS"))||0,
               cus:parseFloat(getVal(row,"CUS"))||0,
               lat:(()=>{
