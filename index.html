@@ -9391,47 +9391,79 @@ Respuesta: [respuesta exacta, conversacional]
     const [importing, setImporting] = React.useState(false);
 
     const parseMetasExcel = (wb) => {
-      // Try to find a sheet with "meta" or "plan" in the name
-      const sheetName = wb.SheetNames.find(s=>s.toLowerCase().includes("meta")||s.toLowerCase().includes("plan"))||wb.SheetNames[0];
+      // Find the global Metas sheet (prefer "Metas" without specific dev name)
+      const sheetName = wb.SheetNames.find(s=>{
+        const n=s.replace(/[🎯📊⚙️📋]/g,"").trim().toLowerCase();
+        return n==="metas"||n==="metas globales"||n==="metas 2026"||n.startsWith("metas") && !n.includes("tya") && !n.includes("garvi") && !n.includes("norte") && !n.includes("corretaje");
+      })||wb.SheetNames.find(s=>s.toLowerCase().includes("meta"))||wb.SheetNames[0];
+
       const ws = wb.Sheets[sheetName];
       const raw = XLSX.utils.sheet_to_json(ws,{defval:"",header:1});
-      // Expected format: rows with Desarrollo | Desarrollador | Ene | Feb | ... | Dic (units)
-      // then another block for monto
-      // Auto-detect header row
-      let headerRow = -1;
-      for(let i=0;i<Math.min(raw.length,10);i++){
-        const r = raw[i];
-        if(r && r.some(c=>String(c||"").toLowerCase().includes("desarrollo"))){
-          headerRow=i; break;
+
+      // Format: PROYECTO | TIPO | Ene | Feb | ... | Dic
+      // TIPO = Plan / SGG / Real
+      // Sections separated by: UNIDADES ($) row and MONTO ($) row
+
+      const toNum = v => parseFloat(String(v||"0").replace(/[$,\s]/g,""))||0;
+      const MESES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+
+      // Find header rows (PROYECTO | TIPO | Ene...)
+      const findHeaderRow = (startRow) => {
+        for(let i=startRow;i<Math.min(startRow+5,raw.length);i++){
+          const r=raw[i];
+          if(r&&r[0]&&String(r[0]).toLowerCase().includes("proyecto")&&r[1]&&String(r[1]).toLowerCase().includes("tipo")){
+            return i;
+          }
         }
+        return -1;
+      };
+
+      // Find UNIDADES and MONTO section starts
+      let udsHeaderRow=-1, montoHeaderRow=-1;
+      for(let i=0;i<raw.length;i++){
+        const c0=String(raw[i]?raw[i][0]||"":"").toLowerCase();
+        if(c0.includes("unidad")&&udsHeaderRow<0) udsHeaderRow=findHeaderRow(i);
+        if((c0.includes("monto")||c0.includes("$"))&&montoHeaderRow<0&&i>5) montoHeaderRow=findHeaderRow(i);
       }
-      if(headerRow<0) throw new Error("No se encontró fila de encabezados con 'Desarrollo'");
-      const headers = raw[headerRow].map(h=>String(h||"").trim().toLowerCase());
-      const meses = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
-      const mesIdx = meses.map(m=>headers.findIndex(h=>h.includes(m)));
-      const devIdx = headers.findIndex(h=>h.includes("desarrollo"));
-      const desaIdx = headers.findIndex(h=>h.includes("desarrollador")||h.includes("empresa")||h.includes("dueño"));
-      const tipoIdx = headers.findIndex(h=>h.includes("tipo")||h.includes("plan")||h.includes("uds")||h.includes("unidades")||h.includes("monto"));
+      if(udsHeaderRow<0) udsHeaderRow=findHeaderRow(0);
+
+      // Get mes column indices from first found header row
+      const hdrRow = raw[udsHeaderRow>=0?udsHeaderRow:4]||[];
+      const mesIdx = MESES.map(m=>hdrRow.findIndex((h,i)=>i>=2&&String(h||"").toLowerCase().startsWith(m)));
 
       const result = {};
-      let currentTipo = "uds";
-      for(let i=headerRow+1;i<raw.length;i++){
-        const row = raw[i];
-        if(!row||!row.some(c=>c)) continue;
-        const cell0 = String(row[0]||"").toLowerCase();
-        if(cell0.includes("monto")||cell0.includes("dinero")||cell0.includes("$")) { currentTipo="monto"; continue; }
-        if(cell0.includes("unidad")||cell0.includes("uds")||cell0.includes("lotes")) { currentTipo="uds"; continue; }
-        const devName = String(row[devIdx>=0?devIdx:0]||"").trim();
-        if(!devName||devName.toLowerCase().includes("total")||devName.toLowerCase().includes("gran")) continue;
-        const desaName = String(row[desaIdx>=0?desaIdx:1]||"").trim();
-        if(!result[devName]) result[devName]={desarrollador:desaName,plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
-        mesIdx.forEach((idx,m)=>{
-          if(idx>=0){
-            const v = parseFloat(String(row[idx]||"0").replace(/[$,]/g,""))||0;
-            result[devName].plan[currentTipo][m] = v;
-          }
+
+      // Parse a section (UNIDADES or MONTO) into result
+      const parseSection = (headerRow, tipo) => {
+        if(headerRow<0) return;
+        for(let i=headerRow+1;i<raw.length;i++){
+          const row=raw[i]; if(!row||!row[0]) continue;
+          const proyecto=String(row[0]).trim();
+          const rowTipo=String(row[1]||"").trim().toLowerCase();
+          if(!proyecto||proyecto.toLowerCase().includes("gran total")||proyecto.toLowerCase().includes("total")) continue;
+          if(!rowTipo||rowTipo==="tipo") continue; // skip header repeat
+          // Only import Plan rows (not SGG/Real — Real comes from CRM)
+          if(rowTipo!=="plan") continue;
+          if(!result[proyecto]) result[proyecto]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
+          mesIdx.forEach((col,m)=>{ if(col>=0&&col<row.length) result[proyecto].plan[tipo][m]=toNum(row[col]); });
+          // Stop if we hit the next section header
+          if(montoHeaderRow>0&&i>=montoHeaderRow-1&&tipo==="uds") break;
+        }
+      };
+
+      parseSection(udsHeaderRow,"uds");
+      parseSection(montoHeaderRow,"monto");
+
+      // Get desarrollador from Catálogos sheet if available
+      const catSheet = wb.Sheets[wb.SheetNames.find(s=>s.toLowerCase().includes("catálogo")||s.toLowerCase().includes("catalogo"))||""];
+      if(catSheet){
+        const catRaw = XLSX.utils.sheet_to_json(catSheet,{defval:"",header:1});
+        catRaw.slice(1).forEach(row=>{
+          const dev=String(row[3]||"").trim(); const desa=String(row[4]||"").trim();
+          if(dev&&desa&&result[dev]) result[dev].desarrollador=desa;
         });
       }
+
       return result;
     };
 
