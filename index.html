@@ -9391,79 +9391,64 @@ Respuesta: [respuesta exacta, conversacional]
     const [importing, setImporting] = React.useState(false);
 
     const parseMetasExcel = (wb) => {
-      // Find the global Metas sheet (prefer "Metas" without specific dev name)
+      // Find the global Metas sheet
       const sheetName = wb.SheetNames.find(s=>{
-        const n=s.replace(/[🎯📊⚙️📋]/g,"").trim().toLowerCase();
-        return n==="metas"||n==="metas globales"||n==="metas 2026"||n.startsWith("metas") && !n.includes("tya") && !n.includes("garvi") && !n.includes("norte") && !n.includes("corretaje");
-      })||wb.SheetNames.find(s=>s.toLowerCase().includes("meta"))||wb.SheetNames[0];
+        const n=s.replace(/[🎯📊⚙️📋\s]/g,"").toLowerCase();
+        return n==="metas"||n==="metasglobales"||n==="metas2026";
+      })||wb.SheetNames.find(s=>s.toLowerCase().includes("meta")&&!s.toLowerCase().includes("tya")&&!s.toLowerCase().includes("garvi")&&!s.toLowerCase().includes("norte")&&!s.toLowerCase().includes("corretaje"))||wb.SheetNames[0];
 
       const ws = wb.Sheets[sheetName];
       const raw = XLSX.utils.sheet_to_json(ws,{defval:"",header:1});
+      const toNum = v=>parseFloat(String(v||"0").replace(/[$,\s]/g,""))||0;
 
-      // Format: PROYECTO | TIPO | Ene | Feb | ... | Dic
-      // TIPO = Plan / SGG / Real
-      // Sections separated by: UNIDADES ($) row and MONTO ($) row
-
-      const toNum = v => parseFloat(String(v||"0").replace(/[$,\s]/g,""))||0;
-      const MESES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
-
-      // Find header rows (PROYECTO | TIPO | Ene...)
-      const findHeaderRow = (startRow) => {
-        for(let i=startRow;i<Math.min(startRow+5,raw.length);i++){
-          const r=raw[i];
-          if(r&&r[0]&&String(r[0]).toLowerCase().includes("proyecto")&&r[1]&&String(r[1]).toLowerCase().includes("tipo")){
-            return i;
-          }
-        }
-        return -1;
-      };
-
-      // Find UNIDADES and MONTO section starts
-      let udsHeaderRow=-1, montoHeaderRow=-1;
+      // Find exact section boundaries
+      let udsHeader=-1, udsEnd=raw.length, montoHeader=-1;
       for(let i=0;i<raw.length;i++){
-        const c0=String(raw[i]?raw[i][0]||"":"").toLowerCase();
-        if(c0.includes("unidad")&&udsHeaderRow<0) udsHeaderRow=findHeaderRow(i);
-        if((c0.includes("monto")||c0.includes("$"))&&montoHeaderRow<0&&i>5) montoHeaderRow=findHeaderRow(i);
+        const c0=String(raw[i]&&raw[i][0]||"").trim();
+        const c1=String(raw[i]&&raw[i][1]||"").trim().toLowerCase();
+        if(c0==="PROYECTO"&&c1==="tipo"&&udsHeader<0) { udsHeader=i; continue; }
+        if((c0==="MONTO ($)"||c0==="MONTO")&&udsHeader>=0&&montoHeader<0) { udsEnd=i; }
+        if(c0==="PROYECTO"&&c1==="tipo"&&udsHeader>=0&&montoHeader<0) { montoHeader=i; }
       }
-      if(udsHeaderRow<0) udsHeaderRow=findHeaderRow(0);
+      if(udsHeader<0) throw new Error("No se encontró sección UNIDADES en la hoja '"+sheetName+"'");
 
-      // Get mes column indices from first found header row
-      const hdrRow = raw[udsHeaderRow>=0?udsHeaderRow:4]||[];
-      const mesIdx = MESES.map(m=>hdrRow.findIndex((h,i)=>i>=2&&String(h||"").toLowerCase().startsWith(m)));
+      // Get month column indices from header row
+      const MESES=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+      const hdr=raw[udsHeader]||[];
+      const mesIdx=MESES.map(m=>hdr.findIndex((h,i)=>i>=2&&String(h||"").toLowerCase().startsWith(m)));
 
-      const result = {};
+      const result={};
 
-      // Parse a section (UNIDADES or MONTO) into result
-      const parseSection = (headerRow, tipo) => {
+      const parseSection=(headerRow,endRow,tipo)=>{
         if(headerRow<0) return;
-        for(let i=headerRow+1;i<raw.length;i++){
+        for(let i=headerRow+1;i<Math.min(endRow,raw.length);i++){
           const row=raw[i]; if(!row||!row[0]) continue;
           const proyecto=String(row[0]).trim();
           const rowTipo=String(row[1]||"").trim().toLowerCase();
-          if(!proyecto||proyecto.toLowerCase().includes("gran total")||proyecto.toLowerCase().includes("total")) continue;
-          if(!rowTipo||rowTipo==="tipo") continue; // skip header repeat
-          // Only import Plan rows (not SGG/Real — Real comes from CRM)
-          if(rowTipo!=="plan") continue;
+          if(!proyecto||proyecto.toUpperCase().includes("GRAN TOTAL")||proyecto.toUpperCase()==="TOTAL") continue;
+          if(!rowTipo||rowTipo==="tipo") continue;
+          if(rowTipo!=="plan") continue; // Solo importamos Plan (Real viene del CRM)
           if(!result[proyecto]) result[proyecto]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
-          mesIdx.forEach((col,m)=>{ if(col>=0&&col<row.length) result[proyecto].plan[tipo][m]=toNum(row[col]); });
-          // Stop if we hit the next section header
-          if(montoHeaderRow>0&&i>=montoHeaderRow-1&&tipo==="uds") break;
+          mesIdx.forEach((col,m)=>{
+            if(col>=0&&col<row.length) result[proyecto].plan[tipo][m]=toNum(row[col]);
+          });
         }
       };
 
-      parseSection(udsHeaderRow,"uds");
-      parseSection(montoHeaderRow,"monto");
+      parseSection(udsHeader, udsEnd, "uds");
+      parseSection(montoHeader, raw.length, "monto");
 
-      // Get desarrollador from Catálogos sheet if available
-      const catSheet = wb.Sheets[wb.SheetNames.find(s=>s.toLowerCase().includes("catálogo")||s.toLowerCase().includes("catalogo"))||""];
-      if(catSheet){
-        const catRaw = XLSX.utils.sheet_to_json(catSheet,{defval:"",header:1});
+      // Map desarrollador from Catálogos sheet
+      const catName=wb.SheetNames.find(s=>s.toLowerCase().includes("catálogo")||s.toLowerCase().includes("catalogo"));
+      if(catName){
+        const catRaw=XLSX.utils.sheet_to_json(wb.Sheets[catName],{defval:"",header:1});
         catRaw.slice(1).forEach(row=>{
           const dev=String(row[3]||"").trim(); const desa=String(row[4]||"").trim();
           if(dev&&desa&&result[dev]) result[dev].desarrollador=desa;
         });
       }
 
+      if(Object.keys(result).length===0) throw new Error("No se encontraron desarrollos con tipo 'Plan'. Verifica que el Excel tenga filas con TIPO=Plan");
       return result;
     };
 
