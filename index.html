@@ -9427,10 +9427,11 @@ Respuesta: [respuesta exacta, conversacional]
           const rowTipo=String(row[1]||"").trim().toLowerCase();
           if(!proyecto||proyecto.toUpperCase().includes("GRAN TOTAL")||proyecto.toUpperCase()==="TOTAL") continue;
           if(!rowTipo||rowTipo==="tipo") continue;
-          if(rowTipo!=="plan") continue; // Solo importamos Plan (Real viene del CRM)
+          if(rowTipo!=="plan"&&rowTipo!=="real") continue; // Importar Plan y Real
           if(!result[proyecto]) result[proyecto]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
+          const destKey=rowTipo==="real"?"real":"plan";
           mesIdx.forEach((col,m)=>{
-            if(col>=0&&col<row.length) result[proyecto].plan[tipo][m]=toNum(row[col]);
+            if(col>=0&&col<row.length) result[proyecto][destKey][tipo][m]=toNum(row[col]);
           });
         }
       };
