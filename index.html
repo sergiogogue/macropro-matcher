@@ -8472,7 +8472,7 @@ Respuesta: [respuesta exacta, conversacional]
         {(()=>{
           // ── BUILD PROSPECTOS FROM GLOBAL STATE ───────────────────────────
           const _prosps=[];
-          inventory.forEach(lot=>{
+          lotesFiltrados.forEach(lot=>{
             const crm2=crmData[lot.id]||{};
             (crm2.prospectos||[]).forEach((p,idx)=>{
               if(p&&p.pipeline&&p.pipeline!=="Disponible"){
@@ -8488,7 +8488,7 @@ Respuesta: [respuesta exacta, conversacional]
           const USOS_KEY=["Habitacional Vertical","Habitacional Horizontal","Comercial / Retail","Industrial / Logístico","Servicios / Oficinas","Hospital / Clínica"];
           const invTotal={}; const invDisp={};
           USOS_KEY.forEach(u=>{invTotal[u]=0;invDisp[u]=0;});
-          inventory.forEach(l=>{
+          lotesFiltrados.forEach(l=>{
             const usos=l.usos_todos&&l.usos_todos.length>0?l.usos_todos:[l.uso].filter(Boolean);
             const isDisp=l.status&&(l.status.includes("Disponible")||l.status.includes("disponible"));
             usos.forEach(u=>{
@@ -8509,7 +8509,7 @@ Respuesta: [respuesta exacta, conversacional]
           ];
           SUP_RANGES.forEach(r=>{
             r.dem=clients.filter(c=>c.sup_max>r.min&&c.sup_max<=r.max).length;
-            r.inv=inventory.filter(l=>(l.sup_m2||0)>=r.min&&(l.sup_m2||0)<r.max&&l.status&&l.status.includes("Disponible")).length;
+            r.inv=lotesFiltrados.filter(l=>(l.sup_m2||0)>=r.min&&(l.sup_m2||0)<r.max&&l.status&&l.status.includes("Disponible")).length;
             r.gap=r.dem-r.inv;
             r.cierres=cierres.filter(x=>(x.lot.sup_m2||0)>=r.min&&(x.lot.sup_m2||0)<r.max).length;
           });
@@ -8527,11 +8527,11 @@ Respuesta: [respuesta exacta, conversacional]
             {label:"$6k–$10k",min:6000,max:10000},{label:"$10k–$20k",min:10000,max:20000},{label:"> $20k",min:20000,max:1e9}
           ];
           PM2_RANGES.forEach(r=>{
-            r.inv=inventory.filter(l=>l.precio_m2>=r.min&&l.precio_m2<r.max).length;
+            r.inv=lotesFiltrados.filter(l=>l.precio_m2>=r.min&&l.precio_m2<r.max).length;
             r.comp=competencia.filter(c=>(c.pm2_lote||0)>=r.min&&(c.pm2_lote||0)<r.max).length;
           });
-          const avgNuestro=inventory.filter(l=>l.precio_m2>0).length?
-            Math.round(inventory.filter(l=>l.precio_m2>0).reduce((a,l)=>a+l.precio_m2,0)/inventory.filter(l=>l.precio_m2>0).length):0;
+          const avgNuestro=lotesFiltrados.filter(l=>l.precio_m2>0).length?
+            Math.round(lotesFiltrados.filter(l=>l.precio_m2>0).reduce((a,l)=>a+l.precio_m2,0)/lotesFiltrados.filter(l=>l.precio_m2>0).length):0;
           const avgComp=competencia.filter(c=>c.pm2_lote>0).length?
             Math.round(competencia.filter(c=>c.pm2_lote>0).reduce((a,c)=>a+c.pm2_lote,0)/competencia.filter(c=>c.pm2_lote>0).length):0;
 
@@ -8666,7 +8666,7 @@ Respuesta: [respuesta exacta, conversacional]
                     <div style={{background:"#f0f9ff",borderRadius:10,padding:"12px",textAlign:"center"}}>
                       <div style={{fontSize:9,fontWeight:700,color:"#0369a1",textTransform:"uppercase",letterSpacing:1}}>Nuestro Promedio</div>
                       <div style={{fontSize:20,fontWeight:800,color:C.navy,marginTop:4}}>${avgNuestro.toLocaleString("es-MX")}</div>
-                      <div style={{fontSize:9,color:C.greyT,marginTop:1}}>{inventory.filter(l=>l.precio_m2>0).length} lotes</div>
+                      <div style={{fontSize:9,color:C.greyT,marginTop:1}}>{lotesFiltrados.filter(l=>l.precio_m2>0).length} lotes</div>
                     </div>
                     <div style={{background:avgComp>0?"#fff7ed":"#f9fafb",borderRadius:10,padding:"12px",textAlign:"center"}}>
                       <div style={{fontSize:9,fontWeight:700,color:avgComp>0?"#c2410c":"#9ca3af",textTransform:"uppercase",letterSpacing:1}}>Competencia Prom.</div>
