@@ -8425,6 +8425,398 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
         </div>
 
+
+        {/* ═══════════════════════════════════════════════════════════════
+            INTELIGENCIA DE MERCADO — Qué se vende, a quién y vs competencia
+            ═══════════════════════════════════════════════════════════════ */}
+        {(()=>{
+          // ── CIERRES DEL CRM ──────────────────────────────────────────────
+          const cierres = [];
+          inventory.forEach(lot=>{
+            const crm = crmData[lot.id]||{};
+            (crm.prospectos||[]).forEach(p=>{
+              if(p.pipeline==="Cierre"||p.pipeline==="Vendido"){
+                const cli = clients.find(c=>c.nombre===p.nombre)||{};
+                cierres.push({
+                  lot, p, cli,
+                  uso: lot.usos_todos&&lot.usos_todos.length>0?lot.usos_todos[0]:lot.uso||"Sin uso",
+                  sup: lot.sup_m2||0,
+                  pm2: lot.precio_m2||0,
+                  precio: lot.precio_total||0,
+                  ciudad: lot.ciudad||"",
+                  desarrollo: lot.desarrollo||"",
+                  tipo_cliente: cli.tipo_comprador||cli.tipo||"Sin clasificar",
+                  temperatura: p.temperatura||cli.temperatura||"",
+                  diasEnPipeline: crm.lastContact?Math.floor((Date.now()-new Date(crm.lastContact).getTime())/864e5):null,
+                });
+              }
+            });
+          });
+
+          // ── DEMANDA ACTIVA (Caliente + Tibio) ───────────────────────────
+          const demanda = allProspectos.filter(x=>x.prospecto.temperatura==="Caliente"||x.prospecto.temperatura==="Tibio");
+
+          // ── ANÁLISIS: USO DE SUELO ───────────────────────────────────────
+          const usosCierre={}; const usosDemanda={};
+          cierres.forEach(x=>{usosCierre[x.uso]=(usosCierre[x.uso]||0)+1;});
+          demanda.forEach(x=>{
+            const u=x.lot.usos_todos&&x.lot.usos_todos.length>0?x.lot.usos_todos[0]:x.lot.uso||"Sin uso";
+            usosDemanda[u]=(usosDemanda[u]||0)+1;
+          });
+          // All usos combined
+          const allUsos=[...new Set([...Object.keys(usosCierre),...Object.keys(usosDemanda)])];
+          const maxUsoD=Math.max(1,...Object.values(usosDemanda));
+
+          // ── ANÁLISIS: PRECIO/M² vs COMPETENCIA ──────────────────────────
+          const pm2Ranges=[
+            {label:"< $3,000",min:0,max:3000},
+            {label:"$3,000–6,000",min:3000,max:6000},
+            {label:"$6,000–10,000",min:6000,max:10000},
+            {label:"$10,000–20,000",min:10000,max:20000},
+            {label:"> $20,000",min:20000,max:Infinity},
+          ];
+          const nuestrosPm2=inventory.filter(l=>l.precio_m2>0).map(l=>l.precio_m2);
+          const compPm2=competencia.filter(c=>c.pm2_lote>0).map(c=>c.pm2_lote);
+          const avgNuestro=nuestrosPm2.length?Math.round(nuestrosPm2.reduce((a,b)=>a+b,0)/nuestrosPm2.length):0;
+          const avgComp=compPm2.length?Math.round(compPm2.reduce((a,b)=>a+b,0)/compPm2.length):0;
+
+          // ── ANÁLISIS: SUPERFICIE ────────────────────────────────────────
+          const supRanges=[
+            {label:"< 5,000 m²",min:0,max:5000,color:"#06B6D4"},
+            {label:"5k–15k m²",min:5000,max:15000,color:"#3B82F6"},
+            {label:"15k–30k m²",min:15000,max:30000,color:"#8B5CF6"},
+            {label:"30k–60k m²",min:30000,max:60000,color:"#F5B335"},
+            {label:"60k–100k m²",min:60000,max:100000,color:"#f97316"},
+            {label:"> 100k m²",min:100000,max:Infinity,color:"#dc2626"},
+          ];
+          const maxSupD=Math.max(1,...supRanges.map(r=>demanda.filter(x=>(x.lot.sup_m2||0)>=r.min&&(x.lot.sup_m2||0)<r.max).length));
+
+          // ── ANÁLISIS: TIPO DE CLIENTE ───────────────────────────────────
+          const tiposCierre={}; const tiposDemanda={};
+          cierres.forEach(x=>{
+            const t=x.tipo_cliente||"Sin clasificar";
+            tiposCierre[t]=(tiposCierre[t]||0)+1;
+          });
+          demanda.forEach(x=>{
+            const cli=clients.find(c=>c.nombre===x.prospecto.nombre)||{};
+            const t=cli.tipo_comprador||cli.tipo||"Sin clasificar";
+            tiposDemanda[t]=(tiposDemanda[t]||0)+1;
+          });
+
+          // ── ANÁLISIS: COMPETENCIA POR ZONA ──────────────────────────────
+          const zonas={};
+          competencia.forEach(c=>{
+            const z=c.zona||c.ciudad||"Sin zona";
+            if(!zonas[z]) zonas[z]={comp:0,nuestros:0,pm2comp:[],pm2nuestros:[]};
+            zonas[z].comp++;
+            if(c.pm2_lote) zonas[z].pm2comp.push(c.pm2_lote);
+          });
+          inventory.forEach(l=>{
+            const z=l.ciudad||"Sin zona";
+            if(!zonas[z]) zonas[z]={comp:0,nuestros:0,pm2comp:[],pm2nuestros:[]};
+            zonas[z].nuestros++;
+            if(l.precio_m2) zonas[z].pm2nuestros.push(l.precio_m2);
+          });
+
+          const cardStyle={background:B.white,borderRadius:14,padding:"18px 20px",border:"1px solid "+B.grey1,boxShadow:"0 2px 8px rgba(0,43,73,0.06)"};
+          const headerStyle=(color)=>({fontSize:10,fontWeight:800,color,textTransform:"uppercase",letterSpacing:1.3,marginBottom:10,paddingBottom:6,borderBottom:"2px solid "+color,display:"flex",justifyContent:"space-between",alignItems:"center"});
+          const barRow=(label,val,max,color,badge)=>(
+            <div key={label} style={{marginBottom:6}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                <span style={{fontSize:11,color:B.navy,fontWeight:600}}>{label}</span>
+                <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                  {badge&&<span style={{fontSize:9,fontWeight:800,padding:"1px 5px",borderRadius:4,background:badge.bg,color:badge.color}}>{badge.label}</span>}
+                  <span style={{fontSize:11,color:B.grey4,fontWeight:600}}>{val}</span>
+                </div>
+              </div>
+              <div style={{height:6,background:B.grey1,borderRadius:3}}>
+                <div style={{height:"100%",width:Math.round(val/max*100)+"%",background:color,borderRadius:3,transition:"width 0.3s"}}></div>
+              </div>
+            </div>
+          );
+
+          return (
+            <div style={{marginTop:24}}>
+              {/* Header */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:800,color:B.navy,letterSpacing:0.5}}>🧠 INTELIGENCIA DE MERCADO</div>
+                  <div style={{fontSize:11,color:B.grey3,marginTop:1}}>
+                    {cierres.length>0?cierres.length+" cierre(s) analizados · ":"Sin cierres registrados · "}
+                    {demanda.length} prospectos activos · {competencia.length} competidores en base
+                  </div>
+                </div>
+                {cierres.length===0&&<div style={{background:"#fef3c7",borderRadius:8,padding:"6px 12px",fontSize:11,color:"#92400e",fontWeight:600}}>⚠ Mueve prospectos a etapa "Cierre" para ver análisis de ventas</div>}
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+
+                {/* USO DE SUELO */}
+                <div style={cardStyle}>
+                  <div style={headerStyle("#002B49")}>
+                    <span>🏗 Uso de Suelo</span>
+                    <span style={{fontSize:9,fontWeight:600,color:B.grey3}}>Demanda activa</span>
+                  </div>
+                  {allUsos.sort((a,b)=>(usosDemanda[b]||0)-(usosDemanda[a]||0)).slice(0,7).map(uso=>{
+                    const d=usosDemanda[uso]||0; const c=usosCierre[uso]||0;
+                    const badge=c>0?{label:"✓"+c+" cierre"+(c>1?"s":""),bg:"#dcfce7",color:"#16a34a"}:null;
+                    return barRow(uso,d,maxUsoD,"linear-gradient(90deg,#002B49,#3B82F6)",badge);
+                  })}
+                  {allUsos.length===0&&<div style={{fontSize:11,color:B.grey3,textAlign:"center",padding:12}}>Importa clientes para ver demanda</div>}
+                </div>
+
+                {/* TIPO DE CLIENTE */}
+                <div style={cardStyle}>
+                  <div style={headerStyle("#16a34a")}>
+                    <span>🏢 Tipo de Cliente</span>
+                    <span style={{fontSize:9,fontWeight:600,color:B.grey3}}>Demanda activa</span>
+                  </div>
+                  {(()=>{
+                    const allTipos=[...new Set([...Object.keys(tiposCierre),...Object.keys(tiposDemanda)])].sort((a,b)=>(tiposDemanda[b]||0)-(tiposDemanda[a]||0));
+                    const maxT=Math.max(1,...Object.values(tiposDemanda));
+                    return allTipos.slice(0,6).map(t=>{
+                      const d=tiposDemanda[t]||0; const c=tiposCierre[t]||0;
+                      const badge=c>0?{label:"✓"+c,bg:"#dcfce7",color:"#16a34a"}:null;
+                      return barRow(t,d,maxT,"linear-gradient(90deg,#16a34a,#06B6D4)",badge);
+                    });
+                  })()}
+                  {Object.keys(tiposDemanda).length===0&&<div style={{fontSize:11,color:B.grey3,textAlign:"center",padding:12}}>Sin datos de tipo de comprador</div>}
+                </div>
+
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+
+                {/* PRECIO/M² vs COMPETENCIA */}
+                <div style={cardStyle}>
+                  <div style={headerStyle("#F5B335")}>
+                    <span>💰 Precio/m² vs Competencia</span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                    <div style={{background:"#f0f9ff",borderRadius:8,padding:"10px 12px",textAlign:"center"}}>
+                      <div style={{fontSize:9,fontWeight:700,color:"#0369a1",textTransform:"uppercase",letterSpacing:1}}>Nuestro Promedio</div>
+                      <div style={{fontSize:18,fontWeight:800,color:"#002B49",marginTop:4}}>${avgNuestro.toLocaleString("es-MX")}</div>
+                      <div style={{fontSize:9,color:"#9ca3af"}}>por m²</div>
+                    </div>
+                    <div style={{background:avgComp>0?"#fff7ed":"#f9fafb",borderRadius:8,padding:"10px 12px",textAlign:"center"}}>
+                      <div style={{fontSize:9,fontWeight:700,color:avgComp>0?"#c2410c":"#9ca3af",textTransform:"uppercase",letterSpacing:1}}>Competencia Prom.</div>
+                      <div style={{fontSize:18,fontWeight:800,color:avgComp>0?"#f97316":"#9ca3af",marginTop:4}}>{avgComp>0?"$"+avgComp.toLocaleString("es-MX"):"Sin datos"}</div>
+                      <div style={{fontSize:9,color:"#9ca3af"}}>por m²</div>
+                    </div>
+                  </div>
+                  {avgComp>0&&(
+                    <div style={{background:avgNuestro<avgComp?"#f0fdf4":"#fef2f2",borderRadius:8,padding:"8px 12px",fontSize:11,fontWeight:700,color:avgNuestro<avgComp?"#16a34a":"#dc2626",textAlign:"center"}}>
+                      {avgNuestro<avgComp?"✅ Somos "+Math.round((1-avgNuestro/avgComp)*100)+"% más baratos que la competencia":"⚠ Somos "+Math.round((avgNuestro/avgComp-1)*100)+"% más caros que la competencia"}
+                    </div>
+                  )}
+                  {pm2Ranges.map(r=>{
+                    const n=inventory.filter(l=>l.precio_m2>=r.min&&l.precio_m2<r.max).length;
+                    const c=competencia.filter(x=>x.pm2_lote>=r.min&&x.pm2_lote<r.max).length;
+                    if(n===0&&c===0) return null;
+                    return (
+                      <div key={r.label} style={{marginTop:8,display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:10,color:B.navy,width:110,flexShrink:0}}>{r.label}</span>
+                        <div style={{flex:1,display:"flex",gap:3,alignItems:"center"}}>
+                          <div style={{height:8,width:Math.round(n/Math.max(inventory.length,1)*100)+"%",background:"#002B49",borderRadius:2,minWidth:n>0?4:0}}></div>
+                          <span style={{fontSize:9,color:"#002B49",fontWeight:700,minWidth:16}}>{n>0?n:""}</span>
+                        </div>
+                        {c>0&&<div style={{flex:1,display:"flex",gap:3,alignItems:"center"}}>
+                          <div style={{height:8,width:Math.round(c/Math.max(competencia.length,1)*100)+"%",background:"#f97316",borderRadius:2}}></div>
+                          <span style={{fontSize:9,color:"#f97316",fontWeight:700}}>{c}</span>
+                        </div>}
+                      </div>
+                    );
+                  })}
+                  {competencia.length>0&&<div style={{display:"flex",gap:12,marginTop:8,fontSize:9,color:B.grey3}}><span>■ Nuestros lotes</span><span style={{color:"#f97316"}}>■ Competencia</span></div>}
+                </div>
+
+                {/* SUPERFICIE */}
+                <div style={cardStyle}>
+                  <div style={headerStyle("#8B5CF6")}>
+                    <span>📐 Tamaño más demandado</span>
+                    <span style={{fontSize:9,color:B.grey3}}>Demanda activa</span>
+                  </div>
+                  {supRanges.map(r=>{
+                    const d=demanda.filter(x=>(x.lot.sup_m2||0)>=r.min&&(x.lot.sup_m2||0)<r.max).length;
+                    const inv=inventory.filter(l=>(l.sup_m2||0)>=r.min&&(l.sup_m2||0)<r.max).length;
+                    const c=cierres.filter(x=>x.sup>=r.min&&x.sup<r.max).length;
+                    if(d===0&&inv===0) return null;
+                    const badge=c>0?{label:"✓"+c,bg:"#dcfce7",color:"#16a34a"}:null;
+                    const gap=d>inv*1.5?"🔥":"";
+                    return (
+                      <div key={r.label} style={{marginBottom:7}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                          <span style={{fontSize:11,color:B.navy,fontWeight:600}}>{gap} {r.label}</span>
+                          <div style={{display:"flex",gap:5}}>
+                            {badge&&<span style={{fontSize:9,fontWeight:800,padding:"1px 5px",borderRadius:4,background:badge.bg,color:badge.color}}>{badge.label}</span>}
+                            <span style={{fontSize:10,color:"#8B5CF6",fontWeight:700}}>{d} dem.</span>
+                            <span style={{fontSize:10,color:B.grey3}}>/ {inv} inv.</span>
+                          </div>
+                        </div>
+                        <div style={{height:6,background:B.grey1,borderRadius:3}}>
+                          <div style={{height:"100%",width:Math.round(d/maxSupD*100)+"%",background:r.color,borderRadius:3}}></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div style={{marginTop:10,fontSize:9,color:B.grey3}}>🔥 = Demanda supera inventario disponible</div>
+                </div>
+
+              </div>
+
+              {/* COMPETENCIA POR ZONA */}
+              {Object.keys(zonas).length>0&&(
+                <div style={cardStyle}>
+                  <div style={headerStyle("#dc2626")}>
+                    <span>🗺 Presencia por Zona — Nosotros vs Competencia</span>
+                    <span style={{fontSize:9,color:B.grey3}}>{competencia.length} competidores · {inventory.length} nuestros lotes</span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
+                    {Object.entries(zonas).sort((a,b)=>(b[1].nuestros+b[1].comp)-(a[1].nuestros+a[1].comp)).slice(0,8).map(([zona,data])=>{
+                      const avgN=data.pm2nuestros.length?Math.round(data.pm2nuestros.reduce((a,b)=>a+b,0)/data.pm2nuestros.length):0;
+                      const avgC=data.pm2comp.length?Math.round(data.pm2comp.reduce((a,b)=>a+b,0)/data.pm2comp.length):0;
+                      const ganando=avgN>0&&avgC>0&&avgN<avgC;
+                      return (
+                        <div key={zona} style={{background:ganando?"#f0fdf4":"#f9fafb",borderRadius:10,padding:"10px 12px",border:"1px solid "+(ganando?"#86efac":B.grey1)}}>
+                          <div style={{fontSize:11,fontWeight:800,color:B.navy,marginBottom:6}}>{zona}</div>
+                          <div style={{display:"flex",gap:6,marginBottom:4}}>
+                            <span style={{fontSize:10,fontWeight:700,color:"#002B49"}}>Nuestros: {data.nuestros}</span>
+                            {data.comp>0&&<span style={{fontSize:10,fontWeight:700,color:"#f97316"}}>Comp: {data.comp}</span>}
+                          </div>
+                          {avgN>0&&<div style={{fontSize:10,color:"#0369a1"}}>Nuestro: ${avgN.toLocaleString("es-MX")}/m²</div>}
+                          {avgC>0&&<div style={{fontSize:10,color:"#f97316"}}>Comp: ${avgC.toLocaleString("es-MX")}/m²</div>}
+                          {ganando&&<div style={{fontSize:9,fontWeight:800,color:"#16a34a",marginTop:4}}>✅ Precio competitivo</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {competencia.length===0&&(
+                    <div style={{textAlign:"center",padding:20,color:B.grey3,fontSize:12}}>
+                      Importa datos de competencia desde el botón "📥 Competencia" en el CRM para ver este análisis
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+          );
+        })()}
+        <div style={{background:B.white,borderRadius:16,padding:"22px 24px",marginTop:24,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.06)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:1.5}}>📊 Inteligencia de Mercado</div>
+              <div style={{fontSize:12,color:B.grey3,marginTop:2}}>Demanda real del portafolio — basado en {clients.length} clientes activos</div>
+            </div>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16}}>
+
+            {/* USO DE SUELO */}
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:B.gold,textTransform:"uppercase",letterSpacing:1.2,marginBottom:10,borderBottom:"2px solid "+B.gold,paddingBottom:6}}>🏗 Uso de Suelo Buscado</div>
+              {(()=>{
+                const usoCount={};
+                clients.forEach(c=>{
+                  (c.uso_interes||[]).forEach(u=>{if(u)usoCount[u]=(usoCount[u]||0)+1;});
+                });
+                const total=Object.values(usoCount).reduce((a,b)=>a+b,0)||1;
+                return Object.entries(usoCount).sort((a,b)=>b[1]-a[1]).slice(0,7).map(([uso,cnt])=>(
+                  <div key={uso} style={{marginBottom:7}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                      <span style={{fontSize:11,color:B.navy,fontWeight:600}}>{uso}</span>
+                      <span style={{fontSize:11,color:B.grey4,fontWeight:600}}>{cnt}</span>
+                    </div>
+                    <div style={{height:6,background:B.grey1,borderRadius:3}}>
+                      <div style={{height:"100%",width:Math.round(cnt/total*100)+"%",background:"linear-gradient(90deg,#002B49,#3B82F6)",borderRadius:3}}></div>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+
+            {/* RANGO DE SUPERFICIE */}
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#8B5CF6",textTransform:"uppercase",letterSpacing:1.2,marginBottom:10,borderBottom:"2px solid #8B5CF6",paddingBottom:6}}>📐 Superficie Buscada (m²)</div>
+              {(()=>{
+                const ranges=[
+                  {label:"Hasta 5,000",min:0,max:5000,color:"#06B6D4"},
+                  {label:"5,001 – 15,000",min:5001,max:15000,color:"#3B82F6"},
+                  {label:"15,001 – 30,000",min:15001,max:30000,color:"#8B5CF6"},
+                  {label:"30,001 – 60,000",min:30001,max:60000,color:"#F5B335"},
+                  {label:"60,001 – 100,000",min:60001,max:100000,color:"#f97316"},
+                  {label:"Más de 100,000",min:100001,max:Infinity,color:"#dc2626"},
+                  {label:"Sin definir",min:-1,max:-1,color:"#9ca3af"},
+                ];
+                const counts=ranges.map(r=>({...r,cnt:0}));
+                clients.forEach(c=>{
+                  const smax=c.sup_max||0; const smin=c.sup_min||0;
+                  if(!smax&&!smin){counts[6].cnt++;return;}
+                  const ref=smax||smin;
+                  const r=counts.find(r=>r.min>=0&&ref>=r.min&&ref<=r.max);
+                  if(r)r.cnt++; else counts[4].cnt++;
+                });
+                const total=counts.reduce((a,r)=>a+r.cnt,0)||1;
+                return counts.filter(r=>r.cnt>0).map(r=>(
+                  <div key={r.label} style={{marginBottom:7}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                      <span style={{fontSize:11,color:B.navy,fontWeight:600}}>{r.label}</span>
+                      <span style={{fontSize:11,color:B.grey4,fontWeight:600}}>{r.cnt}</span>
+                    </div>
+                    <div style={{height:6,background:B.grey1,borderRadius:3}}>
+                      <div style={{height:"100%",width:Math.round(r.cnt/total*100)+"%",background:r.color,borderRadius:3}}></div>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+
+            {/* TIPO DE COMPRADOR */}
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#16a34a",textTransform:"uppercase",letterSpacing:1.2,marginBottom:10,borderBottom:"2px solid #16a34a",paddingBottom:6}}>🏢 Tipo de Comprador</div>
+              {(()=>{
+                const tipos={};
+                clients.forEach(c=>{const t=c.tipo_comprador||c.tipo||"Sin clasificar";if(t&&t!=="Sin clasificar")tipos[t]=(tipos[t]||0)+1;else if(!t)tipos["Sin clasificar"]=(tipos["Sin clasificar"]||0)+1;});
+                const total=Object.values(tipos).reduce((a,b)=>a+b,0)||1;
+                const colors=["#16a34a","#3B82F6","#F5B335","#8B5CF6","#f97316","#dc2626","#9ca3af"];
+                return Object.entries(tipos).sort((a,b)=>b[1]-a[1]).slice(0,7).map(([tipo,cnt],i)=>(
+                  <div key={tipo} style={{marginBottom:7}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                      <span style={{fontSize:11,color:B.navy,fontWeight:600,maxWidth:"70%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tipo}</span>
+                      <span style={{fontSize:11,color:B.grey4,fontWeight:600}}>{cnt} ({Math.round(cnt/total*100)}%)</span>
+                    </div>
+                    <div style={{height:6,background:B.grey1,borderRadius:3}}>
+                      <div style={{height:"100%",width:Math.round(cnt/total*100)+"%",background:colors[i%colors.length],borderRadius:3}}></div>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+
+          </div>
+
+          {/* Insight automático */}
+          {(()=>{
+            const usoCount={};
+            clients.forEach(c=>(c.uso_interes||[]).forEach(u=>{if(u)usoCount[u]=(usoCount[u]||0)+1;}));
+            const topUso=Object.entries(usoCount).sort((a,b)=>b[1]-a[1])[0];
+            const calientes=allProspectos.filter(x=>x.prospecto.temperatura==="Caliente");
+            const usoCaliente={};
+            calientes.forEach(x=>{
+              const cli=clients.find(c=>c.nombre===x.prospecto.nombre);
+              (cli?.uso_interes||[]).forEach(u=>{if(u)usoCaliente[u]=(usoCaliente[u]||0)+1;});
+            });
+            const topUsoCaliente=Object.entries(usoCaliente).sort((a,b)=>b[1]-a[1])[0];
+            return topUso&&(
+              <div style={{marginTop:14,background:"linear-gradient(135deg,#f0f9ff,#e0f2fe)",borderRadius:10,padding:"10px 14px",display:"flex",gap:12,flexWrap:"wrap"}}>
+                <span style={{fontSize:11,color:"#0369a1"}}>💡 <strong>Mayor demanda:</strong> {topUso[0]} ({topUso[1]} clientes)</span>
+                {topUsoCaliente&&<span style={{fontSize:11,color:"#dc2626"}}>🔴 <strong>Más caliente:</strong> {topUsoCaliente[0]} ({topUsoCaliente[1]} prospectos calientes)</span>}
+                <span style={{fontSize:11,color:"#16a34a"}}>🎯 <strong>Total clientes base:</strong> {clients.length}</span>
+              </div>
+            );
+          })()}
+
+        </div>
+
       </div>
     );
   };
