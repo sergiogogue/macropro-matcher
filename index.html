@@ -9382,6 +9382,146 @@ Respuesta: [respuesta exacta, conversacional]
     );
   };
 
+    // ─── MODAL IMPORTAR METAS EXCEL ──────────────────────────────────────────────
+  const ModalImportMetas = () => {
+    if(!showImportModal) return null;
+    const [file, setFile] = React.useState(null);
+    const [preview, setPreview] = React.useState(null);
+    const [error, setError] = React.useState("");
+    const [importing, setImporting] = React.useState(false);
+
+    const parseMetasExcel = (wb) => {
+      // Try to find a sheet with "meta" or "plan" in the name
+      const sheetName = wb.SheetNames.find(s=>s.toLowerCase().includes("meta")||s.toLowerCase().includes("plan"))||wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const raw = XLSX.utils.sheet_to_json(ws,{defval:"",header:1});
+      // Expected format: rows with Desarrollo | Desarrollador | Ene | Feb | ... | Dic (units)
+      // then another block for monto
+      // Auto-detect header row
+      let headerRow = -1;
+      for(let i=0;i<Math.min(raw.length,10);i++){
+        const r = raw[i];
+        if(r && r.some(c=>String(c||"").toLowerCase().includes("desarrollo"))){
+          headerRow=i; break;
+        }
+      }
+      if(headerRow<0) throw new Error("No se encontró fila de encabezados con 'Desarrollo'");
+      const headers = raw[headerRow].map(h=>String(h||"").trim().toLowerCase());
+      const meses = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+      const mesIdx = meses.map(m=>headers.findIndex(h=>h.includes(m)));
+      const devIdx = headers.findIndex(h=>h.includes("desarrollo"));
+      const desaIdx = headers.findIndex(h=>h.includes("desarrollador")||h.includes("empresa")||h.includes("dueño"));
+      const tipoIdx = headers.findIndex(h=>h.includes("tipo")||h.includes("plan")||h.includes("uds")||h.includes("unidades")||h.includes("monto"));
+
+      const result = {};
+      let currentTipo = "uds";
+      for(let i=headerRow+1;i<raw.length;i++){
+        const row = raw[i];
+        if(!row||!row.some(c=>c)) continue;
+        const cell0 = String(row[0]||"").toLowerCase();
+        if(cell0.includes("monto")||cell0.includes("dinero")||cell0.includes("$")) { currentTipo="monto"; continue; }
+        if(cell0.includes("unidad")||cell0.includes("uds")||cell0.includes("lotes")) { currentTipo="uds"; continue; }
+        const devName = String(row[devIdx>=0?devIdx:0]||"").trim();
+        if(!devName||devName.toLowerCase().includes("total")||devName.toLowerCase().includes("gran")) continue;
+        const desaName = String(row[desaIdx>=0?desaIdx:1]||"").trim();
+        if(!result[devName]) result[devName]={desarrollador:desaName,plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
+        mesIdx.forEach((idx,m)=>{
+          if(idx>=0){
+            const v = parseFloat(String(row[idx]||"0").replace(/[$,]/g,""))||0;
+            result[devName].plan[currentTipo][m] = v;
+          }
+        });
+      }
+      return result;
+    };
+
+    const handleFile = (f) => {
+      setFile(f); setError(""); setPreview(null);
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const wb = XLSX.read(ev.target.result,{type:"binary"});
+          const parsed = parseMetasExcel(wb);
+          const keys = Object.keys(parsed);
+          if(keys.length===0) throw new Error("No se encontraron desarrollos en el Excel");
+          setPreview({parsed, count:keys.length, keys});
+        } catch(e){ setError("Error al leer: "+e.message); }
+      };
+      reader.readAsBinaryString(f);
+    };
+
+    const confirmar = () => {
+      if(!preview) return;
+      setImporting(true);
+      try {
+        setMetasData(prev=>{
+          const updated={...prev};
+          Object.entries(preview.parsed).forEach(([nombre,d])=>{ updated[nombre]=d; });
+          saveMetas(updated);
+          return updated;
+        });
+        toast("✅ "+preview.count+" desarrollo(s) importados correctamente");
+        setShowImportModal(false);
+        setImportPreview(null);
+      } catch(e){ setError("Error al importar: "+e.message); }
+      setImporting(false);
+    };
+
+    return (
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={e=>e.target===e.currentTarget&&setShowImportModal(false)}>
+        <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:560,boxShadow:"0 20px 60px rgba(0,43,73,0.35)",overflow:"hidden"}}>
+          {/* Header */}
+          <div style={{background:"linear-gradient(135deg,#002B49,#1a4a6b)",padding:"16px 22px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:10,fontWeight:700,color:"#F5B335",letterSpacing:2,textTransform:"uppercase"}}>📤 IMPORTAR METAS</div>
+              <div style={{fontSize:16,fontWeight:800,color:"#fff",marginTop:2}}>Cargar Plan Anual desde Excel</div>
+            </div>
+            <button onClick={()=>setShowImportModal(false)} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"#fff",fontSize:16}}>✕</button>
+          </div>
+
+          <div style={{padding:"20px 22px"}}>
+            {/* Instrucciones */}
+            <div style={{background:"#f0f9ff",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:12,color:"#0369a1",border:"1px solid #bae6fd"}}>
+              <strong>Formato esperado:</strong> Excel con columnas:<br/>
+              <code style={{fontSize:11}}>Desarrollo | Desarrollador | Ene | Feb | Mar | Abr | May | Jun | Jul | Ago | Sep | Oct | Nov | Dic</code><br/>
+              Una sección para <strong>Unidades</strong> y otra para <strong>Monto ($)</strong>. Los datos existentes se conservan para los desarrollos que no estén en el Excel.
+            </div>
+
+            {/* File input */}
+            <div style={{border:"2px dashed #d1d5db",borderRadius:10,padding:"24px",textAlign:"center",marginBottom:16,cursor:"pointer",background:file?"#f0fdf4":"#fafafa"}}
+              onClick={()=>document.getElementById("metas-file-input").click()}>
+              <input id="metas-file-input" type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={e=>e.target.files[0]&&handleFile(e.target.files[0])}/>
+              <div style={{fontSize:28,marginBottom:6}}>📊</div>
+              <div style={{fontSize:13,fontWeight:700,color:"#374151"}}>{file?file.name:"Selecciona tu archivo Excel"}</div>
+              <div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>{file?"Archivo listo":"Haz clic o arrastra aquí"}</div>
+            </div>
+
+            {/* Error */}
+            {error&&<div style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:8,padding:"10px 14px",fontSize:12,color:"#dc2626",marginBottom:12}}>⚠ {error}</div>}
+
+            {/* Preview */}
+            {preview&&(
+              <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:8,padding:"12px 14px",marginBottom:16}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#16a34a",marginBottom:6}}>✅ {preview.count} desarrollo(s) detectados:</div>
+                {preview.keys.slice(0,8).map(k=><div key={k} style={{fontSize:11,color:"#374151",padding:"1px 0"}}>• {k}</div>)}
+                {preview.keys.length>8&&<div style={{fontSize:11,color:"#9ca3af"}}>... y {preview.keys.length-8} más</div>}
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setShowImportModal(false)} style={{flex:1,padding:"10px",border:"1.5px solid #e5e7eb",borderRadius:8,background:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,color:"#6b7280"}}>Cancelar</button>
+              <button onClick={confirmar} disabled={!preview||importing}
+                style={{flex:2,padding:"10px",border:"none",borderRadius:8,background:preview?"#16a34a":"#d1d5db",color:"#fff",cursor:preview?"pointer":"default",fontSize:12,fontWeight:800}}>
+                {importing?"Importando...":"✅ Confirmar importación"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
     // ─── MODAL ADD CLIENT ─────────────────────────────────────────────
   const ModalAddClient = () => (
     <div style={s.overlay} onClick={e=>e.target===e.currentTarget&&setShowAddClient(false)}>
@@ -9745,7 +9885,10 @@ Respuesta: [respuesta exacta, conversacional]
       {/* Ficha Cliente Modal — GLOBAL */}
       {showFichaModal&&selectedFichaItem&&<ModalFichaClienteGlobal item={selectedFichaItem} onClose={()=>setShowFichaModal(false)}/>}
 
-            {/* Modal Notificaciones */}
+            {/* Modal Importar Metas */}
+      {showImportModal&&<ModalImportMetas/>}
+
+      {/* Modal Notificaciones */}
       {showNotifModal&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,27,46,0.75)",zIndex:4000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"80px 16px 20px"}} onClick={e=>e.target===e.currentTarget&&setShowNotifModal(false)}>
           <div style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:520,maxHeight:"80vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,43,73,0.4)"}}>
