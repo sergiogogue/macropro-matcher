@@ -7895,19 +7895,21 @@ Respuesta: [respuesta exacta, conversacional]
           desarrollos:[]
         };
       }
-      const planM = (d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
-      const realM = (d.real.monto||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
-      const metaYTDM = (d.plan.monto||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
-      performancePorDev[dev].planUds += (d.plan.uds||[]).reduce((a,b)=>a+(b||0),0);
-      performancePorDev[dev].planMonto += planM;
-      performancePorDev[dev].realUds += (d.real.uds||[]).slice(0, mesActual+1).reduce((a,b)=>a+(b||0),0);
-      performancePorDev[dev].realMonto += realM;
-      performancePorDev[dev].metaYTDMonto += metaYTDM;
-      performancePorDev[dev].desarrollos.push(nombre);
+      // Vendido YTD = Real anual acumulado del Excel (todos los meses con datos)
+      const planAnualM = (d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
+      const planAnualU = (d.plan.uds||[]).reduce((a,b)=>a+(b||0),0);
+      const realAnualM = (d.real.monto||[]).reduce((a,b)=>a+(b||0),0);
+      const realAnualU = (d.real.uds||[]).reduce((a,b)=>a+(b||0),0);
+      performancePorDev[dev].planUds += planAnualU;
+      performancePorDev[dev].planMonto += planAnualM;
+      performancePorDev[dev].realUds += realAnualU;
+      performancePorDev[dev].realMonto += realAnualM;
+      performancePorDev[dev].metaYTDMonto += planAnualM; // Meta = Plan anual completo
+      performancePorDev[dev].desarrollos.push({nombre, planU:planAnualU, planM:planAnualM, realU:realAnualU, realM:realAnualM});
     });
     const rankingDevs = Object.values(performancePorDev)
-      .map(d=>({...d, cumplYTD: d.metaYTDMonto>0?d.realMonto/d.metaYTDMonto:0, cumplAnual: d.planMonto>0?d.realMonto/d.planMonto:0}))
-      .sort((a,b)=>b.cumplYTD - a.cumplYTD);
+      .map(d=>({...d, cumplAnual: d.planMonto>0?d.realMonto/d.planMonto:0}))
+      .sort((a,b)=>b.cumplAnual - a.cumplAnual);
 
     // ─── SECCIÓN 4: Risks & Alerts ──────────────────────────────────
     const HOY_MS = Date.now();
@@ -8212,11 +8214,12 @@ Respuesta: [respuesta exacta, conversacional]
             <div style={{fontSize:11, color:B.grey4, marginBottom:16}}>Ranking ordenado por % de cumplimiento YTD</div>
             <div style={{display:"flex", flexDirection:"column", gap:10}}>
               {rankingDevs.map((d,i)=>{
-                const color = d.cumplYTD>=0.95?"#16a34a":(d.cumplYTD>=0.75?"#f59e0b":"#dc2626");
+                const color = d.cumplAnual>=0.95?"#16a34a":(d.cumplAnual>=0.75?"#f59e0b":"#dc2626");
                 const medalla = i===0?"🥇":(i===1?"🥈":(i===2?"🥉":"  "));
                 return (
-                  <div key={d.desarrollador} style={{padding:"12px 14px", background:i===0?"#fef3c7":B.offW, borderRadius:10, border:i===0?"1px solid #fbbf24":"1px solid "+B.grey1}}>
-                    <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6, flexWrap:"wrap", gap:8}}>
+                  <div key={d.desarrollador} style={{borderRadius:12, border:"1px solid "+(i===0?"#fbbf24":B.grey1), overflow:"hidden", background:i===0?"#fffbeb":B.white}}>
+                    {/* Nivel 1: Desarrollador */}
+                    <div style={{padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8}}>
                       <div style={{display:"flex", alignItems:"center", gap:10}}>
                         <span style={{fontSize:18}}>{medalla}</span>
                         <div>
@@ -8224,22 +8227,38 @@ Respuesta: [respuesta exacta, conversacional]
                           <div style={{fontSize:10, color:B.grey4}}>{d.desarrollos.length} desarrollo{d.desarrollos.length!==1?"s":""}</div>
                         </div>
                       </div>
-                      <div style={{display:"flex", gap:14, fontSize:11, alignItems:"baseline"}}>
-                        <div>
-                          <div style={{fontSize:8, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Vendido YTD</div>
-                          <div style={{fontWeight:800, color:B.navy, fontSize:14}}>{fmtMoney(d.realMonto)}</div>
+                      <div style={{display:"flex", gap:16, alignItems:"center"}}>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:8, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Vendido (Real Excel)</div>
+                          <div style={{fontWeight:800, color:B.navy, fontSize:15}}>{fmtMoney(d.realMonto)}</div>
                         </div>
-                        <div>
-                          <div style={{fontSize:8, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Meta YTD</div>
-                          <div style={{fontWeight:600, color:B.grey4, fontSize:14}}>{fmtMoney(d.metaYTDMonto)}</div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:8, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Meta Anual</div>
+                          <div style={{fontWeight:600, color:B.grey4, fontSize:15}}>{fmtMoney(d.planMonto)}</div>
                         </div>
-                        <div style={{padding:"3px 10px", borderRadius:14, background:color, color:"#fff", fontSize:11, fontWeight:800}}>
-                          {(d.cumplYTD*100).toFixed(0)}%
+                        <div style={{padding:"4px 12px", borderRadius:14, background:color, color:"#fff", fontSize:12, fontWeight:800, minWidth:50, textAlign:"center"}}>
+                          {d.planMonto>0?(d.cumplAnual*100).toFixed(0)+"%":"—"}
                         </div>
                       </div>
                     </div>
-                    <div style={{height:8, background:B.grey1, borderRadius:4, overflow:"hidden"}}>
-                      <div style={{height:"100%", width:Math.min(100,d.cumplYTD*100)+"%", background:color, borderRadius:4}}></div>
+                    {/* Barra de progreso */}
+                    <div style={{height:6, background:B.grey1, margin:"0 16px 0"}}>
+                      <div style={{height:"100%", width:Math.min(100,d.cumplAnual*100)+"%", background:color, transition:"width 0.3s"}}></div>
+                    </div>
+                    {/* Nivel 2: Por Desarrollo */}
+                    <div style={{padding:"8px 16px 12px", display:"flex", flexDirection:"column", gap:4}}>
+                      {d.desarrollos.map((dev,di)=>{
+                        const pct=dev.planM>0?Math.round(dev.realM/dev.planM*100):0;
+                        const dc=pct>=95?"#16a34a":pct>=75?"#f59e0b":"#dc2626";
+                        return (
+                          <div key={di} style={{display:"flex", alignItems:"center", gap:10, padding:"5px 8px", background:B.offW, borderRadius:7}}>
+                            <span style={{fontSize:11, fontWeight:700, color:B.navy, flex:1}}>{dev.nombre}</span>
+                            <span style={{fontSize:10, color:B.grey4, minWidth:60, textAlign:"right"}}>Real: {dev.realU} uds / {fmtMoney(dev.realM)}</span>
+                            <span style={{fontSize:10, color:B.grey3, minWidth:60, textAlign:"right"}}>Plan: {dev.planU} uds / {fmtMoney(dev.planM)}</span>
+                            <span style={{fontSize:10, fontWeight:800, color:dc, minWidth:36, textAlign:"right"}}>{dev.planM>0?pct+"%":"—"}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
