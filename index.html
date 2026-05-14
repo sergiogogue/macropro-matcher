@@ -1114,7 +1114,7 @@ async function generarMatchLoteClientes(lote, resultados) {
     slide.addText(`#${i+1} · Score ${r.score}`,{x:0.5,y:0.15,w:4,h:0.4,fontSize:12,color:"F5B335",bold:true});
     slide.addText(r.nombre||r.data?.nombre||"",{x:0.5,y:0.55,w:9,h:0.6,fontSize:22,color:"FFFFFF",bold:true});
     const d=r.data||{};
-    const cols=[["Empresa",d.empresa||""],["Asesor",d.asesor||""],["Ppto",fmtM(d.presupuesto_max)],["Sup.",`${(d.sup_min||0).toLocaleString()}-${(d.sup_max||0).toLocaleString()}m²`],["Temp.",d.temperatura||""]];
+    const cols=[["Empresa",d.empresa||""],["Asesor",d.asesor||""],["Ppto",fmtM(d.presupuesto_max)],["Sup.",`${(d.sup_min||0).toLocaleString()}-${(d.sup_max||0).toLocaleString()}m²`],["Tel.",(d.telefono||d.tel||"—")],["Correo",(d.correo||d.email||"—")],["Temp.",d.temperatura||""]];
     cols.forEach(([k,v],ci)=>{
       slide.addText(k,{x:0.5+ci*2.5,y:1.5,w:2.4,h:0.3,fontSize:9,color:"8FA3B4",bold:true});
       slide.addText(v,{x:0.5+ci*2.5,y:1.8,w:2.4,h:0.4,fontSize:13,color:"002B49",bold:true});
@@ -1642,7 +1642,7 @@ function MacroProMatcher() {
   const semaforoColor={green:"#22c55e",yellow:"#f59e0b",red:"#ef4444",grey:"#9ca3af"};
   const semaforoLabel={green:"Activo",yellow:"Tibio",red:"Frío — Acción requerida",grey:"Sin seguimiento"};
   const PIPELINE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Contrato","Cierre","Perdido"];
-  const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Contactado":"#3B82F6","En negociación":B.gold,"Propuesta":"#8B5CF6","Contrato":"#06B6D4","Cierre":"#22c55e","Perdido":"#ef4444"};
+  const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Contactado":"#3B82F6","En negociación":B.gold,"Propuesta":"#8B5CF6","Apartado":"#f97316","Contrato":"#06B6D4","Cierre":"#22c55e","Perdido":"#ef4444"};
   // Probabilidades estándar industria para forecast ponderado
   const STAGE_PROBABILITY={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.80,"Cierre":1.00,"Perdido":0.00,"Disponible":0.00};
   // Etapas activas (excluye terminales)
