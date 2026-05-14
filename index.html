@@ -8823,7 +8823,7 @@ Respuesta: [respuesta exacta, conversacional]
             const usoCount={};
             clients.forEach(c=>(c.uso_interes||[]).forEach(u=>{if(u)usoCount[u]=(usoCount[u]||0)+1;}));
             const topUso=Object.entries(usoCount).sort((a,b)=>b[1]-a[1])[0];
-            const calientes=_allProspEjec.filter(x=>x.prospecto.temperatura==="Caliente");
+            const calientes=(()=>{const r=[];inventory.forEach(lot=>{const c2=crmData[lot.id]||{};(c2.prospectos||[]).forEach(p=>{if(p&&p.temperatura==="Caliente")r.push({lot,prospecto:p,cli:clients.find(c=>c.nombre===p.nombre)||{}});});});return r;})();
             const usoCaliente={};
             calientes.forEach(x=>{
               const cli=clients.find(c=>c.nombre===x.prospecto.nombre);
