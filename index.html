@@ -8475,7 +8475,10 @@ Respuesta: [respuesta exacta, conversacional]
           });
 
           // ── DEMANDA ACTIVA (Caliente + Tibio) ───────────────────────────
-          const demanda = allProspectos.filter(x=>x.prospecto.temperatura==="Caliente"||x.prospecto.temperatura==="Tibio");
+          // Compute allProspectos inline from global crmData+inventory (not available outside ViewCRM)
+          const _allProspEjec=[];
+          inventory.forEach(lot=>{const crm2=crmData[lot.id]||{};(crm2.prospectos||[]).forEach((p,idx)=>{if(p&&p.pipeline&&p.pipeline!=="Disponible")_allProspEjec.push({lot,prospecto:p,prospectoIdx:idx,pipeline:p.pipeline,crm:crm2,cli:clients.find(c=>c.nombre===p.nombre)||{}});});});
+          const demanda = _allProspEjec.filter(x=>x.prospecto.temperatura==="Caliente"||x.prospecto.temperatura==="Tibio");
 
           // ── ANÁLISIS: USO DE SUELO ───────────────────────────────────────
           const usosCierre={}; const usosDemanda={};
@@ -8820,7 +8823,7 @@ Respuesta: [respuesta exacta, conversacional]
             const usoCount={};
             clients.forEach(c=>(c.uso_interes||[]).forEach(u=>{if(u)usoCount[u]=(usoCount[u]||0)+1;}));
             const topUso=Object.entries(usoCount).sort((a,b)=>b[1]-a[1])[0];
-            const calientes=allProspectos.filter(x=>x.prospecto.temperatura==="Caliente");
+            const calientes=_allProspEjec.filter(x=>x.prospecto.temperatura==="Caliente");
             const usoCaliente={};
             calientes.forEach(x=>{
               const cli=clients.find(c=>c.nombre===x.prospecto.nombre);
