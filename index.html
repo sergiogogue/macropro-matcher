@@ -2785,49 +2785,50 @@ function MacroProMatcher() {
                 📋 PDF Seleccionados {selectedMatchIds.size>0&&`(${selectedMatchIds.size})`}
               </button>
               {!isClientMode&&selectedMatchIds.size>0&&(
-                <button style={{background:"#002B49",color:"#F5B335",border:"2px solid #F5B335",borderRadius:7,padding:"7px 12px",fontSize:11,fontWeight:700,cursor:"pointer",transition:"all 0.2s"}}
+                subject.id==="FILTRO"
+                ? <div style={{padding:"7px 12px",background:"#fef3c7",border:"1px solid #fbbf24",borderRadius:7,fontSize:11,color:"#92400e",fontWeight:600}}>
+                    ⚠ Selecciona un lote específico para agregar al Kanban
+                  </div>
+                : <button style={{background:"#002B49",color:"#F5B335",border:"2px solid #F5B335",borderRadius:7,padding:"7px 12px",fontSize:11,fontWeight:700,cursor:"pointer",transition:"all 0.2s"}}
                   onClick={()=>{
                     const sel=results.filter(r=>selectedMatchIds.has(r.id||r.data?.id));
                     const lotId=subject.id;
+                    if(!lotId||lotId==="FILTRO"){toast("⚠ Selecciona un lote específico primero");return;}
                     let agregados=0; let yaExisten=0;
-                    // ── construir TODO el estado nuevo en un solo paso ──
-                    setCrmData(prev=>{
-                      const crmActual=prev[lotId]||{pipeline:"Prospecto",interacciones:[],prospectos:[]};
-                      let prospectos=[...(crmActual.prospectos||[])];
-                      sel.forEach(r=>{
-                        const cli=r.data||{};
-                        const nombre=cli.nombre||r.nombre||r.id;
-                        if(prospectos.some(p=>p.nombre===nombre)){yaExisten++;return;}
-                        prospectos.push({
-                          nombre,
-                          empresa:cli.empresa||"",
-                          telefono:cli.telefono||"",
-                          correo:cli.correo||cli.email||"",
-                          asesor:cli.asesor||"",
-                          temperatura:cli.temperatura||r.temperatura||"Tibio",
-                          pipeline:"Prospecto",
-                          nota:"Agregado desde Match IA — Score "+r.score,
-                          fechaCreacion:new Date().toISOString().slice(0,10),
-                          actividades:[],
-                        });
-                        agregados++;
+                    // ── Leer CRM fresco de localStorage para evitar stale closure ──
+                    const crmFresh=loadCRM()||{};
+                    const crmActual=crmFresh[lotId]||{pipeline:"Prospecto",interacciones:[],prospectos:[]};
+                    let prospectos=[...(crmActual.prospectos||[])];
+                    sel.forEach(r=>{
+                      const cli=r.data||{};
+                      const nombre=cli.nombre||r.nombre||r.id;
+                      if(!nombre) return;
+                      if(prospectos.some(p=>p.nombre===nombre)){yaExisten++;return;}
+                      prospectos.push({
+                        nombre,
+                        empresa:cli.empresa||"",
+                        telefono:cli.telefono||"",
+                        correo:cli.correo||cli.email||"",
+                        asesor:cli.asesor||"",
+                        temperatura:cli.temperatura||r.temperatura||"Tibio",
+                        pipeline:"Prospecto",
+                        nota:"Agregado desde Match IA — Score "+r.score,
+                        fechaCreacion:new Date().toISOString().slice(0,10),
+                        actividades:[],
                       });
-                      // Calcular pipeline inline (getLotePipelineLocal no está en scope global)
-                      const STAGE_ORD={"Disponible":0,"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Cierre":7,"Vendido":8,"Perdido":-1};
-                      let pipNuevo="Prospecto";
-                      prospectos.forEach(p=>{if(p&&p.pipeline&&(STAGE_ORD[p.pipeline]||0)>(STAGE_ORD[pipNuevo]||0))pipNuevo=p.pipeline;});
-                      const newEntry={...crmActual,prospectos,
-                        pipeline:pipNuevo,
-                        lastContact:new Date().toISOString().slice(0,10)};
-                      const next={...prev,[lotId]:newEntry};
-                      saveCRM(next);
-                      return next;
+                      agregados++;
                     });
-                    setTimeout(()=>{
-                      if(agregados>0) toast("✅ "+agregados+" cliente(s) agregados al Kanban");
-                      if(yaExisten>0) toast("⚠ "+yaExisten+" ya existían en el Kanban");
-                    },100);
+                    if(agregados===0&&yaExisten>0){toast("⚠ Todos ya existían en el Kanban");setSelectedMatchIds(new Set());return;}
+                    const STAGE_ORD={"Disponible":0,"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Cierre":7,"Vendido":8,"Perdido":-1};
+                    let pipNuevo="Prospecto";
+                    prospectos.forEach(p=>{if(p&&p.pipeline&&(STAGE_ORD[p.pipeline]||0)>(STAGE_ORD[pipNuevo]||0))pipNuevo=p.pipeline;});
+                    const newEntry={...crmActual,prospectos,pipeline:pipNuevo,lastContact:new Date().toISOString().slice(0,10)};
+                    // ── Guardar con estado completo: preservar TODOS los lotes ──
+                    const nextCRM={...crmFresh,[lotId]:newEntry};
+                    saveCRM(nextCRM);
+                    setCrmData(nextCRM);
                     setSelectedMatchIds(new Set());
+                    toast("✅ "+agregados+" cliente(s) agregados al Kanban"+(yaExisten>0?" · "+yaExisten+" ya existían":""));
                   }}>
                   ➕ Agregar al Kanban ({selectedMatchIds.size})
                 </button>
