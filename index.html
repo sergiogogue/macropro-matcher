@@ -7560,7 +7560,7 @@ Respuesta: [respuesta exacta, conversacional]
         });
       });
       const avgDias=diasEnStage.length>0?Math.round(diasEnStage.reduce((a,d)=>a+d.dias,0)/diasEnStage.length):0;
-      const actMetrics=[[totalInteracc+"","INTERACCIONES",[0,43,73]],[llamadas+"","LLAMADAS / WA",[8,145,178]],[visitas+"","VISITAS",[22,163,74]],[propuestas+"","PROPUESTAS",[139,92,246]],[nuevosProsp+"","NUEVOS PROSP.",[217,119,6]],[avgDias+"d","DIAS PROM. PIPELINE",[100,116,139]]];
+      const actMetrics=[[nuevosProsp+"","NUEVOS PROSP.",[217,119,6]],[llamadas+"","LLAMADAS / WA",[8,145,178]],[visitas+"","VISITAS",[22,163,74]],[propuestas+"","PROPUESTAS",[139,92,246]],[totalInteracc+"","INTERACCIONES",[0,43,73]],[avgDias+"d","DIAS PROM. PIPELINE",[100,116,139]]];
       const mw=(pageW-margin*2)/actMetrics.length;
       actMetrics.forEach(([val,lbl,col],i)=>{
         const bx=margin+i*mw;
