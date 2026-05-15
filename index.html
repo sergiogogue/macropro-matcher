@@ -4888,6 +4888,7 @@ function MacroProMatcher() {
       const [interTipo,setInterTipo]=React.useState("Llamada");
       const [saving,setSaving]=React.useState(false);
       const [loteEdit,setLoteEdit]=React.useState(lot.id);
+      const [nombreEdit,setNombreEdit]=React.useState(p.nombre||"");
       const pip=p.pipeline||"Prospecto";
       const tCol=p.temperatura==="Caliente"?B.red:p.temperatura==="Tibio"?B.gold:p.temperatura==="Frío"||p.temperatura==="Frio"?"#3B82F6":B.grey3;
       const stageCol={"Prospecto":"#6b7280","Contactado":"#0ea5e9","En negociación":"#8b5cf6","Propuesta":"#f59e0b","Apartado":"#f97316","Contrato":"#22c55e","Vendido":"#16a34a","Perdido":"#dc2626"};
@@ -4898,7 +4899,7 @@ function MacroProMatcher() {
 
       const guardarCambios=()=>{
         setSaving(true);
-        const prospActualizado={...p,temperatura:tempEdit||p.temperatura,asesor:asesorEdit,nota:notaEdit};
+        const prospActualizado={...p,nombre:nombreEdit&&nombreEdit.trim()?nombreEdit.trim():p.nombre,temperatura:tempEdit||p.temperatura,asesor:asesorEdit,nota:notaEdit};
         if(loteEdit!==lot.id){
           // Mover prospecto al nuevo lote
           const prospOrigen=[...(crm.prospectos||[])];
@@ -5015,6 +5016,12 @@ function MacroProMatcher() {
               {/* ── TAB: EDITAR ── */}
               {tabQ==="editar"&&(<>
                 <div style={{marginBottom:12}}>
+                  <div style={{marginBottom:12}}>
+                    <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>NOMBRE DEL PROSPECTO</label>
+                    <input value={nombreEdit} onChange={e=>setNombreEdit(e.target.value)}
+                      style={{width:"100%",borderRadius:7,border:"1px solid "+(nombreEdit!==p.nombre?"#f59e0b":B.grey1),padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"}}/>
+                    {nombreEdit!==p.nombre&&<div style={{fontSize:10,color:"#f59e0b",marginTop:3,fontWeight:700}}>⚠ El nombre se actualizará en el CRM</div>}
+                  </div>
                   <div style={{marginBottom:12}}>
                     <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>TERRENO ASIGNADO</label>
                     <select value={loteEdit} onChange={e=>setLoteEdit(e.target.value)}
