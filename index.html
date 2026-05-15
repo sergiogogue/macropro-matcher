@@ -3819,7 +3819,7 @@ function MacroProMatcher() {
       let forecastTotal=0;       // Σ(precio × probabilidad) de todos los activos
       let pipelineTotalReal=0;   // Suma total de precios activos (sin ponderar)
       let compromisoAlto=0;      // Propuesta + Contrato + Cierre (>= 55% prob)
-      ACTIVE_STAGES.concat("Cierre").forEach(s=>{forecastByStage[s]={count:0,valor:0,ponderado:0};});
+      ACTIVE_STAGES.forEach(s=>{forecastByStage[s]={count:0,valor:0,ponderado:0};});
 
       allProspF.forEach(item=>{
         const pip=item.pipeline;
@@ -3894,7 +3894,7 @@ function MacroProMatcher() {
                 <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",marginTop:3}}>Cada deal ponderado por probabilidad de cierre según su etapa</div>
               </div>
               <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-                {ACTIVE_STAGES.concat("Cierre").map(s=>(
+                {ACTIVE_STAGES.filter(s=>s!=="Perdido").map(s=>(
                   <span key={s} style={{padding:"2px 7px",borderRadius:10,fontSize:9,fontWeight:700,background:PIPELINE_COLORS[s]+"44",color:"#fff",border:"1px solid "+PIPELINE_COLORS[s]}}>{s}: {Math.round(STAGE_PROBABILITY[s]*100)}%</span>
                 ))}
               </div>
@@ -3932,7 +3932,7 @@ function MacroProMatcher() {
           <div style={{background:B.white,borderRadius:12,padding:"16px 20px",marginBottom:16,boxShadow:"0 2px 12px rgba(0,43,73,0.07)"}}>
             <div style={{fontSize:11,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>📈 Forecast por Etapa</div>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {ACTIVE_STAGES.concat("Cierre").map(s=>{
+              {ACTIVE_STAGES.filter(s=>s!=="Perdido").map(s=>{
                 const d=forecastByStage[s]||{count:0,valor:0,ponderado:0};
                 const maxPond=Math.max(...Object.values(forecastByStage).map(x=>x.ponderado),1);
                 const pct=maxPond>0?(d.ponderado/maxPond)*100:0;
@@ -7222,8 +7222,8 @@ Respuesta: [respuesta exacta, conversacional]
       const fmtMoney=(v)=>{if(!v||v===0)return "$0";if(v>=1e9)return "$"+(v/1e9).toFixed(2)+"B";if(v>=1e6)return "$"+(v/1e6).toFixed(1)+"M";if(v>=1e3)return "$"+Math.round(v/1e3)+"k";return "$"+v.toFixed(0);};
       const fechaStr = ahora.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
       const MESES_ES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-      const ACTIVE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
-      const stageProb={"Prospecto":0.05,"Contactado":0.15,"En negociacion":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
+      const ACTIVE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato","Cierre","Perdido"];
+      const stageProb={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"En negociacion":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Cierre":1.00,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
       const tempColor=(t)=>t==="Caliente"?[220,38,38]:t==="Tibio"?[217,119,6]:t==="Frío"||t==="Frio"?[37,99,235]:t==="En cierre"?[249,115,22]:t==="Cerrado"?[22,163,74]:t==="Perdido"?[107,114,128]:[107,114,128];
       const stageColor=(s)=>s==="Contrato"?green:s==="Propuesta"||s==="Apartado"?amber:s==="En negociacion"?[8,145,178]:grey;
 
@@ -7458,11 +7458,13 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...grey);
         doc.text("Sin prospectos activos para los filtros seleccionados.",margin,Y); Y+=10;
       } else {
-        const tempLegend={"Caliente":"(C)","Tibio":"(T)","Frío":"(F)","En cierre":"(EC)","Cerrado":"(✓)","Perdido":"(X)","Frío":"(F)"};
+        const tempLegend={"Caliente":"(C)","Tibio":"(T)","Frío":"(F)","Frio":"(F)","En cierre":"(EC)","Cerrado":"(✓)","Perdido":"(X)"};
         const cols=modo==="ceo"
           ?["Cliente","T","Etapa","Asesor","Dias","Interacc.","Proxima Accion","Fecha"]
           :["Cliente","T","Etapa","Asesor","Proxima Accion","Fecha"];
-        const rows=prospActivos.slice(0,20).map(r=>{
+        const STAGE_ORD_PDF={"Cierre":8,"Vendido":7,"Contrato":6,"Apartado":5,"Propuesta":4,"En negociación":3,"Contactado":2,"Prospecto":1,"Perdido":0};
+        const sortedProspActivos=[...prospActivos].sort((a,b)=>(STAGE_ORD_PDF[b.pip]||0)-(STAGE_ORD_PDF[a.pip]||0));
+        const rows=sortedProspActivos.map(r=>{
           const temp=tempLegend[getTempFromPipeline(r.pipeline)]||tempLegend[r.temperatura]||"-";
           const prox=r.proximaAct?(r.actVencida?"[VENCIDA] ":"")+r.proximaAct.tipo+(r.proximaAct.descripcion?" - "+r.proximaAct.descripcion.slice(0,35):""):"Sin actividad agendada";
           const fecha=r.proximaAct?r.proximaAct.fecha:"-";
@@ -7478,7 +7480,7 @@ Respuesta: [respuesta exacta, conversacional]
           didParseCell:(data)=>{
             if(data.section==="body"&&data.column.index===1){
               const v=data.cell.raw;
-              data.cell.styles.textColor=v==="(C)"?red:v==="(T)"?amber:[37,99,235];
+              data.cell.styles.textColor=v==="(C)"?red:v==="(T)"?amber:v==="(F)"?[37,99,235]:v==="(EC)"?[249,115,22]:v==="(✓)"?[22,163,74]:[107,114,128];
               data.cell.styles.fontStyle="bold";
             }
             if(data.section==="body"&&data.cell.raw&&String(data.cell.raw).startsWith("[VENCIDA]")){
@@ -7504,14 +7506,15 @@ Respuesta: [respuesta exacta, conversacional]
         if(!p.proximaAct) sinActividad.push(p);
       });
       const tempBlocks=[[byTemp.Caliente,"CALIENTES",red],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.EnCierre,"EN CIERRE",[249,115,22]],[byTemp.Cerrado,"CERRADOS",[22,163,74]]];
-      const bw=(pageW-margin*2)/4;
+      const bw=(pageW-margin*2)/tempBlocks.length;
       tempBlocks.forEach(([arr,label,col],i)=>{
         const bx=margin+i*bw;
-        doc.setFillColor(...col); doc.roundedRect(bx,Y,bw-3,22,2,2,"F");
+        const cx=bx+bw/2;
+        doc.setFillColor(...col); doc.roundedRect(bx,Y,bw-2,22,2,2,"F");
         doc.setTextColor(...white); doc.setFont("helvetica","bold"); doc.setFontSize(16);
-        doc.text(arr.length+"",bx+bw/2-1.5,Y+13,{align:"center"});
-        doc.setFontSize(7); doc.setFont("helvetica","normal");
-        doc.text(label,bx+bw/2-1.5,Y+19,{align:"center"});
+        doc.text(arr.length+"",cx,Y+13,{align:"center"});
+        doc.setFontSize(6.5); doc.setFont("helvetica","normal");
+        doc.text(label,cx,Y+19,{align:"center"});
       });
       Y+=28;
       if(vencidos.length>0||sinActividad.length>0){
@@ -7558,14 +7561,15 @@ Respuesta: [respuesta exacta, conversacional]
       });
       const avgDias=diasEnStage.length>0?Math.round(diasEnStage.reduce((a,d)=>a+d.dias,0)/diasEnStage.length):0;
       const actMetrics=[[totalInteracc+"","INTERACCIONES",[0,43,73]],[llamadas+"","LLAMADAS / WA",[8,145,178]],[visitas+"","VISITAS",[22,163,74]],[propuestas+"","PROPUESTAS",[139,92,246]],[nuevosProsp+"","NUEVOS PROSP.",[217,119,6]],[avgDias+"d","DIAS PROM. PIPELINE",[100,116,139]]];
-      const mw=(pageW-margin*2)/6;
+      const mw=(pageW-margin*2)/actMetrics.length;
       actMetrics.forEach(([val,lbl,col],i)=>{
         const bx=margin+i*mw;
-        doc.setFillColor(...col); doc.roundedRect(bx,Y,mw-2,20,2,2,"F");
-        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13);
-        doc.text(val,bx+mw/2-1,Y+12,{align:"center"});
-        doc.setFontSize(6); doc.setFont("helvetica","normal");
-        doc.text(lbl,bx+mw/2-1,Y+17,{align:"center"});
+        const cx=bx+mw/2;
+        doc.setFillColor(...col); doc.roundedRect(bx,Y,mw-2,22,2,2,"F");
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(12);
+        doc.text(val,cx,Y+12,{align:"center"});
+        doc.setFontSize(5.5); doc.setFont("helvetica","normal");
+        doc.text(lbl,cx,Y+18,{align:"center"});
       });
       Y+=26;
 
@@ -7872,9 +7876,9 @@ Respuesta: [respuesta exacta, conversacional]
 
     // ─── Helpers locales ────────────────────────────────────────────
     const stageOrder={"Prospecto":1,"Contactado":2,"En negociación":3,"Propuesta":4,"Apartado":5,"Contrato":6,"Vendido":7,"Perdido":0,"Disponible":0};
-    const stageProb={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
+    const stageProb={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"En negociacion":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Cierre":1.00,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
     const STAGES_REQUIRING_ACTIVITY_LOCAL = ["En negociación","Propuesta","Contrato"];
-    const ACTIVE_STAGES_LOCAL = ["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
+    const ACTIVE_STAGES_LOCAL = ["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato","Cierre","Perdido"];
 
     const getLotePipelineLocal = (lotId) => {
       const e = crmData[lotId];
@@ -8060,6 +8064,7 @@ Respuesta: [respuesta exacta, conversacional]
     Object.entries(metasData||{}).forEach(([nombre, d])=>{
       if(!d||!d.plan||!d.real||!d.desarrollador) return;
       if(ejecFiltroDesarrollador!=="Todos" && d.desarrollador!==ejecFiltroDesarrollador) return;
+      if(ejecFiltroDesarrollo!=="Todos" && nombre!==ejecFiltroDesarrollo) return;
       const dev = d.desarrollador;
       if(!performancePorDev[dev]){
         performancePorDev[dev] = {
