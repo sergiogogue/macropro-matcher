@@ -2776,32 +2776,41 @@ function MacroProMatcher() {
                 <button style={{background:"#002B49",color:"#F5B335",border:"2px solid #F5B335",borderRadius:7,padding:"7px 12px",fontSize:11,fontWeight:700,cursor:"pointer",transition:"all 0.2s"}}
                   onClick={()=>{
                     const sel=results.filter(r=>selectedMatchIds.has(r.id||r.data?.id));
+                    const lotId=subject.id;
                     let agregados=0; let yaExisten=0;
-                    sel.forEach(r=>{
-                      const cli=r.data||{}; const lotId=subject.id;
-                      const crmActual=crmData[lotId]||{pipeline:"Prospecto",interacciones:[],prospectos:[]};
-                      const yaExiste=(crmActual.prospectos||[]).some(p=>p.nombre===cli.nombre);
-                      if(yaExiste){yaExisten++;return;}
-                      const nuevoProsp={
-                        nombre:cli.nombre||r.nombre||r.id,
-                        empresa:cli.empresa||"",
-                        telefono:cli.telefono||"",
-                        correo:cli.correo||cli.email||"",
-                        asesor:cli.asesor||"",
-                        temperatura:cli.temperatura||r.temperatura||"Tibio",
-                        pipeline:"Prospecto",
-                        nota:"Agregado desde Match IA — Score "+r.score,
-                        fechaCreacion:new Date().toISOString().slice(0,10),
-                        actividades:[],
-                      };
-                      const nuevosProsp=[...(crmActual.prospectos||[]),nuevoProsp];
-                      const pipNuevo=getLotePipelineLocal({...crmActual,prospectos:nuevosProsp});
-                      const newEntry={...crmActual,prospectos:nuevosProsp,pipeline:pipNuevo,lastContact:new Date().toISOString().slice(0,10)};
-                      setCrmData(prev=>{const next={...prev,[lotId]:newEntry};saveCRM(next);return next;});
-                      agregados++;
+                    // ── construir TODO el estado nuevo en un solo paso ──
+                    setCrmData(prev=>{
+                      const crmActual=prev[lotId]||{pipeline:"Prospecto",interacciones:[],prospectos:[]};
+                      let prospectos=[...(crmActual.prospectos||[])];
+                      sel.forEach(r=>{
+                        const cli=r.data||{};
+                        const nombre=cli.nombre||r.nombre||r.id;
+                        if(prospectos.some(p=>p.nombre===nombre)){yaExisten++;return;}
+                        prospectos.push({
+                          nombre,
+                          empresa:cli.empresa||"",
+                          telefono:cli.telefono||"",
+                          correo:cli.correo||cli.email||"",
+                          asesor:cli.asesor||"",
+                          temperatura:cli.temperatura||r.temperatura||"Tibio",
+                          pipeline:"Prospecto",
+                          nota:"Agregado desde Match IA — Score "+r.score,
+                          fechaCreacion:new Date().toISOString().slice(0,10),
+                          actividades:[],
+                        });
+                        agregados++;
+                      });
+                      const newEntry={...crmActual,prospectos,
+                        pipeline:getLotePipelineLocal({...crmActual,prospectos}),
+                        lastContact:new Date().toISOString().slice(0,10)};
+                      const next={...prev,[lotId]:newEntry};
+                      saveCRM(next);
+                      return next;
                     });
-                    if(agregados>0) toast("✅ "+agregados+" cliente(s) agregados al Kanban en etapa Prospecto");
-                    if(yaExisten>0) toast("⚠ "+yaExisten+" ya existían en el Kanban");
+                    setTimeout(()=>{
+                      if(agregados>0) toast("✅ "+agregados+" cliente(s) agregados al Kanban");
+                      if(yaExisten>0) toast("⚠ "+yaExisten+" ya existían en el Kanban");
+                    },100);
                     setSelectedMatchIds(new Set());
                   }}>
                   ➕ Agregar al Kanban ({selectedMatchIds.size})
