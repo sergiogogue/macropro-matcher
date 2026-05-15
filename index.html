@@ -914,7 +914,26 @@ const DEMO_CLIENTS = [
 const fmt = (n) => new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN",maximumFractionDigits:0}).format(n||0);
 const fmtM = (n) => { if(!n) return "$0"; return n>=1000000?`$${(n/1000000).toFixed(1)} MDP`:fmt(n); };
 const scoreColor = (s) => s>=80?B.green:s>=60?B.gold:s>=40?B.blue:B.grey3;
-const tempColor = (t) => t==="Caliente"?B.red:t==="Tibio"?B.gold:B.grey3;
+const tempColor = (t) => t==="Caliente"?B.red:t==="Tibio"?B.gold:t==="En cierre"?"#f97316":t==="Cerrado"?"#16a34a":t==="Perdido"?B.grey3:B.grey3;
+const TEMP_FROM_PIPELINE={
+  "Prospecto":"Frío",
+  "Contactado":"Tibio",
+  "En negociación":"Caliente",
+  "Propuesta":"Caliente",
+  "Apartado":"Caliente",
+  "Contrato":"En cierre",
+  "Cierre":"Cerrado",
+  "Vendido":"Cerrado",
+  "Perdido":"Perdido",
+  "Disponible":"Frío",
+};
+const getTempFromPipeline=(pipeline)=>TEMP_FROM_PIPELINE[pipeline]||"Frío";
+const tempFromP=(pipeline)=>getTempFromPipeline(pipeline);
+const tempColorP=(pipeline)=>tempColor(getTempFromPipeline(pipeline));
+const tempBgP=(pipeline)=>{
+  const t=getTempFromPipeline(pipeline);
+  return t==="Caliente"?"#fef2f2":t==="Tibio"?"#fffbeb":t==="En cierre"?"#fff7ed":t==="Cerrado"?"#f0fdf4":"#f8fafc";
+};
 const tempBg = (t) => t==="Caliente"?B.redL:t==="Tibio"?"#fff8e7":B.grey1;
 
 // ─── SCORE RING ───────────────────────────────────────────────────
@@ -1752,7 +1771,7 @@ function MacroProMatcher() {
   // Probabilidades estándar industria para forecast ponderado
   const STAGE_PROBABILITY={"Prospecto":0.05,"Contactado":0.15,"En negociación":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.80,"Cierre":1.00,"Perdido":0.00,"Disponible":0.00};
   // Etapas activas (excluye terminales)
-  const ACTIVE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
+  const ACTIVE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato","Cierre","Perdido"];
   const CANAL_OPTS=["Llamada","WhatsApp","Visita al terreno","Reunión presencial","Presentación virtual","Email","Otro"];
   const REACCION_OPTS=["Muy interesado","Interesado","Pendiente de info","Objeción de precio","Objeción técnica","No aplica","Archivado"];
 
@@ -2810,7 +2829,7 @@ function MacroProMatcher() {
                         telefono:cli.telefono||"",
                         correo:cli.correo||cli.email||"",
                         asesor:cli.asesor||"",
-                        temperatura:cli.temperatura||r.temperatura||"Tibio",
+                        temperatura:getTempFromPipeline("Prospecto"), // Siempre inicia como Frío (pipeline=Prospecto)
                         pipeline:"Prospecto",
                         nota:"Agregado desde Match IA — Score "+r.score,
                         fechaCreacion:new Date().toISOString().slice(0,10),
@@ -3402,7 +3421,7 @@ function MacroProMatcher() {
                         <div style={{flex:1,minWidth:200}}>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
                             <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{cli.nombre}</div>
-                            {cli.temperatura&&<span style={{fontSize:9,fontWeight:700,background:tC,color:"#fff",borderRadius:8,padding:"1px 7px"}}>{cli.temperatura}</span>}
+                            <span style={{fontSize:9,fontWeight:700,background:tempBgP(x.pipeline),color:tempColorP(x.pipeline),borderRadius:8,padding:"1px 7px"}}>🌡 {getTempFromPipeline(x.pipeline)}</span>
                             {yaAgregado&&<span style={{fontSize:9,fontWeight:700,background:"#16a34a",color:"#fff",borderRadius:8,padding:"1px 7px"}}>✅ Agregado</span>}
                           </div>
                           {cli.empresa&&<div style={{fontSize:10,color:B.grey4}}>{cli.empresa}</div>}
@@ -4464,28 +4483,12 @@ function MacroProMatcher() {
                             {cli.asesor&&<div style={{color:"#2563AC",fontWeight:700,marginBottom:2}}>👤 {cli.asesor}</div>}
                             {(cli.telefono||p.telefono)&&<div style={{color:B.grey4,marginBottom:2}}>📞 {cli.telefono||p.telefono}</div>}
                             {(cli.email||p.email)&&<div style={{color:B.grey4,marginBottom:2}}>✉ {cli.email||p.email}</div>}
-                            {/* Selector de temperatura híbrido */}
-                            {(() => {
-                              const tempActiva=p.temperatura||cli.temperatura||"";
-                              const isOverride=!!p.temperatura&&p.temperatura!==cli.temperatura;
-                              const tCol=tempActiva==="Caliente"?"#dc2626":tempActiva==="Tibio"?"#d97706":tempActiva==="Frío"?"#2563eb":B.grey3;
-                              const tBg=tempActiva==="Caliente"?"#fee2e2":tempActiva==="Tibio"?"#fef3c7":tempActiva==="Frío"?"#dbeafe":B.grey1;
-                              return (
-                                <div onClick={e=>e.stopPropagation()} style={{marginTop:5,display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
-                                  <span style={{fontSize:9,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:0.6}}>🌡</span>
-                                  <select value={tempActiva} onChange={e=>updateProspectoTemperatura(item.lotId,item.prospectoIdx,e.target.value)}
-                                    style={{fontSize:9,fontWeight:700,color:tCol,background:tBg,border:"1.5px solid "+tCol+"66",borderRadius:10,padding:"1px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none"}}
-                                    title={isOverride?"Temperatura específica de este deal (override)":"Temperatura heredada del cliente"}>
-                                    <option value="">—</option>
-                                    <option value="Caliente">Caliente</option>
-                                    <option value="Tibio">Tibio</option>
-                                    <option value="Frío">Frío</option>
-                                  </select>
-                                  {isOverride&&<span title="Esta temperatura es override del deal. Clic para restaurar la del cliente." onClick={()=>updateProspectoTemperatura(item.lotId,item.prospectoIdx,"")} style={{fontSize:9,color:tCol,fontWeight:700,cursor:"pointer",background:"transparent",border:"1px dashed "+tCol+"88",borderRadius:8,padding:"0 5px"}}>deal</span>}
-                                  {!isOverride&&cli.temperatura&&<button onClick={()=>{const newTemp=window.prompt("Cambiar temperatura GLOBAL del cliente "+cli.nombre+"\\n(afecta todos sus prospectos).\\n\\nEscribe: Caliente, Tibio, o Frío","")||"";const valid=["Caliente","Tibio","Frío"];if(valid.includes(newTemp.trim())){updateClienteTemperatura(cli.nombre,newTemp.trim());}else if(newTemp){toast("⚠ Valor inválido. Usa: Caliente, Tibio o Frío");}}} title="Cambia la temperatura del CLIENTE en el catálogo (afecta todos sus deals)" style={{fontSize:8,color:B.grey4,background:"transparent",border:"1px dashed "+B.grey2,borderRadius:8,padding:"0 5px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>edit cliente</button>}
-                                </div>
-                              );
-                            })()}
+                                                        {/* Temperatura automática por pipeline */}
+                            <div style={{marginTop:5,display:"flex",alignItems:"center",gap:4}}>
+                              <span style={{fontSize:9,fontWeight:800,color:tempColorP(item.pipeline),background:tempBgP(item.pipeline),border:"1.5px solid "+tempColorP(item.pipeline)+"66",borderRadius:10,padding:"1px 8px"}}>
+                                🌡 {getTempFromPipeline(item.pipeline)}
+                              </span>
+                            </div>
                             {cli.uso_interes&&cli.uso_interes.length>0&&<div style={{marginTop:4}}><span style={{padding:"1px 6px",borderRadius:10,fontSize:9,background:B.blueL,color:B.blue}}>{cli.uso_interes[0]}</span></div>}
                           </div>
                         ):(
@@ -4494,24 +4497,12 @@ function MacroProMatcher() {
                             {p.telefono&&<div>📞 {p.telefono}</div>}
                             {p.email&&<div>✉ {p.email}</div>}
                             {!p.empresa&&!p.telefono&&!p.email&&<div>Sin datos de contacto</div>}
-                            {/* Selector de temperatura aún sin cliente en catálogo */}
-                            {(() => {
-                              const tempActiva=p.temperatura||"";
-                              const tCol=tempActiva==="Caliente"?"#dc2626":tempActiva==="Tibio"?"#d97706":tempActiva==="Frío"?"#2563eb":B.grey3;
-                              const tBg=tempActiva==="Caliente"?"#fee2e2":tempActiva==="Tibio"?"#fef3c7":tempActiva==="Frío"?"#dbeafe":B.grey1;
-                              return (
-                                <div onClick={e=>e.stopPropagation()} style={{marginTop:5,display:"flex",alignItems:"center",gap:4}}>
-                                  <span style={{fontSize:9,fontWeight:700,color:B.grey3}}>🌡</span>
-                                  <select value={tempActiva} onChange={e=>updateProspectoTemperatura(item.lotId,item.prospectoIdx,e.target.value)}
-                                    style={{fontSize:9,fontWeight:700,color:tCol,background:tBg,border:"1.5px solid "+tCol+"66",borderRadius:10,padding:"1px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
-                                    <option value="">—</option>
-                                    <option value="Caliente">Caliente</option>
-                                    <option value="Tibio">Tibio</option>
-                                    <option value="Frío">Frío</option>
-                                  </select>
-                                </div>
-                              );
-                            })()}
+                            {/* Temperatura automática por pipeline */}
+                            <div style={{marginTop:5}}>
+                              <span style={{fontSize:9,fontWeight:800,color:tempColorP(item.pipeline),background:tempBgP(item.pipeline),border:"1.5px solid "+tempColorP(item.pipeline)+"66",borderRadius:10,padding:"1px 8px"}}>
+                                🌡 {getTempFromPipeline(item.pipeline)}
+                              </span>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -5056,7 +5047,7 @@ function MacroProMatcher() {
       const [loteEdit,setLoteEdit]=React.useState(lot.id);
       const [nombreEdit,setNombreEdit]=React.useState(p.nombre||"");
       const pip=p.pipeline||"Prospecto";
-      const tCol=p.temperatura==="Caliente"?B.red:p.temperatura==="Tibio"?B.gold:p.temperatura==="Frío"||p.temperatura==="Frio"?"#3B82F6":B.grey3;
+      const tCol=tempColorP(pip);
       const stageCol={"Prospecto":"#6b7280","Contactado":"#0ea5e9","En negociación":"#8b5cf6","Propuesta":"#f59e0b","Apartado":"#f97316","Contrato":"#22c55e","Vendido":"#16a34a","Perdido":"#dc2626"};
       const ultimas=((crmData[lot.id]||crm).interacciones||[]).slice(-4).reverse();
       const acts=(p.actividades||[]).filter(a=>!a.completada).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
@@ -5106,7 +5097,7 @@ function MacroProMatcher() {
                 <div style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginTop:2}}>{lot.nombre} · {lot.desarrollo}</div>
                 <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
                   <span style={{fontSize:9,fontWeight:700,background:stageCol[pip]||B.grey3,color:"#fff",borderRadius:10,padding:"2px 8px"}}>{pip}</span>
-                  {p.temperatura&&<span style={{fontSize:9,fontWeight:700,background:tCol,color:"#fff",borderRadius:10,padding:"2px 8px"}}>🌡 {p.temperatura}</span>}
+                  <span style={{fontSize:9,fontWeight:700,background:tempBgP(pip),color:tempColorP(pip),borderRadius:10,padding:"2px 8px"}}>🌡 {getTempFromPipeline(pip)}</span>
                   {(p.asesor||crm.asesorResponsable||(cliQ&&cliQ.asesor))&&<span style={{fontSize:9,background:"rgba(255,255,255,0.15)",color:"#fff",borderRadius:10,padding:"2px 8px"}}>👤 {p.asesor||crm.asesorResponsable||(cliQ&&cliQ.asesor)}</span>}
                 </div>
               </div>
@@ -5196,7 +5187,7 @@ function MacroProMatcher() {
                     </select>
                     {loteEdit!==lot.id&&<div style={{fontSize:10,color:"#f59e0b",marginTop:4,fontWeight:700}}>⚠ El prospecto será movido a este terreno al guardar</div>}
                   </div>
-                  <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>TEMPERATURA</label>
+                  <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>TEMPERATURA <span style={{fontSize:9,color:"#3B82F6",fontWeight:400}}>(automática por etapa: {getTempFromPipeline(pip)})</span></label>
                   <div style={{display:"flex",gap:6}}>
                     {["Caliente","Tibio","Frío"].map(t=>(
                       <button key={t} onClick={()=>setTempEdit(t)} style={{flex:1,padding:"6px",borderRadius:7,border:"none",cursor:"pointer",fontWeight:700,fontSize:11,fontFamily:"'DM Sans',sans-serif",background:tempEdit===t?(t==="Caliente"?B.red:t==="Tibio"?B.gold:"#3B82F6"):"#f1f5f9",color:tempEdit===t?"#fff":B.grey4}}>{t}</button>
@@ -6432,7 +6423,7 @@ function MacroProMatcher() {
         const prompt = `Eres un estratega comercial inmobiliario de alto nivel. Analiza este caso y responde en español con formato claro.
 
 PROSPECTO: ${p.nombre}${p.empresa||cli?.empresa?" | "+(p.empresa||cli?.empresa):""}
-TEMPERATURA: ${cli?.temperatura||"No definida"} | ETAPA: ${p.pipeline||"Prospecto"} | ASESOR: ${cli?.asesor||"—"}
+TEMPERATURA: ${getTempFromPipeline(p.pipeline)} | ETAPA: ${p.pipeline||"Prospecto"} | ASESOR: ${cli?.asesor||"—"}
 PRESUPUESTO: ${cli?.presupuesto_max?fmtM(cli.presupuesto_max):"No definido"} | PLAZO DE CIERRE: ${cli?.plazo_cierre||"No definido"}
 INTERESES: ${(cli?.uso_interes||[]).join(", ")||"—"} | CIUDADES: ${(cli?.ciudad_interes||[]).join(", ")||"—"}
 
@@ -7233,7 +7224,7 @@ Respuesta: [respuesta exacta, conversacional]
       const MESES_ES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
       const ACTIVE_STAGES=["Prospecto","Contactado","En negociación","Propuesta","Apartado","Contrato"];
       const stageProb={"Prospecto":0.05,"Contactado":0.15,"En negociacion":0.35,"Propuesta":0.55,"Apartado":0.75,"Contrato":0.90,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
-      const tempColor=(t)=>t==="Caliente"?[220,38,38]:t==="Tibio"?[217,119,6]:t==="Frio"||t==="Frio"?[37,99,235]:[107,114,128];
+      const tempColor=(t)=>t==="Caliente"?[220,38,38]:t==="Tibio"?[217,119,6]:t==="Frío"||t==="Frio"?[37,99,235]:t==="En cierre"?[249,115,22]:t==="Cerrado"?[22,163,74]:t==="Perdido"?[107,114,128]:[107,114,128];
       const stageColor=(s)=>s==="Contrato"?green:s==="Propuesta"||s==="Apartado"?amber:s==="En negociacion"?[8,145,178]:grey;
 
       // Datos filtrados
@@ -7260,7 +7251,7 @@ Respuesta: [respuesta exacta, conversacional]
         crm.prospectos.forEach((p,idx)=>{
           if(!p||!p.pipeline) return;
           const pip=p.pipeline;
-          if(pip==="Perdido"||pip==="Vendido") return;
+          // Incluir Cierre y Perdido en el reporte (info completa)
           if(ejecFiltroEtapa!=="Todos"&&pip!==ejecFiltroEtapa) return;
           const asesor=p.asesor||crm.asesorResponsable||"Sin asignar";
           if(ejecFiltroAsesor!=="Todos"&&asesor!==ejecFiltroAsesor) return;
@@ -7270,7 +7261,7 @@ Respuesta: [respuesta exacta, conversacional]
           const diasEnPipeline=crm.lastContact?Math.floor((Date.now()-new Date(crm.lastContact).getTime())/864e5):null;
           const interacciones=(crm.interacciones||[]).length;
           prospActivos.push({lot,p,pip,asesor,proximaAct,actVencida,diasEnPipeline,interacciones,
-            temperatura:p.temperatura||"Sin definir",nota:p.nota||"",valor:lot.precio_total||0});
+            temperatura:getTempFromPipeline(p.pipeline)||p.temperatura||"Sin definir",nota:p.nota||"",valor:lot.precio_total||0});
         });
       });
 
@@ -7352,7 +7343,8 @@ Respuesta: [respuesta exacta, conversacional]
       doc.setFillColor(...navy); doc.rect(0,0,pageW,52,"F");
       doc.setFillColor(...gold); doc.rect(0,52,pageW,2,"F");
       // Logo Macrolotes en el header (fondo navy → logo con transparencia)
-      try{ doc.addImage("data:image/png;base64,"+LOGO_B64,"PNG",margin,8,52,18); }catch(e){
+      // Logo: 4395x636px, ratio 6.91 — ancho 58mm → alto 8.4mm (proporcional)
+      try{ doc.addImage("data:image/png;base64,"+LOGO_B64,"PNG",margin,7,58,8.4); }catch(e){
         doc.setTextColor(...white); doc.setFont("helvetica","bold"); doc.setFontSize(26);
         doc.text("MacroPro",margin,24);
         doc.setFontSize(10); doc.setFont("helvetica","normal");
@@ -7409,7 +7401,7 @@ Respuesta: [respuesta exacta, conversacional]
       const mejorDeal=prospActivos.sort((a,b)=>(stageProb[b.pip]||0)-(stageProb[a.pip]||0))[0]||null;
       // Restaurar orden original
       prospActivos.sort((a,b)=>(stageProb[b.pip]||0)-(stageProb[a.pip]||0));
-      const calientes=prospActivos.filter(p=>p.temperatura==="Caliente").length;
+      const calientes=prospActivos.filter(p=>getTempFromPipeline(p.pipeline)==="Caliente").length;
       const actVencidaCount=prospActivos.filter(p=>p.actVencida).length;
       const sinSiguiente=prospActivos.filter(p=>!p.proximaAct).length;
       const interaccionesMes=lotesFiltrados.reduce((acc,lot)=>{
@@ -7466,12 +7458,12 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...grey);
         doc.text("Sin prospectos activos para los filtros seleccionados.",margin,Y); Y+=10;
       } else {
-        const tempLegend={"Caliente":"(C)","Tibio":"(T)","Frio":"(F)"};
+        const tempLegend={"Caliente":"(C)","Tibio":"(T)","Frío":"(F)","En cierre":"(EC)","Cerrado":"(✓)","Perdido":"(X)","Frío":"(F)"};
         const cols=modo==="ceo"
           ?["Cliente","T","Etapa","Asesor","Dias","Interacc.","Proxima Accion","Fecha"]
           :["Cliente","T","Etapa","Asesor","Proxima Accion","Fecha"];
         const rows=prospActivos.slice(0,20).map(r=>{
-          const temp=tempLegend[r.temperatura]||"-";
+          const temp=tempLegend[getTempFromPipeline(r.pipeline)]||tempLegend[r.temperatura]||"-";
           const prox=r.proximaAct?(r.actVencida?"[VENCIDA] ":"")+r.proximaAct.tipo+(r.proximaAct.descripcion?" - "+r.proximaAct.descripcion.slice(0,35):""):"Sin actividad agendada";
           const fecha=r.proximaAct?r.proximaAct.fecha:"-";
           const base=[r.p.nombre,temp,r.pip,r.asesor,prox,fecha];
@@ -7502,15 +7494,16 @@ Respuesta: [respuesta exacta, conversacional]
       // ══════════════════════════════════════════
       checkPage(40);
       sectionHeader("3 | TEMPERATURA DE PROSPECTOS  Y  URGENCIA");
-      const byTemp={Caliente:[],Tibio:[],Frio:[],Sin:[]}; 
+      const byTemp={Caliente:[],Tibio:[],Frio:[],EnCierre:[],Cerrado:[],Perdido:[]}; 
       const vencidos=[]; const sinActividad=[];
       prospActivos.forEach(p=>{
-        const k=p.temperatura==="Caliente"?"Caliente":p.temperatura==="Tibio"?"Tibio":p.temperatura==="Frio"||p.temperatura==="Frío"?"Frio":"Sin";
+        const tp=getTempFromPipeline(p.pipeline);
+        const k=tp==="Caliente"?"Caliente":tp==="Tibio"?"Tibio":tp==="En cierre"?"EnCierre":tp==="Cerrado"?"Cerrado":tp==="Perdido"?"Perdido":"Frio";
         byTemp[k].push(p);
         if(p.actVencida) vencidos.push(p);
         if(!p.proximaAct) sinActividad.push(p);
       });
-      const tempBlocks=[[byTemp.Caliente,"CALIENTES",red],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.Sin,"SIN TEMP",grey]];
+      const tempBlocks=[[byTemp.Caliente,"CALIENTES",red],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.EnCierre,"EN CIERRE",[249,115,22]],[byTemp.Cerrado,"CERRADOS",[22,163,74]]];
       const bw=(pageW-margin*2)/4;
       tempBlocks.forEach(([arr,label,col],i)=>{
         const bx=margin+i*bw;
@@ -7626,14 +7619,16 @@ Respuesta: [respuesta exacta, conversacional]
       Object.entries(metasData||{}).forEach(([nombre,d])=>{
         if(!d||!d.plan||!d.real||!d.desarrollador) return;
         if(ejecFiltroDesarrollador!=="Todos"&&d.desarrollador!==ejecFiltroDesarrollador) return;
+        if(ejecFiltroDesarrollo!=="Todos"&&nombre!==ejecFiltroDesarrollo) return;
         const dev=d.desarrollador;
         if(!perfDev[dev]) perfDev[dev]={plan:0,real:0,metaYTD:0,devs:0};
         perfDev[dev].plan+=(d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
-        perfDev[dev].real+=(d.real.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
-        perfDev[dev].metaYTD+=(d.plan.monto||[]).slice(0,mesActual+1).reduce((a,b)=>a+(b||0),0);
+        perfDev[dev].real+=(d.real.monto||[]).reduce((a,b)=>a+(b||0),0);
+        perfDev[dev].metaYTD+=(d.plan.monto||[]).reduce((a,b)=>a+(b||0),0); // Plan anual completo
         perfDev[dev].devs++;
       });
-      const perfRows=Object.entries(perfDev).map(([dev,d])=>[dev,d.devs+"",fmtMoney(d.real),fmtMoney(d.metaYTD),(d.metaYTD>0?Math.round(d.real/d.metaYTD*100):0)+"%"]).sort((a,b)=>parseInt(b[4])-parseInt(a[4]));
+      const fmtK=v=>v>=1000000?"$"+Math.round(v/1000)+"k":v>0?"$"+Math.round(v/1000)+"k":"$0";
+      const perfRows=Object.entries(perfDev).map(([dev,d])=>[dev,d.devs+"",fmtK(d.real),fmtK(d.metaYTD),(d.metaYTD>0?Math.round(d.real/d.metaYTD*100):0)+"%"]).sort((a,b)=>parseInt(b[4])-parseInt(a[4]));
       if(perfRows.length>0){
         doc.autoTable({startY:Y,head:[["Desarrollador","# Des.","Vendido YTD","Meta YTD","Cumpl."]],body:perfRows,theme:"striped",
           headStyles:{fillColor:navy,textColor:white,fontSize:8,fontStyle:"bold"},
@@ -7959,7 +7954,7 @@ Respuesta: [respuesta exacta, conversacional]
         prospectosActivos.push({
           lot, prospecto:p, prospectoIdx:idx, pipeline:pipelineP,
           asesor:asesorP, proximaAct, diasSinContacto,
-          temperatura: p.temperatura||"Sin definir",
+          temperatura: getTempFromPipeline(p.pipeline)||p.temperatura||"Sin definir",
           valor: lot.precio_total||0
         });
       });
@@ -8654,7 +8649,7 @@ Respuesta: [respuesta exacta, conversacional]
             (crm2.prospectos||[]).forEach((p,idx)=>{
               if(p&&p.pipeline&&p.pipeline!=="Disponible"){
                 const cli=clients.find(c=>c.nombre===p.nombre)||{};
-                _prosps.push({lot,p,cli,pipeline:p.pipeline,temp:p.temperatura||cli.temperatura||""});
+                _prosps.push({lot,p,cli,pipeline:p.pipeline,temp:getTempFromPipeline(p.pipeline)});
               }
             });
           });
