@@ -5291,8 +5291,8 @@ function MacroProMatcher() {
                     const p=x.prospecto;
                     const cli=x.cli;
                     const asesor=(cli&&cli.asesor)||p.asesor||x.crm.asesorResponsable||null;
-                    const temp=p.temperatura||(cli&&cli.temperatura)||null;
-                    const tCol=temp==="Caliente"?B.red:temp==="Tibio"?B.gold:temp==="Frío"?"#3B82F6":null;
+                    const temp=getTempFromPipeline(x.pipeline);
+                    const tCol=tempColorP(x.pipeline);
                     return (
                       <div key={x.lotId+"_"+x.prospectoIdx+"_"+i} onClick={()=>{setQuickProspData({lot:x.lot,p:x.prospecto,prospectoIdx:x.prospectoIdx,crm:crmData[x.lotId]||{},cli:x.cli||null});setShowQuickProspModal(true);}}
                         style={{background:B.white,borderRadius:10,padding:"10px 11px",marginBottom:8,cursor:"pointer",border:"1px solid "+B.grey1,transition:"all 0.15s",boxShadow:"0 1px 3px rgba(0,43,73,0.05)"}}
@@ -8015,8 +8015,7 @@ Respuesta: [respuesta exacta, conversacional]
       crm.prospectos.forEach(p=>{
         if(!p||!p.pipeline) return;
         const pip = p.pipeline;
-        if(pip==="Perdido"||pip==="Vendido") return;
-        if(!ACTIVE_STAGES_LOCAL.includes(pip)) return;
+        if(!ACTIVE_STAGES_LOCAL.includes(pip)) return; // ACTIVE_STAGES_LOCAL ya incluye Perdido
         const asesorP = p.asesor||crm.asesorResponsable||"Sin asignar";
         if(ejecFiltroAsesor!=="Todos"&&asesorP!==ejecFiltroAsesor) return;
         // Contar 1 prospecto siempre
