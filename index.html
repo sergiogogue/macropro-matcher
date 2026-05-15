@@ -7260,8 +7260,8 @@ Respuesta: [respuesta exacta, conversacional]
           const actVencida=proximaAct&&new Date(proximaAct.fecha+"T12:00:00")<new Date()?true:false;
           const diasEnPipeline=crm.lastContact?Math.floor((Date.now()-new Date(crm.lastContact).getTime())/864e5):null;
           const interacciones=(crm.interacciones||[]).length;
-          prospActivos.push({lot,p,pip,asesor,proximaAct,actVencida,diasEnPipeline,interacciones,
-            temperatura:getTempFromPipeline(p.pipeline)||p.temperatura||"Sin definir",nota:p.nota||"",valor:lot.precio_total||0});
+          prospActivos.push({lot,p,pip,pipeline:pip,asesor,proximaAct,actVencida,diasEnPipeline,interacciones,
+            temperatura:getTempFromPipeline(pip)||p.temperatura||"Sin definir",nota:p.nota||"",valor:lot.precio_total||0});
         });
       });
 
@@ -7401,7 +7401,7 @@ Respuesta: [respuesta exacta, conversacional]
       const mejorDeal=prospActivos.sort((a,b)=>(stageProb[b.pip]||0)-(stageProb[a.pip]||0))[0]||null;
       // Restaurar orden original
       prospActivos.sort((a,b)=>(stageProb[b.pip]||0)-(stageProb[a.pip]||0));
-      const calientes=prospActivos.filter(p=>getTempFromPipeline(p.pipeline)==="Caliente").length;
+      const calientes=prospActivos.filter(p=>getTempFromPipeline(p.pip||p.pipeline)==="Caliente").length;
       const actVencidaCount=prospActivos.filter(p=>p.actVencida).length;
       const sinSiguiente=prospActivos.filter(p=>!p.proximaAct).length;
       const interaccionesMes=lotesFiltrados.reduce((acc,lot)=>{
@@ -7465,7 +7465,7 @@ Respuesta: [respuesta exacta, conversacional]
         const STAGE_ORD_PDF={"Cierre":8,"Vendido":7,"Contrato":6,"Apartado":5,"Propuesta":4,"En negociación":3,"Contactado":2,"Prospecto":1,"Perdido":0};
         const sortedProspActivos=[...prospActivos].sort((a,b)=>(STAGE_ORD_PDF[b.pip]||0)-(STAGE_ORD_PDF[a.pip]||0));
         const rows=sortedProspActivos.map(r=>{
-          const temp=tempLegend[getTempFromPipeline(r.pipeline)]||tempLegend[r.temperatura]||"-";
+          const temp=tempLegend[getTempFromPipeline(r.pip||r.pipeline)]||tempLegend[r.temperatura]||"-";
           const prox=r.proximaAct?(r.actVencida?"[VENCIDA] ":"")+r.proximaAct.tipo+(r.proximaAct.descripcion?" - "+r.proximaAct.descripcion.slice(0,35):""):"Sin actividad agendada";
           const fecha=r.proximaAct?r.proximaAct.fecha:"-";
           const base=[r.p.nombre,temp,r.pip,r.asesor,prox,fecha];
@@ -7505,7 +7505,7 @@ Respuesta: [respuesta exacta, conversacional]
         if(p.actVencida) vencidos.push(p);
         if(!p.proximaAct) sinActividad.push(p);
       });
-      const tempBlocks=[[byTemp.Caliente,"CALIENTES",red],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.EnCierre,"EN CIERRE",[249,115,22]],[byTemp.Cerrado,"CERRADOS",[22,163,74]]];
+      const tempBlocks=[[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Caliente,"CALIENTES",red],[byTemp.Cerrado,"CERRADOS",[22,163,74]],[byTemp.Perdido,"PERDIDOS",[107,114,128]]];
       const bw=(pageW-margin*2)/tempBlocks.length;
       tempBlocks.forEach(([arr,label,col],i)=>{
         const bx=margin+i*bw;
