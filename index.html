@@ -2670,6 +2670,41 @@ function MacroProMatcher() {
                 }}>
                 📋 PDF Seleccionados {selectedMatchIds.size>0&&`(${selectedMatchIds.size})`}
               </button>
+              {!isClientMode&&selectedMatchIds.size>0&&(
+                <button style={{background:"#002B49",color:"#F5B335",border:"2px solid #F5B335",borderRadius:7,padding:"7px 12px",fontSize:11,fontWeight:700,cursor:"pointer",transition:"all 0.2s"}}
+                  onClick={()=>{
+                    const sel=results.filter(r=>selectedMatchIds.has(r.id||r.data?.id));
+                    let agregados=0; let yaExisten=0;
+                    sel.forEach(r=>{
+                      const cli=r.data||{}; const lotId=subject.id;
+                      const crmActual=crmData[lotId]||{pipeline:"Prospecto",interacciones:[],prospectos:[]};
+                      const yaExiste=(crmActual.prospectos||[]).some(p=>p.nombre===cli.nombre);
+                      if(yaExiste){yaExisten++;return;}
+                      const nuevoProsp={
+                        nombre:cli.nombre||r.nombre||r.id,
+                        empresa:cli.empresa||"",
+                        telefono:cli.telefono||"",
+                        correo:cli.correo||cli.email||"",
+                        asesor:cli.asesor||"",
+                        temperatura:cli.temperatura||r.temperatura||"Tibio",
+                        pipeline:"Prospecto",
+                        nota:"Agregado desde Match IA — Score "+r.score,
+                        fechaCreacion:new Date().toISOString().slice(0,10),
+                        actividades:[],
+                      };
+                      const nuevosProsp=[...(crmActual.prospectos||[]),nuevoProsp];
+                      const pipNuevo=getLotePipelineLocal({...crmActual,prospectos:nuevosProsp});
+                      const newEntry={...crmActual,prospectos:nuevosProsp,pipeline:pipNuevo,lastContact:new Date().toISOString().slice(0,10)};
+                      setCrmData(prev=>{const next={...prev,[lotId]:newEntry};saveCRM(next);return next;});
+                      agregados++;
+                    });
+                    if(agregados>0) toast("✅ "+agregados+" cliente(s) agregados al Kanban en etapa Prospecto");
+                    if(yaExisten>0) toast("⚠ "+yaExisten+" ya existían en el Kanban");
+                    setSelectedMatchIds(new Set());
+                  }}>
+                  ➕ Agregar al Kanban ({selectedMatchIds.size})
+                </button>
+              )}
               <button style={{background:B.gold,color:B.navy,border:"none",borderRadius:7,padding:"7px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}} onClick={()=>window.print()}>🖨️ Imprimir</button>
               <button disabled={generatingReport} style={{background:generatingReport?B.grey3:B.navy,color:B.gold,border:`2px solid ${B.gold}`,borderRadius:7,padding:"7px 12px",fontSize:11,fontWeight:700,cursor:generatingReport?"not-allowed":"pointer"}}
                 onClick={async()=>{setGeneratingReport(true);try{const merged=results.map(r=>{const d=r.data||{};return{...r,nombre:d.nombre||r.nombre||r.id,empresa:d.empresa||"",ciudad:d.ciudad||"",estado:d.estado||"",desarrollo:d.desarrollo||"",uso:d.uso||"",usos_todos:d.usos_todos||[],sup_m2:d.sup_m2||0,precio_m2:d.precio_m2||0,precio_total:d.precio_total||0,cos:d.cos||0,cus:d.cus||0,niveles:d.niveles||"",viv_max:d.viv_max||0,agua:d.agua||"",luz:d.luz||"",drenaje:d.drenaje||"",acceso:d.acceso||"",entrega:d.entrega||"",fortaleza:d.fortaleza||"",atributos:d.atributos||"",comprador:d.comprador||"",presupuesto_min:d.presupuesto_min||0,presupuesto_max:d.presupuesto_max||0,sup_min:d.sup_min||0,sup_max:d.sup_max||0,temperatura:d.temperatura||"",asesor:d.asesor||"",notas:d.notas||""};});if(isClientMode)await generarMatchClienteLotes(subject,merged);else await generarMatchLoteClientes(subject,merged);}catch(e){alert("Error: "+e.message);}finally{setGeneratingReport(false);}}}>
