@@ -1505,6 +1505,108 @@ function MacroProMatcher() {
     return tplCuerpo.replace(/\{(\w+)\}/g,(m,k)=>vars[k]!==undefined?vars[k]:m);
   };
   const exportCRMJson=()=>{const b=new Blob([JSON.stringify(crmData,null,2)],{type:"application/json"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download="CRM_MacroPro_"+new Date().toISOString().slice(0,10)+".json";a.click();};
+
+  // ── AUTO-BACKUP: guarda respaldo en localStorage al abrir ────────────
+  React.useEffect(()=>{
+    try{
+      const crm=loadCRM();
+      const keys=Object.keys(crm||{});
+      if(keys.length===0) return;
+      const backup={ts:new Date().toISOString(),crm,version:"auto"};
+      localStorage.setItem("macropro_autobackup",JSON.stringify(backup));
+      console.log("✅ Auto-backup local guardado:",keys.length,"lotes");
+    }catch(e){ console.warn("Auto-backup falló:",e); }
+  },[]);
+
+  // ── GOOGLE DRIVE BACKUP ─────────────────────────────────────────────
+  const DRIVE_CLIENT_ID = "740603360793-lb14qbkj5e4quajaagkuauvhhva5lg80.apps.googleusercontent.com";
+  const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+  const DRIVE_FOLDER = "MacroPro Backups";
+
+  const getDriveToken = ()=>localStorage.getItem("macropro_drive_token");
+  const driveTokenValid = ()=>{
+    const t=getDriveToken(), exp=localStorage.getItem("macropro_drive_token_exp");
+    return !!(t&&exp&&Date.now()<parseInt(exp));
+  };
+  const connectDrive = ()=>{
+    const state=Math.random().toString(36).slice(2);
+    localStorage.setItem("macropro_oauth_state",state);
+    const p=new URLSearchParams({client_id:DRIVE_CLIENT_ID,redirect_uri:"https://sergiogogue.github.io/macropro-matcher/",
+      response_type:"token",scope:DRIVE_SCOPE,state,prompt:"select_account"});
+    window.location.href="https://accounts.google.com/o/oauth2/v2/auth?"+p.toString();
+  };
+  const disconnectDrive = ()=>{
+    localStorage.removeItem("macropro_drive_token");
+    localStorage.removeItem("macropro_drive_token_exp");
+    localStorage.removeItem("macropro_drive_last_backup");
+    toast("Google Drive desconectado");
+  };
+
+  // Capturar token OAuth al regresar del redirect
+  React.useEffect(()=>{
+    const hash=window.location.hash;
+    if(!hash.includes("access_token")) return;
+    const params=new URLSearchParams(hash.slice(1));
+    const token=params.get("access_token");
+    const expiresIn=parseInt(params.get("expires_in")||"3600");
+    const state=params.get("state");
+    if(token&&state===localStorage.getItem("macropro_oauth_state")){
+      localStorage.setItem("macropro_drive_token",token);
+      localStorage.setItem("macropro_drive_token_exp",String(Date.now()+expiresIn*1000));
+      localStorage.removeItem("macropro_oauth_state");
+      window.history.replaceState(null,"",window.location.pathname);
+      toast("✅ Google Drive conectado — respaldo automático activado");
+      setTimeout(()=>uploadBackupToDrive(token),1500);
+    }
+  },[]);
+
+  // Auto-upload al Drive si hay token válido
+  React.useEffect(()=>{
+    if(!driveTokenValid()) return;
+    const lastBackup=localStorage.getItem("macropro_drive_last_backup");
+    const hoy=new Date().toISOString().slice(0,10);
+    // Solo 1 respaldo por día para no saturar Drive
+    if(lastBackup&&lastBackup.startsWith(hoy)) return;
+    const crm=loadCRM();
+    if(Object.keys(crm||{}).length===0) return;
+    uploadBackupToDrive(getDriveToken());
+  },[]);
+
+  const uploadBackupToDrive = async (token)=>{
+    if(!token) return;
+    try{
+      // 1. Buscar o crear carpeta "MacroPro Backups"
+      const search=await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=name='${DRIVE_FOLDER}'+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id)`,
+        {headers:{Authorization:"Bearer "+token}}
+      );
+      const sd=await search.json();
+      let folderId=sd.files&&sd.files[0]?sd.files[0].id:null;
+      if(!folderId){
+        const cr=await fetch("https://www.googleapis.com/drive/v3/files",{
+          method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},
+          body:JSON.stringify({name:DRIVE_FOLDER,mimeType:"application/vnd.google-apps.folder"})
+        });
+        folderId=(await cr.json()).id;
+      }
+      // 2. Subir JSON de respaldo
+      const crm=crmData||{};
+      const nprosp=Object.values(crm).reduce((a,v)=>a+(v.prospectos||[]).length,0);
+      const fileName="CRM_MacroPro_"+new Date().toISOString().slice(0,10)+".json";
+      const body=JSON.stringify({ts:new Date().toISOString(),crm,version:"auto-drive",prospectos:nprosp},null,2);
+      const form=new FormData();
+      form.append("metadata",new Blob([JSON.stringify({name:fileName,parents:[folderId]})],{type:"application/json"}));
+      form.append("file",new Blob([body],{type:"application/json"}));
+      const up=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",{
+        method:"POST",headers:{Authorization:"Bearer "+token},body:form
+      });
+      if(up.ok){
+        localStorage.setItem("macropro_drive_last_backup",new Date().toISOString());
+        console.log("✅ Respaldo Drive:",fileName,"—",nprosp,"prospectos");
+      }
+    }catch(e){console.warn("Drive backup error:",e);}
+  };
+
   const importCRMJson=(e)=>{
     const file=e.target.files[0];if(!file)return;
     const r=new FileReader();
@@ -9969,8 +10071,9 @@ Respuesta: [respuesta exacta, conversacional]
                 <div style={{fontSize:10,color:B.grey4}}>👥 Clientes</div>
               </div>
               <div style={{textAlign:"center"}}>
-                <div style={{fontSize:22,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{totalCRM}</div>
-                <div style={{fontSize:10,color:B.grey4}}>📊 Seguimientos CRM</div>
+                <div style={{fontSize:22,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{Object.values(crmData||{}).reduce((a,v)=>a+(v.prospectos||[]).length,0)}</div>
+                <div style={{fontSize:10,color:B.grey4}}>📊 Prospectos CRM</div>
+                <div style={{fontSize:9,color:B.grey3}}>({totalCRM} lotes)</div>
               </div>
             </div>
           </div>
@@ -10062,6 +10165,71 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{background:"#fef3c7", borderRadius:9, padding:"10px 14px", marginBottom:18, fontSize:11, color:"#92400e", lineHeight:1.5}}>
             💡 <strong>Primera vez:</strong> ejecuta primero el SQL de <code>supabase_schema_v2.sql</code> en Supabase Dashboard → SQL Editor.
           </div>
+
+          {/* Google Drive Backup */}
+          <div style={{marginBottom:16,padding:"14px 16px",background:"#f8fafc",borderRadius:12,border:"1px solid #e2e8f0"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <div style={{fontSize:12,fontWeight:800,color:B.navy}}>☁️ Respaldo en Google Drive</div>
+              {driveTokenValid()?(
+                <span style={{fontSize:10,fontWeight:700,color:"#16a34a",background:"#dcfce7",padding:"2px 8px",borderRadius:10}}>✓ Conectado</span>
+              ):(
+                <span style={{fontSize:10,color:"#9ca3af"}}>Sin conectar</span>
+              )}
+            </div>
+            {driveTokenValid()?(
+              <div>
+                {localStorage.getItem("macropro_drive_last_backup")&&(
+                  <div style={{fontSize:10,color:"#6b7280",marginBottom:8}}>
+                    Último respaldo: {new Date(localStorage.getItem("macropro_drive_last_backup")).toLocaleString("es-MX")}
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>uploadBackupToDrive(getDriveToken())}
+                    style={{flex:1,padding:"7px",background:"#1a73e8",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700}}>
+                    ☁️ Respaldar ahora
+                  </button>
+                  <button onClick={disconnectDrive}
+                    style={{padding:"7px 12px",background:"transparent",color:"#dc2626",border:"1px solid #fca5a5",borderRadius:7,cursor:"pointer",fontSize:11}}>
+                    Desconectar
+                  </button>
+                </div>
+              </div>
+            ):(
+              <div>
+                <div style={{fontSize:10,color:"#6b7280",marginBottom:8}}>Conecta tu Google Drive para respaldos automáticos diarios en la carpeta "MacroPro Backups"</div>
+                <button onClick={connectDrive}
+                  style={{width:"100%",padding:"8px",background:"#1a73e8",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                  <img src="https://www.gstatic.com/images/branding/product/1x/drive_2020q4_48dp.png" style={{width:16,height:16}} alt="Drive"/>
+                  Conectar Google Drive
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Respaldo automático local */}
+          {(()=>{
+            try{
+              const raw=localStorage.getItem("macropro_autobackup");
+              if(!raw) return null;
+              const bk=JSON.parse(raw);
+              const ts=bk.ts?new Date(bk.ts).toLocaleString("es-MX"):"—";
+              const nlotes=Object.keys(bk.crm||{}).length;
+              const nprosp=Object.values(bk.crm||{}).reduce((a,v)=>a+(v.prospectos||[]).length,0);
+              if(nlotes===0) return null;
+              return (
+                <div style={{background:"#f0fdf4",border:"1px solid #86efac",borderRadius:10,padding:"12px 14px",marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#16a34a",marginBottom:3}}>🛡️ Respaldo automático disponible</div>
+                  <div style={{fontSize:10,color:"#374151",marginBottom:8}}>{ts} · {nlotes} lotes con CRM · {nprosp} prospectos</div>
+                  <button onClick={()=>{
+                    if(window.confirm("¿Restaurar el respaldo automático? Esto reemplazará el CRM actual con los datos del último respaldo."))
+                    {setCrmData(bk.crm);saveCRM(bk.crm);toast("✅ Respaldo restaurado: "+nprosp+" prospectos en "+nlotes+" lotes");}
+                  }} style={{padding:"6px 14px",background:"#16a34a",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700}}>
+                    ↩️ Restaurar este respaldo
+                  </button>
+                </div>
+              );
+            }catch(e){return null;}
+          })()}
 
           {/* Cerrar */}
           <button
