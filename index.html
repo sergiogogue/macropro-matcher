@@ -8401,52 +8401,54 @@ Respuesta: [respuesta exacta, conversacional]
         {/* ═══════ SECCIÓN 3: PERFORMANCE POR DESARROLLADOR ═══════ */}
         {rankingDevs.length>0&&(
           <div style={{background:B.white, borderRadius:14, padding:"20px 24px", marginBottom:24, border:"1px solid "+B.grey1}}>
-            <div style={{fontSize:18, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginBottom:4}}>🏢 Performance por Desarrollador</div>
-            <div style={{fontSize:11, color:B.grey4, marginBottom:16}}>Ranking ordenado por % de cumplimiento YTD</div>
-            <div style={{display:"flex", flexDirection:"column", gap:10}}>
+            {/* Header */}
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:18, flexWrap:"wrap", gap:8}}>
+              <div style={{fontSize:18, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>🏢 Performance por Desarrollador</div>
+              <div style={{fontSize:11, color:B.grey4}}>YTD · Real vs Meta anual</div>
+            </div>
+            {/* Cards grid */}
+            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))", gap:12}}>
               {rankingDevs.map((d,i)=>{
-                const color = d.cumplAnual>=0.95?"#16a34a":(d.cumplAnual>=0.75?"#f59e0b":"#dc2626");
-                const medalla = i===0?"🥇":(i===1?"🥈":(i===2?"🥉":"  "));
+                const pct = d.planMonto>0 ? Math.round(d.cumplAnual*100) : null;
+                const semColor = pct===null?"#94a3b8":pct>=100?"#16a34a":pct>=75?"#f59e0b":"#dc2626";
+                const semBg   = pct===null?"#f1f5f9":pct>=100?"#ecfdf5":pct>=75?"#fffbeb":"#fef2f2";
+                const semIcon = pct===null?"—":pct>=100?"✅":pct>=75?"⚠️":"🔴";
+                const verdict = pct===null?"Sin meta definida":pct>=100?"En meta o sobre ella":pct>=75?"Cerca del plan — apretar":"Muy por debajo del plan";
+                const gapMonto = d.planMonto - d.realMonto;
                 return (
-                  <div key={d.desarrollador} style={{borderRadius:12, border:"1px solid "+(i===0?"#fbbf24":B.grey1), overflow:"hidden", background:i===0?"#fffbeb":B.white}}>
-                    {/* Nivel 1: Desarrollador */}
-                    <div style={{padding:"12px 16px", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:8}}>
-                      <div style={{display:"flex", alignItems:"center", gap:10}}>
-                        <span style={{fontSize:18}}>{medalla}</span>
-                        <div>
-                          <div style={{fontSize:13, fontWeight:800, color:B.navy}}>{d.desarrollador}</div>
-                          <div style={{fontSize:10, color:B.grey4}}>{d.desarrollos.length} desarrollo{d.desarrollos.length!==1?"s":""}</div>
-                        </div>
+                  <div key={d.desarrollador} style={{borderRadius:12, border:"2px solid "+semColor+"44", background:semBg, overflow:"hidden"}}>
+                    {/* Fila principal */}
+                    <div style={{padding:"14px 16px", display:"flex", alignItems:"center", gap:12}}>
+                      {/* % grande */}
+                      <div style={{minWidth:68, height:68, borderRadius:12, background:semColor, display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", flexShrink:0}}>
+                        <div style={{fontSize:22, fontWeight:900, color:"#fff", lineHeight:1}}>{pct!==null?pct+"%":"—"}</div>
+                        <div style={{fontSize:8, color:"rgba(255,255,255,0.8)", marginTop:2, textTransform:"uppercase", letterSpacing:0.5}}>YTD</div>
                       </div>
-                      <div style={{display:"flex", gap:16, alignItems:"center"}}>
-                        <div style={{textAlign:"right"}}>
-                          <div style={{fontSize:8, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Vendido (Real Excel)</div>
-                          <div style={{fontWeight:800, color:B.navy, fontSize:15}}>{fmtMoney(d.realMonto)}</div>
-                        </div>
-                        <div style={{textAlign:"right"}}>
-                          <div style={{fontSize:8, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Meta Anual</div>
-                          <div style={{fontWeight:600, color:B.grey4, fontSize:15}}>{fmtMoney(d.planMonto)}</div>
-                        </div>
-                        <div style={{padding:"4px 12px", borderRadius:14, background:color, color:"#fff", fontSize:12, fontWeight:800, minWidth:50, textAlign:"center"}}>
-                          {d.planMonto>0?(d.cumplAnual*100).toFixed(0)+"%":"—"}
+                      {/* Info */}
+                      <div style={{flex:1, minWidth:0}}>
+                        <div style={{fontSize:15, fontWeight:800, color:B.navy}}>{d.desarrollador}</div>
+                        <div style={{fontSize:12, fontWeight:700, color:semColor, marginTop:2}}>{semIcon} {verdict}</div>
+                        <div style={{fontSize:11, color:B.grey4, marginTop:4}}>
+                          <span style={{fontWeight:700, color:B.navy}}>{fmtMoney(d.realMonto)}</span> vendido
+                          {d.planMonto>0&&<span> de <span style={{color:B.grey3}}>{fmtMoney(d.planMonto)}</span> meta</span>}
+                          {gapMonto>0&&pct!==null&&<span style={{color:"#dc2626", fontWeight:700}}> · falta {fmtMoney(gapMonto)}</span>}
                         </div>
                       </div>
                     </div>
-                    {/* Barra de progreso */}
-                    <div style={{height:6, background:B.grey1, margin:"0 16px 0"}}>
-                      <div style={{height:"100%", width:Math.min(100,d.cumplAnual*100)+"%", background:color, transition:"width 0.3s"}}></div>
+                    {/* Barra de progreso prominente */}
+                    <div style={{height:8, background:"rgba(0,0,0,0.08)", margin:"0 16px 0"}}>
+                      <div style={{height:"100%", width:Math.min(100,pct||0)+"%", background:semColor, borderRadius:4, transition:"width 0.4s"}}></div>
                     </div>
-                    {/* Nivel 2: Por Desarrollo */}
-                    <div style={{padding:"8px 16px 12px", display:"flex", flexDirection:"column", gap:4}}>
+                    {/* Desarrollos como chips */}
+                    <div style={{padding:"10px 14px 12px", display:"flex", flexWrap:"wrap", gap:6}}>
                       {d.desarrollos.map((dev,di)=>{
-                        const pct=dev.planM>0?Math.round(dev.realM/dev.planM*100):0;
-                        const dc=pct>=95?"#16a34a":pct>=75?"#f59e0b":"#dc2626";
+                        const dp = dev.planM>0?Math.round(dev.realM/dev.planM*100):null;
+                        const dc = dp===null?"#94a3b8":dp>=100?"#16a34a":dp>=75?"#f59e0b":"#dc2626";
                         return (
-                          <div key={di} style={{display:"flex", alignItems:"center", gap:10, padding:"5px 8px", background:B.offW, borderRadius:7}}>
-                            <span style={{fontSize:11, fontWeight:700, color:B.navy, flex:1}}>{dev.nombre}</span>
-                            <span style={{fontSize:10, color:B.grey4, minWidth:60, textAlign:"right"}}>Real: {dev.realU} uds / {fmtMoney(dev.realM)}</span>
-                            <span style={{fontSize:10, color:B.grey3, minWidth:60, textAlign:"right"}}>Plan: {dev.planU} uds / {fmtMoney(dev.planM)}</span>
-                            <span style={{fontSize:10, fontWeight:800, color:dc, minWidth:36, textAlign:"right"}}>{dev.planM>0?pct+"%":"—"}</span>
+                          <div key={di} style={{display:"flex", alignItems:"center", gap:5, padding:"4px 9px", background:"rgba(255,255,255,0.7)", borderRadius:20, border:"1px solid "+dc+"55"}}>
+                            <span style={{fontSize:10, fontWeight:700, color:B.navy}}>{dev.nombre}</span>
+                            <span style={{fontSize:10, fontWeight:800, color:dc}}>{dp!==null?dp+"%":"—"}</span>
+                            <span style={{fontSize:9, color:B.grey4}}>{dev.realU}u/{dev.planU>0?dev.planU+"u":"—"}</span>
                           </div>
                         );
                       })}
