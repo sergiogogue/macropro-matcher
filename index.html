@@ -8089,6 +8089,7 @@ Respuesta: [respuesta exacta, conversacional]
     });
     const rankingDevs = Object.values(performancePorDev)
       .map(d=>({...d, cumplAnual: d.planMonto>0?d.realMonto/d.planMonto:0}))
+      .filter(d=>d.realMonto>0||d.planMonto>0)
       .sort((a,b)=>b.cumplAnual - a.cumplAnual);
 
     // ─── SECCIÓN 4: Risks & Alerts ──────────────────────────────────
@@ -9985,7 +9986,7 @@ Respuesta: [respuesta exacta, conversacional]
           const row=raw[i]; if(!row||!row[0]) continue;
           const proyecto=String(row[0]).trim();
           const rowTipo=String(row[1]||"").trim().toLowerCase();
-          if(!proyecto||proyecto.toUpperCase().includes("GRAN TOTAL")||proyecto.toUpperCase()==="TOTAL") continue;
+          if(!proyecto||proyecto.toUpperCase().includes("GRAN TOTAL")||proyecto.toUpperCase()==="TOTAL"||proyecto.toUpperCase()==="TIPO"||proyecto.toUpperCase()==="PROYECTO"||proyecto.toUpperCase()==="SUBTOTAL") continue;
           if(!rowTipo||rowTipo==="tipo") continue;
           if(rowTipo!=="plan"&&rowTipo!=="real") continue; // Importar Plan y Real
           if(!result[proyecto]) result[proyecto]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
