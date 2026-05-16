@@ -8087,10 +8087,34 @@ Respuesta: [respuesta exacta, conversacional]
       performancePorDev[dev].metaYTDMonto += planAnualM; // Meta = Plan anual completo
       performancePorDev[dev].desarrollos.push({nombre, planU:planAnualU, planM:planAnualM, realU:realAnualU, realM:realAnualM});
     });
+    // Agregar desarrolladores del inventario que no tienen metas cargadas
+    lotesFiltrados.forEach(l=>{
+      const dev = l.desarrollador||l.desarrollo||null;
+      if(!dev) return;
+      if(ejecFiltroDesarrollador!=="Todos" && dev!==ejecFiltroDesarrollador) return;
+      if(!performancePorDev[dev]){
+        performancePorDev[dev] = {
+          desarrollador:dev, planUds:0, planMonto:0, realUds:0, realMonto:0, metaYTDMonto:0,
+          desarrollos:[]
+        };
+      }
+      // Agregar desarrollo si no está ya listado
+      const desa = l.desarrollo||l.nombre||"—";
+      if(ejecFiltroDesarrollo==="Todos"||desa===ejecFiltroDesarrollo){
+        if(!performancePorDev[dev].desarrollos.find(x=>x.nombre===desa)){
+          performancePorDev[dev].desarrollos.push({nombre:desa, planU:0, planM:0, realU:0, realM:0, sinMeta:true});
+        }
+      }
+    });
     const rankingDevs = Object.values(performancePorDev)
       .map(d=>({...d, cumplAnual: d.planMonto>0?d.realMonto/d.planMonto:0}))
-      .filter(d=>d.realMonto>0||d.planMonto>0)
-      .sort((a,b)=>b.cumplAnual - a.cumplAnual);
+      .sort((a,b)=>{
+        // Con meta primero, luego sin meta; dentro de cada grupo por cumplimiento
+        const aConMeta = a.planMonto>0?1:0;
+        const bConMeta = b.planMonto>0?1:0;
+        if(aConMeta!==bConMeta) return bConMeta-aConMeta;
+        return b.cumplAnual - a.cumplAnual;
+      });
 
     // ─── SECCIÓN 4: Risks & Alerts ──────────────────────────────────
     const HOY_MS = Date.now();
@@ -8411,10 +8435,11 @@ Respuesta: [respuesta exacta, conversacional]
             <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(300px, 1fr))", gap:12}}>
               {rankingDevs.map((d,i)=>{
                 const pct = d.planMonto>0 ? Math.round(d.cumplAnual*100) : null;
-                const semColor = pct===null?"#94a3b8":pct>=100?"#16a34a":pct>=75?"#f59e0b":"#dc2626";
-                const semBg   = pct===null?"#f1f5f9":pct>=100?"#ecfdf5":pct>=75?"#fffbeb":"#fef2f2";
-                const semIcon = pct===null?"—":pct>=100?"✅":pct>=75?"⚠️":"🔴";
-                const verdict = pct===null?"Sin meta definida":pct>=100?"En meta o sobre ella":pct>=75?"Cerca del plan — apretar":"Muy por debajo del plan";
+                const sinMeta = pct===null;
+                const semColor = sinMeta?"#64748b":pct>=100?"#16a34a":pct>=75?"#f59e0b":"#dc2626";
+                const semBg   = sinMeta?"#f8fafc":pct>=100?"#ecfdf5":pct>=75?"#fffbeb":"#fef2f2";
+                const semIcon = sinMeta?"📋":pct>=100?"✅":pct>=75?"⚠️":"🔴";
+                const verdict = sinMeta?"Sin meta — solo pipeline":pct>=100?"En meta o sobre ella":pct>=75?"Cerca del plan — apretar":"Muy por debajo del plan";
                 const gapMonto = d.planMonto - d.realMonto;
                 return (
                   <div key={d.desarrollador} style={{borderRadius:12, border:"2px solid "+semColor+"44", background:semBg, overflow:"hidden"}}>
