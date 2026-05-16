@@ -7592,6 +7592,8 @@ Respuesta: [respuesta exacta, conversacional]
       }
 
       // ══════════════════════════════════════════
+      // SECCIONES 5 y 6: SOLO VERSION CEO (ocultas en modo cliente)
+      if(modo !== "cliente"){
       // SECCION 5: FORECAST 30/60/90 DIAS
       // ══════════════════════════════════════════
       checkPage(30);
@@ -7726,6 +7728,8 @@ Respuesta: [respuesta exacta, conversacional]
           Y+=chartH+22;
         });
       }
+      } // fin if modo !== cliente
+
 
 
       // ══════════════════════════════════════════
