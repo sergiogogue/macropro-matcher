@@ -7454,7 +7454,7 @@ Respuesta: [respuesta exacta, conversacional]
       // SECCION 2: PROSPECTOS - ESTADO ACTUAL Y PROXIMA ACCION
       // ══════════════════════════════════════════
       checkPage(20);
-      sectionHeader("2 | PROSPECTOS ACTIVOS  |  ESTADO Y PROXIMA ACCION",[8,145,178]);
+      sectionHeader(modo==="ceo"?"2 | PROSPECTOS ACTIVOS  |  ESTADO Y PROXIMA ACCION":"2 | PROSPECTOS ACTIVOS  |  ETAPA EN PIPELINE",[8,145,178]);
       if(prospActivos.length===0){
         doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...grey);
         doc.text("Sin prospectos activos para los filtros seleccionados.",margin,Y); Y+=10;
@@ -7462,21 +7462,20 @@ Respuesta: [respuesta exacta, conversacional]
         const tempLegend={"Caliente":"(C)","Tibio":"(T)","Frío":"(F)","Frio":"(F)","En cierre":"(EC)","Cerrado":"(✓)","Perdido":"(X)"};
         const cols=modo==="ceo"
           ?["Cliente","T","Etapa","Asesor","Dias","Interacc.","Proxima Accion","Fecha"]
-          :["Cliente","T","Etapa","Asesor","Proxima Accion","Fecha"];
+          :["Cliente","T","Etapa en Pipeline","Asesor"];
         const STAGE_ORD_PDF={"Vendido":9,"Contrato":8,"Apartado":7,"Propuesta":6,"En negociación":5,"Visita":4,"Cita":3,"Contactado":2,"Prospecto":1,"Perdido":0};
         const sortedProspActivos=[...prospActivos].sort((a,b)=>(STAGE_ORD_PDF[b.pip]||0)-(STAGE_ORD_PDF[a.pip]||0));
         const rows=sortedProspActivos.map(r=>{
           const temp=tempLegend[getTempFromPipeline(r.pip||r.pipeline)]||tempLegend[r.temperatura]||"-";
           const prox=r.proximaAct?(r.actVencida?"[VENCIDA] ":"")+r.proximaAct.tipo+(r.proximaAct.descripcion?" - "+r.proximaAct.descripcion.slice(0,35):""):"Sin actividad agendada";
           const fecha=r.proximaAct?r.proximaAct.fecha:"-";
-          const base=[r.p.nombre,temp,r.pip,r.asesor,prox,fecha];
           if(modo==="ceo") return [r.p.nombre,temp,r.pip,r.asesor,r.diasEnPipeline!==null?r.diasEnPipeline+"d":"-",r.interacciones+"",prox,fecha];
-          return base;
+          return [r.p.nombre,temp,r.pip,r.asesor];
         });
         doc.autoTable({startY:Y,head:[cols],body:rows,theme:"striped",
           headStyles:{fillColor:[8,145,178],textColor:white,fontSize:7,fontStyle:"bold"},
           bodyStyles:{fontSize:7,textColor:[51,65,85]},
-          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:35},1:{halign:"center",cellWidth:8},2:{cellWidth:28},3:{cellWidth:22},4:{cellWidth:55},5:{cellWidth:20}},
+          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:55},1:{halign:"center",cellWidth:8},2:{cellWidth:40},3:{cellWidth:35}},
           margin:{left:margin,right:margin},
           didParseCell:(data)=>{
             if(data.section==="body"&&data.column.index===1){
@@ -7767,6 +7766,7 @@ Respuesta: [respuesta exacta, conversacional]
       // ══════════════════════════════════════════
       // SECCION 7B: POSICIONAMIENTO VS MERCADO
       // ══════════════════════════════════════════
+      if(modo !== "cliente"){
       const compData=JSON.parse(localStorage.getItem("macropro_mercado_competencia")||"null");
       if(compData&&compData.length>0&&lotesFiltrados.length>0){
         checkPage(30);
@@ -7821,6 +7821,7 @@ Respuesta: [respuesta exacta, conversacional]
           doc.text(refLat?"Sin competidores con coordenadas en radio 5km.":"Sin coordenadas disponibles para este desarrollo.",margin,Y); Y+=10;
         }
       }
+      } // fin if modo !== cliente (sec 8)
 
       // ══════════════════════════════════════════
       // SECCION 7: RIESGOS Y ALERTAS (solo CEO)
