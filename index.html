@@ -7438,13 +7438,17 @@ Respuesta: [respuesta exacta, conversacional]
       sectionHeader("1 | SALUD DEL PIPELINE");
       const pipeRows=ACTIVE_STAGES.map(s=>{
         const d=pipeEtapa[s];
+        if(modo==="cliente") return [s,d.count+"",fmtMoney(d.valor)];
         return [s,d.count+"",fmtMoney(d.valor),Math.round((stageProb[s]||0)*100)+"%",fmtMoney(d.ponderado)];
       });
-      pipeRows.push(["TOTAL ACTIVO",Object.values(pipeEtapa).reduce((a,e)=>a+e.count,0)+"",fmtMoney(totalBruto),"—",fmtMoney(totalPonderado)]);
-      doc.autoTable({startY:Y,head:[["Etapa","Prospectos","Valor Bruto","Prob.","Ponderado"]],body:pipeRows,theme:"striped",
+      if(modo==="cliente") pipeRows.push(["TOTAL ACTIVO",Object.values(pipeEtapa).reduce((a,e)=>a+e.count,0)+"",fmtMoney(totalBruto)]);
+      else pipeRows.push(["TOTAL ACTIVO",Object.values(pipeEtapa).reduce((a,e)=>a+e.count,0)+"",fmtMoney(totalBruto),"—",fmtMoney(totalPonderado)]);
+      const pipeHead=modo==="cliente"?[["Etapa","Prospectos","Valor"]]:[["Etapa","Prospectos","Valor Bruto","Prob.","Ponderado"]];
+      const pipeCols=modo==="cliente"?{0:{fontStyle:"bold",cellWidth:45},1:{halign:"right",cellWidth:22},2:{halign:"right",fontStyle:"bold"}}:{0:{fontStyle:"bold"},1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right",textColor:gold,fontStyle:"bold"}};
+      doc.autoTable({startY:Y,head:pipeHead,body:pipeRows,theme:"striped",
         headStyles:{fillColor:[0,43,73],textColor:white,fontSize:8,fontStyle:"bold"},
         bodyStyles:{fontSize:8,textColor:[51,65,85]},
-        columnStyles:{0:{fontStyle:"bold"},1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right",textColor:gold,fontStyle:"bold"}},
+        columnStyles:pipeCols,
         margin:{left:margin,right:margin},
         didParseCell:(data)=>{ if(data.row.index===pipeRows.length-1){data.cell.styles.fillColor=[248,250,252];data.cell.styles.fontStyle="bold";data.cell.styles.textColor=[0,43,73];} }
       });
@@ -7581,11 +7585,15 @@ Respuesta: [respuesta exacta, conversacional]
       const topDeals=lotesFiltrados.map(l=>({lot:l,pip:getLotePipelineLocal(l.id),ponderado:(l.precio_total||0)*(stageProb[getLotePipelineLocal(l.id)]||0)}))
         .filter(d=>ACTIVE_STAGES.includes(d.pip)).sort((a,b)=>b.ponderado-a.ponderado).slice(0,8);
       if(topDeals.length>0){
-        const dealRows=topDeals.map((d,i)=>[(i+1)+"",d.lot.nombre||"—",d.lot.desarrollo||"—",d.pip,fmtMoney(d.lot.precio_total||0),fmtMoney(d.ponderado)]);
-        doc.autoTable({startY:Y,head:[["#","Lote","Desarrollo","Etapa","Valor","Ponderado"]],body:dealRows,theme:"striped",
+        const dealRows=topDeals.map((d,i)=>modo==="cliente"
+          ?[(i+1)+"",d.lot.nombre||"—",d.lot.desarrollo||"—",d.pip,fmtMoney(d.lot.precio_total||0)]
+          :[(i+1)+"",d.lot.nombre||"—",d.lot.desarrollo||"—",d.pip,fmtMoney(d.lot.precio_total||0),fmtMoney(d.ponderado)]);
+        const dealHead=modo==="cliente"?[["#","Lote","Desarrollo","Etapa","Valor"]]:[["#","Lote","Desarrollo","Etapa","Valor","Ponderado"]];
+        const dealCols=modo==="cliente"?{0:{halign:"center",cellWidth:8},4:{halign:"right",fontStyle:"bold"}}:{0:{halign:"center",cellWidth:8},4:{halign:"right"},5:{halign:"right",textColor:gold,fontStyle:"bold"}};
+        doc.autoTable({startY:Y,head:dealHead,body:dealRows,theme:"striped",
           headStyles:{fillColor:[22,163,74],textColor:white,fontSize:8,fontStyle:"bold"},
           bodyStyles:{fontSize:8},
-          columnStyles:{0:{halign:"center",cellWidth:8},4:{halign:"right"},5:{halign:"right",textColor:gold,fontStyle:"bold"}},
+          columnStyles:dealCols,
           margin:{left:margin,right:margin}
         });
         Y=doc.lastAutoTable.finalY+8;
