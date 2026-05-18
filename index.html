@@ -5574,7 +5574,7 @@ function MacroProMatcher() {
                   <div key={i} style={{background:B.offW,borderRadius:8,padding:"10px 11px",marginBottom:7,borderLeft:"3px solid "+pCol}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                       <div style={{flex:1}}>
-                        <div style={{fontSize:12,fontWeight:700,color:B.navy,marginBottom:p.empresa?2:4}}>{p.nombre}</div>{p.empresa&&<div style={{fontSize:10,fontWeight:700,color:B.gold,background:B.gold+"18",borderRadius:4,padding:"1px 6px",marginBottom:4,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏢 {p.empresa}</div>}
+                        <div style={{fontSize:12,fontWeight:700,color:B.navy,marginBottom:4}}>{p.nombre}{p.empresa&&<span style={{display:"block",fontSize:10,fontWeight:700,color:B.gold,background:B.gold+"18",borderRadius:4,padding:"1px 6px",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏢 {p.empresa}</span>}</div>
                         {cli&&(
                           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:3,fontSize:10,color:B.grey4,marginBottom:4}}>
                             {cli.asesor&&<div style={{color:"#2563AC",fontWeight:600}}>👤 {cli.asesor}</div>}
