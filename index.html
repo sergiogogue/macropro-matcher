@@ -1192,9 +1192,9 @@ function MacroProMatcher() {
   const [filterPipeline, setFilterPipeline] = React.useState("Todos");
   const [filterDesarrolloCRM, setFilterDesarrolloCRM] = React.useState("Todos");
   const [filterDesarrolloGlobal, setFilterDesarrolloGlobalRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterDesarrolloGlobal,"Todos"));
-  const setFilterDesarrolloGlobal=(v)=>{setFilterDesarrolloGlobalRaw(v);savePersisted(STORAGE_KEYS.filterDesarrolloGlobal,v);setBenchDesarrolloAncla("");};
+  const setFilterDesarrolloGlobal=(v)=>{setFilterDesarrolloGlobalRaw(v);savePersisted(STORAGE_KEYS.filterDesarrolloGlobal,v);setBenchDesarrolloAncla("");setSelectedLotCRM(null);setFilterDesarrolloCRM("Todos");};
   const [filterDevCompania, setFilterDevCompaniaRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterDevCompania,"Todos"));
-  const setFilterDevCompania=(v)=>{setFilterDevCompaniaRaw(v);savePersisted(STORAGE_KEYS.filterDevCompania,v);};
+  const setFilterDevCompania=(v)=>{setFilterDevCompaniaRaw(v);savePersisted(STORAGE_KEYS.filterDevCompania,v);setSelectedLotCRM(null);setFilterDesarrolloCRM("Todos");};
   const [filterSemaforo, setFilterSemaforo] = React.useState("Todos");
   const [selectedAsesorLotes, setSelectedAsesorLotes] = React.useState(null);
   const [inventory, setInventoryRaw] = useState(()=>loadPersisted(STORAGE_KEYS.inventory,[]));
@@ -1387,6 +1387,7 @@ function MacroProMatcher() {
   const [searchDesarrollo, setSearchDesarrollo] = React.useState("");
   const [showQuickProspModal, setShowQuickProspModal] = React.useState(false);
   const [quickProspData, setQuickProspData] = React.useState(null); // {lot, p, prospectoIdx, crm}
+  const [quickProspInitTab, setQuickProspInitTab] = React.useState("acciones");
   const [showLotDetailModal, setShowLotDetailModal] = React.useState(false);
   const [showFichaModal, setShowFichaModal] = React.useState(false);
   const [selectedFichaItem, setSelectedFichaItem] = React.useState(null);
@@ -5041,7 +5042,7 @@ function MacroProMatcher() {
       const [tempEdit,setTempEdit]=React.useState(p.temperatura||(cliQ&&cliQ.temperatura)||"");
       const [asesorEdit,setAsesorEdit]=React.useState(p.asesor||crm.asesorResponsable||(cliQ&&cliQ.asesor)||"");
       const [notaEdit,setNotaEdit]=React.useState(p.nota||"");
-      const [tabQ,setTabQ]=React.useState("acciones");
+      const [tabQ,setTabQ]=React.useState(quickProspInitTab||"acciones");
       const [interText,setInterText]=React.useState("");
       const [interTipo,setInterTipo]=React.useState("Llamada");
       const [saving,setSaving]=React.useState(false);
@@ -5087,7 +5088,7 @@ function MacroProMatcher() {
       };
 
       return (
-        <div onClick={()=>setShowQuickProspModal(false)}
+        <div onClick={()=>{setShowQuickProspModal(false);setQuickProspInitTab("acciones");}}
           style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div onClick={e=>e.stopPropagation()}
             style={{background:"#fff",borderRadius:14,width:"100%",maxWidth:520,maxHeight:"90vh",overflow:"hidden",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,43,73,0.3)"}}>
@@ -5103,7 +5104,7 @@ function MacroProMatcher() {
                   {(p.asesor||crm.asesorResponsable||(cliQ&&cliQ.asesor))&&<span style={{fontSize:9,background:"rgba(255,255,255,0.15)",color:"#fff",borderRadius:10,padding:"2px 8px"}}>👤 {p.asesor||crm.asesorResponsable||(cliQ&&cliQ.asesor)}</span>}
                 </div>
               </div>
-              <button onClick={()=>setShowQuickProspModal(false)} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.7)",fontSize:18,cursor:"pointer",padding:"0 0 0 12px",lineHeight:1,flexShrink:0}}>✕</button>
+              <button onClick={()=>{setShowQuickProspModal(false);setQuickProspInitTab("acciones");}} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.7)",fontSize:18,cursor:"pointer",padding:"0 0 0 12px",lineHeight:1,flexShrink:0}}>✕</button>
             </div>
 
             {/* TABS */}
@@ -9845,8 +9846,10 @@ Respuesta: [respuesta exacta, conversacional]
               </div>
             </div>
             <div style={{display:"flex",gap:8,flexShrink:0}}>
-              <button onClick={()=>{onClose();const crm2=crmData[item.lotId]||{};setQuickProspData({lot:item.lot,p:item.prospecto,prospectoIdx:item.prospectoIdx,crm:crm2,cli:item.cli||null});setShowQuickProspModal(true);setTabQ&&setTabQ("editar");}}
+              <button onClick={()=>{onClose();const crm2=crmData[item.lotId]||{};setQuickProspData({lot:item.lot,p:item.prospecto,prospectoIdx:item.prospectoIdx,crm:crm2,cli:item.cli||null});setQuickProspInitTab("editar");setShowQuickProspModal(true);}}
                 style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"6px 12px",cursor:"pointer",color:"#fff",fontSize:11,fontWeight:700}}>✏️ Editar</button>
+              <button onClick={()=>{if(window.confirm("¿Eliminar a "+p.nombre+" de este lote? Esta acción no se puede deshacer.")){const crm2=crmData[item.lotId]||{};const nuevosProsp=(crm2.prospectos||[]).filter((_,i)=>i!==item.prospectoIdx);updateCRM(item.lotId,{prospectos:nuevosProsp});onClose();toast("🗑 Prospecto eliminado: "+p.nombre);}}}
+                style={{background:"rgba(220,38,38,0.25)",border:"1px solid rgba(255,100,100,0.4)",borderRadius:8,padding:"6px 12px",cursor:"pointer",color:"#fca5a5",fontSize:11,fontWeight:700}}>🗑 Eliminar</button>
               <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"#fff",fontSize:16,fontWeight:700}}>✕</button>
             </div>
           </div>
