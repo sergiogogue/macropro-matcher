@@ -5095,6 +5095,7 @@ function MacroProMatcher() {
             <div style={{background:`linear-gradient(135deg,${B.navy},#003a66)`,padding:"14px 18px",display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexShrink:0}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:14,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.nombre||"(Sin nombre)"}</div>
+                {p.empresa&&<div style={{fontSize:10,fontWeight:700,color:B.gold,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏢 {p.empresa}</div>}
                 <div style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginTop:2}}>{lot.nombre} · {lot.desarrollo}</div>
                 <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
                   <span style={{fontSize:9,fontWeight:700,background:stageCol[pip]||B.grey3,color:"#fff",borderRadius:10,padding:"2px 8px"}}>{pip}</span>
@@ -5300,7 +5301,9 @@ function MacroProMatcher() {
                         onMouseEnter={e=>{e.currentTarget.style.borderColor=col;e.currentTarget.style.boxShadow="0 3px 10px rgba(0,43,73,0.12)";}}
                         onMouseLeave={e=>{e.currentTarget.style.borderColor=B.grey1;e.currentTarget.style.boxShadow="0 1px 3px rgba(0,43,73,0.05)";}}>
                         {/* Nombre del prospecto */}
-                        <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.nombre||"(Sin nombre)"}</div>
+                        <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:p.empresa?2:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.nombre||"(Sin nombre)"}</div>
+                        {/* Empresa — visible y destacada */}
+                        {p.empresa&&<div style={{fontSize:10,fontWeight:700,color:B.gold,background:B.gold+"18",borderRadius:4,padding:"1px 6px",marginBottom:5,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏢 {p.empresa}</div>}
                         {/* Lote + Desarrollo */}
                         <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
                           <Semaforo lotId={x.lotId} size={7}/>
@@ -5570,7 +5573,7 @@ function MacroProMatcher() {
                   <div key={i} style={{background:B.offW,borderRadius:8,padding:"10px 11px",marginBottom:7,borderLeft:"3px solid "+pCol}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                       <div style={{flex:1}}>
-                        <div style={{fontSize:12,fontWeight:700,color:B.navy,marginBottom:4}}>{p.nombre}{p.empresa&&<span style={{fontWeight:400,color:B.grey4}}> · {p.empresa}</span>}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:B.navy,marginBottom:p.empresa?2:4}}>{p.nombre}</div>{p.empresa&&<div style={{fontSize:10,fontWeight:700,color:B.gold,background:B.gold+"18",borderRadius:4,padding:"1px 6px",marginBottom:4,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏢 {p.empresa}</div>}
                         {cli&&(
                           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:3,fontSize:10,color:B.grey4,marginBottom:4}}>
                             {cli.asesor&&<div style={{color:"#2563AC",fontWeight:600}}>👤 {cli.asesor}</div>}
@@ -5982,7 +5985,7 @@ function MacroProMatcher() {
               </div>
               <div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:3}}>{a.act.descripcion||a.act.tipo}</div>
               <div style={{fontSize:11,color:B.grey4,marginBottom:2}}>
-                <strong style={{color:B.navy}}>{a.prospecto.nombre}</strong> · {a.lot.nombre} · {a.lot.desarrollo}
+                <strong style={{color:B.navy}}>{a.prospecto.nombre}</strong>{a.prospecto.empresa&&<span style={{fontSize:10,fontWeight:700,color:B.gold,marginLeft:4}}>🏢 {a.prospecto.empresa}</span>} · {a.lot.nombre} · {a.lot.desarrollo}
               </div>
               {a.asesor&&<div style={{fontSize:10,color:"#2563AC",fontWeight:600}}>👤 {a.asesor}</div>}
               {a.act.completada&&a.act.resultado&&(
