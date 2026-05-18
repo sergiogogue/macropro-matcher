@@ -3423,7 +3423,7 @@ function MacroProMatcher() {
                         <div style={{flex:1,minWidth:200}}>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
                             <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{cli.nombre}</div>
-                            <span style={{fontSize:9,fontWeight:700,background:tempBgP(x.pipeline),color:tempColorP(x.pipeline),borderRadius:8,padding:"1px 7px"}}>🌡 {getTempFromPipeline(x.pipeline)}</span>
+                            {cli.temperatura&&<span style={{fontSize:9,fontWeight:700,background:tC+"22",color:tC,borderRadius:8,padding:"1px 7px"}}>🌡 {cli.temperatura}</span>}
                             {yaAgregado&&<span style={{fontSize:9,fontWeight:700,background:"#16a34a",color:"#fff",borderRadius:8,padding:"1px 7px"}}>✅ Agregado</span>}
                           </div>
                           {cli.empresa&&<div style={{fontSize:10,color:B.grey4}}>{cli.empresa}</div>}
