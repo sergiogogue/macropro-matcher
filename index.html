@@ -7461,7 +7461,7 @@ Respuesta: [respuesta exacta, conversacional]
       // SECCION 1: PIPELINE SALUD
       // ══════════════════════════════════════════
       sectionHeader("1 | SALUD DEL PIPELINE");
-      const pipeRows=ACTIVE_STAGES.filter(s=>s!=="Descartado").map(s=>{
+      const pipeRows=ACTIVE_STAGES.map(s=>{
         const d=pipeEtapa[s]||{count:0,valor:0,ponderado:0};
         if(modo==="cliente") return [s,d.count+"",fmtMoney(d.valor)];
         return [s,d.count+"",fmtMoney(d.valor),Math.round((stageProb[s]||0)*100)+"%",fmtMoney(d.ponderado)];
