@@ -914,7 +914,7 @@ const DEMO_CLIENTS = [
 const fmt = (n) => new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN",maximumFractionDigits:0}).format(n||0);
 const fmtM = (n) => { if(!n) return "$0"; return n>=1000000?`$${(n/1000000).toFixed(1)} MDP`:fmt(n); };
 const scoreColor = (s) => s>=80?B.green:s>=60?B.gold:s>=40?B.blue:B.grey3;
-const tempColor = (t) => t==="Caliente"?B.red:t==="Tibio"?B.gold:t==="En cierre"?"#f97316":t==="Cerrado"?"#16a34a":t==="Perdido"?B.grey3:B.grey3;
+const tempColor = (t) => t==="Caliente"?B.red:t==="Tibio"?B.gold:t==="En cierre"?"#f97316":t==="Cerrado"?"#16a34a":t==="Descartado"?B.grey3:B.grey3;
 const TEMP_FROM_PIPELINE={
   "Prospecto":"Frío",
   "Contactado":"Tibio",
@@ -922,10 +922,11 @@ const TEMP_FROM_PIPELINE={
   "Propuesta":"Caliente",
   "Cita":"Tibio",
   "Visita":"Caliente",
+  "En análisis":"Tibio",
   "Apartado":"Caliente",
   "Contrato":"En cierre",
   "Vendido":"Cerrado",
-  "Perdido":"Perdido",
+  "Descartado":"Descartado",
   "Disponible":"Frío",
 };
 const getTempFromPipeline=(pipeline)=>TEMP_FROM_PIPELINE[pipeline]||"Frío";
@@ -1309,8 +1310,8 @@ function MacroProMatcher() {
   const [showIOSInstallHint,setShowIOSInstallHint]=React.useState(false);
   // ─── CRM STATE ────────────────────────────────────────────────────
   const CRM_KEY="macropro_crm_v1";
-  const STAGE_MIGRATION={"Prospectado":"Prospecto","Propuesta formal":"Propuesta","Baja":"Perdido","Disponible":"Prospecto","Cierre":"Vendido"};
-  const VALID_STAGES_SET=new Set(["Prospecto","Contactado","Cita","Visita","En negociación","Propuesta","Contrato","Vendido","Perdido"]);
+  const STAGE_MIGRATION={"Prospectado":"Prospecto","Propuesta formal":"Propuesta","Baja":"Descartado","Disponible":"Prospecto","Cierre":"Vendido","Perdido":"Descartado"};
+  const VALID_STAGES_SET=new Set(["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Contrato","Vendido","Descartado"]);
   const migrateCRM=(d)=>{
     try{
       // MIGRACIÓN DE IDs: convierte claves "ML_135-r94" → "ML_135"
@@ -1765,15 +1766,15 @@ function MacroProMatcher() {
     if(dias===null) return null;
     return INV_SEMAFORO.find(s=>dias<=s.max)||INV_SEMAFORO[INV_SEMAFORO.length-1];
   };
-  const getSemaforo=(id)=>{const e=crmData[id];if(!e||e.pipeline==="Perdido"||e.pipeline==="Vendido")return "grey";if(!e.lastContact)return "yellow";const d=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));if(d<=30)return "green";if(d<=60)return "yellow";return "red";};
+  const getSemaforo=(id)=>{const e=crmData[id];if(!e||e.pipeline==="Descartado"||e.pipeline==="Vendido")return "grey";if(!e.lastContact)return "yellow";const d=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));if(d<=30)return "green";if(d<=60)return "yellow";return "red";};
   const semaforoColor={green:"#22c55e",yellow:"#f59e0b",red:"#ef4444",grey:"#9ca3af"};
   const semaforoLabel={green:"Activo",yellow:"Tibio",red:"Frío — Acción requerida",grey:"Sin seguimiento"};
-  const PIPELINE_STAGES=["Prospecto","Contactado","Cita","Visita","En negociación","Propuesta","Contrato","Vendido","Perdido"];
-  const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Contactado":"#3B82F6","Cita":"#0891b2","Visita":"#0d9488","En negociación":B.gold,"Propuesta":"#8B5CF6","Apartado":"#f97316","Contrato":"#06B6D4","Vendido":"#22c55e","Perdido":"#ef4444"};
+  const PIPELINE_STAGES=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Contrato","Vendido","Descartado"];
+  const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Contactado":"#3B82F6","Cita":"#0891b2","Visita":"#0d9488","En análisis":"#6366f1","En negociación":B.gold,"Propuesta":"#8B5CF6","Apartado":"#f97316","Contrato":"#06B6D4","Vendido":"#22c55e","Descartado":"#94a3b8"};
   // Probabilidades estándar industria para forecast ponderado
-  const STAGE_PROBABILITY={"Prospecto":0.05,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En negociación":0.50,"Propuesta":0.65,"Apartado":0.75,"Contrato":0.85,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
+  const STAGE_PROBABILITY={"Prospecto":0.05,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En análisis":0.40,"En negociación":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
   // Etapas activas (excluye terminales)
-  const ACTIVE_STAGES=["Prospecto","Contactado","Cita","Visita","En negociación","Propuesta","Apartado","Contrato","Vendido","Perdido"];
+  const ACTIVE_STAGES=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
   const CANAL_OPTS=["Llamada","WhatsApp","Visita al terreno","Reunión presencial","Presentación virtual","Email","Otro"];
   const REACCION_OPTS=["Muy interesado","Interesado","Pendiente de info","Objeción de precio","Objeción técnica","No aplica","Archivado"];
 
@@ -2840,7 +2841,7 @@ function MacroProMatcher() {
                       agregados++;
                     });
                     if(agregados===0&&yaExisten>0){toast("⚠ Todos ya existían en el Kanban");setSelectedMatchIds(new Set());return;}
-                    const STAGE_ORD={"Disponible":0,"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En negociación":5,"Propuesta":6,"Apartado":7,"Contrato":8,"Vendido":9,"Perdido":-1};
+                    const STAGE_ORD={"Disponible":0,"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":-1};
                     let pipNuevo="Prospecto";
                     prospectos.forEach(p=>{if(p&&p.pipeline&&(STAGE_ORD[p.pipeline]||0)>(STAGE_ORD[pipNuevo]||0))pipNuevo=p.pipeline;});
                     const newEntry={...crmActual,prospectos,pipeline:pipNuevo,lastContact:new Date().toISOString().slice(0,10)};
@@ -3692,13 +3693,13 @@ function MacroProMatcher() {
     });
 
     // ── KPIs ───────────────────────────────────────────────────────
-    const totalEnPipeline=srcInvCRM.filter(l=>{const p=crmData[l.id]&&crmData[l.id].pipeline;return p&&p!=="Disponible"&&p!=="Perdido";}).length;
+    const totalEnPipeline=srcInvCRM.filter(l=>{const p=crmData[l.id]&&crmData[l.id].pipeline;return p&&p!=="Disponible"&&p!=="Descartado";}).length;
     const totalFrios=srcInvCRM.filter(l=>getSemaforo(l.id)==="red").length;
     const totalFriosF=srcInvFiltrado.filter(l=>getSemaforo(l.id)==="red").length;
     const totalPropuesta=srcInvFiltrado.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Propuesta").length;
     const totalCerrado=srcInvCRM.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Vendido").length;
     const totalInteracciones=Object.values(crmData).reduce((a,v)=>a+(v.interacciones?v.interacciones.length:0),0);
-    const totalProspActivos=allProspectos.filter(p=>p.pipeline!=="Perdido"&&p.pipeline!=="Disponible").length;
+    const totalProspActivos=allProspectos.filter(p=>p.pipeline!=="Descartado"&&p.pipeline!=="Disponible").length;
 
     // ── MINI COMPONENTS ────────────────────────────────────────────
     const Semaforo=({lotId,size})=>{
@@ -3721,7 +3722,7 @@ function MacroProMatcher() {
       // Valor pipeline en MDP (lotes con precio y etapa activa)
       const valorPipeline=srcInvFiltrado.reduce((acc,l)=>{
         const pip=(crmData[l.id]&&crmData[l.id].pipeline)||"Disponible";
-        if(pip==="Disponible"||pip==="Perdido") return acc;
+        if(pip==="Disponible"||pip==="Descartado") return acc;
         const precio=l.precio_total||(l.sup_m2&&l.precio_m2?l.sup_m2*l.precio_m2:0);
         return acc+precio;
       },0);
@@ -3736,19 +3737,19 @@ function MacroProMatcher() {
       const now=Date.now();
       const lotesSinContacto60=srcInvFiltrado.filter(l=>{
         const crm=crmData[l.id]||{}; const pip=crm.pipeline||"Disponible";
-        if(pip==="Perdido"||pip==="Vendido") return false;
+        if(pip==="Descartado"||pip==="Vendido") return false;
         const dias=crm.lastContact?Math.floor((now-new Date(crm.lastContact).getTime())/864e5):999;
         return dias>60;
       });
       const lotesSinContacto120=srcInvFiltrado.filter(l=>{
         const crm=crmData[l.id]||{}; const pip=crm.pipeline||"Disponible";
-        if(pip==="Perdido"||pip==="Vendido") return false;
+        if(pip==="Descartado"||pip==="Vendido") return false;
         const dias=crm.lastContact?Math.floor((now-new Date(crm.lastContact).getTime())/864e5):999;
         return dias>120;
       });
       const lotesSinContacto180=srcInvFiltrado.filter(l=>{
         const crm=crmData[l.id]||{}; const pip=crm.pipeline||"Disponible";
-        if(pip==="Perdido"||pip==="Vendido") return false;
+        if(pip==="Descartado"||pip==="Vendido") return false;
         const dias=crm.lastContact?Math.floor((now-new Date(crm.lastContact).getTime())/864e5):999;
         return dias>180;
       });
@@ -3764,22 +3765,22 @@ function MacroProMatcher() {
         byDev[d].interacciones+=(crmData[l.id]&&crmData[l.id].interacciones?crmData[l.id].interacciones.length:0);
         byDev[d].prospectos+=(crmData[l.id]&&crmData[l.id].prospectos?crmData[l.id].prospectos.length:0);
         const pip=(crmData[l.id]&&crmData[l.id].pipeline)||"Disponible";
-        if(pip!=="Disponible"&&pip!=="Perdido"){byDev[d].enPipeline++;byDev[d].valorPipeline+=precio;}
+        if(pip!=="Disponible"&&pip!=="Descartado"){byDev[d].enPipeline++;byDev[d].valorPipeline+=precio;}
         if(pip==="Propuesta"){byDev[d].propuesta++;byDev[d].valorPropuesta+=precio;}
         if(pip==="Vendido") byDev[d].cierre++;
         const dias2=crmData[l.id]&&crmData[l.id].lastContact?Math.floor((now-new Date(crmData[l.id].lastContact).getTime())/864e5):999;
-        if(dias2>60&&pip!=="Perdido"&&pip!=="Vendido"){byDev[d].sinMovimiento++;byDev[d].sinMovimientoValor+=precio;}
+        if(dias2>60&&pip!=="Descartado"&&pip!=="Vendido"){byDev[d].sinMovimiento++;byDev[d].sinMovimientoValor+=precio;}
         // Acumular por desarrollador (para banner TYA, etc.)
         const devName=l.desarrollador||l.desarrollo||"?";
         if(!byDesarrollador[devName]) byDesarrollador[devName]={total:0,enPipeline:0,prospectos:0,propuesta:0,cierre:0,valorPipeline:0,valorPropuesta:0,sinMovimiento:0,sinMovimientoValor:0,desarrollos:new Set()};
         byDesarrollador[devName].total++;
         byDesarrollador[devName].desarrollos.add(d);
-        byDesarrollador[devName].enPipeline+=byDev[d].enPipeline>0&&pip!=="Disponible"&&pip!=="Perdido"?1:0;
+        byDesarrollador[devName].enPipeline+=byDev[d].enPipeline>0&&pip!=="Disponible"&&pip!=="Descartado"?1:0;
         byDesarrollador[devName].prospectos+=(crmData[l.id]&&crmData[l.id].prospectos?crmData[l.id].prospectos.length:0);
         if(pip==="Propuesta"){byDesarrollador[devName].propuesta++;byDesarrollador[devName].valorPropuesta+=precio;}
         if(pip==="Vendido") byDesarrollador[devName].cierre++;
-        if(pip!=="Disponible"&&pip!=="Perdido"){byDesarrollador[devName].valorPipeline+=precio;}
-        if(dias2>60&&pip!=="Perdido"&&pip!=="Vendido"){byDesarrollador[devName].sinMovimiento++;byDesarrollador[devName].sinMovimientoValor+=precio;}
+        if(pip!=="Disponible"&&pip!=="Descartado"){byDesarrollador[devName].valorPipeline+=precio;}
+        if(dias2>60&&pip!=="Descartado"&&pip!=="Vendido"){byDesarrollador[devName].sinMovimiento++;byDesarrollador[devName].sinMovimientoValor+=precio;}
       });
 
       // Asesores: combina prospectos asignados + lotes con asesor en inventario
@@ -3803,11 +3804,11 @@ function MacroProMatcher() {
       });
 
       // KPIs recalculados sobre srcInvFiltrado (respetan filtro global de desarrollo)
-      const totalEnPipelineF=srcInvFiltrado.filter(l=>{const p=crmData[l.id]&&crmData[l.id].pipeline;return p&&p!=="Disponible"&&p!=="Perdido";}).length;
+      const totalEnPipelineF=srcInvFiltrado.filter(l=>{const p=crmData[l.id]&&crmData[l.id].pipeline;return p&&p!=="Disponible"&&p!=="Descartado";}).length;
       const totalPropuestaF=srcInvFiltrado.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Propuesta").length;
       const totalCerradoF=srcInvFiltrado.filter(l=>crmData[l.id]&&crmData[l.id].pipeline==="Vendido").length;
       const totalInteraccionesF=srcInvFiltrado.reduce((a,l)=>a+(crmData[l.id]&&crmData[l.id].interacciones?crmData[l.id].interacciones.length:0),0);
-      const totalProspActivosF=allProspectos.filter(p=>srcInvFiltrado.find(l=>l.id===p.lotId)&&p.pipeline!=="Perdido"&&p.pipeline!=="Disponible").length;
+      const totalProspActivosF=allProspectos.filter(p=>srcInvFiltrado.find(l=>l.id===p.lotId)&&p.pipeline!=="Descartado"&&p.pipeline!=="Disponible").length;
       const allProspF=allProspectos.filter(p=>srcInvFiltrado.find(l=>l.id===p.lotId));
 
       // ═══════════════════════════════════════════════════════════
@@ -3825,7 +3826,7 @@ function MacroProMatcher() {
 
       allProspF.forEach(item=>{
         const pip=item.pipeline;
-        if(pip==="Perdido"||pip==="Disponible") return;
+        if(pip==="Descartado"||pip==="Disponible") return;
         const precio=item.lot.precio_total||(item.lot.sup_m2&&item.lot.precio_m2?item.lot.sup_m2*item.lot.precio_m2:0);
         if(precio<=0) return;
         const prob=STAGE_PROBABILITY[pip]||0;
@@ -3896,7 +3897,7 @@ function MacroProMatcher() {
                 <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",marginTop:3}}>Cada deal ponderado por probabilidad de cierre según su etapa</div>
               </div>
               <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-                {ACTIVE_STAGES.filter(s=>s!=="Perdido").map(s=>(
+                {ACTIVE_STAGES.filter(s=>s!=="Descartado").map(s=>(
                   <span key={s} style={{padding:"2px 7px",borderRadius:10,fontSize:9,fontWeight:700,background:PIPELINE_COLORS[s]+"44",color:"#fff",border:"1px solid "+PIPELINE_COLORS[s]}}>{s}: {Math.round(STAGE_PROBABILITY[s]*100)}%</span>
                 ))}
               </div>
@@ -3934,7 +3935,7 @@ function MacroProMatcher() {
           <div style={{background:B.white,borderRadius:12,padding:"16px 20px",marginBottom:16,boxShadow:"0 2px 12px rgba(0,43,73,0.07)"}}>
             <div style={{fontSize:11,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>📈 Forecast por Etapa</div>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {ACTIVE_STAGES.filter(s=>s!=="Perdido").map(s=>{
+              {ACTIVE_STAGES.filter(s=>s!=="Descartado").map(s=>{
                 const d=forecastByStage[s]||{count:0,valor:0,ponderado:0};
                 const maxPond=Math.max(...Object.values(forecastByStage).map(x=>x.ponderado),1);
                 const pct=maxPond>0?(d.ponderado/maxPond)*100:0;
@@ -4814,7 +4815,7 @@ function MacroProMatcher() {
           const copy={...entry,prospectos,interacciones};
           delete copy.seguimientoAsesor;
           // Actualizar pipeline del lote si hace falta
-          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En negociación":5,"Propuesta":6,"Contrato":7,"Vendido":8,"Perdido":0,"Disponible":0};
+          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Contrato":8,"Vendido":9,"Descartado":0,"Disponible":0};
           const lotePipeline=prospectos.reduce((max,p)=>{
             const ord=stageOrder[p.pipeline]||0;
             return ord>stageOrder[max]?p.pipeline:max;
@@ -4914,13 +4915,13 @@ function MacroProMatcher() {
     const [activityForm,setActivityForm]=React.useState({tipo:"Seguimiento",descripcion:"",fecha:"",hora:""});
     const [completeForm,setCompleteForm]=React.useState({resultado:"Positivo",nota:""});
     const updateProspectoPipeline=(lotId,prospectoIdx,newStage)=>{
-      // Si se mueve a "Perdido", pedir motivo primero (bloqueante)
-      if(newStage==="Perdido"){
+      // Si se mueve a "Descartado", pedir motivo primero (bloqueante)
+      if(newStage==="Descartado"){
         const entry=crmData[lotId]||{};
         const prospectos=entry.prospectos||[];
         const currentStage=prospectos[prospectoIdx]&&prospectos[prospectoIdx].pipeline;
         // Solo abrir modal si NO venía ya de Perdido
-        if(currentStage!=="Perdido"){
+        if(currentStage!=="Descartado"){
           setLossModal({
             lotId,
             prospectoIdx,
@@ -4936,8 +4937,8 @@ function MacroProMatcher() {
           const prospectos=[...(entry.prospectos||[])];
           if(prospectos[prospectoIdx]){
             const updated={...prospectos[prospectoIdx],pipeline:newStage};
-            // Si se mueve de "Perdido" a otra etapa, limpiar motivo
-            if(newStage!=="Perdido"){
+            // Si se mueve de "Descartado" a otra etapa, limpiar motivo
+            if(newStage!=="Descartado"){
               delete updated.motivoPerdida;
               delete updated.notaPerdida;
               delete updated.fechaPerdida;
@@ -4964,7 +4965,7 @@ function MacroProMatcher() {
             }
             prospectos[prospectoIdx]=updated;
           }
-          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En negociación":5,"Propuesta":6,"Contrato":7,"Vendido":8,"Perdido":0,"Disponible":0};
+          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Contrato":8,"Vendido":9,"Descartado":0,"Disponible":0};
           const lotePipeline=prospectos.reduce((max,p)=>{
             const ord=stageOrder[p.pipeline]||0;
             return ord>stageOrder[max]?p.pipeline:max;
@@ -4991,13 +4992,13 @@ function MacroProMatcher() {
           if(prospectos[prospectoIdx]){
             prospectos[prospectoIdx]={
               ...prospectos[prospectoIdx],
-              pipeline:"Perdido",
+              pipeline:"Descartado",
               motivoPerdida:lossForm.motivo,
               notaPerdida:lossForm.nota.trim(),
               fechaPerdida:new Date().toISOString().slice(0,10)
             };
           }
-          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En negociación":5,"Propuesta":6,"Contrato":7,"Vendido":8,"Perdido":0,"Disponible":0};
+          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Contrato":8,"Vendido":9,"Descartado":0,"Disponible":0};
           const lotePipeline=prospectos.reduce((max,p)=>{
             const ord=stageOrder[p.pipeline]||0;
             return ord>stageOrder[max]?p.pipeline:max;
@@ -5050,7 +5051,7 @@ function MacroProMatcher() {
       const [nombreEdit,setNombreEdit]=React.useState(p.nombre||"");
       const pip=p.pipeline||"Prospecto";
       const tCol=tempColorP(pip);
-      const stageCol={"Prospecto":"#6b7280","Contactado":"#0ea5e9","Cita":"#0891b2","Visita":"#0d9488","En negociación":"#8b5cf6","Propuesta":"#f59e0b","Apartado":"#f97316","Contrato":"#22c55e","Vendido":"#16a34a","Perdido":"#dc2626"};
+      const stageCol={"Prospecto":"#6b7280","Contactado":"#0ea5e9","Cita":"#0891b2","Visita":"#0d9488","En análisis":"#6366f1","En negociación":"#8b5cf6","Propuesta":"#f59e0b","Apartado":"#f97316","Contrato":"#22c55e","Vendido":"#16a34a","Descartado":"#94a3b8"};
       const ultimas=((crmData[lot.id]||crm).interacciones||[]).slice(-4).reverse();
       const acts=(p.actividades||[]).filter(a=>!a.completada).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
       const proxAct=acts[0]||null;
@@ -5788,7 +5789,7 @@ function MacroProMatcher() {
       const renderAsesorCard=(nombre,datosCatalogo,isDetected)=>{
         const lotes=asesorMap[nombre]||[];
         const frios=lotes.filter(x=>x.diasSinContacto===null||x.diasSinContacto>60).length;
-        const enPipeline=lotes.filter(x=>x.pipeline!=="Disponible"&&x.pipeline!=="Perdido").length;
+        const enPipeline=lotes.filter(x=>x.pipeline!=="Disponible"&&x.pipeline!=="Descartado").length;
         const cierres=lotes.filter(x=>x.pipeline==="Vendido").length;
         const isSelected=selectedAsesorLotes===nombre;
         const avatarBg=getAvatarColor(nombre);
@@ -7227,10 +7228,10 @@ Respuesta: [respuesta exacta, conversacional]
       const fmtMoney=(v)=>{if(!v||v===0)return "$0";if(v>=1e9)return "$"+(v/1e9).toFixed(2)+"B";if(v>=1e6)return "$"+(v/1e6).toFixed(1)+"M";if(v>=1e3)return "$"+Math.round(v/1e3)+"k";return "$"+v.toFixed(0);};
       const fechaStr = ahora.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
       const MESES_ES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-      const ACTIVE_STAGES=["Prospecto","Contactado","Cita","Visita","En negociación","Propuesta","Apartado","Contrato","Vendido","Perdido"];
-      const stageProb={"Prospecto":0.05,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En negociación":0.50,"En negociacion":0.50,"Propuesta":0.65,"Apartado":0.75,"Contrato":0.85,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
-      const tempColor=(t)=>t==="Caliente"?[220,38,38]:t==="Tibio"?[217,119,6]:t==="Frío"||t==="Frio"?[37,99,235]:t==="En cierre"?[249,115,22]:t==="Cerrado"?[22,163,74]:t==="Perdido"?[107,114,128]:[107,114,128];
-      const stageColor=(s)=>s==="Vendido"||s==="Contrato"?green:s==="Propuesta"||s==="Apartado"||s==="Visita"?amber:s==="En negociacion"||s==="Cita"?[8,145,178]:grey;
+      const ACTIVE_STAGES=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
+      const stageProb={"Prospecto":0.05,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En análisis":0.40,"En negociación":0.55,"En negociacion":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
+      const tempColor=(t)=>t==="Caliente"?[220,38,38]:t==="Tibio"?[217,119,6]:t==="Frío"||t==="Frio"?[37,99,235]:t==="En cierre"?[249,115,22]:t==="Cerrado"?[22,163,74]:t==="Descartado"?[107,114,128]:[107,114,128];
+      const stageColor=(s)=>s==="Vendido"||s==="Contrato"?green:s==="Propuesta"||s==="Apartado"||s==="Visita"?amber:s==="En negociacion"||s==="En análisis"||s==="Cita"?[8,145,178]:grey;
 
       // Datos filtrados
       const srcInvE = inventory.length>0?inventory:SAMPLE_INVENTORY;
@@ -7244,7 +7245,7 @@ Respuesta: [respuesta exacta, conversacional]
         const prospectos=e.prospectos||[];
         if(prospectos.length===0) return e.pipeline||"Disponible";
         let best="Disponible"; let maxOrd=0;
-        const ord={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En negociacion":5,"Propuesta":6,"Apartado":7,"Contrato":8,"Vendido":9};
+        const ord={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociacion":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10};
         prospectos.forEach(p=>{ if(p&&p.pipeline){ const o=ord[p.pipeline]||0; if(o>maxOrd){maxOrd=o;best=p.pipeline;} } });
         return best;
       };
@@ -7467,11 +7468,11 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...grey);
         doc.text("Sin prospectos activos para los filtros seleccionados.",margin,Y); Y+=10;
       } else {
-        const tempLegend={"Caliente":"(C)","Tibio":"(T)","Frío":"(F)","Frio":"(F)","En cierre":"(EC)","Cerrado":"(✓)","Perdido":"(X)"};
+        const tempLegend={"Caliente":"(C)","Tibio":"(T)","Frío":"(F)","Frio":"(F)","En cierre":"(EC)","Cerrado":"(✓)","Descartado":"(X)"};
         const cols=modo==="ceo"
           ?["Cliente","T","Etapa","Asesor","Dias","Interacc.","Proxima Accion","Fecha"]
           :["Cliente","T","Etapa en Pipeline","Asesor"];
-        const STAGE_ORD_PDF={"Vendido":9,"Contrato":8,"Apartado":7,"Propuesta":6,"En negociación":5,"Visita":4,"Cita":3,"Contactado":2,"Prospecto":1,"Perdido":0};
+        const STAGE_ORD_PDF={"Vendido":10,"Contrato":9,"Apartado":8,"Propuesta":7,"En negociación":6,"En análisis":5,"Visita":4,"Cita":3,"Contactado":2,"Prospecto":1,"Descartado":0};
         const sortedProspActivos=[...prospActivos].sort((a,b)=>(STAGE_ORD_PDF[b.pip]||0)-(STAGE_ORD_PDF[a.pip]||0));
         const rows=sortedProspActivos.map(r=>{
           const temp=tempLegend[getTempFromPipeline(r.pip||r.pipeline)]||tempLegend[r.temperatura]||"-";
@@ -7508,7 +7509,7 @@ Respuesta: [respuesta exacta, conversacional]
       const vencidos=[]; const sinActividad=[];
       prospActivos.forEach(p=>{
         const tp=getTempFromPipeline(p.pipeline);
-        const k=tp==="Caliente"?"Caliente":tp==="Tibio"?"Tibio":tp==="En cierre"?"EnCierre":tp==="Cerrado"?"Cerrado":tp==="Perdido"?"Perdido":"Frio";
+        const k=tp==="Caliente"?"Caliente":tp==="Tibio"?"Tibio":tp==="En cierre"?"EnCierre":tp==="Cerrado"?"Cerrado":tp==="Descartado"?"Descartado":"Frio";
         byTemp[k].push(p);
         if(p.actVencida) vencidos.push(p);
         if(!p.proximaAct) sinActividad.push(p);
@@ -7559,7 +7560,7 @@ Respuesta: [respuesta exacta, conversacional]
         (crm.prospectos||[]).forEach(p=>{
           if(p&&p.fechaCreacion&&new Date(p.fechaCreacion).getTime()>=inicioMes) nuevosProsp++;
           // Días promedio en etapa activa
-          if(p&&p.pipeline&&["Prospecto","Contactado","Cita","Visita","En negociacion","En negociación","Propuesta","Apartado","Contrato"].includes(p.pipeline)){
+          if(p&&p.pipeline&&["Prospecto","Contactado","Cita","Visita","En análisis","En negociacion","En negociación","Propuesta","Apartado","Contrato"].includes(p.pipeline)){
             if(crm.lastContact){
               const d=Math.floor((hoyMs-new Date(crm.lastContact).getTime())/864e5);
               diasEnStage.push({stage:p.pipeline,dias:d,nombre:p.nombre});
@@ -7845,13 +7846,13 @@ Respuesta: [respuesta exacta, conversacional]
         const sinMov60=lotesFiltrados.filter(l=>{
           const e=crmData[l.id]; if(!e||!e.lastContact) return false;
           const pip=getLotePipelineLocal(l.id);
-          if(pip==="Perdido"||pip==="Vendido"||pip==="Disponible") return false;
+          if(pip==="Descartado"||pip==="Vendido"||pip==="Disponible") return false;
           return Math.floor((Date.now()-new Date(e.lastContact).getTime())/864e5)>60;
         });
         const sinAsesor=lotesFiltrados.filter(l=>{
           if((l.precio_total||0)<5e6) return false;
           const pip=getLotePipelineLocal(l.id);
-          if(pip==="Vendido"||pip==="Perdido") return false;
+          if(pip==="Vendido"||pip==="Descartado") return false;
           const crm=crmData[l.id];
           if(!crm) return true;
           return !(crm.asesorResponsable||(crm.prospectos||[]).some(p=>p.asesor));
@@ -7893,15 +7894,15 @@ Respuesta: [respuesta exacta, conversacional]
     // ════════════════════════════════════════════════════════════════
 
     // ─── Helpers locales ────────────────────────────────────────────
-    const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En negociación":5,"Propuesta":6,"Apartado":7,"Contrato":8,"Vendido":9,"Perdido":0,"Disponible":0};
-    const stageProb={"Prospecto":0.05,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En negociación":0.50,"En negociacion":0.50,"Propuesta":0.65,"Apartado":0.75,"Contrato":0.85,"Vendido":1.00,"Perdido":0.00,"Disponible":0.00};
+    const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":0,"Disponible":0};
+    const stageProb={"Prospecto":0.05,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En análisis":0.40,"En negociación":0.55,"En negociacion":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
     const STAGES_REQUIRING_ACTIVITY_LOCAL = ["En negociación","Propuesta","Contrato"];
-    const ACTIVE_STAGES_LOCAL = ["Prospecto","Contactado","Cita","Visita","En negociación","Propuesta","Apartado","Contrato","Vendido","Perdido"];
+    const ACTIVE_STAGES_LOCAL = ["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
 
     const getLotePipelineLocal = (lotId) => {
       const e = crmData[lotId];
       if(!e) return "Disponible";
-      if(e.pipeline==="Vendido"||e.pipeline==="Perdido") return e.pipeline;
+      if(e.pipeline==="Vendido"||e.pipeline==="Descartado") return e.pipeline;
       const prospectos = e.prospectos||[];
       if(prospectos.length===0) return e.pipeline||"Disponible";
       let masAvanzada = "Disponible"; let maxOrden = 0;
@@ -7965,7 +7966,7 @@ Respuesta: [respuesta exacta, conversacional]
       crm.prospectos.forEach((p,idx)=>{
         if(!p||!p.pipeline) return;
         const pipelineP = p.pipeline||"Prospecto";
-        if(pipelineP==="Perdido"||pipelineP==="Vendido") return;
+        if(pipelineP==="Descartado"||pipelineP==="Vendido") return;
         if(ejecFiltroEtapa!=="Todos"&&pipelineP!==ejecFiltroEtapa) return;
         const asesorP = p.asesor||crm.asesorResponsable||"Sin asignar";
         if(ejecFiltroAsesor!=="Todos"&&asesorP!==ejecFiltroAsesor) return;
@@ -8053,7 +8054,7 @@ Respuesta: [respuesta exacta, conversacional]
 
     // Conversión global (lotes vendidos / total con interacción)
     const lotesVendidos = lotesFiltrados.filter(l=>getLotePipelineLocal(l.id)==="Vendido").length;
-    const lotesPerdidos = lotesFiltrados.filter(l=>getLotePipelineLocal(l.id)==="Perdido").length;
+    const lotesPerdidos = lotesFiltrados.filter(l=>getLotePipelineLocal(l.id)==="Descartado").length;
     const lotesCerrados = lotesVendidos + lotesPerdidos;
     const conversionRate = lotesCerrados>0 ? lotesVendidos/lotesCerrados : 0;
 
@@ -8135,7 +8136,7 @@ Respuesta: [respuesta exacta, conversacional]
     const lotesSinMov60 = lotesFiltrados.filter(l=>{
       const e=crmData[l.id]; if(!e||!e.lastContact) return false;
       const pip=getLotePipelineLocal(l.id);
-      if(pip==="Perdido"||pip==="Vendido"||pip==="Disponible") return false;
+      if(pip==="Descartado"||pip==="Vendido"||pip==="Disponible") return false;
       const dias=Math.floor((HOY_MS-new Date(e.lastContact).getTime())/(864e5));
       return dias>60;
     });
@@ -8149,7 +8150,7 @@ Respuesta: [respuesta exacta, conversacional]
       const valor = l.precio_total||0;
       if(valor < 5e6) return false; // Más de 5M = premium
       const pip = getLotePipelineLocal(l.id);
-      if(pip==="Vendido"||pip==="Perdido") return false;
+      if(pip==="Vendido"||pip==="Descartado") return false;
       const crm = crmData[l.id];
       if(!crm) return true;
       // Sin asesor responsable y sin prospectos
@@ -8765,7 +8766,7 @@ Respuesta: [respuesta exacta, conversacional]
             });
           });
           const cierres=_prosps.filter(x=>x.pipeline==="Vendido");
-          const activos=_prosps.filter(x=>x.pipeline!=="Perdido"&&x.pipeline!=="Vendido");
+          const activos=_prosps.filter(x=>x.pipeline!=="Descartado"&&x.pipeline!=="Vendido");
 
           // ── GAP: DEMANDA vs INVENTARIO DISPONIBLE ────────────────────────
           const USOS_KEY=["Habitacional Vertical","Habitacional Horizontal","Comercial / Retail","Industrial / Logístico","Servicios / Oficinas","Hospital / Clínica"];
@@ -10431,7 +10432,7 @@ Respuesta: [respuesta exacta, conversacional]
 // CRM nav count
   const crmNavCount=(()=>{
     const src=inventory.length>0?inventory:SAMPLE_INVENTORY;
-    const n=src.filter(l=>{const p=crmData[l.id]&&crmData[l.id].pipeline;return p&&p!=="Disponible"&&p!=="Perdido";}).length;
+    const n=src.filter(l=>{const p=crmData[l.id]&&crmData[l.id].pipeline;return p&&p!=="Disponible"&&p!=="Descartado";}).length;
     return n>0?" ("+n+")":"";
   })();
   // ─── RENDER ───────────────────────────────────────────────────────
