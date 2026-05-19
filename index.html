@@ -5210,7 +5210,20 @@ function MacroProMatcher() {
                   </select>
                 </div>
                 <div style={{marginBottom:14}}>
-                  <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>NOTA INTERNA</label>
+                  <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>GIRO / INDUSTRIA</label>
+                 <input value={giroEdit} onChange={e=>setGiroEdit(e.target.value)} placeholder="Ej: Retail, Desarrollador, Inversionista..."
+                   style={{width:"100%",borderRadius:7,border:"1px solid "+B.grey1,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:12}}/>
+                 <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>CANAL DE ORIGEN</label>
+                 <div style={{display:"flex",gap:6,marginBottom:12}}>
+                   {["Broker","Directo","Embajador"].map(c=>(
+                     <button key={c} onClick={()=>setCanalEdit(canalEdit===c?"":c)}
+                       style={{flex:1,padding:"7px 4px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",
+                         background:canalEdit===c?B.navy:"rgba(0,43,73,0.07)",color:canalEdit===c?"#fff":B.navy}}>
+                       {c==="Broker"?"🤝":c==="Directo"?"📞":"⭐"} {c}
+                     </button>
+                   ))}
+                 </div>
+                 <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>NOTA INTERNA</label>
                   <textarea value={notaEdit} onChange={e=>setNotaEdit(e.target.value)} placeholder="Notas internas sobre este prospecto..." rows={3}
                     style={{width:"100%",borderRadius:7,border:"1px solid "+B.grey1,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",resize:"none",outline:"none",boxSizing:"border-box"}}/>
                 </div>
@@ -5305,7 +5318,11 @@ function MacroProMatcher() {
                         {/* Nombre del prospecto */}
                         <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:p.empresa?2:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.nombre||"(Sin nombre)"}</div>
                         {/* Empresa — visible y destacada */}
-                        {p.empresa&&<div style={{fontSize:10,fontWeight:700,color:B.gold,background:B.gold+"18",borderRadius:4,padding:"1px 6px",marginBottom:5,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏢 {p.empresa}</div>}
+                        {p.empresa&&<div style={{fontSize:10,fontWeight:700,color:B.gold,background:B.gold+"18",borderRadius:4,padding:"1px 6px",marginBottom:3,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏢 {p.empresa}</div>}
+                        {(p.giro||p.canal)&&<div style={{display:"flex",gap:3,marginBottom:3,flexWrap:"wrap"}}>
+                          {p.giro&&<span style={{fontSize:9,background:"#f0f9ff",color:"#0369a1",borderRadius:4,padding:"1px 5px",fontWeight:600}}>{p.giro}</span>}
+                          {p.canal&&<span style={{fontSize:9,background:p.canal==="Broker"?"#eff6ff":p.canal==="Embajador"?"#fdf4ff":"#f0fdf4",color:p.canal==="Broker"?"#1d4ed8":p.canal==="Embajador"?"#7e22ce":"#15803d",borderRadius:4,padding:"1px 5px",fontWeight:700}}>{p.canal==="Broker"?"🤝":p.canal==="Directo"?"📞":"⭐"} {p.canal}</span>}
+                        </div>}
                         {/* Lote + Desarrollo */}
                         <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
                           <Semaforo lotId={x.lotId} size={7}/>
@@ -7257,7 +7274,8 @@ Respuesta: [respuesta exacta, conversacional]
         crm.prospectos.forEach((p,idx)=>{
           if(!p||!p.pipeline) return;
           const pip=p.pipeline;
-          // Incluir Cierre y Perdido en el reporte (info completa)
+          // Excluir Descartado y Disponible (no son etapas activas del reporte)
+          if(pip==="Descartado"||pip==="Disponible") return;
           if(ejecFiltroEtapa!=="Todos"&&pip!==ejecFiltroEtapa) return;
           const asesor=p.asesor||crm.asesorResponsable||"Sin asignar";
           if(ejecFiltroAsesor!=="Todos"&&asesor!==ejecFiltroAsesor) return;
@@ -7422,7 +7440,7 @@ Respuesta: [respuesta exacta, conversacional]
         narrativa+=(ejecFiltroDesarrollo!=="Todos"?ejecFiltroDesarrollo:"El desarrollo")+" cuenta con "+totalActivos+" prospecto(s) activo(s)";
         if(calientes>0) narrativa+=", de los cuales "+calientes+" estan calientes";
         narrativa+=". ";
-        if(mejorDeal) narrativa+="El deal mas avanzado es "+mejorDeal.p.nombre+" ("+mejorDeal.pip+", "+fmtMoney(mejorDeal.valor)+")";
+        if(mejorDeal&&mejorDeal.p) narrativa+="El deal mas avanzado es "+mejorDeal.p.nombre+" ("+mejorDeal.pip+", "+fmtMoney(mejorDeal.valor)+")";
         if(mejorDeal&&mejorDeal.proximaAct) narrativa+=" con proxima accion el "+mejorDeal.proximaAct.fecha;
         narrativa+=". ";
         if(actVencidaCount>0) narrativa+="ALERTA: "+actVencidaCount+" actividad(es) vencida(s) requieren atencion inmediata. ";
@@ -7441,8 +7459,8 @@ Respuesta: [respuesta exacta, conversacional]
       // SECCION 1: PIPELINE SALUD
       // ══════════════════════════════════════════
       sectionHeader("1 | SALUD DEL PIPELINE");
-      const pipeRows=ACTIVE_STAGES.map(s=>{
-        const d=pipeEtapa[s];
+      const pipeRows=ACTIVE_STAGES.filter(s=>s!=="Descartado").map(s=>{
+        const d=pipeEtapa[s]||{count:0,valor:0,ponderado:0};
         if(modo==="cliente") return [s,d.count+"",fmtMoney(d.valor)];
         return [s,d.count+"",fmtMoney(d.valor),Math.round((stageProb[s]||0)*100)+"%",fmtMoney(d.ponderado)];
       });
@@ -7505,16 +7523,16 @@ Respuesta: [respuesta exacta, conversacional]
       // ══════════════════════════════════════════
       checkPage(40);
       sectionHeader("3 | TEMPERATURA DE PROSPECTOS  Y  URGENCIA");
-      const byTemp={Caliente:[],Tibio:[],Frio:[],EnCierre:[],Cerrado:[],Perdido:[]}; 
+      const byTemp={Caliente:[],Tibio:[],Frio:[],EnCierre:[],Cerrado:[],Descartado:[]}; 
       const vencidos=[]; const sinActividad=[];
       prospActivos.forEach(p=>{
         const tp=getTempFromPipeline(p.pipeline);
-        const k=tp==="Caliente"?"Caliente":tp==="Tibio"?"Tibio":tp==="En cierre"?"EnCierre":tp==="Cerrado"?"Cerrado":tp==="Descartado"?"Descartado":"Frio";
+        const k=tp==="Caliente"?"Caliente":tp==="Tibio"?"Tibio":tp==="En cierre"?"EnCierre":tp==="Cerrado"?"Cerrado":"Frio";
         byTemp[k].push(p);
         if(p.actVencida) vencidos.push(p);
         if(!p.proximaAct) sinActividad.push(p);
       });
-      const tempBlocks=[[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Caliente,"CALIENTES",red],[byTemp.Cerrado,"CERRADOS",[22,163,74]],[byTemp.Perdido,"PERDIDOS",[107,114,128]]];
+      const tempBlocks=[[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Caliente,"CALIENTES",red],[byTemp.Cerrado,"CERRADOS",[22,163,74]]];
       const bw=(pageW-margin*2)/tempBlocks.length;
       tempBlocks.forEach(([arr,label,col],i)=>{
         const bx=margin+i*bw;
