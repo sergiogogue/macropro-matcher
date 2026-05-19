@@ -7294,7 +7294,7 @@ Respuesta: [respuesta exacta, conversacional]
       ACTIVE_STAGES.forEach(s=>{pdfLotesYaContados[s]=new Set();});
       prospActivos.forEach(item=>{
         const pip=item.pip;
-        if(!ACTIVE_STAGES.includes(pip)) return;
+        if(!ACTIVE_STAGES.includes(pip)||!pipeEtapa[pip]) return;
         const val=item.valor;
         // Contar 1 prospecto siempre
         pipeEtapa[pip].count++;
