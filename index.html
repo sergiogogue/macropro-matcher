@@ -7498,14 +7498,17 @@ Respuesta: [respuesta exacta, conversacional]
           const temp=tempLegend[getTempFromPipeline(r.pip||r.pipeline)]||tempLegend[r.temperatura]||"-";
           const prox=r.proximaAct?(r.actVencida?"[VENCIDA] ":"")+r.proximaAct.tipo+(r.proximaAct.descripcion?" - "+r.proximaAct.descripcion.slice(0,35):""):"Sin actividad agendada";
           const fecha=r.proximaAct?r.proximaAct.fecha:"-";
-          if(modo==="ceo") return [r.p.nombre,temp,r.pip,r.asesor,r.diasEnPipeline!==null?r.diasEnPipeline+"d":"-",r.interacciones+"",prox,fecha];
-          return [r.p.nombre,temp,r.p.empresa||"-",r.pip,r.p.giro||"-",r.p.canal||"-",r.asesor];
+          const trunc=(s,n)=>s&&s.length>n?s.slice(0,n-1)+"…":s||"-";
+          if(modo==="ceo") return [r.p.nombre,temp,r.pip,trunc(r.asesor,22),r.diasEnPipeline!==null?r.diasEnPipeline+"d":"-",r.interacciones+"",prox,fecha];
+          return [r.p.nombre,temp,trunc(r.p.empresa,18),r.pip,trunc(r.p.giro,14),trunc(r.p.canal,12),trunc(r.asesor,22)];
         });
         doc.autoTable({startY:Y,head:[cols],body:rows,theme:"striped",
           headStyles:{fillColor:[8,145,178],textColor:white,fontSize:7,fontStyle:"bold"},
-          bodyStyles:{fontSize:7,textColor:[51,65,85],cellPadding:{top:3,bottom:3,left:4,right:3},minCellHeight:10,valign:"middle"},
-          columnStyles:modo==="ceo"?{0:{cellWidth:38},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:42},7:{cellWidth:16}}:{0:{cellWidth:42},1:{halign:"center",cellWidth:7},2:{cellWidth:24},3:{cellWidth:20},4:{cellWidth:18},5:{cellWidth:14},6:{cellWidth:26}},
-          tableWidth:"auto",
+          bodyStyles:{fontSize:7,textColor:[51,65,85],cellPadding:{top:3,bottom:3,left:4,right:3},minCellHeight:10,valign:"middle",overflow:"ellipsize"},
+          columnStyles:modo==="ceo"
+            ?{0:{cellWidth:42,overflow:"linebreak"},1:{halign:"center",cellWidth:6},2:{cellWidth:22,overflow:"ellipsize"},3:{cellWidth:20,overflow:"ellipsize"},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:44,overflow:"linebreak"},7:{cellWidth:16,overflow:"ellipsize"}}
+            :{0:{cellWidth:48,overflow:"linebreak"},1:{halign:"center",cellWidth:6},2:{cellWidth:26,overflow:"ellipsize"},3:{cellWidth:22,overflow:"ellipsize"},4:{cellWidth:22,overflow:"ellipsize"},5:{cellWidth:16,overflow:"ellipsize"},6:{cellWidth:42,overflow:"ellipsize"}},
+          tableWidth:182,
           margin:{left:margin,right:margin},
           didParseCell:(data)=>{
             if(data.section==="body"&&data.column.index===1){
