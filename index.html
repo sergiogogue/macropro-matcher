@@ -7504,7 +7504,7 @@ Respuesta: [respuesta exacta, conversacional]
         doc.autoTable({startY:Y,head:[cols],body:rows,theme:"striped",
           headStyles:{fillColor:[8,145,178],textColor:white,fontSize:7,fontStyle:"bold"},
           bodyStyles:{fontSize:7,textColor:[51,65,85]},
-          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:30},1:{halign:"center",cellWidth:8},2:{cellWidth:24},3:{cellWidth:20},4:{cellWidth:18},5:{cellWidth:16},6:{cellWidth:22}},
+          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:30},1:{halign:"center",cellWidth:8},2:{cellWidth:22},3:{cellWidth:20},4:{cellWidth:15},5:{cellWidth:13},6:{cellWidth:28}},
           margin:{left:margin,right:margin},
           didParseCell:(data)=>{
             if(data.section==="body"&&data.column.index===1){
@@ -7890,7 +7890,7 @@ Respuesta: [respuesta exacta, conversacional]
       });
       if(metasEntCliente.length>0){
         checkPage(25);
-        sectionHeader("📊 PLAN VS REAL  |  CIERRE "+ahora.getFullYear(),[16,185,129]);
+        sectionHeader("PLAN VS REAL  |  CIERRE "+ahora.getFullYear(),[16,185,129]);
         const MESES_PDF=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
         // Agregar plan y real consolidados por mes
         const planMes=new Array(12).fill(0);
@@ -7903,12 +7903,12 @@ Respuesta: [respuesta exacta, conversacional]
         const totalRealAno=realMes.reduce((a,b)=>a+b,0);
         // Tabla por mes
         const planRealRows=[
-          ["🎯 PLAN",...MESES_PDF.map((m,i)=>planMes[i]>0?fmtMoney(planMes[i]):"—"),fmtMoney(totalPlanAno)],
-          ["✅ REAL",...MESES_PDF.map((m,i)=>i>mesActual?"—":realMes[i]>0?fmtMoney(realMes[i]):"$0"),fmtMoney(totalRealAno)],
-          ["⚡ DELTA",...MESES_PDF.map((m,i)=>{
+          ["PLAN",...MESES_PDF.map((m,i)=>planMes[i]>0?fmtMoney(planMes[i]):"—"),fmtMoney(totalPlanAno)],
+          ["REAL",...MESES_PDF.map((m,i)=>i>mesActual?"—":realMes[i]>0?fmtMoney(realMes[i]):"$0"),fmtMoney(totalRealAno)],
+          ["DIFERENCIA",...MESES_PDF.map((m,i)=>{
             if(i>mesActual)return "—";
             const d=realMes[i]-planMes[i];
-            return d===0?"0":d>0?"+"+fmtMoney(d):fmtMoney(d);
+            return d===0?"$0":d>0?"+"+fmtMoney(d):fmtMoney(d);
           }),totalRealAno-totalPlanAno>=0?"+"+fmtMoney(totalRealAno-totalPlanAno):fmtMoney(totalRealAno-totalPlanAno)]
         ];
         const hdrMeses=[["CONCEPTO",...MESES_PDF,"TOTAL"]];
