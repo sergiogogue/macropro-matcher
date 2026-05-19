@@ -7244,7 +7244,7 @@ Respuesta: [respuesta exacta, conversacional]
             red=[220,38,38], green=[22,163,74], amber=[217,119,6], lightgrey=[241,245,249];
       const ahora = new Date();
       const mesActual = ahora.getMonth();
-      const fmtMoney=(v)=>{if(!v||v===0)return "$0";if(v>=1e9)return "$"+(v/1e9).toFixed(2)+"B";if(v>=1e6)return "$"+(v/1e6).toFixed(1)+"M";if(v>=1e3)return "$"+Math.round(v/1e3)+"k";return "$"+v.toFixed(0);};
+      const fmtMoney=(v)=>{if(!v||v===0)return "$0";const abs=Math.abs(v),sign=v<0?"-":"";if(abs>=1e9)return sign+"$"+(abs/1e9).toFixed(2)+"B";if(abs>=1e6)return sign+"$"+(abs/1e6).toFixed(1)+"M";if(abs>=1e3)return sign+"$"+Math.round(abs/1e3)+"k";return sign+"$"+abs.toFixed(0);};
       const fechaStr = ahora.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
       const MESES_ES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
       const ACTIVE_STAGES=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
@@ -7503,8 +7503,8 @@ Respuesta: [respuesta exacta, conversacional]
         });
         doc.autoTable({startY:Y,head:[cols],body:rows,theme:"striped",
           headStyles:{fillColor:[8,145,178],textColor:white,fontSize:7,fontStyle:"bold"},
-          bodyStyles:{fontSize:7,textColor:[51,65,85]},
-          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:30},1:{halign:"center",cellWidth:8},2:{cellWidth:22},3:{cellWidth:20},4:{cellWidth:15},5:{cellWidth:13},6:{cellWidth:28}},
+          bodyStyles:{fontSize:6.5,textColor:[51,65,85],cellPadding:{top:2,bottom:2,left:3,right:2}},
+          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:30},1:{halign:"center",cellWidth:8},2:{cellWidth:22},3:{cellWidth:20},4:{cellWidth:20},5:{cellWidth:14},6:{cellWidth:32}},
           margin:{left:margin,right:margin},
           didParseCell:(data)=>{
             if(data.section==="body"&&data.column.index===1){
