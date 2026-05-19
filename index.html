@@ -7889,7 +7889,7 @@ Respuesta: [respuesta exacta, conversacional]
         return true;
       });
       if(metasEntCliente.length>0){
-        checkPage(25);
+        checkPage(60);
         sectionHeader("PLAN VS REAL  |  CIERRE "+ahora.getFullYear(),[16,185,129]);
         const MESES_PDF=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
         // Agregar plan y real consolidados por mes
@@ -7901,32 +7901,100 @@ Respuesta: [respuesta exacta, conversacional]
         });
         const totalPlanAno=planMes.reduce((a,b)=>a+b,0);
         const totalRealAno=realMes.reduce((a,b)=>a+b,0);
-        // Tabla por mes
-        const planRealRows=[
-          ["PLAN",...MESES_PDF.map((m,i)=>planMes[i]>0?fmtMoney(planMes[i]):"—"),fmtMoney(totalPlanAno)],
-          ["REAL",...MESES_PDF.map((m,i)=>i>mesActual?"—":realMes[i]>0?fmtMoney(realMes[i]):"$0"),fmtMoney(totalRealAno)],
-          ["DIFERENCIA",...MESES_PDF.map((m,i)=>{
-            if(i>mesActual)return "—";
-            const d=realMes[i]-planMes[i];
-            return d===0?"$0":d>0?"+"+fmtMoney(d):fmtMoney(d);
-          }),totalRealAno-totalPlanAno>=0?"+"+fmtMoney(totalRealAno-totalPlanAno):fmtMoney(totalRealAno-totalPlanAno)]
-        ];
-        const hdrMeses=[["CONCEPTO",...MESES_PDF,"TOTAL"]];
-        doc.autoTable({startY:Y,head:hdrMeses,body:planRealRows,theme:"grid",
-          headStyles:{fillColor:[16,185,129],textColor:white,fontSize:6,fontStyle:"bold"},
-          bodyStyles:{fontSize:6.5,textColor:[51,65,85]},
-          columnStyles:{0:{fontStyle:"bold",cellWidth:18},13:{fontStyle:"bold",cellWidth:16}},
-          didParseCell:(data)=>{
-            if(data.section==="body"&&data.row.index===2){
-              const v=data.cell.raw;
-              if(typeof v==="string"&&v.startsWith("+")) data.cell.styles.textColor=[22,163,74];
-              else if(typeof v==="string"&&v.startsWith("-")) data.cell.styles.textColor=[220,38,38];
-            }
-            if(data.section==="head"&&data.column.index===mesActual+1) data.cell.styles.fillColor=[13,148,136];
-          },
-          margin:{left:margin,right:margin}
+        const totalDeltaAno=totalRealAno-totalPlanAno;
+
+        // ── GRÁFICA DE BARRAS AGRUPADAS ──────────────────────────────
+        const chartMarginL=margin+2;
+        const chartW=doc.internal.pageSize.getWidth()-margin*2-4;
+        const chartH=44;
+        const chartY=Y+4;
+        const maxVal=Math.max(...planMes,...realMes.map(v=>v||0),1);
+        const colW=chartW/12;
+        const barW=colW*0.35;
+        const gap=colW*0.05;
+
+        // Fondo del área de la gráfica
+        doc.setFillColor(248,250,252);
+        doc.roundedRect(chartMarginL-2,chartY-2,chartW+4,chartH+14,2,2,"F");
+        doc.setDrawColor(226,232,240);
+        doc.setLineWidth(0.2);
+        doc.roundedRect(chartMarginL-2,chartY-2,chartW+4,chartH+14,2,2,"S");
+
+        // Líneas de referencia horizontales (25%, 50%, 75%, 100%)
+        [0.25,0.5,0.75,1].forEach(pct=>{
+          const lineY=chartY+chartH-(pct*chartH);
+          doc.setDrawColor(226,232,240); doc.setLineWidth(0.15);
+          doc.line(chartMarginL,lineY,chartMarginL+chartW,lineY);
+          doc.setFont("helvetica","normal"); doc.setFontSize(5); doc.setTextColor(148,163,184);
+          doc.text(fmtMoney(maxVal*pct),chartMarginL-1,lineY+1,{align:"right"});
         });
-        Y=doc.lastAutoTable.finalY+8;
+
+        // Dibujar barras por mes
+        MESES_PDF.forEach((mes,i)=>{
+          const cx=chartMarginL+(i*colW)+(colW/2);
+          const planH=planMes[i]>0?(planMes[i]/maxVal)*chartH:0;
+          const realH=(realMes[i]||0)>0?((realMes[i]||0)/maxVal)*chartH:0;
+          const isFuture=i>mesActual;
+
+          // Barra Plan (azul navy, siempre visible si hay valor)
+          if(planMes[i]>0){
+            doc.setFillColor(isFuture?200:30, isFuture?210:41, isFuture?230:99);
+            doc.roundedRect(cx-barW-gap/2,chartY+chartH-planH,barW,planH,0.5,0.5,"F");
+            // Valor encima
+            doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
+            doc.setTextColor(isFuture?180:30,isFuture?180:41,isFuture?200:99);
+            doc.text(fmtMoney(planMes[i]),cx-barW/2-gap/2,chartY+chartH-planH-1.5,{align:"center"});
+          }
+
+          // Barra Real (verde si >=plan, ámbar si <plan, gris si futuro)
+          const rv=realMes[i]||0;
+          if(!isFuture){
+            const isOk=rv>=planMes[i];
+            const fillC=rv===0?[220,220,220]:isOk?[22,163,74]:[245,158,11];
+            doc.setFillColor(...fillC);
+            if(realH>0) doc.roundedRect(cx+gap/2,chartY+chartH-realH,barW,realH,0.5,0.5,"F");
+            else { doc.setFillColor(220,220,220); doc.rect(cx+gap/2,chartY+chartH-0.8,barW,0.8,"F"); }
+            // Valor encima
+            if(rv>0){
+              doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
+              doc.setTextColor(...fillC);
+              doc.text(fmtMoney(rv),cx+barW/2+gap/2,chartY+chartH-realH-1.5,{align:"center"});
+            }
+          }
+
+          // Label mes + marcador mes actual
+          doc.setFont("helvetica",i===mesActual?"bold":"normal");
+          doc.setFontSize(6); doc.setTextColor(i===mesActual?30:100,i===mesActual?41:116,i===mesActual?99:139);
+          doc.text(mes,cx,chartY+chartH+5,{align:"center"});
+          if(i===mesActual){ doc.setFillColor(245,158,11); doc.circle(cx,chartY+chartH+7.5,0.7,"F"); }
+        });
+
+        // Línea base
+        doc.setDrawColor(100,116,139); doc.setLineWidth(0.3);
+        doc.line(chartMarginL,chartY+chartH,chartMarginL+chartW,chartY+chartH);
+
+        Y+=chartH+18;
+
+        // ── LEYENDA + TOTALES ─────────────────────────────────────────
+        checkPage(14);
+        const lx=chartMarginL;
+        doc.setFillColor(30,41,99); doc.rect(lx,Y,8,4,"F");
+        doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(51,65,85);
+        doc.text("Plan",lx+10,Y+3.5);
+        doc.setFillColor(22,163,74); doc.rect(lx+28,Y,8,4,"F");
+        doc.text("Real",lx+38,Y+3.5);
+        doc.setFillColor(245,158,11); doc.rect(lx+56,Y,8,4,"F");
+        doc.text("Real < Plan",lx+66,Y+3.5);
+
+        // Totales a la derecha
+        const rx=chartMarginL+chartW;
+        doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(30,41,99);
+        doc.text("Plan total: "+fmtMoney(totalPlanAno),rx,Y+3.5,{align:"right"});
+        doc.setTextColor(22,163,74);
+        doc.text("Real total: "+fmtMoney(totalRealAno),rx,Y+9,{align:"right"});
+        doc.setTextColor(totalDeltaAno>=0?22:220,totalDeltaAno>=0?163:38,totalDeltaAno>=0?74:38);
+        doc.text("Δ "+(totalDeltaAno>=0?"+":"")+fmtMoney(totalDeltaAno),rx,Y+14.5,{align:"right"});
+        Y+=20;
       }
 
 
@@ -8767,95 +8835,107 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
         </div>
 
-        {/* ═══════ SECCIÓN 6: PLAN VS REAL MENSUAL ═══════ */}
+        {/* ═══════ SECCIÓN 6: PLAN VS REAL — GRÁFICA DE BARRAS ═══════ */}
         {(()=>{
           const MESES_CORTOS=["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
           const totalPlan=planMensual.reduce((a,b)=>a+(b||0),0);
           const totalReal=ventasMensuales.reduce((a,b)=>a+(b||0),0);
           const totalDelta=totalReal-totalPlan;
-          const totalPlanUds=planUdsMensual?planUdsMensual.reduce((a,b)=>a+(b||0),0):0;
-          const totalRealUds=udsMensuales?udsMensuales.reduce((a,b)=>a+(b||0),0):0;
+          const maxVal=Math.max(...planMensual,...ventasMensuales.map(v=>v||0),1);
+          const BAR_H=180;
           return (
           <div style={{background:B.white,borderRadius:14,padding:"20px 24px",marginBottom:24,border:"1px solid "+B.grey1}}>
-            <div style={{fontSize:18,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif",marginBottom:4}}>📊 Meta vs Real — Plan Mensual</div>
-            <div style={{fontSize:11,color:B.grey4,marginBottom:16}}>Plan (manual) + Real (cerrado) · en pesos</div>
+            {/* Header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:8}}>
+              <div>
+                <div style={{fontSize:18,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif",marginBottom:2}}>📊 Meta vs Real — Plan Mensual</div>
+                <div style={{fontSize:11,color:B.grey4}}>Plan (meta) vs Real (cerrado) · en pesos · {new Date().getFullYear()}</div>
+              </div>
+              <div style={{display:"flex",gap:20,alignItems:"center"}}>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:10,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Plan Anual</div>
+                  <div style={{fontSize:16,fontWeight:800,color:B.navy}}>{fmtMoney(totalPlan)}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:10,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Real Acumulado</div>
+                  <div style={{fontSize:16,fontWeight:800,color:"#16a34a"}}>{fmtMoney(totalReal)}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:10,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Diferencia</div>
+                  <div style={{fontSize:16,fontWeight:800,color:totalDelta>=0?"#16a34a":"#dc2626"}}>{totalDelta>=0?"+":""}{fmtMoney(totalDelta)}</div>
+                </div>
+              </div>
+            </div>
+            {/* Gráfica */}
             <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:900}}>
-                <thead>
-                  <tr style={{background:B.navy}}>
-                    <th style={{padding:"8px 10px",textAlign:"left",color:"#fff",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:0.8,minWidth:90}}>CONCEPTO</th>
-                    {MESES_CORTOS.map((m,i)=>(
-                      <th key={i} style={{padding:"8px 6px",textAlign:"right",color:i===mesActual?B.gold:"rgba(255,255,255,0.85)",fontSize:9,fontWeight:i===mesActual?900:600,minWidth:58,background:i===mesActual?"rgba(255,255,255,0.08)":"transparent"}}>
-                        {m}{i===mesActual&&<div style={{fontSize:7,color:B.gold}}>HOY</div>}
-                      </th>
-                    ))}
-                    <th style={{padding:"8px 8px",textAlign:"right",color:"rgba(255,255,255,0.85)",fontSize:9,fontWeight:800,minWidth:64,borderLeft:"1px solid rgba(255,255,255,0.2)"}}>TOTAL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* PLAN */}
-                  <tr style={{borderBottom:"1px solid "+B.grey1}}>
-                    <td style={{padding:"9px 10px",fontWeight:700,color:B.navy,fontSize:11}}>🎯 Plan</td>
-                    {planMensual.map((v,i)=>{
-                      const real=ventasMensuales[i]||0;
-                      const maxVal=Math.max(...planMensual,...ventasMensuales,1);
-                      const pct=v>0?Math.round(v/maxVal*100):0;
-                      return (
-                      <td key={i} style={{padding:"6px 6px",textAlign:"right",fontSize:11,color:v>0?B.navy:B.grey3,background:i===mesActual?"#fafbff":"transparent",verticalAlign:"middle"}}>
-                        {v>0&&<div style={{height:4,background:"#e2e8f0",borderRadius:2,marginBottom:3,overflow:"hidden"}}>
-                          <div style={{height:"100%",width:pct+"%",background:B.navy,borderRadius:2}}/>
-                        </div>}
-                        <span style={{fontSize:10}}>{v>0?fmtMoney(v):"—"}</span>
-                      </td>
-                      );
-                    })}
-                    <td style={{padding:"9px 8px",textAlign:"right",fontWeight:800,color:B.navy,borderLeft:"1px solid "+B.grey1}}>{fmtMoney(totalPlan)}</td>
-                  </tr>
-                  {/* REAL */}
-                  <tr style={{borderBottom:"1px solid "+B.grey1,background:B.offW}}>
-                    <td style={{padding:"9px 10px",fontWeight:700,color:"#16a34a",fontSize:11}}>✅ Real</td>
-                    {ventasMensuales.map((v,i)=>{
+              <div style={{minWidth:700,position:"relative"}}>
+                {/* Líneas de referencia */}
+                <div style={{position:"relative",height:BAR_H+32,paddingLeft:52,paddingRight:8}}>
+                  {[1,0.75,0.5,0.25].map(pct=>(
+                    <div key={pct} style={{position:"absolute",left:52,right:8,top:(BAR_H*(1-pct))+"px",borderTop:"1px dashed #e2e8f0",display:"flex",alignItems:"center"}}>
+                      <span style={{position:"absolute",left:-50,fontSize:9,color:B.grey4,whiteSpace:"nowrap",textAlign:"right",width:46}}>{fmtMoney(maxVal*pct)}</span>
+                    </div>
+                  ))}
+                  {/* Línea base */}
+                  <div style={{position:"absolute",left:52,right:8,top:BAR_H+"px",borderTop:"2px solid #cbd5e1"}}/>
+                  {/* Barras */}
+                  <div style={{position:"absolute",left:52,right:8,top:0,bottom:32,display:"flex",alignItems:"flex-end",gap:0}}>
+                    {MESES_CORTOS.map((mes,i)=>{
                       const plan=planMensual[i]||0;
-                      const maxVal=Math.max(...planMensual,...ventasMensuales,1);
-                      const pct=v>0?Math.round(v/maxVal*100):0;
-                      const color=i>mesActual?"#94a3b8":v>0?"#16a34a":"#dc2626";
-                      return (
-                      <td key={i} style={{padding:"6px 6px",textAlign:"right",fontSize:11,
-                        color,fontWeight:v>0?700:400,
-                        background:i===mesActual?"#f0fdf4":"transparent",verticalAlign:"middle"}}>
-                        {i>mesActual?"—":(v>0?<>
-                          <div style={{height:4,background:"#e2e8f0",borderRadius:2,marginBottom:3,overflow:"hidden"}}>
-                            <div style={{height:"100%",width:pct+"%",background:"#16a34a",borderRadius:2}}/>
-                          </div>
-                          <span style={{fontSize:10}}>{fmtMoney(v)}</span>
-                        </>:<span style={{fontSize:10}}>$0</span>)}
-                      </td>
-                      );
-                    })}
-                    <td style={{padding:"9px 8px",textAlign:"right",fontWeight:800,color:"#16a34a",borderLeft:"1px solid "+B.grey1}}>{fmtMoney(totalReal)}</td>
-                  </tr>
-                  {/* DELTA */}
-                  <tr>
-                    <td style={{padding:"9px 10px",fontWeight:700,color:B.grey4,fontSize:11}}>⚡ Δ Real vs Plan</td>
-                    {planMensual.map((plan,i)=>{
                       const real=ventasMensuales[i]||0;
-                      const delta=real-plan;
-                      const isPast=i<=mesActual;
+                      const isFuture=i>mesActual;
+                      const isHoy=i===mesActual;
+                      const planH=plan>0?Math.max((plan/maxVal)*BAR_H,2):0;
+                      const realH=real>0?Math.max((real/maxVal)*BAR_H,2):0;
+                      const isOk=real>=plan;
                       return (
-                        <td key={i} style={{padding:"9px 6px",textAlign:"right",fontSize:11,
-                          color:!isPast?"#94a3b8":delta>0?"#16a34a":delta<0?"#dc2626":B.grey3,
-                          fontWeight:isPast&&delta!==0?700:400,
-                          background:i===mesActual?"#fff7ed":"transparent"}}>
-                          {!isPast?"—":delta===0?"0":delta>0?"+"+fmtMoney(delta):fmtMoney(delta)}
-                        </td>
+                        <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",height:BAR_H+"px",justifyContent:"flex-end",position:"relative",background:isHoy?"rgba(245,158,11,0.04)":"transparent",borderRadius:4,paddingBottom:0}}>
+                          <div style={{display:"flex",alignItems:"flex-end",gap:2,width:"100%",justifyContent:"center",height:"100%",position:"relative"}}>
+                            {/* Barra Plan */}
+                            {plan>0&&(
+                              <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
+                                <div style={{fontSize:8,fontWeight:700,color:isFuture?"#94a3b8":B.navy,marginBottom:2,whiteSpace:"nowrap"}}>{fmtMoney(plan)}</div>
+                                <div style={{width:14,height:planH+"px",background:isFuture?"#cbd5e1":B.navy,borderRadius:"3px 3px 0 0",opacity:isFuture?0.5:1}}/>
+                              </div>
+                            )}
+                            {/* Barra Real */}
+                            {!isFuture&&(
+                              <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
+                                {real>0&&<div style={{fontSize:8,fontWeight:700,color:isOk?"#16a34a":"#f59e0b",marginBottom:2,whiteSpace:"nowrap"}}>{fmtMoney(real)}</div>}
+                                <div style={{width:14,height:Math.max(realH,1)+"px",background:real===0?"#e2e8f0":isOk?"#16a34a":"#f59e0b",borderRadius:"3px 3px 0 0"}}/>
+                              </div>
+                            )}
+                          </div>
+                          {/* Label mes */}
+                          <div style={{position:"absolute",bottom:-26,fontSize:9,fontWeight:isHoy?800:500,color:isHoy?B.gold:B.grey4,textAlign:"center",width:"100%"}}>
+                            {mes}
+                            {isHoy&&<div style={{width:4,height:4,background:B.gold,borderRadius:"50%",margin:"1px auto 0"}}/>}
+                          </div>
+                        </div>
                       );
                     })}
-                    <td style={{padding:"9px 8px",textAlign:"right",fontWeight:800,color:totalDelta>=0?"#16a34a":"#dc2626",borderLeft:"1px solid "+B.grey1}}>
-                      {totalDelta>=0?"+":""}{fmtMoney(totalDelta)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                  </div>
+                </div>
+                {/* Leyenda */}
+                <div style={{display:"flex",gap:16,marginTop:8,paddingLeft:52}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <div style={{width:12,height:12,background:B.navy,borderRadius:2}}/>
+                    <span style={{fontSize:10,color:B.grey4}}>Plan (meta)</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <div style={{width:12,height:12,background:"#16a34a",borderRadius:2}}/>
+                    <span style={{fontSize:10,color:B.grey4}}>Real ≥ Plan</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <div style={{width:12,height:12,background:"#f59e0b",borderRadius:2}}/>
+                    <span style={{fontSize:10,color:B.grey4}}>Real &lt; Plan</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <div style={{width:8,height:8,background:B.gold,borderRadius:"50%"}}/>
+                    <span style={{fontSize:10,color:B.grey4}}>Mes actual</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           );
