@@ -7491,7 +7491,7 @@ Respuesta: [respuesta exacta, conversacional]
         const tempLegend={"Caliente":"(C)","Tibio":"(T)","Frío":"(F)","Frio":"(F)","En cierre":"(EC)","Cerrado":"(✓)","Descartado":"(X)"};
         const cols=modo==="ceo"
           ?["Cliente","T","Etapa","Asesor","Dias","Interacc.","Proxima Accion","Fecha"]
-          :["Cliente","T","Empresa","Etapa","Giro","Asesor"];
+          :["Cliente","T","Empresa","Etapa","Giro","Canal","Asesor"];
         const STAGE_ORD_PDF={"Vendido":10,"Contrato":9,"Apartado":8,"Propuesta":7,"En negociación":6,"En análisis":5,"Visita":4,"Cita":3,"Contactado":2,"Prospecto":1,"Descartado":0};
         const sortedProspActivos=[...prospActivos].sort((a,b)=>(STAGE_ORD_PDF[b.pip]||0)-(STAGE_ORD_PDF[a.pip]||0));
         const rows=sortedProspActivos.map(r=>{
@@ -7499,12 +7499,12 @@ Respuesta: [respuesta exacta, conversacional]
           const prox=r.proximaAct?(r.actVencida?"[VENCIDA] ":"")+r.proximaAct.tipo+(r.proximaAct.descripcion?" - "+r.proximaAct.descripcion.slice(0,35):""):"Sin actividad agendada";
           const fecha=r.proximaAct?r.proximaAct.fecha:"-";
           if(modo==="ceo") return [r.p.nombre,temp,r.pip,r.asesor,r.diasEnPipeline!==null?r.diasEnPipeline+"d":"-",r.interacciones+"",prox,fecha];
-          return [r.p.nombre,temp,r.p.empresa||"-",r.pip,r.p.giro||"-",r.asesor];
+          return [r.p.nombre,temp,r.p.empresa||"-",r.pip,r.p.giro||"-",r.p.canal||"-",r.asesor];
         });
         doc.autoTable({startY:Y,head:[cols],body:rows,theme:"striped",
           headStyles:{fillColor:[8,145,178],textColor:white,fontSize:7,fontStyle:"bold"},
           bodyStyles:{fontSize:7,textColor:[51,65,85]},
-          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:35},1:{halign:"center",cellWidth:5},2:{cellWidth:28},3:{cellWidth:22},4:{cellWidth:20},5:{cellWidth:28}},
+          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:30},1:{halign:"center",cellWidth:5},2:{cellWidth:24},3:{cellWidth:20},4:{cellWidth:18},5:{cellWidth:16},6:{cellWidth:22}},
           margin:{left:margin,right:margin},
           didParseCell:(data)=>{
             if(data.section==="body"&&data.column.index===1){
@@ -7534,7 +7534,7 @@ Respuesta: [respuesta exacta, conversacional]
           const k=tp==="Caliente"?"Caliente":tp==="Tibio"?"Tibio":tp==="En cierre"?"EnCierre":tp==="Cerrado"?"Cerrado":"Frio";
           byTemp[k].push(p);
         });
-        const tempBlocks=[[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Caliente,"CALIENTES",red],[byTemp.Cerrado,"CERRADOS",[22,163,74]]];
+        const tempBlocks=[[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Caliente,"CALIENTES",red],[byTemp.Cerrado,"CERRADOS",[22,163,74]],[byTemp.Descartado||[],"DESCARTADOS",[148,163,184]]];
         const bw=(pageW-margin*2)/tempBlocks.length;
         tempBlocks.forEach(([arr,label,col],i)=>{
           const bx=margin+i*bw; const cx=bx+bw/2;
@@ -7586,46 +7586,35 @@ Respuesta: [respuesta exacta, conversacional]
         });
         Y+=26;
       } else {
-        // CLIENTE: EMBUDO ACUMULATIVO VISUAL
+        // CLIENTE: EMBUDO — CUBOS DE COLORES
         sectionHeader("3 | EMBUDO DE VENTAS",[8,145,178]);
         const embStages=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
         const stageOrdEmb={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":0};
         const stageColEmb={"Prospecto":[100,116,139],"Contactado":[59,130,246],"Cita":[8,145,178],"Visita":[13,148,136],"En análisis":[99,102,241],"En negociación":[196,154,34],"Propuesta":[139,92,246],"Apartado":[249,115,22],"Contrato":[8,182,212],"Vendido":[34,197,94],"Descartado":[148,163,184]};
         const totalAll=prospActivos.length||1;
-        const maxW=pageW-margin*2;
-        const rowH=9;
-        checkPage(embStages.length*rowH+20);
-        // Funnel: barra ancha arriba, se estrecha abajo
+        const bwEmb=(pageW-margin*2-(embStages.length-1)*2)/embStages.length;
+        const bh=22;
+        checkPage(bh+20);
         embStages.forEach((s,idx)=>{
           const isDesc=s==="Descartado";
           const ord=stageOrdEmb[s]||0;
           const cnt=isDesc
             ? prospActivos.filter(p=>p.pip==="Descartado").length
             : prospActivos.filter(p=>(stageOrdEmb[p.pip]||0)>=ord).length;
-          const pct=Math.round(cnt/totalAll*100);
+          const bx=margin+idx*(bwEmb+2);
           const col=stageColEmb[s]||grey;
-          // Barra proporcional
-          const barW=isDesc?Math.max(10,pct/100*maxW*0.5):Math.max(12,pct/100*maxW);
-          const barX=margin+(maxW-barW)/2;
           doc.setFillColor(...col);
-          doc.roundedRect(barX,Y,barW,rowH-1,1,1,"F");
-          // Nombre etapa
-          doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...white);
-          doc.text(s,barX+4,Y+rowH/2+1);
-          // Número
-          doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...white);
-          doc.text(cnt+"  ("+pct+"%)",barX+barW-30,Y+rowH/2+1,{align:"right"});
-          if(isDesc){
-            doc.setFont("helvetica","italic"); doc.setFontSize(5.5);
-            doc.setTextColor(...grey);
-            doc.text("↳ no contabilizados en el funnel",barX+barW+2,Y+rowH/2+1);
-          }
-          Y+=rowH;
+          if(isDesc) doc.setFillColor(col[0],col[1],col[2],0.5);
+          doc.roundedRect(bx,Y,bwEmb,bh,1.5,1.5,"F");
+          doc.setTextColor(...white); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+          doc.text(cnt+"",bx+bwEmb/2,Y+bh/2+1,{align:"center"});
+          doc.setFont("helvetica","normal"); doc.setFontSize(4.5);
+          doc.text(s,bx+bwEmb/2,Y+bh-3,{align:"center"});
         });
-        Y+=6;
-      }
+        Y+=bh+8;
+      } // fin else (cliente embudo)
 
-            // ══════════════════════════════════════════
+      // ══════════════════════════════════════════
       // SECCION 4: TOP DEALS
       // ══════════════════════════════════════════
       checkPage(20);
@@ -8488,44 +8477,36 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
         </div>
 
-        {/* ═══════ SECCIÓN EMBUDO ═══════ */}
+                {/* ═══════ SECCIÓN EMBUDO ═══════ */}
         {(()=>{
-          const embStages=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido"];
-          const stageOrdEmb={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10};
+          const embStages=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
+          const stageOrdEmb={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":0};
           const totalAll=prospectosActivos.length||1;
-          const descartados=prospectosActivos.filter(p=>p.pipeline==="Descartado").length;
           return (
           <div style={{background:B.white,borderRadius:14,padding:"20px 24px",marginBottom:24,border:"1px solid "+B.grey1}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16,flexWrap:"wrap",gap:8}}>
               <div style={{fontSize:18,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>🔽 Embudo de Ventas</div>
               <div style={{fontSize:11,color:B.grey4}}>Acumulado · cada etapa incluye las siguientes</div>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:5,alignItems:"stretch"}}>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
               {embStages.map((s,idx)=>{
+                const isDesc=s==="Descartado";
                 const ord=stageOrdEmb[s]||0;
-                const cnt=prospectosActivos.filter(p=>(stageOrdEmb[p.pipeline]||0)>=ord).length;
-                const pct=totalAll>0?Math.round(cnt/totalAll*100):0;
+                const cnt=isDesc
+                  ? prospectosActivos.filter(p=>p.pipeline==="Descartado").length
+                  : prospectosActivos.filter(p=>(stageOrdEmb[p.pipeline]||0)>=ord).length;
                 const col=PIPELINE_COLORS[s]||B.grey3;
-                const isLast=s==="Vendido";
                 return (
-                  <div key={s} style={{display:"flex",alignItems:"center",gap:10}}>
-                    {/* Etiqueta */}
-                    <div style={{width:110,fontSize:11,fontWeight:700,color:B.navy,textAlign:"right",flexShrink:0}}>{s}</div>
-                    {/* Barra funnel — más ancha arriba */}
-                    <div style={{flex:1,height:24,position:"relative",display:"flex",alignItems:"center"}}>
-                      <div style={{
-                        width:Math.max(4,pct)+"%",
-                        height:"100%",
-                        background:col,
-                        borderRadius:3,
-                        transition:"width 0.4s",
-                        display:"flex",alignItems:"center",justifyContent:"flex-end",paddingRight:8,minWidth:40
-                      }}>
-                        <span style={{fontSize:11,fontWeight:800,color:"#fff",whiteSpace:"nowrap"}}>{cnt}</span>
-                      </div>
-                      <span style={{marginLeft:8,fontSize:10,color:B.grey4,fontWeight:600}}>{pct}%</span>
-                    </div>
-                    {isLast&&descartados>0&&<span style={{fontSize:10,color:B.grey3,marginLeft:4}}>({descartados} descartados)</span>}
+                  <div key={s} style={{
+                    background:col, borderRadius:10, padding:"14px 16px",
+                    minWidth:80, flex:"0 0 auto",
+                    display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+                    opacity:isDesc?0.6:1,
+                    position:"relative"
+                  }}>
+                    <div style={{fontSize:26,fontWeight:900,color:"#fff",lineHeight:1}}>{cnt}</div>
+                    <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,0.85)",marginTop:4,textTransform:"uppercase",letterSpacing:0.5,textAlign:"center"}}>{s}</div>
+                    {isDesc&&<div style={{fontSize:8,color:"rgba(255,255,255,0.7)",marginTop:2}}>fuera del funnel</div>}
                   </div>
                 );
               })}
