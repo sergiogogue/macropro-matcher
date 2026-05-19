@@ -8842,98 +8842,139 @@ Respuesta: [respuesta exacta, conversacional]
           const totalReal=ventasMensuales.reduce((a,b)=>a+(b||0),0);
           const totalDelta=totalReal-totalPlan;
           const maxVal=Math.max(...planMensual,...ventasMensuales.map(v=>v||0),1);
-          const BAR_H=180;
+          const CHART_H=200;
+          const LABEL_H=36;
+          const AXIS_W=54;
+          // Colores
+          const COL_PLAN_PASADO=B.navy;
+          const COL_PLAN_FUTURO="#94a3b8";
+          const COL_REAL_OK="#16a34a";
+          const COL_REAL_MAL="#f59e0b";
+          const COL_REAL_CERO="#e2e8f0";
           return (
-          <div style={{background:B.white,borderRadius:14,padding:"20px 24px",marginBottom:24,border:"1px solid "+B.grey1}}>
-            {/* Header */}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:8}}>
+          <div style={{background:B.white,borderRadius:14,padding:"22px 24px",marginBottom:24,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,0,0,0.04)"}}>
+            {/* ── HEADER ── */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
               <div>
-                <div style={{fontSize:18,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif",marginBottom:2}}>📊 Meta vs Real — Plan Mensual</div>
-                <div style={{fontSize:11,color:B.grey4}}>Plan (meta) vs Real (cerrado) · en pesos · {new Date().getFullYear()}</div>
-              </div>
-              <div style={{display:"flex",gap:20,alignItems:"center"}}>
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:10,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Plan Anual</div>
-                  <div style={{fontSize:16,fontWeight:800,color:B.navy}}>{fmtMoney(totalPlan)}</div>
-                </div>
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:10,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Real Acumulado</div>
-                  <div style={{fontSize:16,fontWeight:800,color:"#16a34a"}}>{fmtMoney(totalReal)}</div>
-                </div>
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:10,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Diferencia</div>
-                  <div style={{fontSize:16,fontWeight:800,color:totalDelta>=0?"#16a34a":"#dc2626"}}>{totalDelta>=0?"+":""}{fmtMoney(totalDelta)}</div>
-                </div>
-              </div>
-            </div>
-            {/* Gráfica */}
-            <div style={{overflowX:"auto"}}>
-              <div style={{minWidth:700,position:"relative"}}>
-                {/* Líneas de referencia */}
-                <div style={{position:"relative",height:BAR_H+32,paddingLeft:52,paddingRight:8}}>
-                  {[1,0.75,0.5,0.25].map(pct=>(
-                    <div key={pct} style={{position:"absolute",left:52,right:8,top:(BAR_H*(1-pct))+"px",borderTop:"1px dashed #e2e8f0",display:"flex",alignItems:"center"}}>
-                      <span style={{position:"absolute",left:-50,fontSize:9,color:B.grey4,whiteSpace:"nowrap",textAlign:"right",width:46}}>{fmtMoney(maxVal*pct)}</span>
+                <div style={{fontSize:17,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif",marginBottom:3}}>📊 Meta vs Real — Plan Mensual {new Date().getFullYear()}</div>
+                <div style={{display:"flex",gap:16,marginTop:6}}>
+                  {[
+                    {sq:COL_PLAN_PASADO,label:"Plan (meta)",circle:false},
+                    {sq:COL_REAL_OK,label:"Real ≥ Meta",circle:false},
+                    {sq:COL_REAL_MAL,label:"Real < Meta",circle:false},
+                    {sq:"#f5a623",label:"Mes actual",circle:true},
+                  ].map((l,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:5}}>
+                      {l.circle
+                        ?<div style={{width:8,height:8,borderRadius:"50%",background:l.sq,flexShrink:0}}/>
+                        :<div style={{width:11,height:11,borderRadius:2,background:l.sq,flexShrink:0}}/>}
+                      <span style={{fontSize:10,color:B.grey4}}>{l.label}</span>
                     </div>
                   ))}
-                  {/* Línea base */}
-                  <div style={{position:"absolute",left:52,right:8,top:BAR_H+"px",borderTop:"2px solid #cbd5e1"}}/>
-                  {/* Barras */}
-                  <div style={{position:"absolute",left:52,right:8,top:0,bottom:32,display:"flex",alignItems:"flex-end",gap:0}}>
-                    {MESES_CORTOS.map((mes,i)=>{
-                      const plan=planMensual[i]||0;
-                      const real=ventasMensuales[i]||0;
-                      const isFuture=i>mesActual;
-                      const isHoy=i===mesActual;
-                      const planH=plan>0?Math.max((plan/maxVal)*BAR_H,2):0;
-                      const realH=real>0?Math.max((real/maxVal)*BAR_H,2):0;
-                      const isOk=real>=plan;
-                      return (
-                        <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",height:BAR_H+"px",justifyContent:"flex-end",position:"relative",background:isHoy?"rgba(245,158,11,0.04)":"transparent",borderRadius:4,paddingBottom:0}}>
-                          <div style={{display:"flex",alignItems:"flex-end",gap:2,width:"100%",justifyContent:"center",height:"100%",position:"relative"}}>
-                            {/* Barra Plan */}
-                            {plan>0&&(
-                              <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
-                                <div style={{fontSize:8,fontWeight:700,color:isFuture?"#94a3b8":B.navy,marginBottom:2,whiteSpace:"nowrap"}}>{fmtMoney(plan)}</div>
-                                <div style={{width:14,height:planH+"px",background:isFuture?"#cbd5e1":B.navy,borderRadius:"3px 3px 0 0",opacity:isFuture?0.5:1}}/>
-                              </div>
-                            )}
-                            {/* Barra Real */}
-                            {!isFuture&&(
-                              <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
-                                {real>0&&<div style={{fontSize:8,fontWeight:700,color:isOk?"#16a34a":"#f59e0b",marginBottom:2,whiteSpace:"nowrap"}}>{fmtMoney(real)}</div>}
-                                <div style={{width:14,height:Math.max(realH,1)+"px",background:real===0?"#e2e8f0":isOk?"#16a34a":"#f59e0b",borderRadius:"3px 3px 0 0"}}/>
-                              </div>
-                            )}
-                          </div>
-                          {/* Label mes */}
-                          <div style={{position:"absolute",bottom:-26,fontSize:9,fontWeight:isHoy?800:500,color:isHoy?B.gold:B.grey4,textAlign:"center",width:"100%"}}>
-                            {mes}
-                            {isHoy&&<div style={{width:4,height:4,background:B.gold,borderRadius:"50%",margin:"1px auto 0"}}/>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
                 </div>
-                {/* Leyenda */}
-                <div style={{display:"flex",gap:16,marginTop:8,paddingLeft:52}}>
-                  <div style={{display:"flex",alignItems:"center",gap:5}}>
-                    <div style={{width:12,height:12,background:B.navy,borderRadius:2}}/>
-                    <span style={{fontSize:10,color:B.grey4}}>Plan (meta)</span>
+              </div>
+              <div style={{display:"flex",gap:0,borderRadius:10,overflow:"hidden",border:"1px solid "+B.grey1}}>
+                {[
+                  {label:"PLAN ANUAL",val:fmtMoney(totalPlan),color:B.navy,bg:"#f8fafc"},
+                  {label:"REAL ACUMULADO",val:fmtMoney(totalReal),color:"#16a34a",bg:"#f0fdf4"},
+                  {label:"DIFERENCIA",val:(totalDelta>=0?"+":"")+fmtMoney(totalDelta),color:totalDelta>=0?"#16a34a":"#dc2626",bg:totalDelta>=0?"#f0fdf4":"#fef2f2"},
+                ].map((k,i)=>(
+                  <div key={i} style={{padding:"10px 18px",textAlign:"center",background:k.bg,borderRight:i<2?"1px solid "+B.grey1:"none"}}>
+                    <div style={{fontSize:9,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6,fontWeight:700,marginBottom:3}}>{k.label}</div>
+                    <div style={{fontSize:18,fontWeight:800,color:k.color,fontFamily:"'Playfair Display',serif"}}>{k.val}</div>
                   </div>
-                  <div style={{display:"flex",alignItems:"center",gap:5}}>
-                    <div style={{width:12,height:12,background:"#16a34a",borderRadius:2}}/>
-                    <span style={{fontSize:10,color:B.grey4}}>Real ≥ Plan</span>
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:5}}>
-                    <div style={{width:12,height:12,background:"#f59e0b",borderRadius:2}}/>
-                    <span style={{fontSize:10,color:B.grey4}}>Real &lt; Plan</span>
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:5}}>
-                    <div style={{width:8,height:8,background:B.gold,borderRadius:"50%"}}/>
-                    <span style={{fontSize:10,color:B.grey4}}>Mes actual</span>
-                  </div>
+                ))}
+              </div>
+            </div>
+            {/* ── GRÁFICA ── */}
+            <div style={{overflowX:"auto"}}>
+              <div style={{minWidth:680,position:"relative",paddingLeft:AXIS_W+"px"}}>
+                {/* Eje Y — líneas de referencia */}
+                {[1,0.75,0.5,0.25,0].map(pct=>{
+                  const topPx=pct===0?CHART_H:Math.round(CHART_H*(1-pct));
+                  return (
+                    <div key={pct} style={{position:"absolute",left:0,right:0,top:topPx+"px",display:"flex",alignItems:"center",pointerEvents:"none"}}>
+                      <span style={{width:AXIS_W-6+"px",textAlign:"right",fontSize:9,color:B.grey4,paddingRight:6,flexShrink:0,lineHeight:1}}>{pct>0?fmtMoney(maxVal*pct):"$0"}</span>
+                      <div style={{flex:1,borderTop:pct===0?"2px solid #94a3b8":"1px dashed #e2e8f0"}}/>
+                    </div>
+                  );
+                })}
+                {/* Área de barras */}
+                <div style={{height:CHART_H+LABEL_H+"px",display:"flex",alignItems:"flex-end",gap:0,paddingBottom:LABEL_H+"px",boxSizing:"border-box"}}>
+                  {MESES_CORTOS.map((mes,i)=>{
+                    const plan=planMensual[i]||0;
+                    const real=ventasMensuales[i]||0;
+                    const isFuture=i>mesActual;
+                    const isHoy=i===mesActual;
+                    const planPct=plan>0?Math.max(plan/maxVal,0.012):0;
+                    const realPct=!isFuture&&real>0?Math.max(real/maxVal,0.012):0;
+                    const planColor=isFuture?COL_PLAN_FUTURO:COL_PLAN_PASADO;
+                    const realColor=real===0?COL_REAL_CERO:real>=plan?COL_REAL_OK:COL_REAL_MAL;
+                    return (
+                      <div key={i} style={{
+                        flex:1,display:"flex",flexDirection:"column",alignItems:"center",
+                        height:CHART_H+LABEL_H+"px",justifyContent:"flex-end",
+                        position:"relative",
+                        background:isHoy?"linear-gradient(180deg,rgba(245,166,35,0.06) 0%,rgba(245,166,35,0.02) 100%)":"transparent",
+                        borderRadius:isHoy?4:0,
+                      }}>
+                        {/* Par de barras */}
+                        <div style={{
+                          width:"100%",display:"flex",alignItems:"flex-end",justifyContent:"center",
+                          gap:2,height:CHART_H+"px",paddingBottom:0,position:"relative"
+                        }}>
+                          {/* BARRA PLAN */}
+                          {plan>0?(
+                            <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",flex:"0 0 auto"}}>
+                              <div style={{
+                                fontSize:9,fontWeight:700,
+                                color:isFuture?COL_PLAN_FUTURO:B.navy,
+                                marginBottom:3,whiteSpace:"nowrap",lineHeight:1
+                              }}>{fmtMoney(plan)}</div>
+                              <div style={{
+                                width:16,
+                                height:Math.round(planPct*CHART_H)+"px",
+                                background:planColor,
+                                borderRadius:"4px 4px 0 0",
+                                minHeight:3,
+                              }}/>
+                            </div>
+                          ):(
+                            <div style={{width:16,flex:"0 0 auto"}}/>
+                          )}
+                          {/* BARRA REAL */}
+                          {!isFuture?(
+                            <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",flex:"0 0 auto"}}>
+                              {real>0&&(
+                                <div style={{
+                                  fontSize:9,fontWeight:700,
+                                  color:real>=plan?COL_REAL_OK:COL_REAL_MAL,
+                                  marginBottom:3,whiteSpace:"nowrap",lineHeight:1
+                                }}>{fmtMoney(real)}</div>
+                              )}
+                              <div style={{
+                                width:16,
+                                height:Math.max(Math.round(realPct*CHART_H),real===0?2:3)+"px",
+                                background:realColor,
+                                borderRadius:"4px 4px 0 0",
+                              }}/>
+                            </div>
+                          ):(
+                            <div style={{width:16,flex:"0 0 auto"}}/>
+                          )}
+                        </div>
+                        {/* Label mes */}
+                        <div style={{
+                          position:"absolute",bottom:0,left:0,right:0,
+                          height:LABEL_H+"px",display:"flex",flexDirection:"column",
+                          alignItems:"center",justifyContent:"flex-start",paddingTop:6
+                        }}>
+                          <span style={{fontSize:isHoy?10:9,fontWeight:isHoy?800:500,color:isHoy?"#f5a623":B.grey4}}>{mes}</span>
+                          {isHoy&&<div style={{width:5,height:5,borderRadius:"50%",background:"#f5a623",marginTop:2}}/>}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
