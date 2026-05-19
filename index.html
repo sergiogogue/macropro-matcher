@@ -8024,10 +8024,11 @@ Respuesta: [respuesta exacta, conversacional]
 
     const fmtMoney = (v) => {
       if(!v||v===0) return "$0";
-      if(v>=1e9) return "$"+(v/1e9).toFixed(2)+"B";
-      if(v>=1e6) return "$"+(v/1e6).toFixed(1)+"M";
-      if(v>=1e3) return "$"+(v/1e3).toFixed(0)+"k";
-      return "$"+v.toFixed(0);
+      const abs=Math.abs(v), sign=v<0?"-":"";
+      if(abs>=1e9) return sign+"$"+(abs/1e9).toFixed(2)+"B";
+      if(abs>=1e6) return sign+"$"+(abs/1e6).toFixed(1)+"M";
+      if(abs>=1e3) return sign+"$"+Math.round(abs/1e3)+"k";
+      return sign+"$"+abs.toFixed(0);
     };
     const fmtMoneyFull = (v) => "$"+(v||0).toLocaleString("es-MX",{maximumFractionDigits:0});
     const fmtPct = (v) => (v*100).toFixed(0)+"%";
@@ -8795,24 +8796,42 @@ Respuesta: [respuesta exacta, conversacional]
                   {/* PLAN */}
                   <tr style={{borderBottom:"1px solid "+B.grey1}}>
                     <td style={{padding:"9px 10px",fontWeight:700,color:B.navy,fontSize:11}}>🎯 Plan</td>
-                    {planMensual.map((v,i)=>(
-                      <td key={i} style={{padding:"9px 6px",textAlign:"right",fontSize:11,color:v>0?B.navy:B.grey3,background:i===mesActual?"#fafbff":"transparent"}}>
-                        {v>0?fmtMoney(v):"—"}
+                    {planMensual.map((v,i)=>{
+                      const real=ventasMensuales[i]||0;
+                      const maxVal=Math.max(...planMensual,...ventasMensuales,1);
+                      const pct=v>0?Math.round(v/maxVal*100):0;
+                      return (
+                      <td key={i} style={{padding:"6px 6px",textAlign:"right",fontSize:11,color:v>0?B.navy:B.grey3,background:i===mesActual?"#fafbff":"transparent",verticalAlign:"middle"}}>
+                        {v>0&&<div style={{height:4,background:"#e2e8f0",borderRadius:2,marginBottom:3,overflow:"hidden"}}>
+                          <div style={{height:"100%",width:pct+"%",background:B.navy,borderRadius:2}}/>
+                        </div>}
+                        <span style={{fontSize:10}}>{v>0?fmtMoney(v):"—"}</span>
                       </td>
-                    ))}
+                      );
+                    })}
                     <td style={{padding:"9px 8px",textAlign:"right",fontWeight:800,color:B.navy,borderLeft:"1px solid "+B.grey1}}>{fmtMoney(totalPlan)}</td>
                   </tr>
                   {/* REAL */}
                   <tr style={{borderBottom:"1px solid "+B.grey1,background:B.offW}}>
                     <td style={{padding:"9px 10px",fontWeight:700,color:"#16a34a",fontSize:11}}>✅ Real</td>
-                    {ventasMensuales.map((v,i)=>(
-                      <td key={i} style={{padding:"9px 6px",textAlign:"right",fontSize:11,
-                        color:i>mesActual?"#94a3b8":v>0?"#16a34a":"#dc2626",
-                        fontWeight:v>0?700:400,
-                        background:i===mesActual?"#f0fdf4":"transparent"}}>
-                        {i>mesActual?"—":v>0?fmtMoney(v):"$0"}
+                    {ventasMensuales.map((v,i)=>{
+                      const plan=planMensual[i]||0;
+                      const maxVal=Math.max(...planMensual,...ventasMensuales,1);
+                      const pct=v>0?Math.round(v/maxVal*100):0;
+                      const color=i>mesActual?"#94a3b8":v>0?"#16a34a":"#dc2626";
+                      return (
+                      <td key={i} style={{padding:"6px 6px",textAlign:"right",fontSize:11,
+                        color,fontWeight:v>0?700:400,
+                        background:i===mesActual?"#f0fdf4":"transparent",verticalAlign:"middle"}}>
+                        {i>mesActual?"—":(v>0?<>
+                          <div style={{height:4,background:"#e2e8f0",borderRadius:2,marginBottom:3,overflow:"hidden"}}>
+                            <div style={{height:"100%",width:pct+"%",background:"#16a34a",borderRadius:2}}/>
+                          </div>
+                          <span style={{fontSize:10}}>{fmtMoney(v)}</span>
+                        </>:<span style={{fontSize:10}}>$0</span>)}
                       </td>
-                    ))}
+                      );
+                    })}
                     <td style={{padding:"9px 8px",textAlign:"right",fontWeight:800,color:"#16a34a",borderLeft:"1px solid "+B.grey1}}>{fmtMoney(totalReal)}</td>
                   </tr>
                   {/* DELTA */}
