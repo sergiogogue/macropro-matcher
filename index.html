@@ -7468,8 +7468,8 @@ Respuesta: [respuesta exacta, conversacional]
       });
       if(modo==="cliente") pipeRows.push(["TOTAL ACTIVO",Object.values(pipeEtapa).reduce((a,e)=>a+e.count,0)+"",fmtMoney(totalBruto)]);
       else pipeRows.push(["TOTAL ACTIVO",Object.values(pipeEtapa).reduce((a,e)=>a+e.count,0)+"",fmtMoney(totalBruto),"—",fmtMoney(totalPonderado)]);
-      const pipeHead=modo==="cliente"?[["Etapa","Prospectos","Valor"]]:[["Etapa","Prospectos","Valor Bruto","Prob.","Ponderado"]];
-      const pipeCols=modo==="cliente"?{0:{fontStyle:"bold",cellWidth:45},1:{halign:"right",cellWidth:22},2:{halign:"right",fontStyle:"bold"}}:{0:{fontStyle:"bold"},1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right",textColor:gold,fontStyle:"bold"}};
+      const pipeHead=modo==="cliente"?[["Etapa","Prospectos","Valor Total"]]:[["Etapa","Prospectos","Valor Bruto","Prob.","Ponderado"]];
+      const pipeCols=modo==="cliente"?{0:{fontStyle:"bold",cellWidth:80},1:{halign:"center",cellWidth:25},2:{halign:"right",fontStyle:"bold"}}:{0:{fontStyle:"bold"},1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right",textColor:gold,fontStyle:"bold"}};
       doc.autoTable({startY:Y,head:pipeHead,body:pipeRows,theme:"striped",
         headStyles:{fillColor:[0,43,73],textColor:white,fontSize:8,fontStyle:"bold"},
         bodyStyles:{fontSize:8,textColor:[51,65,85]},
@@ -7488,7 +7488,7 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...grey);
         doc.text("Sin prospectos activos para los filtros seleccionados.",margin,Y); Y+=10;
       } else {
-        const tempLegend={"Caliente":"(C)","Tibio":"(T)","Frío":"(F)","Frio":"(F)","En cierre":"(EC)","Cerrado":"(✓)","Descartado":"(X)"};
+        const tempLegend={"Caliente":"C","Tibio":"T","Frío":"F","Frio":"F","En cierre":"EC","Cerrado":"✓","Descartado":"X"};
         const cols=modo==="ceo"
           ?["Cliente","T","Etapa","Asesor","Dias","Interacc.","Proxima Accion","Fecha"]
           :["Cliente","T","Empresa","Etapa","Giro","Canal","Asesor"];
@@ -7620,20 +7620,22 @@ Respuesta: [respuesta exacta, conversacional]
       checkPage(20);
       sectionHeader("4 | TOP DEALS EN PIPELINE",[22,163,74]);
       const ETAPAS_PIPELINE_ACTIVO=["En análisis","En negociación","Propuesta","Apartado","Contrato"];
-      const topDeals=lotesFiltrados.map(l=>{
+      const topDealsAll=lotesFiltrados.map(l=>{
         const pip=getLotePipelineLocal(l.id);
         const prospsLote=(crmData[l.id]&&crmData[l.id].prospectos)||[];
         const mejorP=prospsLote.filter(p=>p&&p.pipeline===pip)[0]||prospsLote[0]||null;
         return {lot:l,pip,ponderado:(l.precio_total||0)*(stageProb[pip]||0),pNombre:mejorP?mejorP.nombre:"—",pEmpresa:mejorP?mejorP.empresa||"—":"—"};
       })
         .filter(d=>modo==="cliente"?ETAPAS_PIPELINE_ACTIVO.includes(d.pip):ACTIVE_STAGES.includes(d.pip))
-        .sort((a,b)=>b.ponderado-a.ponderado).slice(0,8);
+        .sort((a,b)=>b.ponderado-a.ponderado);
+      const _lotesVistos=new Set();
+      const topDeals=topDealsAll.filter(d=>{if(_lotesVistos.has(d.lot.id))return false;_lotesVistos.add(d.lot.id);return true;}).slice(0,8);
       if(topDeals.length>0){
         const dealRows=topDeals.map((d,i)=>modo==="cliente"
-          ?[(i+1)+"",d.lot.nombre||"—",d.pNombre,d.pEmpresa,d.lot.desarrollo||"—",d.lot.sup_m2?(d.lot.sup_m2).toLocaleString()+" m²":"—",d.pip,fmtMoney(d.lot.precio_total||0)]
+          ?[(i+1)+"",d.lot.nombre||"—",d.pNombre+(d.pEmpresa&&d.pEmpresa!=="—"?"\n"+d.pEmpresa:""),d.lot.desarrollo||"—",d.lot.sup_m2?Math.round(d.lot.sup_m2).toLocaleString()+" m²":"—",d.pip,fmtMoney(d.lot.precio_total||0)]
           :[(i+1)+"",d.lot.nombre||"—",d.lot.desarrollo||"—",d.pip,fmtMoney(d.lot.precio_total||0),fmtMoney(d.ponderado)]);
-        const dealHead=modo==="cliente"?[["#","Lote","Cliente","Empresa","Desarrollo","m²","Etapa","Valor"]]:[["#","Lote","Desarrollo","Etapa","Valor","Ponderado"]];
-        const dealCols=modo==="cliente"?{0:{halign:"center",cellWidth:5},5:{halign:"right",cellWidth:14},7:{halign:"right",fontStyle:"bold",cellWidth:14}}:{0:{halign:"center",cellWidth:8},4:{halign:"right"},5:{halign:"right",textColor:gold,fontStyle:"bold"}};
+        const dealHead=modo==="cliente"?[["#","Lote","Cliente / Empresa","Desarrollo","m²","Etapa","Valor"]]:[["#","Lote","Desarrollo","Etapa","Valor","Ponderado"]];
+        const dealCols=modo==="cliente"?{0:{halign:"center",cellWidth:5},1:{cellWidth:28},2:{cellWidth:50},3:{cellWidth:20},4:{halign:"right",cellWidth:16},5:{cellWidth:18},6:{halign:"right",fontStyle:"bold",cellWidth:16}}:{0:{halign:"center",cellWidth:8},4:{halign:"right"},5:{halign:"right",textColor:gold,fontStyle:"bold"}};
         doc.autoTable({startY:Y,head:dealHead,body:dealRows,theme:"striped",
           headStyles:{fillColor:[22,163,74],textColor:white,fontSize:8,fontStyle:"bold"},
           bodyStyles:{fontSize:8},
@@ -7872,6 +7874,57 @@ Respuesta: [respuesta exacta, conversacional]
           doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...grey);
           doc.text(refLat?"Sin competidores con coordenadas en radio 5km.":"Sin coordenadas disponibles para este desarrollo.",margin,Y); Y+=10;
         }
+      }
+
+
+      // ══════════════════════════════════════════
+      // SECCION METAS: PLAN VS REAL (ambas versiones)
+      // ══════════════════════════════════════════
+      const metasEntCliente=Object.entries(metasData||{}).filter(([nombre,d])=>{
+        if(!d||!d.plan||!d.real) return false;
+        if(ejecFiltroDesarrollador!=="Todos"&&d.desarrollador!==ejecFiltroDesarrollador) return false;
+        if(ejecFiltroDesarrollo!=="Todos"&&nombre!==ejecFiltroDesarrollo) return false;
+        return true;
+      });
+      if(metasEntCliente.length>0){
+        checkPage(25);
+        sectionHeader("📊 PLAN VS REAL  |  CIERRE "+ahora.getFullYear(),[16,185,129]);
+        const MESES_PDF=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+        // Agregar plan y real consolidados por mes
+        const planMes=new Array(12).fill(0);
+        const realMes=new Array(12).fill(0);
+        metasEntCliente.forEach(([nombre,d])=>{
+          (d.plan.monto||[]).forEach((v,i)=>{if(i<12)planMes[i]+=(v||0);});
+          (d.real.monto||[]).forEach((v,i)=>{if(i<12)realMes[i]+=(v||0);});
+        });
+        const totalPlanAno=planMes.reduce((a,b)=>a+b,0);
+        const totalRealAno=realMes.reduce((a,b)=>a+b,0);
+        // Tabla por mes
+        const planRealRows=[
+          ["🎯 PLAN",...MESES_PDF.map((m,i)=>planMes[i]>0?fmtMoney(planMes[i]):"—"),fmtMoney(totalPlanAno)],
+          ["✅ REAL",...MESES_PDF.map((m,i)=>i>mesActual?"—":realMes[i]>0?fmtMoney(realMes[i]):"$0"),fmtMoney(totalRealAno)],
+          ["⚡ DELTA",...MESES_PDF.map((m,i)=>{
+            if(i>mesActual)return "—";
+            const d=realMes[i]-planMes[i];
+            return d===0?"0":d>0?"+"+fmtMoney(d):fmtMoney(d);
+          }),totalRealAno-totalPlanAno>=0?"+"+fmtMoney(totalRealAno-totalPlanAno):fmtMoney(totalRealAno-totalPlanAno)]
+        ];
+        const hdrMeses=[["CONCEPTO",...MESES_PDF,"TOTAL"]];
+        doc.autoTable({startY:Y,head:hdrMeses,body:planRealRows,theme:"grid",
+          headStyles:{fillColor:[16,185,129],textColor:white,fontSize:6,fontStyle:"bold"},
+          bodyStyles:{fontSize:6.5,textColor:[51,65,85]},
+          columnStyles:{0:{fontStyle:"bold",cellWidth:18},13:{fontStyle:"bold",cellWidth:16}},
+          didParseCell:(data)=>{
+            if(data.section==="body"&&data.row.index===2){
+              const v=data.cell.raw;
+              if(typeof v==="string"&&v.startsWith("+")) data.cell.styles.textColor=[22,163,74];
+              else if(typeof v==="string"&&v.startsWith("-")) data.cell.styles.textColor=[220,38,38];
+            }
+            if(data.section==="head"&&data.column.index===mesActual+1) data.cell.styles.fillColor=[13,148,136];
+          },
+          margin:{left:margin,right:margin}
+        });
+        Y=doc.lastAutoTable.finalY+8;
       }
       } // fin if modo !== cliente (sec 8)
 
@@ -8711,122 +8764,81 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
         </div>
 
-        {/* ═══════ SECCIÓN 6: TENDENCIA 12 MESES ═══════ */}
+        {/* ═══════ SECCIÓN 6: PLAN VS REAL MENSUAL ═══════ */}
         {(()=>{
-          // ── Diagnóstico en texto simple ─────────────────────────────────
-          const realAcum = ventasMensuales.slice(0,mesActual+1).reduce((a,b)=>a+b,0);
-          const planAcum = planMensual.slice(0,mesActual+1).reduce((a,b)=>a+b,0);
-          const udsAcum  = udsMensuales.slice(0,mesActual+1).reduce((a,b)=>a+b,0);
-          const gapAcum  = realAcum - planAcum;
-          const gapPct   = planAcum>0 ? gapAcum/planAcum : 0;
-          const semaforo = gapPct>=0 ? "#16a34a" : gapPct>=-0.2 ? "#f59e0b" : "#dc2626";
-          const semaforoIcon = gapPct>=0 ? "🟢" : gapPct>=-0.2 ? "🟡" : "🔴";
-          const mesActualReal = ventasMensuales[mesActual]||0;
-          const mesActualPlan = planMensual[mesActual]||0;
-          const vsEsteMs = mesActualPlan>0 ? (mesActualReal-mesActualPlan)/mesActualPlan : 0;
-          const planAnualTotal = planMensual.reduce((a,b)=>a+b,0);
-          const mesesRestFin = 12 - mesActual - 1;
-          const necesitaPorMes = mesesRestFin>0 ? Math.max(0,(planAnualTotal - realAcum)/mesesRestFin) : 0;
-          const ritmoOk = velocidadActualMensual >= necesitaPorMes;
-          const fmtK = v => v>=1000000?"$"+Math.round(v/1000)+"k":v>0?"$"+Math.round(v/1000)+"k":"$0";
-
+          const MESES_CORTOS=["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
+          const totalPlan=planMensual.reduce((a,b)=>a+(b||0),0);
+          const totalReal=ventasMensuales.reduce((a,b)=>a+(b||0),0);
+          const totalDelta=totalReal-totalPlan;
+          const totalPlanUds=planUdsMensual?planUdsMensual.reduce((a,b)=>a+(b||0),0):0;
+          const totalRealUds=udsMensuales?udsMensuales.reduce((a,b)=>a+(b||0),0):0;
           return (
-          <div style={{background:B.white, borderRadius:14, padding:"20px 24px", marginBottom:24, border:"1px solid "+B.grey1}}>
-            {/* Header */}
-            <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16, flexWrap:"wrap", gap:10}}>
-              <div>
-                <div style={{fontSize:18, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>📈 Tendencia {ahora.getFullYear()}</div>
-                <div style={{fontSize:11, color:B.grey4, marginTop:2}}>Real vs Plan · $ y unidades por mes</div>
-              </div>
-              {/* Diagnóstico rápido */}
-              <div style={{background: gapPct>=0?"#ecfdf5":gapPct>=-0.2?"#fffbeb":"#fef2f2", border:"1px solid "+(gapPct>=0?"#86efac":gapPct>=-0.2?"#fcd34d":"#fca5a5"), borderRadius:10, padding:"10px 16px", minWidth:260}}>
-                <div style={{fontSize:10, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1, marginBottom:4}}>Diagnóstico YTD</div>
-                <div style={{fontSize:13, fontWeight:700, color: semaforo, lineHeight:1.4}}>
-                  {semaforoIcon} Llevas {fmtK(realAcum)} vs {fmtK(planAcum)} de plan acumulado
-                  — {gapPct>=0?"por encima ↗":"por debajo ↘"} {Math.abs(gapPct*100).toFixed(0)}%
-                </div>
-                <div style={{fontSize:11, color:B.grey4, marginTop:4}}>
-                  {udsAcum} ud{udsAcum!==1?"s":""} vendida{udsAcum!==1?"s":""} · {mesesVerdes}/{mesesConPlan||1} meses cumplieron plan
-                  {necesitaPorMes>0&&<span> · Para cerrar el año necesitas <strong style={{color:ritmoOk?"#16a34a":"#dc2626"}}>{fmtK(necesitaPorMes)}/mes</strong></span>}
-                </div>
-              </div>
-            </div>
-
-            {/* Gráfica de barras con labels */}
-            <div style={{display:"flex", alignItems:"flex-end", gap:4, height:170, marginBottom:4}}>
-              {meses12.map((m,i)=>{
-                const real = ventasMensuales[i]||0;
-                const plan = planMensual[i]||0;
-                const uds  = udsMensuales[i]||0;
-                const altReal = maxVentaMes>0 ? (real/maxVentaMes)*130 : 0;
-                const altPlan = maxVentaMes>0 ? (plan/maxVentaMes)*130 : 0;
-                const esActual = i===mesActual;
-                const esFuturo = i>mesActual;
-                const cumple = !esFuturo && plan>0 && real>=plan;
-                const falla  = !esFuturo && plan>0 && real<plan && real>0;
-                const barColor = esActual ? B.gold : cumple ? "#16a34a" : falla ? "#dc2626" : B.navy;
-                return (
-                  <div key={i} style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:1, opacity:esFuturo?0.25:1}}>
-                    {/* Etiqueta $ encima */}
-                    <div style={{fontSize:7, fontWeight:700, color:esActual?B.gold:esFuturo?B.grey3:B.grey4, minHeight:10, textAlign:"center"}}>
-                      {!esFuturo&&real>0?fmtK(real):""}
-                    </div>
-                    {/* Barras */}
-                    <div style={{width:"100%", height:130, position:"relative", display:"flex", alignItems:"flex-end", justifyContent:"center", gap:1}}>
-                      <div title={"Plan: "+fmtK(plan)} style={{width:"46%", height:altPlan+"px", background:B.grey2, borderRadius:"3px 3px 0 0"}}></div>
-                      <div title={"Real: "+fmtK(real)+(uds>0?" · "+uds+" uds":"")} style={{width:"46%", height:altReal+"px", background:barColor, borderRadius:"3px 3px 0 0", transition:"height 0.5s"}}></div>
-                    </div>
-                    {/* Mes */}
-                    <div style={{fontSize:8.5, fontWeight:esActual?800:600, color:esActual?B.gold:esFuturo?B.grey3:B.grey4}}>{m}</div>
-                    {/* Unidades */}
-                    <div style={{fontSize:7.5, color:esFuturo?B.grey3:uds>0?"#0f766e":B.grey3, fontWeight:uds>0?700:400}}>
-                      {!esFuturo&&uds>0?uds+" ud"+(uds!==1?"s":""):"—"}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Leyenda colores */}
-            <div style={{display:"flex", gap:14, marginBottom:14, flexWrap:"wrap"}}>
-              <div style={{display:"flex", alignItems:"center", gap:4, fontSize:9, color:B.grey4}}><div style={{width:10,height:10,background:B.grey2,borderRadius:2}}></div>Plan</div>
-              <div style={{display:"flex", alignItems:"center", gap:4, fontSize:9, color:B.grey4}}><div style={{width:10,height:10,background:"#16a34a",borderRadius:2}}></div>Real ≥ plan</div>
-              <div style={{display:"flex", alignItems:"center", gap:4, fontSize:9, color:B.grey4}}><div style={{width:10,height:10,background:"#dc2626",borderRadius:2}}></div>Real &lt; plan</div>
-              <div style={{display:"flex", alignItems:"center", gap:4, fontSize:9, color:B.grey4}}><div style={{width:10,height:10,background:B.gold,borderRadius:2}}></div>Mes actual</div>
-              <div style={{display:"flex", alignItems:"center", gap:4, fontSize:9, color:"#0f766e", fontWeight:700}}>Número bajo barra = unidades vendidas</div>
-            </div>
-
-            {/* KPI cards */}
-            <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))", gap:10}}>
-              {ventasMensuales[mejorMesIdx]>0&&(
-                <div style={{padding:"10px 12px", background:"#ecfdf5", borderRadius:8, borderLeft:"3px solid #10b981"}}>
-                  <div style={{fontSize:9, fontWeight:700, color:"#065f46", textTransform:"uppercase", letterSpacing:1}}>🏆 Mejor mes</div>
-                  <div style={{fontSize:15, fontWeight:800, color:"#065f46", fontFamily:"'Playfair Display',serif", marginTop:2}}>{meses12[mejorMesIdx]}</div>
-                  <div style={{fontSize:11, color:"#065f46"}}>{fmtK(ventasMensuales[mejorMesIdx])} · {udsMensuales[mejorMesIdx]||0} ud{(udsMensuales[mejorMesIdx]||0)!==1?"s":""}</div>
-                </div>
-              )}
-              <div style={{padding:"10px 12px", background:mesActualPlan>0&&mesActualReal<mesActualPlan?"#fef2f2":"#ecfdf5", borderRadius:8, borderLeft:"3px solid "+(mesActualPlan>0&&mesActualReal<mesActualPlan?"#dc2626":"#10b981")}}>
-                <div style={{fontSize:9, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>📅 Mes actual ({meses12[mesActual]})</div>
-                <div style={{fontSize:15, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>{fmtK(mesActualReal)}</div>
-                <div style={{fontSize:11, color:B.grey4}}>vs plan {fmtK(mesActualPlan)} · {udsMensuales[mesActual]||0} uds</div>
-                {mesActualPlan>0&&<div style={{fontSize:10, fontWeight:700, color:vsEsteMs>=0?"#16a34a":"#dc2626", marginTop:2}}>{vsEsteMs>=0?"+":""}{(vsEsteMs*100).toFixed(0)}% vs plan</div>}
-              </div>
-              <div style={{padding:"10px 12px", background:B.offW, borderRadius:8}}>
-                <div style={{fontSize:9, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>📊 Promedio mensual</div>
-                <div style={{fontSize:15, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>{fmtK(velocidadActualMensual)}</div>
-                <div style={{fontSize:11, color:B.grey4}}>YTD · {mesActual+1} meses</div>
-              </div>
-              <div style={{padding:"10px 12px", background:ritmoOk?"#ecfdf5":"#fef2f2", borderRadius:8, borderLeft:"3px solid "+(ritmoOk?"#10b981":"#dc2626")}}>
-                <div style={{fontSize:9, fontWeight:700, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>🎯 Necesitas/mes para cerrar</div>
-                <div style={{fontSize:15, fontWeight:800, color:ritmoOk?"#16a34a":"#dc2626", fontFamily:"'Playfair Display',serif", marginTop:2}}>{fmtK(necesitaPorMes)}</div>
-                <div style={{fontSize:11, color:B.grey4}}>Llevas {fmtK(velocidadActualMensual)}/mes · {ritmoOk?"✅ en ritmo":"⚠ por debajo"}</div>
-              </div>
+          <div style={{background:B.white,borderRadius:14,padding:"20px 24px",marginBottom:24,border:"1px solid "+B.grey1}}>
+            <div style={{fontSize:18,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif",marginBottom:4}}>📊 Meta vs Real — Plan Mensual</div>
+            <div style={{fontSize:11,color:B.grey4,marginBottom:16}}>Plan (manual) + Real (cerrado) · en pesos</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:900}}>
+                <thead>
+                  <tr style={{background:B.navy}}>
+                    <th style={{padding:"8px 10px",textAlign:"left",color:"#fff",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:0.8,minWidth:90}}>CONCEPTO</th>
+                    {MESES_CORTOS.map((m,i)=>(
+                      <th key={i} style={{padding:"8px 6px",textAlign:"right",color:i===mesActual?B.gold:"rgba(255,255,255,0.85)",fontSize:9,fontWeight:i===mesActual?900:600,minWidth:58,background:i===mesActual?"rgba(255,255,255,0.08)":"transparent"}}>
+                        {m}{i===mesActual&&<div style={{fontSize:7,color:B.gold}}>HOY</div>}
+                      </th>
+                    ))}
+                    <th style={{padding:"8px 8px",textAlign:"right",color:"rgba(255,255,255,0.85)",fontSize:9,fontWeight:800,minWidth:64,borderLeft:"1px solid rgba(255,255,255,0.2)"}}>TOTAL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* PLAN */}
+                  <tr style={{borderBottom:"1px solid "+B.grey1}}>
+                    <td style={{padding:"9px 10px",fontWeight:700,color:B.navy,fontSize:11}}>🎯 Plan</td>
+                    {planMensual.map((v,i)=>(
+                      <td key={i} style={{padding:"9px 6px",textAlign:"right",fontSize:11,color:v>0?B.navy:B.grey3,background:i===mesActual?"#fafbff":"transparent"}}>
+                        {v>0?fmtMoney(v):"—"}
+                      </td>
+                    ))}
+                    <td style={{padding:"9px 8px",textAlign:"right",fontWeight:800,color:B.navy,borderLeft:"1px solid "+B.grey1}}>{fmtMoney(totalPlan)}</td>
+                  </tr>
+                  {/* REAL */}
+                  <tr style={{borderBottom:"1px solid "+B.grey1,background:B.offW}}>
+                    <td style={{padding:"9px 10px",fontWeight:700,color:"#16a34a",fontSize:11}}>✅ Real</td>
+                    {ventasMensuales.map((v,i)=>(
+                      <td key={i} style={{padding:"9px 6px",textAlign:"right",fontSize:11,
+                        color:i>mesActual?"#94a3b8":v>0?"#16a34a":"#dc2626",
+                        fontWeight:v>0?700:400,
+                        background:i===mesActual?"#f0fdf4":"transparent"}}>
+                        {i>mesActual?"—":v>0?fmtMoney(v):"$0"}
+                      </td>
+                    ))}
+                    <td style={{padding:"9px 8px",textAlign:"right",fontWeight:800,color:"#16a34a",borderLeft:"1px solid "+B.grey1}}>{fmtMoney(totalReal)}</td>
+                  </tr>
+                  {/* DELTA */}
+                  <tr>
+                    <td style={{padding:"9px 10px",fontWeight:700,color:B.grey4,fontSize:11}}>⚡ Δ Real vs Plan</td>
+                    {planMensual.map((plan,i)=>{
+                      const real=ventasMensuales[i]||0;
+                      const delta=real-plan;
+                      const isPast=i<=mesActual;
+                      return (
+                        <td key={i} style={{padding:"9px 6px",textAlign:"right",fontSize:11,
+                          color:!isPast?"#94a3b8":delta>0?"#16a34a":delta<0?"#dc2626":B.grey3,
+                          fontWeight:isPast&&delta!==0?700:400,
+                          background:i===mesActual?"#fff7ed":"transparent"}}>
+                          {!isPast?"—":delta===0?"0":delta>0?"+"+fmtMoney(delta):fmtMoney(delta)}
+                        </td>
+                      );
+                    })}
+                    <td style={{padding:"9px 8px",textAlign:"right",fontWeight:800,color:totalDelta>=0?"#16a34a":"#dc2626",borderLeft:"1px solid "+B.grey1}}>
+                      {totalDelta>=0?"+":""}{fmtMoney(totalDelta)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
           );
         })()}
-
-
         {/* ═══════════════════════════════════════════════════════════════
             INTELIGENCIA DE MERCADO — Panel de decisión comercial
             ═══════════════════════════════════════════════════════════════ */}
