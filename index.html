@@ -5041,6 +5041,8 @@ function MacroProMatcher() {
       if(!showQuickProspModal||!quickProspData) return null;
       const {lot,p,prospectoIdx,crm,cli:cliQ}=quickProspData;
       const [tempEdit,setTempEdit]=React.useState(p.temperatura||(cliQ&&cliQ.temperatura)||"");
+      const [giroEdit,setGiroEdit]=React.useState(p.giro||"");
+      const [canalEdit,setCanalEdit]=React.useState(p.canal||"");
       const [asesorEdit,setAsesorEdit]=React.useState(p.asesor||crm.asesorResponsable||(cliQ&&cliQ.asesor)||"");
       const [notaEdit,setNotaEdit]=React.useState(p.nota||"");
       const [tabQ,setTabQ]=React.useState(quickProspInitTab||"acciones");
@@ -5059,7 +5061,7 @@ function MacroProMatcher() {
 
       const guardarCambios=()=>{
         setSaving(true);
-        const prospActualizado={...p,nombre:nombreEdit&&nombreEdit.trim()?nombreEdit.trim():p.nombre,temperatura:tempEdit||p.temperatura,asesor:asesorEdit,nota:notaEdit};
+        const prospActualizado={...p,nombre:nombreEdit&&nombreEdit.trim()?nombreEdit.trim():p.nombre,temperatura:tempEdit||p.temperatura,asesor:asesorEdit,nota:notaEdit,giro:giroEdit,canal:canalEdit};
         if(loteEdit!==lot.id){
           // Mover prospecto al nuevo lote
           const prospOrigen=[...(crm.prospectos||[])];
@@ -7489,7 +7491,7 @@ Respuesta: [respuesta exacta, conversacional]
         const tempLegend={"Caliente":"(C)","Tibio":"(T)","Frío":"(F)","Frio":"(F)","En cierre":"(EC)","Cerrado":"(✓)","Descartado":"(X)"};
         const cols=modo==="ceo"
           ?["Cliente","T","Etapa","Asesor","Dias","Interacc.","Proxima Accion","Fecha"]
-          :["Cliente","T","Etapa en Pipeline","Asesor"];
+          :["Cliente","T","Empresa","Etapa","Giro","Asesor"];
         const STAGE_ORD_PDF={"Vendido":10,"Contrato":9,"Apartado":8,"Propuesta":7,"En negociación":6,"En análisis":5,"Visita":4,"Cita":3,"Contactado":2,"Prospecto":1,"Descartado":0};
         const sortedProspActivos=[...prospActivos].sort((a,b)=>(STAGE_ORD_PDF[b.pip]||0)-(STAGE_ORD_PDF[a.pip]||0));
         const rows=sortedProspActivos.map(r=>{
@@ -7497,12 +7499,12 @@ Respuesta: [respuesta exacta, conversacional]
           const prox=r.proximaAct?(r.actVencida?"[VENCIDA] ":"")+r.proximaAct.tipo+(r.proximaAct.descripcion?" - "+r.proximaAct.descripcion.slice(0,35):""):"Sin actividad agendada";
           const fecha=r.proximaAct?r.proximaAct.fecha:"-";
           if(modo==="ceo") return [r.p.nombre,temp,r.pip,r.asesor,r.diasEnPipeline!==null?r.diasEnPipeline+"d":"-",r.interacciones+"",prox,fecha];
-          return [r.p.nombre,temp,r.pip,r.asesor];
+          return [r.p.nombre,temp,r.p.empresa||"-",r.pip,r.p.giro||"-",r.asesor];
         });
         doc.autoTable({startY:Y,head:[cols],body:rows,theme:"striped",
           headStyles:{fillColor:[8,145,178],textColor:white,fontSize:7,fontStyle:"bold"},
           bodyStyles:{fontSize:7,textColor:[51,65,85]},
-          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:55},1:{halign:"center",cellWidth:8},2:{cellWidth:40},3:{cellWidth:35}},
+          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:35},1:{halign:"center",cellWidth:5},2:{cellWidth:28},3:{cellWidth:22},4:{cellWidth:20},5:{cellWidth:28}},
           margin:{left:margin,right:margin},
           didParseCell:(data)=>{
             if(data.section==="body"&&data.column.index===1){
@@ -7519,100 +7521,130 @@ Respuesta: [respuesta exacta, conversacional]
       }
 
       // ══════════════════════════════════════════
-      // SECCION 3: TEMPERATURA Y URGENCIA
+      // SECCION 3: EMBUDO / TEMPERATURA Y URGENCIA
       // ══════════════════════════════════════════
       checkPage(40);
-      sectionHeader("3 | TEMPERATURA DE PROSPECTOS  Y  URGENCIA");
-      const byTemp={Caliente:[],Tibio:[],Frio:[],EnCierre:[],Cerrado:[],Descartado:[]}; 
       const vencidos=[]; const sinActividad=[];
-      prospActivos.forEach(p=>{
-        const tp=getTempFromPipeline(p.pipeline);
-        const k=tp==="Caliente"?"Caliente":tp==="Tibio"?"Tibio":tp==="En cierre"?"EnCierre":tp==="Cerrado"?"Cerrado":"Frio";
-        byTemp[k].push(p);
-        if(p.actVencida) vencidos.push(p);
-        if(!p.proximaAct) sinActividad.push(p);
-      });
-      const tempBlocks=[[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Caliente,"CALIENTES",red],[byTemp.Cerrado,"CERRADOS",[22,163,74]]];
-      const bw=(pageW-margin*2)/tempBlocks.length;
-      tempBlocks.forEach(([arr,label,col],i)=>{
-        const bx=margin+i*bw;
-        const cx=bx+bw/2;
-        doc.setFillColor(...col); doc.roundedRect(bx,Y,bw-2,22,2,2,"F");
-        doc.setTextColor(...white); doc.setFont("helvetica","bold"); doc.setFontSize(16);
-        doc.text(arr.length+"",cx,Y+13,{align:"center"});
-        doc.setFontSize(6.5); doc.setFont("helvetica","normal");
-        doc.text(label,cx,Y+19,{align:"center"});
-      });
-      Y+=28;
-      if(vencidos.length>0||sinActividad.length>0){
-        doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(...red);
-        if(vencidos.length>0) doc.text("ACCION REQUERIDA: "+vencidos.length+" actividad(es) vencida(s) - "+vencidos.map(p=>p.p.nombre).slice(0,3).join(", ")+(vencidos.length>3?"...":""),margin,Y);
-        Y+=5;
-        doc.setTextColor(...amber);
-        if(sinActividad.length>0) doc.text("SIN SIGUIENTE PASO: "+sinActividad.length+" prospecto(s) sin actividad agendada - "+sinActividad.map(p=>p.p.nombre).slice(0,3).join(", ")+(sinActividad.length>3?"...":""),margin,Y);
-        Y+=8;
+      prospActivos.forEach(p=>{ if(p.actVencida) vencidos.push(p); if(!p.proximaAct) sinActividad.push(p); });
+      if(modo==="ceo"){
+        sectionHeader("3 | TEMPERATURA DE PROSPECTOS  Y  URGENCIA");
+        const byTemp={Caliente:[],Tibio:[],Frio:[],EnCierre:[],Cerrado:[],Descartado:[]};
+        prospActivos.forEach(p=>{
+          const tp=getTempFromPipeline(p.pipeline);
+          const k=tp==="Caliente"?"Caliente":tp==="Tibio"?"Tibio":tp==="En cierre"?"EnCierre":tp==="Cerrado"?"Cerrado":"Frio";
+          byTemp[k].push(p);
+        });
+        const tempBlocks=[[byTemp.Frio,"FRIOS",[37,99,235]],[byTemp.Tibio,"TIBIOS",amber],[byTemp.Caliente,"CALIENTES",red],[byTemp.Cerrado,"CERRADOS",[22,163,74]]];
+        const bw=(pageW-margin*2)/tempBlocks.length;
+        tempBlocks.forEach(([arr,label,col],i)=>{
+          const bx=margin+i*bw; const cx=bx+bw/2;
+          doc.setFillColor(...col); doc.roundedRect(bx,Y,bw-2,22,2,2,"F");
+          doc.setTextColor(...white); doc.setFont("helvetica","bold"); doc.setFontSize(16);
+          doc.text(arr.length+"",cx,Y+13,{align:"center"});
+          doc.setFontSize(6.5); doc.setFont("helvetica","normal"); doc.text(label,cx,Y+19,{align:"center"});
+        });
+        Y+=28;
+        if(vencidos.length>0||sinActividad.length>0){
+          doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(...red);
+          if(vencidos.length>0) doc.text("ACCION REQUERIDA: "+vencidos.length+" actividad(es) vencida(s) - "+vencidos.map(p=>p.p.nombre).slice(0,3).join(", ")+"...",margin,Y); Y+=5;
+          doc.setTextColor(...amber);
+          if(sinActividad.length>0) doc.text("SIN SIGUIENTE PASO: "+sinActividad.length+" prospecto(s) sin actividad agendada - "+sinActividad.map(p=>p.p.nombre).slice(0,3).join(", ")+"...",margin,Y); Y+=8;
+        }
+        // ACTIVIDAD DEL PERIODO (solo CEO)
+        checkPage(30);
+        sectionHeader("+ | ACTIVIDAD DEL PERIODO  |  ESTE MES",[75,85,99]);
+        const hoyMs=Date.now();
+        const inicioMes=new Date(ahora.getFullYear(),ahora.getMonth(),1).getTime();
+        let totalInteracc=0,llamadas=0,visitas=0,propuestas=0,nuevosProsp=0,diasEnStage=[];
+        lotesFiltrados.forEach(lot=>{
+          const crm=crmData[lot.id]; if(!crm) return;
+          (crm.interacciones||[]).forEach(i=>{
+            const t=new Date(i.fecha||i.date||0).getTime();
+            if(t>=inicioMes){ totalInteracc++;
+              const tipo=(i.tipo||i.canal||"").toLowerCase();
+              if(tipo.includes("llam")||tipo.includes("tel")||tipo.includes("whats")) llamadas++;
+              else if(tipo.includes("visit")||tipo.includes("reuni")) visitas++;
+              else if(tipo.includes("prop")) propuestas++;
+            }
+          });
+          (crm.prospectos||[]).forEach(p=>{
+            if(p&&p.fechaCreacion&&new Date(p.fechaCreacion).getTime()>=inicioMes) nuevosProsp++;
+            if(p&&p.pipeline&&["Prospecto","Contactado","Cita","Visita","En análisis","En negociacion","En negociación","Propuesta","Apartado","Contrato"].includes(p.pipeline)){
+              if(crm.lastContact){ const d=Math.floor((hoyMs-new Date(crm.lastContact).getTime())/864e5); diasEnStage.push({stage:p.pipeline,dias:d,nombre:p.nombre}); }
+            }
+          });
+        });
+        const avgDias=diasEnStage.length>0?Math.round(diasEnStage.reduce((a,d)=>a+d.dias,0)/diasEnStage.length):0;
+        const actMetrics=[[nuevosProsp+"","NUEVOS PROSP.",[217,119,6]],[llamadas+"","LLAMADAS / WA",[8,145,178]],[visitas+"","VISITAS",[22,163,74]],[propuestas+"","PROPUESTAS",[139,92,246]],[totalInteracc+"","INTERACCIONES",[0,43,73]],[avgDias+"d","DIAS PROM. PIPELINE",[100,116,139]]];
+        const mw=(pageW-margin*2)/actMetrics.length;
+        actMetrics.forEach(([val,lbl,col],i)=>{
+          const bx=margin+i*mw; const cx=bx+mw/2;
+          doc.setFillColor(...col); doc.roundedRect(bx,Y,mw-2,22,2,2,"F");
+          doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(12);
+          doc.text(val,cx,Y+12,{align:"center"});
+          doc.setFontSize(5.5); doc.setFont("helvetica","normal"); doc.text(lbl,cx,Y+18,{align:"center"});
+        });
+        Y+=26;
+      } else {
+        // CLIENTE: EMBUDO ACUMULATIVO VISUAL
+        sectionHeader("3 | EMBUDO DE VENTAS",[8,145,178]);
+        const embStages=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
+        const stageOrdEmb={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":0};
+        const stageColEmb={"Prospecto":[100,116,139],"Contactado":[59,130,246],"Cita":[8,145,178],"Visita":[13,148,136],"En análisis":[99,102,241],"En negociación":[196,154,34],"Propuesta":[139,92,246],"Apartado":[249,115,22],"Contrato":[8,182,212],"Vendido":[34,197,94],"Descartado":[148,163,184]};
+        const totalAll=prospActivos.length||1;
+        const maxW=pageW-margin*2;
+        const rowH=9;
+        checkPage(embStages.length*rowH+20);
+        // Funnel: barra ancha arriba, se estrecha abajo
+        embStages.forEach((s,idx)=>{
+          const isDesc=s==="Descartado";
+          const ord=stageOrdEmb[s]||0;
+          const cnt=isDesc
+            ? prospActivos.filter(p=>p.pip==="Descartado").length
+            : prospActivos.filter(p=>(stageOrdEmb[p.pip]||0)>=ord).length;
+          const pct=Math.round(cnt/totalAll*100);
+          const col=stageColEmb[s]||grey;
+          // Barra proporcional
+          const barW=isDesc?Math.max(10,pct/100*maxW*0.5):Math.max(12,pct/100*maxW);
+          const barX=margin+(maxW-barW)/2;
+          doc.setFillColor(...col);
+          doc.roundedRect(barX,Y,barW,rowH-1,1,1,"F");
+          // Nombre etapa
+          doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...white);
+          doc.text(s,barX+4,Y+rowH/2+1);
+          // Número
+          doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...white);
+          doc.text(cnt+"  ("+pct+"%)",barX+barW-30,Y+rowH/2+1,{align:"right"});
+          if(isDesc){
+            doc.setFont("helvetica","italic"); doc.setFontSize(5.5);
+            doc.setTextColor(...grey);
+            doc.text("↳ no contabilizados en el funnel",barX+barW+2,Y+rowH/2+1);
+          }
+          Y+=rowH;
+        });
+        Y+=6;
       }
 
-
-      // ══════════════════════════════════════════
-      // SECCION 3B: ACTIVIDAD DEL PERIODO
-      // ══════════════════════════════════════════
-      checkPage(30);
-      sectionHeader("+ | ACTIVIDAD DEL PERIODO  |  ESTE MES",[75,85,99]);
-      const hoyMs=Date.now();
-      const inicioMes=new Date(ahora.getFullYear(),ahora.getMonth(),1).getTime();
-      let totalInteracc=0,llamadas=0,visitas=0,propuestas=0,nuevosProsp=0,diasEnStage=[];
-      lotesFiltrados.forEach(lot=>{
-        const crm=crmData[lot.id]; if(!crm) return;
-        // Interacciones del mes
-        (crm.interacciones||[]).forEach(i=>{
-          const t=new Date(i.fecha||i.date||0).getTime();
-          if(t>=inicioMes){ totalInteracc++;
-            const tipo=(i.tipo||i.canal||"").toLowerCase();
-            if(tipo.includes("llam")||tipo.includes("tel")||tipo.includes("whats")) llamadas++;
-            else if(tipo.includes("visit")||tipo.includes("reuni")) visitas++;
-            else if(tipo.includes("prop")) propuestas++;
-          }
-        });
-        // Nuevos prospectos este mes
-        (crm.prospectos||[]).forEach(p=>{
-          if(p&&p.fechaCreacion&&new Date(p.fechaCreacion).getTime()>=inicioMes) nuevosProsp++;
-          // Días promedio en etapa activa
-          if(p&&p.pipeline&&["Prospecto","Contactado","Cita","Visita","En análisis","En negociacion","En negociación","Propuesta","Apartado","Contrato"].includes(p.pipeline)){
-            if(crm.lastContact){
-              const d=Math.floor((hoyMs-new Date(crm.lastContact).getTime())/864e5);
-              diasEnStage.push({stage:p.pipeline,dias:d,nombre:p.nombre});
-            }
-          }
-        });
-      });
-      const avgDias=diasEnStage.length>0?Math.round(diasEnStage.reduce((a,d)=>a+d.dias,0)/diasEnStage.length):0;
-      const actMetrics=[[nuevosProsp+"","NUEVOS PROSP.",[217,119,6]],[llamadas+"","LLAMADAS / WA",[8,145,178]],[visitas+"","VISITAS",[22,163,74]],[propuestas+"","PROPUESTAS",[139,92,246]],[totalInteracc+"","INTERACCIONES",[0,43,73]],[avgDias+"d","DIAS PROM. PIPELINE",[100,116,139]]];
-      const mw=(pageW-margin*2)/actMetrics.length;
-      actMetrics.forEach(([val,lbl,col],i)=>{
-        const bx=margin+i*mw;
-        const cx=bx+mw/2;
-        doc.setFillColor(...col); doc.roundedRect(bx,Y,mw-2,22,2,2,"F");
-        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(12);
-        doc.text(val,cx,Y+12,{align:"center"});
-        doc.setFontSize(5.5); doc.setFont("helvetica","normal");
-        doc.text(lbl,cx,Y+18,{align:"center"});
-      });
-      Y+=26;
-
-      // ══════════════════════════════════════════
+            // ══════════════════════════════════════════
       // SECCION 4: TOP DEALS
       // ══════════════════════════════════════════
       checkPage(20);
       sectionHeader("4 | TOP DEALS EN PIPELINE",[22,163,74]);
-      const topDeals=lotesFiltrados.map(l=>({lot:l,pip:getLotePipelineLocal(l.id),ponderado:(l.precio_total||0)*(stageProb[getLotePipelineLocal(l.id)]||0)}))
-        .filter(d=>ACTIVE_STAGES.includes(d.pip)).sort((a,b)=>b.ponderado-a.ponderado).slice(0,8);
+      const ETAPAS_PIPELINE_ACTIVO=["En análisis","En negociación","Propuesta","Apartado","Contrato"];
+      const topDeals=lotesFiltrados.map(l=>{
+        const pip=getLotePipelineLocal(l.id);
+        const prospsLote=(crmData[l.id]&&crmData[l.id].prospectos)||[];
+        const mejorP=prospsLote.filter(p=>p&&p.pipeline===pip)[0]||prospsLote[0]||null;
+        return {lot:l,pip,ponderado:(l.precio_total||0)*(stageProb[pip]||0),pNombre:mejorP?mejorP.nombre:"—",pEmpresa:mejorP?mejorP.empresa||"—":"—"};
+      })
+        .filter(d=>modo==="cliente"?ETAPAS_PIPELINE_ACTIVO.includes(d.pip):ACTIVE_STAGES.includes(d.pip))
+        .sort((a,b)=>b.ponderado-a.ponderado).slice(0,8);
       if(topDeals.length>0){
         const dealRows=topDeals.map((d,i)=>modo==="cliente"
-          ?[(i+1)+"",d.lot.nombre||"—",d.lot.desarrollo||"—",d.pip,fmtMoney(d.lot.precio_total||0)]
+          ?[(i+1)+"",d.lot.nombre||"—",d.pNombre,d.pEmpresa,d.lot.desarrollo||"—",d.lot.sup_m2?(d.lot.sup_m2).toLocaleString()+" m²":"—",d.pip,fmtMoney(d.lot.precio_total||0)]
           :[(i+1)+"",d.lot.nombre||"—",d.lot.desarrollo||"—",d.pip,fmtMoney(d.lot.precio_total||0),fmtMoney(d.ponderado)]);
-        const dealHead=modo==="cliente"?[["#","Lote","Desarrollo","Etapa","Valor"]]:[["#","Lote","Desarrollo","Etapa","Valor","Ponderado"]];
-        const dealCols=modo==="cliente"?{0:{halign:"center",cellWidth:8},4:{halign:"right",fontStyle:"bold"}}:{0:{halign:"center",cellWidth:8},4:{halign:"right"},5:{halign:"right",textColor:gold,fontStyle:"bold"}};
+        const dealHead=modo==="cliente"?[["#","Lote","Cliente","Empresa","Desarrollo","m²","Etapa","Valor"]]:[["#","Lote","Desarrollo","Etapa","Valor","Ponderado"]];
+        const dealCols=modo==="cliente"?{0:{halign:"center",cellWidth:5},5:{halign:"right",cellWidth:14},7:{halign:"right",fontStyle:"bold",cellWidth:14}}:{0:{halign:"center",cellWidth:8},4:{halign:"right"},5:{halign:"right",textColor:gold,fontStyle:"bold"}};
         doc.autoTable({startY:Y,head:dealHead,body:dealRows,theme:"striped",
           headStyles:{fillColor:[22,163,74],textColor:white,fontSize:8,fontStyle:"bold"},
           bodyStyles:{fontSize:8},
@@ -8455,6 +8487,52 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
           </div>
         </div>
+
+        {/* ═══════ SECCIÓN EMBUDO ═══════ */}
+        {(()=>{
+          const embStages=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido"];
+          const stageOrdEmb={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10};
+          const totalAll=prospectosActivos.length||1;
+          const descartados=prospectosActivos.filter(p=>p.pipeline==="Descartado").length;
+          return (
+          <div style={{background:B.white,borderRadius:14,padding:"20px 24px",marginBottom:24,border:"1px solid "+B.grey1}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16}}>
+              <div style={{fontSize:18,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>🔽 Embudo de Ventas</div>
+              <div style={{fontSize:11,color:B.grey4}}>Acumulado · cada etapa incluye las siguientes</div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:5,alignItems:"stretch"}}>
+              {embStages.map((s,idx)=>{
+                const ord=stageOrdEmb[s]||0;
+                const cnt=prospectosActivos.filter(p=>(stageOrdEmb[p.pipeline]||0)>=ord).length;
+                const pct=totalAll>0?Math.round(cnt/totalAll*100):0;
+                const col=PIPELINE_COLORS[s]||B.grey3;
+                const isLast=s==="Vendido";
+                return (
+                  <div key={s} style={{display:"flex",alignItems:"center",gap:10}}>
+                    {/* Etiqueta */}
+                    <div style={{width:110,fontSize:11,fontWeight:700,color:B.navy,textAlign:"right",flexShrink:0}}>{s}</div>
+                    {/* Barra funnel — más ancha arriba */}
+                    <div style={{flex:1,height:24,position:"relative",display:"flex",alignItems:"center"}}>
+                      <div style={{
+                        width:Math.max(4,pct)+"%",
+                        height:"100%",
+                        background:col,
+                        borderRadius:3,
+                        transition:"width 0.4s",
+                        display:"flex",alignItems:"center",justifyContent:"flex-end",paddingRight:8,minWidth:40
+                      }}>
+                        <span style={{fontSize:11,fontWeight:800,color:"#fff",whiteSpace:"nowrap"}}>{cnt}</span>
+                      </div>
+                      <span style={{marginLeft:8,fontSize:10,color:B.grey4,fontWeight:600}}>{pct}%</span>
+                    </div>
+                    {isLast&&descartados>0&&<span style={{fontSize:10,color:B.grey3,marginLeft:4}}>({descartados} descartados)</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          );
+        })()}
 
         {/* ═══════ SECCIÓN 3: PERFORMANCE POR DESARROLLADOR ═══════ */}
         {rankingDevs.length>0&&(
