@@ -7504,7 +7504,7 @@ Respuesta: [respuesta exacta, conversacional]
         doc.autoTable({startY:Y,head:[cols],body:rows,theme:"striped",
           headStyles:{fillColor:[8,145,178],textColor:white,fontSize:7,fontStyle:"bold"},
           bodyStyles:{fontSize:7,textColor:[51,65,85]},
-          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:30},1:{halign:"center",cellWidth:5},2:{cellWidth:24},3:{cellWidth:20},4:{cellWidth:18},5:{cellWidth:16},6:{cellWidth:22}},
+          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:30},1:{halign:"center",cellWidth:8},2:{cellWidth:24},3:{cellWidth:20},4:{cellWidth:18},5:{cellWidth:16},6:{cellWidth:22}},
           margin:{left:margin,right:margin},
           didParseCell:(data)=>{
             if(data.section==="body"&&data.column.index===1){
@@ -7599,12 +7599,12 @@ Respuesta: [respuesta exacta, conversacional]
           const isDesc=s==="Descartado";
           const ord=stageOrdEmb[s]||0;
           const cnt=isDesc
-            ? prospActivos.filter(p=>p.pip==="Descartado").length
+            ? lotesFiltrados.reduce((acc,l)=>acc+((crmData[l.id]&&crmData[l.id].prospectos)||[]).filter(p=>p&&p.pipeline==="Descartado").length,0)
             : prospActivos.filter(p=>(stageOrdEmb[p.pip]||0)>=ord).length;
           const bx=margin+idx*(bwEmb+2);
           const col=stageColEmb[s]||grey;
-          doc.setFillColor(...col);
-          if(isDesc) doc.setFillColor(col[0],col[1],col[2],0.5);
+          if(isDesc){ doc.setFillColor(180,190,200); }
+          else { doc.setFillColor(col[0],col[1],col[2]); }
           doc.roundedRect(bx,Y,bwEmb,bh,1.5,1.5,"F");
           doc.setTextColor(...white); doc.setFont("helvetica","bold"); doc.setFontSize(11);
           doc.text(cnt+"",bx+bwEmb/2,Y+bh/2+1,{align:"center"});
@@ -7878,6 +7878,8 @@ Respuesta: [respuesta exacta, conversacional]
 
 
       // ══════════════════════════════════════════
+      } // fin if modo !== cliente (sec 8 y posicionamiento)
+
       // SECCION METAS: PLAN VS REAL (ambas versiones)
       // ══════════════════════════════════════════
       const metasEntCliente=Object.entries(metasData||{}).filter(([nombre,d])=>{
@@ -7926,7 +7928,7 @@ Respuesta: [respuesta exacta, conversacional]
         });
         Y=doc.lastAutoTable.finalY+8;
       }
-      } // fin if modo !== cliente (sec 8)
+
 
       // ══════════════════════════════════════════
       // SECCION 7: RIESGOS Y ALERTAS (solo CEO)
@@ -8546,7 +8548,7 @@ Respuesta: [respuesta exacta, conversacional]
                 const isDesc=s==="Descartado";
                 const ord=stageOrdEmb[s]||0;
                 const cnt=isDesc
-                  ? prospectosActivos.filter(p=>p.pipeline==="Descartado").length
+                  ? (pipelinePorEtapa["Descartado"]?.count||0)
                   : prospectosActivos.filter(p=>(stageOrdEmb[p.pipeline]||0)>=ord).length;
                 const col=PIPELINE_COLORS[s]||B.grey3;
                 return (
