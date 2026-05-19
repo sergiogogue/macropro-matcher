@@ -7893,10 +7893,9 @@ Respuesta: [respuesta exacta, conversacional]
         return true;
       });
       if(metasEntCliente.length>0){
-        checkPage(60);
+        checkPage(90);
         sectionHeader("PLAN VS REAL  |  CIERRE "+ahora.getFullYear(),[16,185,129]);
         const MESES_PDF=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-        // Agregar plan y real consolidados por mes
         const planMes=new Array(12).fill(0);
         const realMes=new Array(12).fill(0);
         metasEntCliente.forEach(([nombre,d])=>{
@@ -7906,99 +7905,103 @@ Respuesta: [respuesta exacta, conversacional]
         const totalPlanAno=planMes.reduce((a,b)=>a+b,0);
         const totalRealAno=realMes.reduce((a,b)=>a+b,0);
         const totalDeltaAno=totalRealAno-totalPlanAno;
-
-        // ── GRÁFICA DE BARRAS AGRUPADAS ──────────────────────────────
-        const chartMarginL=margin+2;
-        const chartW=doc.internal.pageSize.getWidth()-margin*2-4;
-        const chartH=44;
-        const chartY=Y+4;
+        const axisW=18;
+        const cGX=margin+axisW;
+        const cGW=pageW-margin*2-axisW;
+        const cGH=65;
+        const cGY=Y+2;
         const maxVal=Math.max(...planMes,...realMes.map(v=>v||0),1);
-        const colW=chartW/12;
-        const barW=colW*0.35;
-        const gap=colW*0.05;
-
-        // Fondo del área de la gráfica
-        doc.setFillColor(248,250,252);
-        doc.roundedRect(chartMarginL-2,chartY-2,chartW+4,chartH+14,2,2,"F");
-        doc.setDrawColor(226,232,240);
-        doc.setLineWidth(0.2);
-        doc.roundedRect(chartMarginL-2,chartY-2,chartW+4,chartH+14,2,2,"S");
-
-        // Líneas de referencia horizontales (25%, 50%, 75%, 100%)
-        [0.25,0.5,0.75,1].forEach(pct=>{
-          const lineY=chartY+chartH-(pct*chartH);
-          doc.setDrawColor(226,232,240); doc.setLineWidth(0.15);
-          doc.line(chartMarginL,lineY,chartMarginL+chartW,lineY);
-          doc.setFont("helvetica","normal"); doc.setFontSize(5); doc.setTextColor(148,163,184);
-          doc.text(fmtMoney(maxVal*pct),chartMarginL-1,lineY+1,{align:"right"});
+        const colW=cGW/12;
+        const barW=Math.min(colW*0.3,6);
+        const pairGap=1;
+        doc.setFillColor(250,251,253);
+        doc.roundedRect(margin,cGY-4,pageW-margin*2,cGH+22,2,2,"F");
+        doc.setDrawColor(220,228,236); doc.setLineWidth(0.25);
+        doc.roundedRect(margin,cGY-4,pageW-margin*2,cGH+22,2,2,"S");
+        [0.25,0.5,0.75,1.0].forEach(pct=>{
+          const ly=cGY+cGH-(pct*cGH);
+          doc.setDrawColor(230,235,242); doc.setLineWidth(0.15);
+          doc.line(cGX,ly,cGX+cGW-2,ly);
+          doc.setFont("helvetica","normal"); doc.setFontSize(5); doc.setTextColor(160,170,180);
+          doc.text(fmtMoney(maxVal*pct),cGX-1,ly+1.2,{align:"right"});
         });
-
-        // Dibujar barras por mes
+        doc.setDrawColor(180,190,200); doc.setLineWidth(0.4);
+        doc.line(cGX,cGY+cGH,cGX+cGW-2,cGY+cGH);
         MESES_PDF.forEach((mes,i)=>{
-          const cx=chartMarginL+(i*colW)+(colW/2);
-          const planH=planMes[i]>0?(planMes[i]/maxVal)*chartH:0;
-          const realH=(realMes[i]||0)>0?((realMes[i]||0)/maxVal)*chartH:0;
+          const cx=cGX+(i*colW)+(colW/2);
+          const plan=planMes[i]||0;
+          const real=realMes[i]||0;
           const isFuture=i>mesActual;
-
-          // Barra Plan (azul navy, siempre visible si hay valor)
-          if(planMes[i]>0){
-            doc.setFillColor(isFuture?200:30, isFuture?210:41, isFuture?230:99);
-            doc.roundedRect(cx-barW-gap/2,chartY+chartH-planH,barW,planH,0.5,0.5,"F");
-            // Valor encima
-            doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
-            doc.setTextColor(isFuture?180:30,isFuture?180:41,isFuture?200:99);
-            doc.text(fmtMoney(planMes[i]),cx-barW/2-gap/2,chartY+chartH-planH-1.5,{align:"center"});
+          const isHoy=i===mesActual;
+          if(isHoy){ doc.setFillColor(255,248,230); doc.rect(cx-colW/2,cGY,colW,cGH,"F"); }
+          if(plan>0){
+            const ph=Math.max((plan/maxVal)*cGH,1);
+            const bx=cx-pairGap/2-barW;
+            const by=cGY+cGH-ph;
+            doc.setFillColor(isFuture?180:30,isFuture?188:64,isFuture?210:175);
+            doc.roundedRect(bx,by,barW,ph,0.8,0.8,"F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(5);
+            doc.setTextColor(isFuture?150:30,isFuture?158:64,isFuture?185:175);
+            doc.text(fmtMoney(plan),bx+barW/2,by-1.2,{align:"center"});
           }
-
-          // Barra Real (verde si >=plan, ámbar si <plan, gris si futuro)
-          const rv=realMes[i]||0;
           if(!isFuture){
-            const isOk=rv>=planMes[i];
-            const fillC=rv===0?[220,220,220]:isOk?[22,163,74]:[245,158,11];
-            doc.setFillColor(...fillC);
-            if(realH>0) doc.roundedRect(cx+gap/2,chartY+chartH-realH,barW,realH,0.5,0.5,"F");
-            else { doc.setFillColor(220,220,220); doc.rect(cx+gap/2,chartY+chartH-0.8,barW,0.8,"F"); }
-            // Valor encima
+            const rv=real;
+            const rh=rv>0?Math.max((rv/maxVal)*cGH,1.5):1;
+            const bx=cx+pairGap/2;
+            const by=cGY+cGH-rh;
+            const isOk=rv>=plan;
+            const rc=rv===0?[210,215,220]:isOk?[22,163,74]:[245,158,11];
+            doc.setFillColor(...rc);
+            doc.roundedRect(bx,by,barW,rh,0.8,0.8,"F");
             if(rv>0){
-              doc.setFont("helvetica","bold"); doc.setFontSize(5.5);
-              doc.setTextColor(...fillC);
-              doc.text(fmtMoney(rv),cx+barW/2+gap/2,chartY+chartH-realH-1.5,{align:"center"});
+              doc.setFont("helvetica","bold"); doc.setFontSize(5);
+              doc.setTextColor(...rc);
+              doc.text(fmtMoney(rv),bx+barW/2,by-1.2,{align:"center"});
             }
           }
-
-          // Label mes + marcador mes actual
-          doc.setFont("helvetica",i===mesActual?"bold":"normal");
-          doc.setFontSize(6); doc.setTextColor(i===mesActual?30:100,i===mesActual?41:116,i===mesActual?99:139);
-          doc.text(mes,cx,chartY+chartH+5,{align:"center"});
-          if(i===mesActual){ doc.setFillColor(245,158,11); doc.circle(cx,chartY+chartH+7.5,0.7,"F"); }
+          doc.setFont("helvetica",isHoy?"bold":"normal");
+          doc.setFontSize(isHoy?6:5.5);
+          doc.setTextColor(isHoy?180:120,isHoy?100:125,isHoy?0:135);
+          doc.text(mes,cx,cGY+cGH+5,{align:"center"});
+          if(isHoy){ doc.setFillColor(245,158,11); doc.circle(cx,cGY+cGH+7.5,0.9,"F"); }
         });
-
-        // Línea base
-        doc.setDrawColor(100,116,139); doc.setLineWidth(0.3);
-        doc.line(chartMarginL,chartY+chartH,chartMarginL+chartW,chartY+chartH);
-
-        Y+=chartH+18;
-
-        // ── LEYENDA + TOTALES ─────────────────────────────────────────
-        checkPage(14);
-        const lx=chartMarginL;
-        doc.setFillColor(30,41,99); doc.rect(lx,Y,8,4,"F");
-        doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(51,65,85);
-        doc.text("Plan",lx+10,Y+3.5);
-        doc.setFillColor(22,163,74); doc.rect(lx+28,Y,8,4,"F");
-        doc.text("Real",lx+38,Y+3.5);
-        doc.setFillColor(245,158,11); doc.rect(lx+56,Y,8,4,"F");
-        doc.text("Real < Plan",lx+66,Y+3.5);
-
-        // Totales a la derecha
-        const rx=chartMarginL+chartW;
-        doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(30,41,99);
-        doc.text("Plan total: "+fmtMoney(totalPlanAno),rx,Y+3.5,{align:"right"});
+        Y+=cGH+28;
+        checkPage(20);
+        const legItems=[
+          {c:[30,64,175],label:"Plan (meta)"},
+          {c:[22,163,74],label:"Real \u2265 Meta"},
+          {c:[245,158,11],label:"Real < Meta"},
+        ];
+        let legX=margin+axisW;
+        legItems.forEach(l=>{
+          doc.setFillColor(...l.c);
+          doc.roundedRect(legX,Y,7,4,0.5,0.5,"F");
+          doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.setTextColor(60,70,80);
+          doc.text(l.label,legX+9,Y+3.2);
+          legX+=doc.getTextWidth(l.label)+20;
+        });
+        doc.setFillColor(245,158,11);
+        doc.circle(legX+3,Y+2,1.5,"F");
+        doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.setTextColor(60,70,80);
+        doc.text("Mes actual",legX+7,Y+3.2);
+        const kpiX=pageW-margin-75;
+        doc.setFillColor(248,250,252);
+        doc.roundedRect(kpiX,Y-3,75,18,2,2,"F");
+        doc.setDrawColor(220,228,236); doc.setLineWidth(0.2);
+        doc.roundedRect(kpiX,Y-3,75,18,2,2,"S");
+        doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(100,110,125);
+        doc.text("PLAN ANUAL",kpiX+4,Y+2);
+        doc.text("REAL ACUM.",kpiX+31,Y+2);
+        doc.text("DIFERENCIA",kpiX+57,Y+2);
+        doc.setFont("helvetica","bold"); doc.setFontSize(8);
+        doc.setTextColor(30,64,175);
+        doc.text(fmtMoney(totalPlanAno),kpiX+4,Y+9);
         doc.setTextColor(22,163,74);
-        doc.text("Real total: "+fmtMoney(totalRealAno),rx,Y+9,{align:"right"});
-        doc.setTextColor(totalDeltaAno>=0?22:220,totalDeltaAno>=0?163:38,totalDeltaAno>=0?74:38);
-        doc.text("Δ "+(totalDeltaAno>=0?"+":"")+fmtMoney(totalDeltaAno),rx,Y+14.5,{align:"right"});
-        Y+=20;
+        doc.text(fmtMoney(totalRealAno),kpiX+31,Y+9);
+        doc.setTextColor(...(totalDeltaAno>=0?[22,163,74]:[220,38,38]));
+        doc.text((totalDeltaAno>=0?"+":"")+fmtMoney(totalDeltaAno),kpiX+57,Y+9);
+        Y+=22;
+      }
       }
 
 
@@ -8839,148 +8842,112 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
         </div>
 
-        {/* ═══════ SECCIÓN 6: PLAN VS REAL — GRÁFICA DE BARRAS ═══════ */}
+        {/* ═══════ SECCIÓN 6: PLAN VS REAL — GRÁFICA PROFESIONAL ═══════ */}
         {(()=>{
-          const MESES_CORTOS=["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
+          const MESES=[{l:"Ene"},{l:"Feb"},{l:"Mar"},{l:"Abr"},{l:"May"},{l:"Jun"},{l:"Jul"},{l:"Ago"},{l:"Sep"},{l:"Oct"},{l:"Nov"},{l:"Dic"}];
           const totalPlan=planMensual.reduce((a,b)=>a+(b||0),0);
           const totalReal=ventasMensuales.reduce((a,b)=>a+(b||0),0);
           const totalDelta=totalReal-totalPlan;
           const maxVal=Math.max(...planMensual,...ventasMensuales.map(v=>v||0),1);
-          const CHART_H=200;
-          const LABEL_H=36;
-          const AXIS_W=54;
-          // Colores
-          const COL_PLAN_PASADO=B.navy;
-          const COL_PLAN_FUTURO="#94a3b8";
-          const COL_REAL_OK="#16a34a";
-          const COL_REAL_MAL="#f59e0b";
-          const COL_REAL_CERO="#e2e8f0";
+          const SVG_W=900,SVG_H=280,PAD_L=60,PAD_R=20,PAD_T=32,PAD_B=48;
+          const chartW=SVG_W-PAD_L-PAD_R,chartH=SVG_H-PAD_T-PAD_B;
+          const colW=chartW/12,barW=Math.min(colW*0.28,18);
+          const REF=[1,0.75,0.5,0.25];
+          const C={plan:"#1e3a8a",planF:"#94a3b8",ok:"#16a34a",mal:"#f59e0b",cero:"#e2e8f0",gold:"#f59e0b",grid:"#f1f5f9",bg:"#f8fafc",hoy:"rgba(245,166,35,0.08)"};
+          const fy=(v)=>PAD_T+chartH-(v/maxVal)*chartH;
           return (
-          <div style={{background:B.white,borderRadius:14,padding:"22px 24px",marginBottom:24,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,0,0,0.04)"}}>
-            {/* ── HEADER ── */}
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
+          <div style={{background:B.white,borderRadius:16,padding:"24px 28px",marginBottom:24,border:"1px solid "+B.grey1,boxShadow:"0 4px 24px rgba(0,0,0,0.06)"}}>
+            {/* Header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,gap:16,flexWrap:"wrap"}}>
               <div>
-                <div style={{fontSize:17,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif",marginBottom:3}}>📊 Meta vs Real — Plan Mensual {new Date().getFullYear()}</div>
-                <div style={{display:"flex",gap:16,marginTop:6}}>
+                <div style={{fontSize:16,fontWeight:800,color:B.navy,letterSpacing:"-0.3px",marginBottom:10}}>Plan vs Real &mdash; Cierre {new Date().getFullYear()}</div>
+                <div style={{display:"flex",gap:18,flexWrap:"wrap"}}>
                   {[
-                    {sq:COL_PLAN_PASADO,label:"Plan (meta)",circle:false},
-                    {sq:COL_REAL_OK,label:"Real ≥ Meta",circle:false},
-                    {sq:COL_REAL_MAL,label:"Real < Meta",circle:false},
-                    {sq:"#f5a623",label:"Mes actual",circle:true},
+                    {bg:C.plan,label:"Plan",circle:false},
+                    {bg:C.planF,label:"Plan (futuro)",circle:false},
+                    {bg:C.ok,label:"Real \u2265 Meta",circle:false},
+                    {bg:C.mal,label:"Real < Meta",circle:false},
+                    {bg:C.gold,label:"Mes actual",circle:true},
                   ].map((l,i)=>(
-                    <div key={i} style={{display:"flex",alignItems:"center",gap:5}}>
-                      {l.circle
-                        ?<div style={{width:8,height:8,borderRadius:"50%",background:l.sq,flexShrink:0}}/>
-                        :<div style={{width:11,height:11,borderRadius:2,background:l.sq,flexShrink:0}}/>}
-                      <span style={{fontSize:10,color:B.grey4}}>{l.label}</span>
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:6}}>
+                      <div style={{width:l.circle?8:10,height:l.circle?8:10,borderRadius:l.circle?"50%":"2px",background:l.bg,flexShrink:0}}/>
+                      <span style={{fontSize:11,color:"#64748b",fontWeight:500}}>{l.label}</span>
                     </div>
                   ))}
                 </div>
               </div>
-              <div style={{display:"flex",gap:0,borderRadius:10,overflow:"hidden",border:"1px solid "+B.grey1}}>
+              {/* KPIs */}
+              <div style={{display:"flex",borderRadius:12,overflow:"hidden",border:"1px solid #e2e8f0",boxShadow:"0 1px 4px rgba(0,0,0,0.04)",flexShrink:0}}>
                 {[
                   {label:"PLAN ANUAL",val:fmtMoney(totalPlan),color:B.navy,bg:"#f8fafc"},
                   {label:"REAL ACUMULADO",val:fmtMoney(totalReal),color:"#16a34a",bg:"#f0fdf4"},
                   {label:"DIFERENCIA",val:(totalDelta>=0?"+":"")+fmtMoney(totalDelta),color:totalDelta>=0?"#16a34a":"#dc2626",bg:totalDelta>=0?"#f0fdf4":"#fef2f2"},
-                ].map((k,i)=>(
-                  <div key={i} style={{padding:"10px 18px",textAlign:"center",background:k.bg,borderRight:i<2?"1px solid "+B.grey1:"none"}}>
-                    <div style={{fontSize:9,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6,fontWeight:700,marginBottom:3}}>{k.label}</div>
-                    <div style={{fontSize:18,fontWeight:800,color:k.color,fontFamily:"'Playfair Display',serif"}}>{k.val}</div>
+                ].map((k,i,arr)=>(
+                  <div key={i} style={{padding:"12px 22px",textAlign:"center",background:k.bg,borderRight:i<arr.length-1?"1px solid #e2e8f0":"none",minWidth:120}}>
+                    <div style={{fontSize:9,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.8px",fontWeight:700,marginBottom:5}}>{k.label}</div>
+                    <div style={{fontSize:21,fontWeight:800,color:k.color,letterSpacing:"-0.5px"}}>{k.val}</div>
                   </div>
                 ))}
               </div>
             </div>
-            {/* ── GRÁFICA ── */}
+            {/* SVG Chart */}
             <div style={{overflowX:"auto"}}>
-              <div style={{minWidth:680,position:"relative",paddingLeft:AXIS_W+"px"}}>
-                {/* Eje Y — líneas de referencia */}
-                {[1,0.75,0.5,0.25,0].map(pct=>{
-                  const topPx=pct===0?CHART_H:Math.round(CHART_H*(1-pct));
+              <svg viewBox={"0 0 "+SVG_W+" "+SVG_H} style={{width:"100%",minWidth:580,height:"auto",display:"block"}}>
+                {/* Fondo área gráfica */}
+                <rect x={PAD_L} y={PAD_T} width={chartW} height={chartH} fill={C.bg} rx={4} ry={4}/>
+                {/* Grid + etiquetas eje Y */}
+                {REF.map(pct=>{
+                  const y=fy(maxVal*pct);
                   return (
-                    <div key={pct} style={{position:"absolute",left:0,right:0,top:topPx+"px",display:"flex",alignItems:"center",pointerEvents:"none"}}>
-                      <span style={{width:AXIS_W-6+"px",textAlign:"right",fontSize:9,color:B.grey4,paddingRight:6,flexShrink:0,lineHeight:1}}>{pct>0?fmtMoney(maxVal*pct):"$0"}</span>
-                      <div style={{flex:1,borderTop:pct===0?"2px solid #94a3b8":"1px dashed #e2e8f0"}}/>
-                    </div>
+                    <g key={pct}>
+                      <line x1={PAD_L} y1={y} x2={SVG_W-PAD_R} y2={y} stroke={C.grid} strokeWidth={1}/>
+                      <text x={PAD_L-6} y={y+3.5} textAnchor={"end"} fontSize={9} fill={"#94a3b8"} fontFamily={"system-ui,sans-serif"}>{fmtMoney(maxVal*pct)}</text>
+                    </g>
                   );
                 })}
-                {/* Área de barras */}
-                <div style={{height:CHART_H+LABEL_H+"px",display:"flex",alignItems:"flex-end",gap:0,paddingBottom:LABEL_H+"px",boxSizing:"border-box"}}>
-                  {MESES_CORTOS.map((mes,i)=>{
-                    const plan=planMensual[i]||0;
-                    const real=ventasMensuales[i]||0;
-                    const isFuture=i>mesActual;
-                    const isHoy=i===mesActual;
-                    const planPct=plan>0?Math.max(plan/maxVal,0.012):0;
-                    const realPct=!isFuture&&real>0?Math.max(real/maxVal,0.012):0;
-                    const planColor=isFuture?COL_PLAN_FUTURO:COL_PLAN_PASADO;
-                    const realColor=real===0?COL_REAL_CERO:real>=plan?COL_REAL_OK:COL_REAL_MAL;
-                    return (
-                      <div key={i} style={{
-                        flex:1,display:"flex",flexDirection:"column",alignItems:"center",
-                        height:CHART_H+LABEL_H+"px",justifyContent:"flex-end",
-                        position:"relative",
-                        background:isHoy?"linear-gradient(180deg,rgba(245,166,35,0.06) 0%,rgba(245,166,35,0.02) 100%)":"transparent",
-                        borderRadius:isHoy?4:0,
-                      }}>
-                        {/* Par de barras */}
-                        <div style={{
-                          width:"100%",display:"flex",alignItems:"flex-end",justifyContent:"center",
-                          gap:2,height:CHART_H+"px",paddingBottom:0,position:"relative"
-                        }}>
-                          {/* BARRA PLAN */}
-                          {plan>0?(
-                            <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",flex:"0 0 auto"}}>
-                              <div style={{
-                                fontSize:9,fontWeight:700,
-                                color:isFuture?COL_PLAN_FUTURO:B.navy,
-                                marginBottom:3,whiteSpace:"nowrap",lineHeight:1
-                              }}>{fmtMoney(plan)}</div>
-                              <div style={{
-                                width:16,
-                                height:Math.round(planPct*CHART_H)+"px",
-                                background:planColor,
-                                borderRadius:"4px 4px 0 0",
-                                minHeight:3,
-                              }}/>
-                            </div>
-                          ):(
-                            <div style={{width:16,flex:"0 0 auto"}}/>
-                          )}
-                          {/* BARRA REAL */}
-                          {!isFuture?(
-                            <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",flex:"0 0 auto"}}>
-                              {real>0&&(
-                                <div style={{
-                                  fontSize:9,fontWeight:700,
-                                  color:real>=plan?COL_REAL_OK:COL_REAL_MAL,
-                                  marginBottom:3,whiteSpace:"nowrap",lineHeight:1
-                                }}>{fmtMoney(real)}</div>
-                              )}
-                              <div style={{
-                                width:16,
-                                height:Math.max(Math.round(realPct*CHART_H),real===0?2:3)+"px",
-                                background:realColor,
-                                borderRadius:"4px 4px 0 0",
-                              }}/>
-                            </div>
-                          ):(
-                            <div style={{width:16,flex:"0 0 auto"}}/>
-                          )}
-                        </div>
-                        {/* Label mes */}
-                        <div style={{
-                          position:"absolute",bottom:0,left:0,right:0,
-                          height:LABEL_H+"px",display:"flex",flexDirection:"column",
-                          alignItems:"center",justifyContent:"flex-start",paddingTop:6
-                        }}>
-                          <span style={{fontSize:isHoy?10:9,fontWeight:isHoy?800:500,color:isHoy?"#f5a623":B.grey4}}>{mes}</span>
-                          {isHoy&&<div style={{width:5,height:5,borderRadius:"50%",background:"#f5a623",marginTop:2}}/>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                {/* Eje X */}
+                <line x1={PAD_L} y1={PAD_T+chartH} x2={SVG_W-PAD_R} y2={PAD_T+chartH} stroke={"#cbd5e1"} strokeWidth={2}/>
+                {/* Eje Y */}
+                <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={PAD_T+chartH} stroke={"#e2e8f0"} strokeWidth={1}/>
+                {/* Barras */}
+                {MESES.map((mes,i)=>{
+                  const cx=PAD_L+(i*colW)+(colW/2);
+                  const plan=planMensual[i]||0;
+                  const real=ventasMensuales[i]||0;
+                  const isFuture=i>mesActual;
+                  const isHoy=i===mesActual;
+                  const planH=plan>0?Math.max((plan/maxVal)*chartH,3):0;
+                  const realH=!isFuture&&real>0?Math.max((real/maxVal)*chartH,3):0;
+                  const realColor=real===0?C.cero:real>=plan?C.ok:C.mal;
+                  const planColor=isFuture?C.planF:C.plan;
+                  const planValColor=isFuture?"#94a3b8":C.plan;
+                  const bx1=cx-barW-1;
+                  const bx2=cx+1;
+                  const baseY=PAD_T+chartH;
+                  return (
+                    <g key={i}>
+                      {isHoy&&<rect x={cx-colW/2} y={PAD_T} width={colW} height={chartH} fill={C.hoy} rx={0} ry={0}/>}
+                      {/* Barra Plan */}
+                      {plan>0&&(
+                        <g>
+                          <rect x={bx1} y={baseY-planH} width={barW} height={planH} fill={planColor} rx={3} ry={3}/>
+                          <text x={bx1+barW/2} y={baseY-planH-5} textAnchor={"middle"} fontSize={8} fontWeight={"700"} fill={planValColor} fontFamily={"system-ui,sans-serif"}>{fmtMoney(plan)}</text>
+                        </g>
+                      )}
+                      {/* Barra Real */}
+                      {!isFuture&&(
+                        <g>
+                          <rect x={bx2} y={baseY-Math.max(realH,2)} width={barW} height={Math.max(realH,2)} fill={realColor} rx={3} ry={3}/>
+                          {real>0&&<text x={bx2+barW/2} y={baseY-realH-5} textAnchor={"middle"} fontSize={8} fontWeight={"700"} fill={realColor} fontFamily={"system-ui,sans-serif"}>{fmtMoney(real)}</text>}
+                        </g>
+                      )}
+                      {/* Label mes */}
+                      <text x={cx} y={baseY+18} textAnchor={"middle"} fontSize={isHoy?11:10} fontWeight={isHoy?"800":"500"} fill={isHoy?C.gold:"#94a3b8"} fontFamily={"system-ui,sans-serif"}>{mes.l}</text>
+                      {isHoy&&<circle cx={cx} cy={baseY+30} r={3} fill={C.gold}/>}
+                    </g>
+                  );
+                })}
+              </svg>
             </div>
           </div>
           );
