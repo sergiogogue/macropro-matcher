@@ -7503,8 +7503,9 @@ Respuesta: [respuesta exacta, conversacional]
         });
         doc.autoTable({startY:Y,head:[cols],body:rows,theme:"striped",
           headStyles:{fillColor:[8,145,178],textColor:white,fontSize:7,fontStyle:"bold"},
-          bodyStyles:{fontSize:6.5,textColor:[51,65,85],cellPadding:{top:2,bottom:2,left:3,right:2}},
-          columnStyles:modo==="ceo"?{0:{cellWidth:28},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:50},7:{cellWidth:18}}:{0:{cellWidth:30},1:{halign:"center",cellWidth:8},2:{cellWidth:22},3:{cellWidth:20},4:{cellWidth:20},5:{cellWidth:14},6:{cellWidth:32}},
+          bodyStyles:{fontSize:7,textColor:[51,65,85],cellPadding:{top:3,bottom:3,left:4,right:3},minCellHeight:10,valign:"middle"},
+          columnStyles:modo==="ceo"?{0:{cellWidth:38},1:{halign:"center",cellWidth:6},2:{cellWidth:22},3:{cellWidth:18},4:{halign:"right",cellWidth:8},5:{halign:"right",cellWidth:10},6:{cellWidth:42},7:{cellWidth:16}}:{0:{cellWidth:42},1:{halign:"center",cellWidth:7},2:{cellWidth:24},3:{cellWidth:20},4:{cellWidth:18},5:{cellWidth:14},6:{cellWidth:26}},
+          tableWidth:"auto",
           margin:{left:margin,right:margin},
           didParseCell:(data)=>{
             if(data.section==="body"&&data.column.index===1){
