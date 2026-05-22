@@ -1219,7 +1219,7 @@ function MacroProMatcher() {
   const competenciaFileRef = React.useRef(null);
   const [benchRadio, setBenchRadio] = useState(10);
   const [benchDesarrolloAncla, setBenchDesarrolloAncla] = useState("");
-  const [benchTipos, setBenchTipos] = useState(["horizontal","mixto","vertical"]);
+  const [benchTipos, setBenchTipos] = useState([]);
   const [benchSortCol, setBenchSortCol] = useState("distancia");
   const [benchSortDir, setBenchSortDir] = useState("asc");
   const [benchFiltroDesarrollador, setBenchFiltroDesarrollador] = useState("Todos");
@@ -6190,7 +6190,8 @@ function MacroProMatcher() {
       // Competidores filtrados por radio y tipo — excluye el desarrollo ancla
       const anclaNameNorm = (ancla?.nombre||"").toLowerCase().trim();
       const competidoresEnRadio = !ancla ? [] : competencia
-        .filter(c => c.lat && c.lng && benchTipos.includes(c.tipo))
+        .filter(c => c.lat && c.lng)
+        .filter(c => benchTipos.length===0 || benchTipos.includes(c.tipo))
         .filter(c => c.nombre.toLowerCase().trim() !== anclaNameNorm) // excluir propio desarrollo
         .map(c => ({...c, distancia: haversineKm(ancla.lat,ancla.lng,c.lat,c.lng)}))
         .filter(c => c.distancia <= benchRadio)
@@ -6284,10 +6285,11 @@ function MacroProMatcher() {
             <div>
               <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:5}}>Tipo de desarrollo</div>
               <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                {["horizontal","mixto","vertical","vertical rentas"].map(t=>{
+                {[...new Set(competencia.map(c=>c.tipo).filter(Boolean))].sort().map(t=>{
                   const active=benchTipos.includes(t);
                   return <button key={t} onClick={()=>setBenchTipos(prev=>prev.includes(t)?prev.filter(x=>x!==t):[...prev,t])} style={{padding:"5px 11px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:11,fontFamily:"'DM Sans',sans-serif",background:active?B.navy:B.offW,color:active?"#fff":B.grey4,outline:`1px solid ${active?B.navy:B.grey1}`,transition:"all 0.15s"}}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>;
                 })}
+                <button onClick={()=>setBenchTipos([...new Set(competencia.map(c=>c.tipo).filter(Boolean))])} style={{padding:"5px 11px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:11,fontFamily:"'DM Sans',sans-serif",background:"#f0fdf4",color:"#16a34a",outline:"1px solid #86efac"}}>Todos</button>
               </div>
             </div>
             <div style={{marginLeft:"auto",fontSize:12,color:B.grey3,alignSelf:"center",textAlign:"right"}}>
