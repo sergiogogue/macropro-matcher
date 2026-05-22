@@ -239,7 +239,6 @@ function clienteToSupabase(cliente) {
     presupuesto_max: Number(cliente.presupuesto_max) || null,
     sup_min: Number(cliente.sup_min) || null,
     sup_max: Number(cliente.sup_max) || null,
-    temperatura: cliente.temperatura || null,
     status: cliente.status || null,
     plazo_cierre: cliente.plazo_cierre || null,
     deal_breakers: Array.isArray(cliente.deal_breakers) ? cliente.deal_breakers : [],
@@ -1138,7 +1137,7 @@ async function generarMatchLoteClientes(lote, resultados) {
     slide.addText(`#${i+1} · Score ${r.score}`,{x:0.5,y:0.15,w:4,h:0.4,fontSize:12,color:"F5B335",bold:true});
     slide.addText(r.nombre||r.data?.nombre||"",{x:0.5,y:0.55,w:9,h:0.6,fontSize:22,color:"FFFFFF",bold:true});
     const d=r.data||{};
-    const cols=[["Empresa",d.empresa||""],["Asesor",d.asesor||""],["Ppto",fmtM(d.presupuesto_max)],["Sup.",`${(d.sup_min||0).toLocaleString()}-${(d.sup_max||0).toLocaleString()}m²`],["Tel.",(d.telefono||d.tel||"—")],["Correo",(d.correo||d.email||"—")],["Temp.",d.temperatura||""]];
+    const cols=[["Empresa",d.empresa||""],["Asesor",d.asesor||""],["Sup.",`${(d.sup_min||0).toLocaleString()}-${(d.sup_max||0).toLocaleString()}m²`],["Tel.",(d.telefono||d.tel||"—")],["Correo",(d.correo||d.email||"—")]];
     cols.forEach(([k,v],ci)=>{
       slide.addText(k,{x:0.5+ci*2.5,y:1.5,w:2.4,h:0.3,fontSize:9,color:"8FA3B4",bold:true});
       slide.addText(v,{x:0.5+ci*2.5,y:1.8,w:2.4,h:0.4,fontSize:13,color:"002B49",bold:true});
@@ -1242,7 +1241,7 @@ function MacroProMatcher() {
   const [filterSupMax, setFilterSupMax] = useState("");
   const [filterPrecioMax, setFilterPrecioMax] = useState("");
   const [showAddClient, setShowAddClient] = useState(false);
-  const [newClient, setNewClient] = useState({ nombre:"",empresa:"",asesor:"",ciudad_interes_raw:"",uso_interes_raw:"",presupuesto_min:"",presupuesto_max:"",sup_min:"",sup_max:"",temperatura:"Tibio",status:"Nuevo",notas:"" });
+  const [newClient, setNewClient] = useState({ nombre:"",empresa:"",asesor:"",ciudad_interes_raw:"",uso_interes_raw:"",presupuesto_min:"",presupuesto_max:"",sup_min:"",sup_max:"",status:"Prospecto nuevo",notas:"" });
   const [toastMsg, setToastMsg] = useState("");
 
   // ═══════════════════════════════════════════════════════════
@@ -1444,7 +1443,6 @@ function MacroProMatcher() {
         email:cliente.email||"",
         asesor:cliente.asesor||"",
         pipeline:"Prospecto",
-        temperatura:cliente.temperatura||"",
         nota:quickClientNota.trim()||("Asignado directamente desde inventario el "+new Date().toLocaleDateString("es-MX")),
         fechaInicio:new Date().toISOString().slice(0,10),
         actividades:[]
@@ -2026,7 +2024,7 @@ function MacroProMatcher() {
         const ws = wb.Sheets[sheetName];
         const raw = XLSX.utils.sheet_to_json(ws,{defval:"",header:1});
         let headerRow=0,bestScore=0;
-        const kw=["nombre","id","empresa","ciudad","uso","presupuesto","superficie","temperatura","status","asesor","ppto","sup"];
+        const kw=["nombre","id","empresa","ciudad","uso","presupuesto","superficie","status","asesor","ppto","sup"];
         for(let i=0;i<Math.min(raw.length,15);i++){
           if(!raw[i]||!Array.isArray(raw[i])) continue;
           const score=raw[i].filter(c=>kw.some(k=>String(c||"").toLowerCase().includes(k))).length;
@@ -2159,7 +2157,7 @@ function MacroProMatcher() {
     const usoArr=newClient.uso_interes_raw?.split(",").map(s=>s.trim()).filter(Boolean)||[];
     const nc={...newClient,id,ciudad_interes:ciudadArr,uso_interes:usoArr,presupuesto_min:parseFloat(newClient.presupuesto_min)*1000000||0,presupuesto_max:parseFloat(newClient.presupuesto_max)*1000000||0,sup_min:parseFloat(newClient.sup_min)||0,sup_max:parseFloat(newClient.sup_max)||0,fecha_contacto:new Date().toISOString().slice(0,10)};
     setClients(prev=>[...prev,nc]);
-    setNewClient({nombre:"",empresa:"",asesor:"",ciudad_interes_raw:"",uso_interes_raw:"",presupuesto_min:"",presupuesto_max:"",sup_min:"",sup_max:"",temperatura:"Tibio",status:"Nuevo",notas:""});
+    setNewClient({nombre:"",empresa:"",asesor:"",ciudad_interes_raw:"",uso_interes_raw:"",presupuesto_min:"",presupuesto_max:"",sup_min:"",sup_max:"",status:"Prospecto nuevo",notas:""});
     setShowAddClient(false);
     toast("✓ Cliente agregado correctamente");
   };
@@ -2525,7 +2523,7 @@ function MacroProMatcher() {
                     <div style={{flex:1}}>
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
                         <span style={{fontWeight:700,fontSize:13,color:selectedClient?.id===c.id?B.white:B.navy}}>{c.nombre}</span>
-                        <Tag label={c.temperatura} color={tempColor(c.temperatura)} bg={selectedClient?.id===c.id?"rgba(255,255,255,0.15)":tempBg(c.temperatura)}/>
+                        
                         <Tag label={c.status} color={B.blue} bg={selectedClient?.id===c.id?"rgba(255,255,255,0.15)":B.blueL}/>
                       </div>
                       <div style={{fontSize:11,color:selectedClient?.id===c.id?B.grey2:B.grey3}}>{c.empresa} · {c.ciudad_interes?.join(", ")}</div>
@@ -2777,7 +2775,7 @@ function MacroProMatcher() {
                     <div style={{flex:1}}>
                       <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:1}}>
                         <span style={{fontWeight:700,fontSize:12,color:B.navy}}>{c.nombre}</span>
-                        <Tag label={c.temperatura} color={tempColor(c.temperatura)} bg={tempBg(c.temperatura)}/>
+                        
                         <Tag label={c.status} color={B.blue} bg={B.blueL}/>
                       </div>
                       <div style={{fontSize:11,color:B.grey3}}>{c.empresa} · {c.ciudad_interes?.join(", ")} · {fmtM(c.presupuesto_max)}</div>
@@ -2962,7 +2960,7 @@ function MacroProMatcher() {
                     {isClientMode&&(item.usos_todos&&item.usos_todos.length>0?item.usos_todos:[item.uso].filter(Boolean)).map((u,ui)=><Tag key={u+"-"+ui} label={u} color={B.navy} bg={B.blueL}/>)}
                     {isClientMode&&<Tag label={item.ciudad} color={B.navy} bg={B.grey1}/>}
                     {isClientMode&&item.desarrollo&&<Tag label={item.desarrollo} color={B.goldD} bg="#FFF9EC"/>}
-                    {!isClientMode&&<Tag label={item.temperatura||""} color={tempColor(item.temperatura)} bg={tempBg(item.temperatura)}/>}
+                    
                   </div>
                   <div style={{fontSize:12,color:B.grey3,marginBottom:10,display:"flex",gap:14,flexWrap:"wrap"}}>
                     {isClientMode?(<><span>📐 {(item.sup_m2||0).toLocaleString()} m²</span><span>💲 ${(item.precio_m2||0).toLocaleString()}/m²</span><span style={{fontWeight:700,color:B.navy}}>{fmtM(item.precio_total)}</span><span>⚡ {item.entrega}</span></>):(<><span>🏢 {item.empresa}</span><span>👨‍💼 {item.asesor}</span><span>💲 {fmtM(item.presupuesto_min)}–{fmtM(item.presupuesto_max)}</span><span>📐 {(item.sup_min||0).toLocaleString()}–{(item.sup_max||0).toLocaleString()} m²</span>{item.telefono&&<span style={{color:B.navy,fontWeight:600}}>📞 {item.telefono}</span>}{(item.correo||item.email)&&<span style={{color:B.navy,fontWeight:600}}>✉ {item.correo||item.email}</span>}</>)}
@@ -3448,11 +3446,10 @@ function MacroProMatcher() {
               <div style={{background:B.white,borderRadius:14,border:"1px solid "+B.grey1,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,43,73,0.06)"}}>
                 <div style={{padding:"14px 20px",background:B.navy,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{clientesMatch.length} cliente{clientesMatch.length!==1?"s":""} con potencial para {desarrolloCli||ciudadCli}</div>
-                  <div style={{fontSize:11,color:"rgba(255,255,255,0.6)"}}>Ordenados por temperatura y presupuesto</div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.6)"}}>Ordenados por compatibilidad</div>
                 </div>
                 {clientesMatch.map((cli,idx)=>{
                   const yaAgregado=agregados.has(cli.id||cli.nombre);
-                  const tC=tCol2(cli.temperatura);
                   const pickerAbierto=lotePickerId===(cli.id||cli.nombre);
                   return (
                     <div key={cli.id||idx} style={{padding:"12px 20px",borderBottom:"1px solid "+B.grey1,background:yaAgregado?"#f0fdf4":idx%2===0?B.offW:B.white,opacity:yaAgregado?0.8:1}}>
@@ -3461,7 +3458,6 @@ function MacroProMatcher() {
                         <div style={{flex:1,minWidth:200}}>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
                             <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{cli.nombre}</div>
-                            {cli.temperatura&&<span style={{fontSize:9,fontWeight:700,background:tC+"22",color:tC,borderRadius:8,padding:"1px 7px"}}>🌡 {cli.temperatura}</span>}
                             {yaAgregado&&<span style={{fontSize:9,fontWeight:700,background:"#16a34a",color:"#fff",borderRadius:8,padding:"1px 7px"}}>✅ Agregado</span>}
                           </div>
                           {cli.empresa&&<div style={{fontSize:10,color:B.grey4}}>{cli.empresa}</div>}
@@ -3518,10 +3514,9 @@ function MacroProMatcher() {
   // ─── VIEW CLIENTS ─────────────────────────────────────────────────
   const ViewClients = () => {
     const [fSearch,setFSearch]=useState("");
-    const [fTemp,setFTemp]=useState("Todos");
     const [fStatus,setFStatus]=useState("Todos");
     const cliSrc=clients.length>0?clients:DEMO_CLIENTS;
-    const filtered=cliSrc.filter(c=>(!fSearch||c.nombre?.toLowerCase().includes(fSearch.toLowerCase())||c.empresa?.toLowerCase().includes(fSearch.toLowerCase()))&&(fTemp==="Todos"||c.temperatura===fTemp)&&(fStatus==="Todos"||c.status===fStatus));
+    const filtered=cliSrc.filter(c=>(!fSearch||c.nombre?.toLowerCase().includes(fSearch.toLowerCase())||c.empresa?.toLowerCase().includes(fSearch.toLowerCase()))&&(fStatus==="Todos"||c.status===fStatus));
     return (
       <div style={s.page}>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,flexWrap:"wrap"}}>
@@ -3535,10 +3530,7 @@ function MacroProMatcher() {
           </div>
         </div>
         <div style={s.filterBar}>
-          <input style={{...s.input,width:180}} placeholder="🔍 Buscar nombre / empresa" value={fSearch} onChange={e=>setFSearch(e.target.value)}/>
-          <select style={s.select} value={fTemp} onChange={e=>setFTemp(e.target.value)}>
-            {["Todos","Caliente","Tibio","Frío","Inactivo"].map(t=><option key={t}>{t}</option>)}
-          </select>
+          <input style={{...s.input,width:220}} placeholder="🔍 Buscar nombre / empresa" value={fSearch} onChange={e=>setFSearch(e.target.value)}/>
           <select style={s.select} value={fStatus} onChange={e=>setFStatus(e.target.value)}>
             {["Todos",...new Set(cliSrc.map(c=>c.status).filter(Boolean))].map(t=><option key={t}>{t}</option>)}
           </select>
@@ -3551,7 +3543,7 @@ function MacroProMatcher() {
               <div style={{flex:1}}>
                 <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4,flexWrap:"wrap"}}>
                   <span style={{fontWeight:700,fontSize:15,color:B.navy}}>{c.nombre}</span>
-                  <Tag label={c.temperatura} color={tempColor(c.temperatura)} bg={tempBg(c.temperatura)}/>
+                  
                   <Tag label={c.status} color={B.blue} bg={B.blueL}/>
                   {c.asesor&&<Tag label={c.asesor} color={B.grey4} bg={B.grey1}/>}
                 </div>
@@ -3654,6 +3646,21 @@ function MacroProMatcher() {
   // ─── VIEW DASHBOARD ───────────────────────────────────────────────
 
   // ─── VIEW CRM ─────────────────────────────────────────────────────
+  // Componente estable para el input de búsqueda — definido FUERA de ViewCRM
+  // para evitar que se desmonte/remonte en cada keystroke
+  const SearchProspInput = React.memo(({value, onChange, onClear}) => (
+    <div style={{position:"relative",flex:"1 1 200px",minWidth:160}}>
+      <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",fontSize:13,color:B.grey3,pointerEvents:"none"}}>🔍</span>
+      <input
+        type="text"
+        value={value}
+        onChange={onChange}
+        placeholder="Buscar por cliente o empresa..."
+        style={{width:"100%",padding:"7px 10px 7px 28px",borderRadius:8,border:"1px solid "+(value?B.navy:B.grey1),fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box"}}
+      />
+      {value&&<button onClick={onClear} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:13,color:B.grey3,padding:0}}>✕</button>}
+    </div>
+  ));
 
   const ViewCRM = () => {
     const srcInvCRM = inventory.length>0 ? inventory : SAMPLE_INVENTORY;
@@ -4428,17 +4435,7 @@ function MacroProMatcher() {
       return (
         <div>
           <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-            <div style={{position:"relative",flex:"1 1 200px",minWidth:160}}>
-              <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",fontSize:13,color:B.grey3,pointerEvents:"none"}}>🔍</span>
-              <input
-                type="text"
-                value={searchProsp}
-                onChange={e=>setSearchProsp(e.target.value)}
-                placeholder="Buscar por cliente o empresa..."
-                style={{width:"100%",padding:"7px 10px 7px 28px",borderRadius:8,border:"1px solid "+(searchProsp?B.navy:B.grey1),fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box"}}
-              />
-              {searchProsp&&<button onClick={()=>setSearchProsp("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:13,color:B.grey3,padding:0}}>✕</button>}
-            </div>
+            <SearchProspInput value={searchProsp} onChange={e=>setSearchProsp(e.target.value)} onClear={()=>setSearchProsp("")}/>
             <select value={filterAsesor} onChange={e=>setFilterAsesor(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
               <option value="Todos">Todos los asesores</option>
               {asesores.map(a=><option key={a}>{a}</option>)}
@@ -9889,10 +9886,13 @@ Respuesta: [respuesta exacta, conversacional]
     srcInv.forEach(l=>{const d=l.desarrollo||"Sin desarrollo";byDev[d]=(byDev[d]||0)+1;valByDev[d]=(valByDev[d]||0)+(l.precio_total||0);});
     srcInv.forEach(l=>{const uArr=l.usos_todos&&l.usos_todos.length>0?l.usos_todos:[l.uso||"Sin uso"];uArr.forEach(u=>{byUso[u]=(byUso[u]||0)+1;});});
     srcInv.forEach(l=>{const c=l.ciudad||"Sin ciudad";byCity[c]=(byCity[c]||0)+1;});
-    const byTemp={};cliSrc.forEach(c=>{const t=c.temperatura||"Sin dato";byTemp[t]=(byTemp[t]||0)+1;});
     const byAsesor={};cliSrc.forEach(c=>{const a=c.asesor||"Sin asesor";byAsesor[a]=(byAsesor[a]||0)+1;});
     const byUsoCli={};cliSrc.forEach(c=>{(c.uso_interes||[]).forEach(u=>{byUsoCli[u]=(byUsoCli[u]||0)+1;});});
-    const calientes=byTemp["Caliente"]||0,tibios=byTemp["Tibio"]||0,frios=byTemp["Frío"]||0,inactivos=byTemp["Inactivo"]||0;
+    // Distribución por status (temperatura ya no existe en clientes)
+    const calientes=cliSrc.filter(c=>c.status==="Negociando"||c.status==="Presentación activa").length;
+    const tibios=cliSrc.filter(c=>c.status==="Calificado"||c.status==="Presentación enviada").length;
+    const frios=cliSrc.filter(c=>c.status==="Prospecto nuevo"||c.status==="Prospecto").length;
+    const inactivos=cliSrc.filter(c=>c.status==="Cerrado"||c.status==="Descartado").length;
     const topLotes=[...srcInv].sort((a,b)=>(b.precio_total||0)-(a.precio_total||0)).slice(0,5);
     const precios=srcInv.map(l=>l.precio_total).filter(p=>p>0);
     const precioMin=precios.length>0?Math.min(...precios):0, precioMax=precios.length>0?Math.max(...precios):0;
@@ -9932,7 +9932,7 @@ Respuesta: [respuesta exacta, conversacional]
           {kpiCard("Valor del Portafolio",fmtM(valorTotal),`${totalLotes} macrolotes activos`,B.gold)}
           {kpiCard("Superficie Total",`${(supTotal/1000).toFixed(0)}K m²`,`${(supTotal/10000).toFixed(1)} hectáreas`,B.green)}
           {kpiCard("Precio Prom / m²",`$${Math.round(precioPromM2).toLocaleString("es-MX")}`,`Rango: ${fmtM(precioMin)} – ${fmtM(precioMax)}`,B.blue)}
-          {kpiCard("Clientes en Cartera",String(totalClientes),`${calientes} calientes · ${tibios} tibios`,B.navy)}
+          {kpiCard("Clientes en Cartera",String(totalClientes),`${calientes} en negociación · ${tibios} calificados`,B.navy)}
           {kpiCard("Ticket Promedio",fmtM(totalLotes>0?valorTotal/totalLotes:0),"por macrolote",B.goldD)}
           {kpiCard("Ciudades",String([...new Set(srcInv.map(l=>l.ciudad))].length),[...new Set(srcInv.map(l=>l.ciudad))].slice(0,3).join(", "),B.navyL)}
         </div>
@@ -9945,9 +9945,9 @@ Respuesta: [respuesta exacta, conversacional]
           {sc("📍 Lotes por Ciudad",barChart(Object.entries(byCity).sort((a,b)=>b[1]-a[1]),goldGrad))}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
-          {sc("🌡 Clientes por Temperatura",(
+          {sc("📊 Clientes por Status",(
             <div>
-              {[["#EF4444","Caliente",calientes],["#F59E0B","Tibio",tibios],["#3B82F6","Frío",frios],["#6B7280","Inactivo",inactivos]].map(([col,lbl,cnt])=>(
+              {[["#EF4444","Negociando / Activo",calientes],["#F59E0B","Calificado",tibios],["#3B82F6","Prospecto",frios],["#6B7280","Cerrado / Inactivo",inactivos]].map(([col,lbl,cnt])=>(
                 <div key={lbl} style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
                   <div style={{width:11,height:11,borderRadius:"50%",background:col,flexShrink:0}}/>
                   <span style={{fontSize:12,color:B.grey4,flex:1}}>{lbl}</span>
@@ -10967,7 +10967,6 @@ Respuesta: [respuesta exacta, conversacional]
               )}
               {filtrados.map((c,i)=>{
                 const asignado=yaAsignados.has(c.nombre&&c.nombre.toLowerCase().trim());
-                const tempCol=c.temperatura==="Caliente"?"#dc2626":c.temperatura==="Tibio"?"#f59e0b":c.temperatura==="Frío"?"#3B82F6":"#9ca3af";
                 return (
                   <div key={c.id||i} onClick={()=>{if(!asignado)executeQuickClient(c);}}
                     style={{background:asignado?"#f3f4f6":"#fff",borderRadius:10,padding:"12px 14px",marginBottom:8,border:"1.5px solid "+(asignado?"#d1d5db":"#e5e7eb"),cursor:asignado?"not-allowed":"pointer",opacity:asignado?0.6:1,transition:"all 0.15s"}}
@@ -10979,7 +10978,6 @@ Respuesta: [respuesta exacta, conversacional]
                         {c.empresa&&<div style={{fontSize:11,color:"#4b5563",marginBottom:4,fontFamily:"'DM Sans',sans-serif"}}>🏢 {c.empresa}</div>}
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                           {c.ciudad_interes_raw&&<span style={{fontSize:10,color:"#6b7280",fontFamily:"'DM Sans',sans-serif"}}>📍 {c.ciudad_interes_raw}</span>}
-                          {c.temperatura&&<span style={{fontSize:10,color:tempCol,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>🌡 {c.temperatura}</span>}
                           {c.asesor&&<span style={{fontSize:10,color:"#2563AC",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>👤 {c.asesor}</span>}
                         </div>
                       </div>
