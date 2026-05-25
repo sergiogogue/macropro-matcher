@@ -5181,7 +5181,7 @@ function MacroProMatcher() {
                 </div>
                 {/* Botones de acción */}
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  <button onClick={()=>{setShowQuickProspModal(false);setShowActivityModal({mode:"create",lotId:lot.id,prospectoIdx});setActivityForm({tipo:"Seguimiento",descripcion:"",fecha:addBusinessDays(new Date(),2),hora:""});}}
+                  <button onClick={()=>{setShowActivityModal({mode:"create",lotId:lot.id,prospectoIdx});setActivityForm({tipo:"Seguimiento",descripcion:"",fecha:addBusinessDays(new Date(),2),hora:""});}}
                     style={{flex:1,padding:"8px 10px",background:"#f59e0b",color:"#fff",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📅 Agendar actividad</button>
                   <button onClick={()=>{
                       const key=lot.id+"::"+prospectoIdx+"::"+p.nombre;
