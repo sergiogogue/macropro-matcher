@@ -6891,7 +6891,7 @@ Respuesta: [respuesta exacta, conversacional]
           const titleText=isComplete?"Completar actividad":isEdit?"Editar actividad":"Nueva actividad";
           const icon=isComplete?"✅":isEdit?"✏️":"📅";
           return (
-            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={e=>e.target===e.currentTarget&&setShowActivityModal(null)}>
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:4600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={e=>e.target===e.currentTarget&&setShowActivityModal(null)}>
               <div style={{background:B.white,borderRadius:14,width:"100%",maxWidth:500,boxShadow:"0 20px 60px rgba(0,43,73,0.3)",overflow:"hidden",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
                 <div style={{background:headerColor,padding:"16px 22px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div>
