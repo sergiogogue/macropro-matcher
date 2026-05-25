@@ -201,6 +201,7 @@ function loteToSupabase(lote) {
   const precioTotal = (precioTotalRaw > 0) ? precioTotalRaw : null;
   const precioM2 = (precioM2Raw > 0) ? precioM2Raw : null;
   return {
+    id: loteKey(lote),
     clave_unica: loteKey(lote),
     id_macrolote: idLimpio || null,
     nombre: nombre,
@@ -261,7 +262,7 @@ async function migrarLotesASupabase(lotes, onProgress) {
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
     try {
-      const { data, error } = await sb.from('lotes').upsert(batch, { onConflict: 'clave_unica' }).select('id');
+      const { data, error } = await sb.from('lotes').upsert(batch, { onConflict: 'id' }).select('id');
       if (error) {
         errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${error.message}`);
       } else {
