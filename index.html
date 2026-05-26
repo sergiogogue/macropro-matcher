@@ -7421,6 +7421,10 @@ Respuesta: [respuesta exacta, conversacional]
       Y=66;
       doc.setTextColor(...navy); doc.setFont("helvetica","bold"); doc.setFontSize(19);
       doc.text("Vista Ejecutiva",margin,Y); Y+=7;
+      // Nombre del desarrollo prominente
+      const devLabel=ejecFiltroDesarrollo!=="Todos"?ejecFiltroDesarrollo:ejecFiltroDesarrollador!=="Todos"?ejecFiltroDesarrollador:"Todos los desarrollos";
+      doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.setTextColor(...gold);
+      doc.text(devLabel,margin,Y); Y+=6;
       doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(...grey);
       const alcance=[ejecFiltroDesarrollador!=="Todos"?"Desarrollador: "+ejecFiltroDesarrollador:null,ejecFiltroDesarrollo!=="Todos"?"Desarrollo: "+ejecFiltroDesarrollo:null,ejecFiltroAsesor!=="Todos"?"Asesor: "+ejecFiltroAsesor:null].filter(Boolean).join("  |  ")||"Todos los desarrollos";
       doc.text("Alcance: "+alcance,margin,Y); Y+=9;
