@@ -490,7 +490,22 @@ function descargarICS(activity, lote, prospecto, durMinutes){
 const METAS_KEY = "macropro_metas_v1";
 const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const MESES_LARGO = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-function loadMetas(){try{const r=localStorage.getItem(METAS_KEY);return r?JSON.parse(r):{};}catch(e){return {};}}
+function loadMetas(){
+  try{
+    const r=localStorage.getItem(METAS_KEY);
+    if(!r) return {};
+    const data=JSON.parse(r);
+    const allMontos=Object.values(data).flatMap(d=>[...(d?.plan?.monto||[]),...(d?.real?.monto||[])]).filter(v=>v>0);
+    const maxMonto=allMontos.length>0?Math.max(...allMontos):0;
+    if(maxMonto>0&&maxMonto<100000){
+      Object.values(data).forEach(d=>{
+        if(d?.plan?.monto) d.plan.monto=d.plan.monto.map(v=>(v||0)*1000000);
+        if(d?.real?.monto) d.real.monto=d.real.monto.map(v=>(v||0)*1000000);
+      });
+    }
+    return data;
+  }catch(e){return {};}
+}
 function saveMetas(d){try{localStorage.setItem(METAS_KEY,JSON.stringify(d));}catch(e){}}
 
 // ─── METAS · FUNCIONES UTILITARIAS ───────────────────────────────
@@ -7733,8 +7748,7 @@ Respuesta: [respuesta exacta, conversacional]
         perfDev[dev].metaYTD+=(d.plan.monto||[]).reduce((a,b)=>a+(b||0),0); // Plan anual completo
         perfDev[dev].devs++;
       });
-      const fmtK=v=>v>=1000000?"$"+Math.round(v/1000)+"k":v>0?"$"+Math.round(v/1000)+"k":"$0";
-      const perfRows=Object.entries(perfDev).map(([dev,d])=>[dev,d.devs+"",fmtK(d.real),fmtK(d.metaYTD),(d.metaYTD>0?Math.round(d.real/d.metaYTD*100):0)+"%"]).sort((a,b)=>parseInt(b[4])-parseInt(a[4]));
+      const perfRows=Object.entries(perfDev).map(([dev,d])=>[dev,d.devs+"",fmtMoney(d.real),fmtMoney(d.metaYTD),(d.metaYTD>0?Math.round(d.real/d.metaYTD*100):0)+"%"]).sort((a,b)=>parseInt(b[4])-parseInt(a[4]));
       if(perfRows.length>0){
         doc.autoTable({startY:Y,head:[["Desarrollador","# Des.","Vendido YTD","Meta YTD","Cumpl."]],body:perfRows,theme:"striped",
           headStyles:{fillColor:navy,textColor:white,fontSize:8,fontStyle:"bold"},
@@ -10280,7 +10294,7 @@ Respuesta: [respuesta exacta, conversacional]
           if(!result[proyecto]) result[proyecto]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
           const destKey=rowTipo==="real"?"real":"plan";
           mesIdx.forEach((col,m)=>{
-            if(col>=0&&col<row.length) result[proyecto][destKey][tipo][m]=toNum(row[col]);
+            if(col>=0&&col<row.length) result[proyecto][destKey][tipo][m]=tipo==="monto"?toNum(row[col])*1000000:toNum(row[col]);
           });
         }
       };
