@@ -28,6 +28,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.0/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';}</script>
   <!-- Supabase JS Client v2 - Cargado desde CDN con fallback -->
   <script>
     (function(){
@@ -1239,6 +1241,9 @@ function MacroProMatcher() {
   const setFilterDevCompania=(v)=>{setFilterDevCompaniaRaw(v);savePersisted(STORAGE_KEYS.filterDevCompania,v);setSelectedLotCRM(null);setFilterDesarrolloCRM("Todos");};
   const [filterSemaforo, setFilterSemaforo] = React.useState("Todos");
   const [filterCanal, setFilterCanal] = React.useState("Todos");
+  const [canalesActivos, setCanalesActivosRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_canales_v1");return r?JSON.parse(r):CANALES_VENTA;}catch(e){return CANALES_VENTA;}});
+  const setCanalesActivos=(fn)=>{setCanalesActivosRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_canales_v1",JSON.stringify(next));}catch(e){}return next;});};
+  const [showGestorCanales, setShowGestorCanales] = React.useState(false);
   const [planosDesarrollo, setPlanosDesarrolloRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_planos_v1");return r?JSON.parse(r):{};}catch(e){return {};}});
   const setPlanosDesarrollo=(fn)=>{setPlanosDesarrolloRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_planos_v1",JSON.stringify(next));}catch(e){console.warn("No se pudo guardar plano",e);}return next;});};
   const [planoVisible, setPlanoVisible] = React.useState(true);
@@ -5297,11 +5302,14 @@ function MacroProMatcher() {
                   <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>GIRO / INDUSTRIA</label>
                  <input value={giroEdit} onChange={e=>setGiroEdit(e.target.value)} placeholder="Ej: Retail, Desarrollador, Inversionista..."
                    style={{width:"100%",borderRadius:7,border:"1px solid "+B.grey1,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:12}}/>
-                 <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>CANAL DE ORIGEN</label>
+                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                   <label style={{fontSize:10,fontWeight:700,color:B.grey4}}>CANAL DE ORIGEN</label>
+                   <button onClick={()=>setShowGestorCanales(true)} style={{fontSize:9,fontWeight:700,color:"#2563AC",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:5,padding:"2px 7px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>⚙ Gestionar</button>
+                 </div>
                  <select value={canalEdit} onChange={e=>setCanalEdit(e.target.value)}
                    style={{width:"100%",borderRadius:7,border:"1.5px solid "+(canalEdit?(CANAL_COLORS[canalEdit]||{color:"#d1d5db"}).color+"55":B.grey1),padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box",background:canalEdit?(CANAL_COLORS[canalEdit]||{bg:"#fff"}).bg:"#fff",color:canalEdit?(CANAL_COLORS[canalEdit]||{color:B.navy}).color:B.grey4,fontWeight:canalEdit?700:400,marginBottom:12}}>
                    <option value="">— Sin canal —</option>
-                   {CANALES_VENTA.map(c=><option key={c} value={c}>{c}</option>)}
+                   {canalesActivos.map(c=><option key={c} value={c}>{c}</option>)}
                  </select>
                  <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>NOTA INTERNA</label>
                   <textarea value={notaEdit} onChange={e=>setNotaEdit(e.target.value)} placeholder="Notas internas sobre este prospecto..." rows={3}
@@ -5311,6 +5319,103 @@ function MacroProMatcher() {
                   {saving?"Guardando...":"💾 Guardar cambios"}
                 </button>
               </>)}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const GestorCanalesModal=()=>{
+      if(!showGestorCanales) return null;
+      const [lista, setLista] = React.useState([...canalesActivos]);
+      const [nuevoCanal, setNuevoCanal] = React.useState("");
+      const [editIdx, setEditIdx] = React.useState(null);
+      const [editVal, setEditVal] = React.useState("");
+      const inputRef = React.useRef(null);
+
+      const agregar=()=>{
+        const v=nuevoCanal.trim();
+        if(!v){toast("⚠ Escribe un nombre");return;}
+        if(lista.map(c=>c.toLowerCase()).includes(v.toLowerCase())){toast("⚠ Ese canal ya existe");return;}
+        setLista(prev=>[...prev,v]);
+        setNuevoCanal("");
+        inputRef.current&&inputRef.current.focus();
+      };
+      const eliminar=(i)=>{
+        if(lista.length<=1){toast("⚠ Debe quedar al menos un canal");return;}
+        setLista(prev=>prev.filter((_,idx)=>idx!==i));
+        if(editIdx===i) setEditIdx(null);
+      };
+      const iniciarEdicion=(i)=>{ setEditIdx(i); setEditVal(lista[i]); };
+      const guardarEdicion=(i)=>{
+        const v=editVal.trim();
+        if(!v) return;
+        if(lista.filter((_,idx)=>idx!==i).map(c=>c.toLowerCase()).includes(v.toLowerCase())){toast("⚠ Ese nombre ya existe");return;}
+        setLista(prev=>prev.map((c,idx)=>idx===i?v:c));
+        setEditIdx(null);
+      };
+      const guardarTodo=()=>{
+        setCanalesActivos(lista);
+        setShowGestorCanales(false);
+        toast("✅ Canales guardados");
+      };
+
+      return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>e.target===e.currentTarget&&setShowGestorCanales(false)}>
+          <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:460,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 64px rgba(0,43,73,0.35)",overflow:"hidden"}}>
+            {/* Header */}
+            <div style={{background:"linear-gradient(135deg,#002B49,#003a66)",padding:"16px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>⚙ Gestionar Canales</div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.65)",marginTop:2,fontFamily:"'DM Sans',sans-serif"}}>{lista.length} canal{lista.length!==1?"es":""} configurados</div>
+              </div>
+              <button onClick={()=>setShowGestorCanales(false)} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.6)",fontSize:18,cursor:"pointer",padding:4,lineHeight:1}}>✕</button>
+            </div>
+
+            {/* Lista */}
+            <div style={{flex:1,overflowY:"auto",padding:"14px 18px"}}>
+              {lista.map((canal,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,marginBottom:6,background:"#f8fafc",border:"1.5px solid #e5e7eb",transition:"all 0.12s"}}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor="#002B49";e.currentTarget.style.background="#f0f4f8";}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor="#e5e7eb";e.currentTarget.style.background="#f8fafc";}}>
+                  {/* Color dot */}
+                  <div style={{width:10,height:10,borderRadius:"50%",background:(CANAL_COLORS[canal]||{color:"#94a3b8"}).color,flexShrink:0}}/>
+                  {editIdx===i ? (
+                    <>
+                      <input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)}
+                        onKeyDown={e=>{if(e.key==="Enter")guardarEdicion(i);if(e.key==="Escape")setEditIdx(null);}}
+                        style={{flex:1,border:"1.5px solid #002B49",borderRadius:6,padding:"4px 8px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none"}}/>
+                      <button onClick={()=>guardarEdicion(i)} style={{padding:"4px 10px",background:"#002B49",color:"#fff",border:"none",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✓</button>
+                      <button onClick={()=>setEditIdx(null)} style={{padding:"4px 8px",background:"#e5e7eb",color:"#374151",border:"none",borderRadius:6,fontSize:11,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✕</button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{flex:1,fontSize:12,fontWeight:600,color:"#002B49",fontFamily:"'DM Sans',sans-serif"}}>{canal}</span>
+                      <button onClick={()=>iniciarEdicion(i)} style={{padding:"3px 9px",background:"#eff6ff",color:"#1d4ed8",border:"1px solid #bfdbfe",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✏️</button>
+                      <button onClick={()=>eliminar(i)} style={{padding:"3px 9px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗑</button>
+                    </>
+                  )}
+                </div>
+              ))}
+
+              {/* Agregar nuevo */}
+              <div style={{marginTop:10,padding:"12px",background:"#f0fdf4",borderRadius:10,border:"1.5px dashed #16a34a"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#15803d",marginBottom:7,textTransform:"uppercase",letterSpacing:0.8,fontFamily:"'DM Sans',sans-serif"}}>+ Nuevo canal</div>
+                <div style={{display:"flex",gap:7}}>
+                  <input ref={inputRef} value={nuevoCanal} onChange={e=>setNuevoCanal(e.target.value)}
+                    onKeyDown={e=>e.key==="Enter"&&agregar()}
+                    placeholder="Ej: Alianza Estratégica..."
+                    style={{flex:1,border:"1.5px solid #86efac",borderRadius:7,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",background:"#fff"}}/>
+                  <button onClick={agregar} style={{padding:"7px 14px",background:"#16a34a",color:"#fff",border:"none",borderRadius:7,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Agregar</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{padding:"12px 18px",borderTop:"1px solid #e5e7eb",display:"flex",gap:8,justifyContent:"flex-end",background:"#f8fafc",flexShrink:0}}>
+              <button onClick={()=>{setCanalesActivos(CANALES_VENTA);setLista([...CANALES_VENTA]);toast("↺ Canales restaurados al default");}} style={{padding:"8px 14px",background:"#fff",color:"#6b7280",border:"1px solid #e5e7eb",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginRight:"auto"}}>↺ Restaurar default</button>
+              <button onClick={()=>setShowGestorCanales(false)} style={{padding:"8px 16px",background:"#fff",color:"#374151",border:"1px solid #e5e7eb",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancelar</button>
+              <button onClick={guardarTodo} style={{padding:"8px 20px",background:"#002B49",color:"#fff",border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>💾 Guardar</button>
             </div>
           </div>
         </div>
@@ -5330,14 +5435,62 @@ function MacroProMatcher() {
       const handleUpload = (e) => {
         const file = e.target.files[0];
         if(!file) return;
-        if(file.size > 8*1024*1024){toast("⚠ El plano no puede superar 8MB");return;}
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          setPlanosDesarrollo(prev=>({...prev,[planoKey]:{src:ev.target.result,nombre:file.name,desarrollo:devActual||"General"}}));
-          setZoom(1); setDrag({x:0,y:0});
-          toast("✅ Plano cargado para "+(devActual||"todos los desarrollos"));
+        if(file.size > 50*1024*1024){toast("⚠ El archivo no puede superar 50MB");e.target.value="";return;}
+        const isPDF = file.type==="application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+
+        const comprimirYGuardar = (dataURL, nombre) => {
+          const img = new Image();
+          img.onerror = ()=>toast("❌ No se pudo procesar la imagen");
+          img.onload = () => {
+            const MAX = 2800;
+            let w = img.width, h = img.height;
+            if(w > MAX || h > MAX){
+              if(w >= h){ h = Math.round(h*MAX/w); w = MAX; }
+              else { w = Math.round(w*MAX/h); h = MAX; }
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = w; canvas.height = h;
+            canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+            const tryQ = (q) => {
+              const out = canvas.toDataURL("image/jpeg", q);
+              if(out.length < 3.5*1024*1024 || q <= 0.25){
+                try{
+                  setPlanosDesarrollo(prev=>({...prev,[planoKey]:{src:out,nombre,desarrollo:devActual||"General",w,h}}));
+                  setZoom(1); setDrag({x:0,y:0});
+                  toast("✅ Plano cargado"+(devActual?" · "+devActual:""));
+                }catch(err){ toast("❌ Sin espacio en el navegador. Imagen demasiado grande."); }
+              } else { tryQ(parseFloat((q-0.1).toFixed(1))); }
+            };
+            tryQ(0.88);
+          };
+          img.src = dataURL;
         };
-        reader.readAsDataURL(file);
+
+        if(isPDF){
+          toast("⏳ Procesando PDF...");
+          const reader = new FileReader();
+          reader.onerror = ()=>toast("❌ Error al leer el PDF");
+          reader.onload = async (ev) => {
+            try{
+              if(!window.pdfjsLib){ toast("❌ PDF.js no cargó, recarga la página e intenta de nuevo"); return; }
+              const pdf = await pdfjsLib.getDocument({data: ev.target.result}).promise;
+              const page = await pdf.getPage(1);
+              const scale = Math.min(3, 2800 / Math.max(page.getViewport({scale:1}).width, page.getViewport({scale:1}).height));
+              const vp = page.getViewport({scale});
+              const canvas = document.createElement("canvas");
+              canvas.width = vp.width; canvas.height = vp.height;
+              await page.render({canvasContext:canvas.getContext("2d"), viewport:vp}).promise;
+              comprimirYGuardar(canvas.toDataURL("image/jpeg", 0.9), file.name);
+            }catch(err){ toast("❌ Error al procesar el PDF: "+err.message); }
+          };
+          reader.readAsArrayBuffer(file);
+        } else {
+          toast("⏳ Cargando plano...");
+          const reader = new FileReader();
+          reader.onerror = ()=>toast("❌ Error al leer el archivo");
+          reader.onload = (ev) => comprimirYGuardar(ev.target.result, file.name);
+          reader.readAsDataURL(file);
+        }
         e.target.value="";
       };
 
@@ -5382,7 +5535,7 @@ function MacroProMatcher() {
                 {planoVisible?"▲ Ocultar":"▼ Ver plano"}
               </button>
             </div>
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleUpload} style={{display:"none"}}/>
+            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleUpload} style={{display:"none"}}/>
           </div>
           {/* Área del plano */}
           {planoVisible&&(
@@ -5806,8 +5959,9 @@ function MacroProMatcher() {
                       <select value={p.canal||""} onChange={e=>{const prospectos=(crm.prospectos||[]).map((px,idx)=>idx===i?{...px,canal:e.target.value||undefined}:px);updateCRM(l.id,{prospectos});}}
                         style={{fontSize:11,fontWeight:600,color:p.canal?(CANAL_COLORS[p.canal]||{color:"#475569"}).color:"#9ca3af",background:p.canal?(CANAL_COLORS[p.canal]||{bg:"#f1f5f9"}).bg:"#f9fafb",border:"1.5px solid "+(p.canal?(CANAL_COLORS[p.canal]||{color:"#d1d5db"}).color+"55":"#d1d5db"),borderRadius:6,padding:"4px 10px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none",minWidth:160}}>
                         <option value="">— Sin canal —</option>
-                        {CANALES_VENTA.map(c=><option key={c} value={c}>{c}</option>)}
+                        {canalesActivos.map(c=><option key={c} value={c}>{c}</option>)}
                       </select>
+                      <button onClick={()=>setShowGestorCanales(true)} style={{fontSize:9,fontWeight:700,color:"#2563AC",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:5,padding:"3px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>⚙</button>
                     </div>
                   </div>
                 );
@@ -6910,7 +7064,7 @@ Respuesta: [respuesta exacta, conversacional]
             </select>
             <select value={filterCanal} onChange={e=>setFilterCanal(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
               <option value="Todos">Todos los canales</option>
-              {CANALES_VENTA.map(c=><option key={c} value={c}>{c}</option>)}
+              {canalesActivos.map(c=><option key={c} value={c}>{c}</option>)}
             </select>
             <span style={{fontSize:11,color:B.grey3}}>{lotsFiltered.length} lotes</span>
             {(filterPipeline!=="Todos"||filterDesarrolloCRM!=="Todos"||filterSemaforo!=="Todos"||filterAsesor!=="Todos"||filterCanal!=="Todos")&&
@@ -7401,6 +7555,7 @@ Respuesta: [respuesta exacta, conversacional]
         {ModalInteraccion()}
         {ModalAnalisisProspecto()}
         {showQuickProspModal&&quickProspData&&<QuickProspectoModal/>}
+        {showGestorCanales&&<GestorCanalesModal/>}
 
         {/* ── MODAL: Detalle completo del lote ── */}
         {showLotDetailModal&&selectedLotCRM&&(
