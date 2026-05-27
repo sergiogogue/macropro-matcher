@@ -587,6 +587,32 @@ const TIPOS_CLIENTE_FINAL = ["Usuario final","Inversionista","Desarrollador","Re
 const USOS_SUELO_OPCIONES = ["H1","H2","H3","H4","Comercial","Mixto","Industrial","Habitacional","Reserva","Sin definir"];
 const FORMAS_PAGO = ["Contado","Crédito bancario","Financiamiento desarrollador","Mixto","Por definir"];
 const PLAZOS_DECISION = ["Urgente (< 30 días)","Mediano (30-90 días)","Largo (> 90 días)","Sin definir"];
+const CANALES_VENTA = [
+  "Cartera Guía",
+  "Broker",
+  "Broker Embajador",
+  "Broker Institucional",
+  "Broker Internacional",
+  "Inversionista Privado",
+  "Canadevi",
+  "Directo",
+  "Referido",
+  "Digital",
+  "Otro"
+];
+const CANAL_COLORS = {
+  "Cartera Guía":          { bg:"#dbeafe", color:"#1e40af" },
+  "Broker":                { bg:"#ede9fe", color:"#5b21b6" },
+  "Broker Embajador":      { bg:"#fdf4ff", color:"#7e22ce" },
+  "Broker Institucional":  { bg:"#f5f3ff", color:"#4c1d95" },
+  "Broker Internacional":  { bg:"#ecfdf5", color:"#065f46" },
+  "Inversionista Privado": { bg:"#fef3c7", color:"#92400e" },
+  "Canadevi":              { bg:"#fee2e2", color:"#991b1b" },
+  "Directo":               { bg:"#f0fdf4", color:"#15803d" },
+  "Referido":              { bg:"#fff7ed", color:"#9a3412" },
+  "Digital":               { bg:"#eff6ff", color:"#1d4ed8" },
+  "Otro":                  { bg:"#f1f5f9", color:"#475569" }
+};
 
 function loadSolicitudesAsesor(){
   try{
@@ -1212,6 +1238,10 @@ function MacroProMatcher() {
   const [filterDevCompania, setFilterDevCompaniaRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterDevCompania,"Todos"));
   const setFilterDevCompania=(v)=>{setFilterDevCompaniaRaw(v);savePersisted(STORAGE_KEYS.filterDevCompania,v);setSelectedLotCRM(null);setFilterDesarrolloCRM("Todos");};
   const [filterSemaforo, setFilterSemaforo] = React.useState("Todos");
+  const [filterCanal, setFilterCanal] = React.useState("Todos");
+  const [planosDesarrollo, setPlanosDesarrolloRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_planos_v1");return r?JSON.parse(r):{};}catch(e){return {};}});
+  const setPlanosDesarrollo=(fn)=>{setPlanosDesarrolloRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_planos_v1",JSON.stringify(next));}catch(e){console.warn("No se pudo guardar plano",e);}return next;});};
+  const [planoVisible, setPlanoVisible] = React.useState(true);
   const [selectedAsesorLotes, setSelectedAsesorLotes] = React.useState(null);
   const [inventory, setInventoryRaw] = useState(()=>loadPersisted(STORAGE_KEYS.inventory,[]));
   const setInventory=(data)=>{
@@ -5268,15 +5298,11 @@ function MacroProMatcher() {
                  <input value={giroEdit} onChange={e=>setGiroEdit(e.target.value)} placeholder="Ej: Retail, Desarrollador, Inversionista..."
                    style={{width:"100%",borderRadius:7,border:"1px solid "+B.grey1,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:12}}/>
                  <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>CANAL DE ORIGEN</label>
-                 <div style={{display:"flex",gap:6,marginBottom:12}}>
-                   {["Broker","Directo","Embajador"].map(c=>(
-                     <button key={c} onClick={()=>setCanalEdit(canalEdit===c?"":c)}
-                       style={{flex:1,padding:"7px 4px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",
-                         background:canalEdit===c?B.navy:"rgba(0,43,73,0.07)",color:canalEdit===c?"#fff":B.navy}}>
-                       {c==="Broker"?"🤝":c==="Directo"?"📞":"⭐"} {c}
-                     </button>
-                   ))}
-                 </div>
+                 <select value={canalEdit} onChange={e=>setCanalEdit(e.target.value)}
+                   style={{width:"100%",borderRadius:7,border:"1.5px solid "+(canalEdit?(CANAL_COLORS[canalEdit]||{color:"#d1d5db"}).color+"55":B.grey1),padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box",background:canalEdit?(CANAL_COLORS[canalEdit]||{bg:"#fff"}).bg:"#fff",color:canalEdit?(CANAL_COLORS[canalEdit]||{color:B.navy}).color:B.grey4,fontWeight:canalEdit?700:400,marginBottom:12}}>
+                   <option value="">— Sin canal —</option>
+                   {CANALES_VENTA.map(c=><option key={c} value={c}>{c}</option>)}
+                 </select>
                  <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>NOTA INTERNA</label>
                   <textarea value={notaEdit} onChange={e=>setNotaEdit(e.target.value)} placeholder="Notas internas sobre este prospecto..." rows={3}
                     style={{width:"100%",borderRadius:7,border:"1px solid "+B.grey1,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",resize:"none",outline:"none",boxSizing:"border-box"}}/>
@@ -5287,6 +5313,104 @@ function MacroProMatcher() {
               </>)}
             </div>
           </div>
+        </div>
+      );
+    };
+
+    const PlanPanel=()=>{
+      const devActual = filterDesarrolloCRM!=="Todos" ? filterDesarrolloCRM : (srcInvFiltrado.length>0&&srcInvFiltrado[0].desarrollo)||"";
+      const planoKey = devActual ? devActual : "__global__";
+      const planoData = planosDesarrollo[planoKey];
+      const [zoom, setZoom] = React.useState(1);
+      const [drag, setDrag] = React.useState({x:0,y:0});
+      const [dragging, setDragging] = React.useState(false);
+      const [dragStart, setDragStart] = React.useState(null);
+      const fileInputRef = React.useRef(null);
+
+      const handleUpload = (e) => {
+        const file = e.target.files[0];
+        if(!file) return;
+        if(file.size > 8*1024*1024){toast("⚠ El plano no puede superar 8MB");return;}
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          setPlanosDesarrollo(prev=>({...prev,[planoKey]:{src:ev.target.result,nombre:file.name,desarrollo:devActual||"General"}}));
+          setZoom(1); setDrag({x:0,y:0});
+          toast("✅ Plano cargado para "+(devActual||"todos los desarrollos"));
+        };
+        reader.readAsDataURL(file);
+        e.target.value="";
+      };
+
+      const onMouseDown = (e) => { if(zoom<=1) return; setDragging(true); setDragStart({x:e.clientX-drag.x,y:e.clientY-drag.y}); e.preventDefault(); };
+      const onMouseMove = (e) => { if(!dragging||!dragStart) return; setDrag({x:e.clientX-dragStart.x,y:e.clientY-dragStart.y}); };
+      const onMouseUp = () => { setDragging(false); };
+      const onWheel = React.useCallback((e) => { e.preventDefault(); setZoom(z=>Math.min(4,Math.max(1,z-(e.deltaY>0?0.15:-0.15)))); },[]);
+      const areaRef = React.useRef(null);
+      React.useEffect(()=>{
+        const el=areaRef.current;
+        if(!el) return;
+        el.addEventListener("wheel",onWheel,{passive:false});
+        return ()=>el.removeEventListener("wheel",onWheel);
+      },[onWheel]);
+
+      return (
+        <div style={{marginTop:20,borderRadius:14,border:"1.5px solid #e5e7eb",overflow:"hidden",background:"#fff",boxShadow:"0 2px 12px rgba(0,43,73,0.08)"}}>
+          {/* Header */}
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderBottom:"1px solid #e5e7eb",background:"#f8fafc",flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:7,flex:1}}>
+              <span style={{fontSize:15}}>🗺</span>
+              <span style={{fontSize:12,fontWeight:800,color:"#002B49",fontFamily:"'DM Sans',sans-serif"}}>Plano maestro{devActual?" · "+devActual:""}</span>
+              {planoData&&<span style={{fontSize:10,color:"#6b7280",fontFamily:"'DM Sans',sans-serif"}}>{planoData.nombre}</span>}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+              {planoData&&(<>
+                <div style={{display:"flex",alignItems:"center",gap:4,background:"#f1f5f9",borderRadius:8,padding:"3px 8px"}}>
+                  <button onClick={()=>{setZoom(z=>{const nz=Math.max(1,z-0.25);if(nz<=1)setDrag({x:0,y:0});return nz;});}} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#002B49",fontWeight:700,padding:"0 3px",lineHeight:1}}>−</button>
+                  <span style={{fontSize:10,fontWeight:700,color:"#002B49",minWidth:34,textAlign:"center",fontFamily:"'DM Sans',sans-serif"}}>{Math.round(zoom*100)}%</span>
+                  <button onClick={()=>setZoom(z=>Math.min(4,z+0.25))} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#002B49",fontWeight:700,padding:"0 3px",lineHeight:1}}>+</button>
+                </div>
+                <button onClick={()=>{setZoom(1);setDrag({x:0,y:0});}} style={{padding:"4px 10px",background:"#e5e7eb",color:"#374151",border:"none",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>↺ Reset</button>
+                <button onClick={()=>fileInputRef.current&&fileInputRef.current.click()} style={{padding:"4px 10px",background:"#eff6ff",color:"#1d4ed8",border:"1px solid #bfdbfe",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🔄 Cambiar</button>
+                <button onClick={()=>{if(window.confirm("¿Eliminar el plano de "+(devActual||"este desarrollo")+"?")){setPlanosDesarrollo(prev=>{const n={...prev};delete n[planoKey];return n;});setZoom(1);setDrag({x:0,y:0});}}} style={{padding:"4px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✕</button>
+              </>)}
+              {!planoData&&(
+                <button onClick={()=>fileInputRef.current&&fileInputRef.current.click()} style={{padding:"6px 14px",background:"#002B49",color:"#fff",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
+                  📎 Subir plano{devActual?" de "+devActual:""}
+                </button>
+              )}
+              <button onClick={()=>setPlanoVisible(v=>!v)} style={{padding:"4px 10px",background:"transparent",color:"#6b7280",border:"1px solid #e5e7eb",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                {planoVisible?"▲ Ocultar":"▼ Ver plano"}
+              </button>
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleUpload} style={{display:"none"}}/>
+          </div>
+          {/* Área del plano */}
+          {planoVisible&&(
+            <div ref={areaRef}
+              style={{height:340,overflow:"hidden",background:"#111827",cursor:zoom>1?(dragging?"grabbing":"grab"):"default",position:"relative",userSelect:"none"}}
+              onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
+              {planoData ? (
+                <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                  <img src={planoData.src} alt="Plano" draggable={false}
+                    style={{maxWidth:"none",maxHeight:"none",width:"auto",height:"auto",minHeight:"100%",minWidth:"100%",objectFit:"contain",
+                      transform:"scale("+zoom+") translate("+(drag.x/zoom)+"px,"+(drag.y/zoom)+"px)",
+                      transformOrigin:"center center",transition:dragging?"none":"transform 0.15s ease",pointerEvents:"none"}}/>
+                </div>
+              ) : (
+                <div style={{width:"100%",height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
+                  <div style={{fontSize:36}}>🗺</div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#9ca3af",fontFamily:"'DM Sans',sans-serif"}}>Sin plano cargado</div>
+                  <div style={{fontSize:11,color:"#6b7280",textAlign:"center",fontFamily:"'DM Sans',sans-serif"}}>Sube una imagen del plano maestro{devActual?" de "+devActual:""}</div>
+                  <button onClick={()=>fileInputRef.current&&fileInputRef.current.click()} style={{padding:"8px 20px",background:"#2563AC",color:"#fff",border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:4}}>📎 Subir plano</button>
+                </div>
+              )}
+              {planoData&&(
+                <div style={{position:"absolute",bottom:8,right:10,fontSize:9,color:"rgba(255,255,255,0.45)",fontFamily:"'DM Sans',sans-serif",pointerEvents:"none"}}>
+                  {zoom>1?"Arrastra para navegar · ":""}Scroll o +/− para zoom
+                </div>
+              )}
+            </div>
+          )}
         </div>
       );
     };
@@ -5306,6 +5430,10 @@ function MacroProMatcher() {
         if(filterAsesor!=="Todos"){
           const asr=(x.cli&&x.cli.asesor)||x.prospecto?.asesor||x.crm?.asesorResponsable||"";
           if(asr!==filterAsesor) return false;
+        }
+        if(filterCanal!=="Todos"){
+          const canal=(x.prospecto&&x.prospecto.canal)||(x.cli&&x.cli.canal)||"";
+          if(canal!==filterCanal) return false;
         }
         return true;
       });
@@ -5375,7 +5503,7 @@ function MacroProMatcher() {
                         {p.empresa&&<div style={{fontSize:10,fontWeight:700,color:B.gold,background:B.gold+"18",borderRadius:4,padding:"1px 6px",marginBottom:3,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏢 {p.empresa}</div>}
                         {(p.giro||p.canal)&&<div style={{display:"flex",gap:3,marginBottom:3,flexWrap:"wrap"}}>
                           {p.giro&&<span style={{fontSize:9,background:"#f0f9ff",color:"#0369a1",borderRadius:4,padding:"1px 5px",fontWeight:600}}>{p.giro}</span>}
-                          {p.canal&&<span style={{fontSize:9,background:p.canal==="Broker"?"#eff6ff":p.canal==="Embajador"?"#fdf4ff":"#f0fdf4",color:p.canal==="Broker"?"#1d4ed8":p.canal==="Embajador"?"#7e22ce":"#15803d",borderRadius:4,padding:"1px 5px",fontWeight:700}}>{p.canal==="Broker"?"🤝":p.canal==="Directo"?"📞":"⭐"} {p.canal}</span>}
+                          {p.canal&&(()=>{const cc=CANAL_COLORS[p.canal]||{bg:"#f1f5f9",color:"#475569"};return <span style={{fontSize:9,background:cc.bg,color:cc.color,borderRadius:4,padding:"1px 6px",fontWeight:700,border:"1px solid "+cc.color+"33"}}>🏷 {p.canal}</span>;})()}
                         </div>}
                         {/* Lote + Desarrollo */}
                         <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
@@ -5671,6 +5799,15 @@ function MacroProMatcher() {
                       </select>
                       {!VALID_STAGES_SET.has(pStage)&&<span style={{fontSize:9,color:"#dc2626",fontWeight:700}}>← Elige etapa nueva</span>}
                       <button onClick={()=>iaAnalisisProspecto(l,p,cli,crm)} style={{marginLeft:"auto",padding:"5px 12px",background:"linear-gradient(135deg,#7c3aed,#5b21b6)",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:5}} title="Análisis IA del prospecto">🧠 Analizar</button>
+                    </div>
+                    {/* Selector de Canal */}
+                    <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span style={{fontSize:10,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:0.8}}>Canal:</span>
+                      <select value={p.canal||""} onChange={e=>{const prospectos=(crm.prospectos||[]).map((px,idx)=>idx===i?{...px,canal:e.target.value||undefined}:px);updateCRM(l.id,{prospectos});}}
+                        style={{fontSize:11,fontWeight:600,color:p.canal?(CANAL_COLORS[p.canal]||{color:"#475569"}).color:"#9ca3af",background:p.canal?(CANAL_COLORS[p.canal]||{bg:"#f1f5f9"}).bg:"#f9fafb",border:"1.5px solid "+(p.canal?(CANAL_COLORS[p.canal]||{color:"#d1d5db"}).color+"55":"#d1d5db"),borderRadius:6,padding:"4px 10px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none",minWidth:160}}>
+                        <option value="">— Sin canal —</option>
+                        {CANALES_VENTA.map(c=><option key={c} value={c}>{c}</option>)}
+                      </select>
                     </div>
                   </div>
                 );
@@ -6771,9 +6908,13 @@ Respuesta: [respuesta exacta, conversacional]
               <option value="red">🔴 Frío</option>
               <option value="grey">⚫ Sin seguimiento</option>
             </select>
+            <select value={filterCanal} onChange={e=>setFilterCanal(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
+              <option value="Todos">Todos los canales</option>
+              {CANALES_VENTA.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
             <span style={{fontSize:11,color:B.grey3}}>{lotsFiltered.length} lotes</span>
-            {(filterPipeline!=="Todos"||filterDesarrolloCRM!=="Todos"||filterSemaforo!=="Todos"||filterAsesor!=="Todos")&&
-              <button onClick={()=>{setFilterPipeline("Todos");setFilterDesarrolloCRM("Todos");setFilterSemaforo("Todos");setFilterAsesor("Todos");}} style={{padding:"5px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>✕ Limpiar</button>}
+            {(filterPipeline!=="Todos"||filterDesarrolloCRM!=="Todos"||filterSemaforo!=="Todos"||filterAsesor!=="Todos"||filterCanal!=="Todos")&&
+              <button onClick={()=>{setFilterPipeline("Todos");setFilterDesarrolloCRM("Todos");setFilterSemaforo("Todos");setFilterAsesor("Todos");setFilterCanal("Todos");}} style={{padding:"5px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>✕ Limpiar</button>}
           </div>
         )}
 
@@ -6787,6 +6928,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div>
             {KanbanBoard()}
             <div id="lot-detail-panel" style={{marginTop:14}}>{LotPanel()}</div>
+            {PlanPanel()}
           </div>
         )}
 
