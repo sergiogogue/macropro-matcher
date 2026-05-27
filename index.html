@@ -960,6 +960,7 @@ const scoreColor = (s) => s>=80?B.green:s>=60?B.gold:s>=40?B.blue:B.grey3;
 const tempColor = (t) => t==="Caliente"?B.red:t==="Tibio"?B.gold:t==="En cierre"?"#f97316":t==="Cerrado"?"#16a34a":t==="Descartado"?B.grey3:B.grey3;
 const TEMP_FROM_PIPELINE={
   "Prospecto":"Frío",
+  "Por Contactar":"Frío",
   "Contactado":"Tibio",
   "En negociación":"Caliente",
   "Propuesta":"Caliente",
@@ -1361,7 +1362,7 @@ function MacroProMatcher() {
   // ─── CRM STATE ────────────────────────────────────────────────────
   const CRM_KEY="macropro_crm_v1";
   const STAGE_MIGRATION={"Prospectado":"Prospecto","Propuesta formal":"Propuesta","Baja":"Descartado","Disponible":"Prospecto","Cierre":"Vendido","Perdido":"Descartado"};
-  const VALID_STAGES_SET=new Set(["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Contrato","Vendido","Descartado"]);
+  const VALID_STAGES_SET=new Set(["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Contrato","Vendido","Descartado"]);
   const migrateCRM=(d)=>{
     try{
       // MIGRACIÓN DE IDs: convierte claves "ML_135-r94" → "ML_135"
@@ -1818,12 +1819,12 @@ function MacroProMatcher() {
   const getSemaforo=(id)=>{const e=crmData[id];if(!e||e.pipeline==="Descartado"||e.pipeline==="Vendido")return "grey";if(!e.lastContact)return "yellow";const d=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));if(d<=30)return "green";if(d<=60)return "yellow";return "red";};
   const semaforoColor={green:"#22c55e",yellow:"#f59e0b",red:"#ef4444",grey:"#9ca3af"};
   const semaforoLabel={green:"Activo",yellow:"Tibio",red:"Frío — Acción requerida",grey:"Sin seguimiento"};
-  const PIPELINE_STAGES=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Contrato","Vendido","Descartado"];
-  const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Contactado":"#3B82F6","Cita":"#0891b2","Visita":"#0d9488","En análisis":"#6366f1","En negociación":B.gold,"Propuesta":"#8B5CF6","Apartado":"#f97316","Contrato":"#06B6D4","Vendido":"#22c55e","Descartado":"#94a3b8"};
+  const PIPELINE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Contrato","Vendido","Descartado"];
+  const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Por Contactar":"#f59e0b","Contactado":"#3B82F6","Cita":"#0891b2","Visita":"#0d9488","En análisis":"#6366f1","En negociación":B.gold,"Propuesta":"#8B5CF6","Apartado":"#f97316","Contrato":"#06B6D4","Vendido":"#22c55e","Descartado":"#94a3b8"};
   // Probabilidades estándar industria para forecast ponderado
-  const STAGE_PROBABILITY={"Prospecto":0.05,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En análisis":0.40,"En negociación":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
+  const STAGE_PROBABILITY={"Prospecto":0.05,"Por Contactar":0.08,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En análisis":0.40,"En negociación":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
   // Etapas activas (excluye terminales)
-  const ACTIVE_STAGES=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
+  const ACTIVE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
   const CANAL_OPTS=["Llamada","WhatsApp","Visita al terreno","Reunión presencial","Presentación virtual","Email","Otro"];
   const REACCION_OPTS=["Muy interesado","Interesado","Pendiente de info","Objeción de precio","Objeción técnica","No aplica","Archivado"];
 
@@ -2931,7 +2932,7 @@ function MacroProMatcher() {
                       agregados++;
                     });
                     if(agregados===0&&yaExisten>0){toast("⚠ Todos ya existían en el Kanban");setSelectedMatchIds(new Set());return;}
-                    const STAGE_ORD={"Disponible":0,"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":-1};
+                    const STAGE_ORD={"Disponible":0,"Prospecto":1,"Por Contactar":1.5,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":-1};
                     let pipNuevo="Prospecto";
                     prospectos.forEach(p=>{if(p&&p.pipeline&&(STAGE_ORD[p.pipeline]||0)>(STAGE_ORD[pipNuevo]||0))pipNuevo=p.pipeline;});
                     const newEntry={...crmActual,prospectos,pipeline:pipNuevo,lastContact:new Date().toISOString().slice(0,10)};
@@ -5321,6 +5322,15 @@ function MacroProMatcher() {
                 <button onClick={guardarCambios} disabled={saving} style={{width:"100%",padding:"9px",background:B.navy,color:B.gold,border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:saving?"wait":"pointer",fontFamily:"'DM Sans',sans-serif"}}>
                   {saving?"Guardando...":"💾 Guardar cambios"}
                 </button>
+                <button onClick={()=>{
+                  if(!window.confirm("¿Quitar a "+( p.nombre||"este prospecto")+" del lote "+lot.nombre+"?\n\nEl cliente no se elimina del sistema, solo se desvincula de este lote.")) return;
+                  const prospectos=(crm.prospectos||[]).filter((_,idx)=>idx!==prospectoIdx);
+                  updateCRM(lot.id,{prospectos});
+                  setShowQuickProspModal(false);
+                  toast("✅ Prospecto quitado del lote");
+                }} style={{width:"100%",marginTop:8,padding:"8px",background:"#fff",color:"#dc2626",border:"1.5px solid #fca5a5",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                  🗑 Quitar del lote
+                </button>
               </>)}
             </div>
           </div>
@@ -7656,8 +7666,8 @@ Respuesta: [respuesta exacta, conversacional]
       const fmtMoney=(v)=>{if(!v||v===0)return "$0";const abs=Math.abs(v),sign=v<0?"-":"";if(abs>=1e9)return sign+"$"+(abs/1e9).toFixed(2)+"B";if(abs>=1e6)return sign+"$"+(abs/1e6).toFixed(1)+"M";if(abs>=1e3)return sign+"$"+Math.round(abs/1e3)+"k";return sign+"$"+abs.toFixed(0);};
       const fechaStr = ahora.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
       const MESES_ES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-      const ACTIVE_STAGES=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
-      const stageProb={"Prospecto":0.05,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En análisis":0.40,"En negociación":0.55,"En negociacion":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
+      const ACTIVE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
+      const stageProb={"Prospecto":0.05,"Por Contactar":0.08,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En análisis":0.40,"En negociación":0.55,"En negociacion":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
       const tempColor=(t)=>t==="Caliente"?[220,38,38]:t==="Tibio"?[217,119,6]:t==="Frío"||t==="Frio"?[37,99,235]:t==="En cierre"?[249,115,22]:t==="Cerrado"?[22,163,74]:t==="Descartado"?[107,114,128]:[107,114,128];
       const stageColor=(s)=>s==="Vendido"||s==="Contrato"?green:s==="Propuesta"||s==="Apartado"||s==="Visita"?amber:s==="En negociacion"||s==="En análisis"||s==="Cita"?[8,145,178]:grey;
 
@@ -7905,7 +7915,7 @@ Respuesta: [respuesta exacta, conversacional]
         const cols=modo==="ceo"
           ?["Cliente","T","Etapa","Asesor","Dias","Interacc.","Proxima Accion","Fecha"]
           :["Cliente","T","Empresa","Etapa","Giro","Canal","Asesor"];
-        const STAGE_ORD_PDF={"Vendido":10,"Contrato":9,"Apartado":8,"Propuesta":7,"En negociación":6,"En análisis":5,"Visita":4,"Cita":3,"Contactado":2,"Prospecto":1,"Descartado":0};
+        const STAGE_ORD_PDF={"Vendido":10,"Contrato":9,"Apartado":8,"Propuesta":7,"En negociación":6,"En análisis":5,"Visita":4,"Cita":3,"Contactado":2,"Por Contactar":1.5,"Prospecto":1,"Descartado":0};
         const sortedProspActivos=[...prospActivos].sort((a,b)=>(STAGE_ORD_PDF[b.pip]||0)-(STAGE_ORD_PDF[a.pip]||0));
         const rows=sortedProspActivos.map(r=>{
           const temp=tempLegend[getTempFromPipeline(r.pip||r.pipeline)]||tempLegend[r.temperatura]||"-";
