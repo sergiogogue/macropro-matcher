@@ -5809,8 +5809,16 @@ function MacroProMatcher() {
           {/* Header */}
           <div style={{background:"linear-gradient(135deg,"+B.navy+","+B.navyL+")",padding:"16px 20px"}}>
             <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
-              <div>
-                <div style={{fontSize:9,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase",marginBottom:3}}>{l.desarrollo} · {l.id}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                  <button onClick={()=>setSelectedLotCRM(null)}
+                    style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:6,padding:"3px 10px",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4,flexShrink:0}}
+                    onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.28)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,0.15)"}>
+                    ← Todos los lotes
+                  </button>
+                  <div style={{fontSize:9,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase"}}>{l.desarrollo} · {l.id}</div>
+                </div>
                 <div style={{fontSize:17,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>{l.nombre}</div>
                 <div style={{fontSize:11,color:"#93c5fd",marginTop:2}}>{l.ciudad}, {l.estado}</div>
               </div>
