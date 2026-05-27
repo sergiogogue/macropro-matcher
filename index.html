@@ -5745,13 +5745,61 @@ function MacroProMatcher() {
     // LOT PANEL (detalle del lote seleccionado - lado derecho en lista)
     // ══════════════════════════════════════════════════════════════
     const LotPanel=()=>{
-      if(!selectedLotCRM) return (
-        <div style={{background:B.white,borderRadius:14,padding:32,textAlign:"center",color:B.grey3,border:"2px dashed "+B.grey1}}>
-          <div style={{fontSize:34,marginBottom:8}}>🏗</div>
-          <div style={{fontSize:12,fontWeight:600}}>Selecciona un lote</div>
-          <div style={{fontSize:11,marginTop:4}}>para ver su seguimiento</div>
-        </div>
-      );
+      if(!selectedLotCRM){
+        // Mostrar lista de lotes activos del Kanban para selección rápida
+        const lotesActivos = lotsFiltered.filter(l=>{
+          const crm=crmData[l.id];
+          return crm&&((crm.prospectos&&crm.prospectos.length>0)||(crm.seguimientoAsesor));
+        }).sort((a,b)=>{
+          const pa=PIPELINE_STAGES.indexOf((crmData[a.id]||{}).pipeline||"Disponible");
+          const pb=PIPELINE_STAGES.indexOf((crmData[b.id]||{}).pipeline||"Disponible");
+          return pb-pa;
+        });
+        if(lotesActivos.length===0) return (
+          <div style={{background:B.white,borderRadius:14,padding:32,textAlign:"center",color:B.grey3,border:"2px dashed "+B.grey1}}>
+            <div style={{fontSize:34,marginBottom:8}}>🏗</div>
+            <div style={{fontSize:12,fontWeight:600}}>Sin lotes activos</div>
+            <div style={{fontSize:11,marginTop:4}}>Agrega prospectos desde el Kanban</div>
+          </div>
+        );
+        return (
+          <div style={{background:B.white,borderRadius:14,overflow:"hidden",border:"1.5px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.06)"}}>
+            <div style={{padding:"12px 18px",borderBottom:"1px solid "+B.grey1,display:"flex",alignItems:"center",justifyContent:"space-between",background:"#f8fafc"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:14}}>📋</span>
+                <span style={{fontSize:12,fontWeight:800,color:B.navy,fontFamily:"'DM Sans',sans-serif"}}>Lotes activos en Kanban</span>
+                <span style={{fontSize:10,background:B.navy,color:"#fff",borderRadius:10,padding:"1px 8px",fontWeight:700}}>{lotesActivos.length}</span>
+              </div>
+              <span style={{fontSize:10,color:B.grey3,fontFamily:"'DM Sans',sans-serif"}}>Click para ver detalle</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10,padding:14,maxHeight:320,overflowY:"auto"}}>
+              {lotesActivos.map(l=>{
+                const crm=crmData[l.id]||{};
+                const pip=crm.pipeline||"Disponible";
+                const col=PIPELINE_COLORS[pip]||B.grey3;
+                const sem=getSemaforo(l.id);
+                const nProsp=(crm.prospectos||[]).length;
+                return (
+                  <div key={l.id} onClick={()=>setSelectedLotCRM(l)}
+                    style={{background:"#fff",borderRadius:10,padding:"11px 13px",cursor:"pointer",border:"1.5px solid "+B.grey1,transition:"all 0.15s",borderLeft:"4px solid "+col}}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor=col;e.currentTarget.style.boxShadow="0 4px 14px rgba(0,43,73,0.12)";e.currentTarget.style.transform="translateY(-1px)";}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor=B.grey1;e.currentTarget.style.boxShadow="none";e.currentTarget.style.transform="none";e.currentTarget.style.borderLeftColor=col;}}>
+                    <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
+                      <div style={{width:7,height:7,borderRadius:"50%",background:semaforoColor[sem],flexShrink:0}}/>
+                      <span style={{fontSize:11,fontWeight:800,color:B.navy,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'DM Sans',sans-serif"}}>{l.nombre}</span>
+                    </div>
+                    <div style={{fontSize:10,color:B.grey4,marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>{l.desarrollo}</div>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <span style={{fontSize:9,fontWeight:700,background:col+"18",color:col,borderRadius:5,padding:"2px 7px",fontFamily:"'DM Sans',sans-serif"}}>{pip}</span>
+                      <span style={{fontSize:9,color:B.grey3,fontFamily:"'DM Sans',sans-serif"}}>👤 {nProsp} prosp.</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
       const l=selectedLotCRM;
       const crm=crmData[l.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
       const sem=getSemaforo(l.id);
