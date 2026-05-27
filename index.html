@@ -5288,7 +5288,10 @@ function MacroProMatcher() {
                   </div>
                 </div>
                 <div style={{marginBottom:12}}>
-                  <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>ASESOR RESPONSABLE</label>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                    <label style={{fontSize:10,fontWeight:700,color:B.grey4}}>ASESOR RESPONSABLE</label>
+                    <button onClick={()=>{setShowQuickProspModal(false);setQuickProspInitTab("acciones");setActiveTab("asesores");}} style={{fontSize:9,fontWeight:700,color:"#2563AC",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:5,padding:"2px 7px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>⚙ Gestionar</button>
+                  </div>
                   <select value={asesorEdit} onChange={e=>setAsesorEdit(e.target.value)}
                     style={{width:"100%",borderRadius:7,border:"1px solid "+B.grey1,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box",background:"#fff"}}>
                     <option value="">Sin asignar</option>
@@ -5540,7 +5543,7 @@ function MacroProMatcher() {
           {/* Área del plano */}
           {planoVisible&&(
             <div ref={areaRef}
-              style={{height:340,overflow:"hidden",background:"#111827",cursor:zoom>1?(dragging?"grabbing":"grab"):"default",position:"relative",userSelect:"none"}}
+              style={{height:560,overflow:"hidden",background:"#111827",cursor:zoom>1?(dragging?"grabbing":"grab"):"default",position:"relative",userSelect:"none"}}
               onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
               {planoData ? (
                 <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
