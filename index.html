@@ -3950,7 +3950,7 @@ function MacroProMatcher() {
         forecastByDesarrollador[devNombre].ponderado+=ponderado;
 
         // Por asesor
-        const asesorLocal=(item.cli&&item.cli.asesor)||item.prospecto.asesor||(item.crm&&item.crm.asesorResponsable)||"Sin asesor";
+        const asesorLocal=item.prospecto.asesor||(item.cli&&item.cli.asesor)||(item.crm&&item.crm.asesorResponsable)||"Sin asesor";
         if(!forecastByAsesor[asesorLocal]) forecastByAsesor[asesorLocal]={count:0,valor:0,ponderado:0};
         forecastByAsesor[asesorLocal].count++;
         forecastByAsesor[asesorLocal].valor+=precio;
@@ -5594,7 +5594,7 @@ function MacroProMatcher() {
       const prospectosFiltrados=allProspectos.filter(x=>{
         if(filterDesarrolloCRM!=="Todos"&&x.lot.desarrollo!==filterDesarrolloCRM) return false;
         if(filterAsesor!=="Todos"){
-          const asr=(x.cli&&x.cli.asesor)||x.prospecto?.asesor||x.crm?.asesorResponsable||"";
+          const asr=x.prospecto?.asesor||(x.cli&&x.cli.asesor)||x.crm?.asesorResponsable||"";
           if(asr!==filterAsesor) return false;
         }
         if(filterCanal!=="Todos"){
@@ -5655,7 +5655,7 @@ function MacroProMatcher() {
                   {stageProsps.map((x,i)=>{
                     const p=x.prospecto;
                     const cli=x.cli;
-                    const asesor=(cli&&cli.asesor)||p.asesor||x.crm.asesorResponsable||null;
+                    const asesor=p.asesor||(cli&&cli.asesor)||x.crm.asesorResponsable||null;
                     const temp=getTempFromPipeline(x.pipeline);
                     const tCol=tempColorP(x.pipeline);
                     return (
