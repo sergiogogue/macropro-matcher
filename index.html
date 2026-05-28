@@ -5523,13 +5523,14 @@ function MacroProMatcher() {
               doc.text((p.nombre||"Sin nombre").substring(0,24),cx+6,py+1,{maxWidth:colW-8});
               // Lote + precio
               doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(80,80,80);
-              const precioTot=lot.precio_total||(lot.sup_m2&&lot.precio_m2?lot.sup_m2*lot.precio_m2:null);
+              const invLot=inventory.find(inv=>inv.id===lot.id||(inv.nombre&&lot.nombre&&inv.nombre===lot.nombre&&inv.desarrollo===lot.desarrollo));
+              const precioTot=(lot.precio_total>0?lot.precio_total:null)||(lot.sup_m2&&lot.precio_m2>0?lot.sup_m2*lot.precio_m2:null)||(invLot&&invLot.precio_total>0?invLot.precio_total:null)||(invLot&&invLot.sup_m2&&invLot.precio_m2>0?invLot.sup_m2*invLot.precio_m2:null);
               const precio=precioTot&&precioTot>0?("$"+(precioTot/1e6).toFixed(1)+"M"):"";
               doc.text([lot.nombre||"",precio].filter(Boolean).join(" · "),cx+6,py+5,{maxWidth:colW-8});
-              // Asesor
+              // Asesor (sin emoji)
               if(asesor){
                 doc.setFont("helvetica","italic"); doc.setFontSize(5.5); doc.setTextColor(100,100,130);
-                doc.text("👤 "+asesor.substring(0,26),cx+6,py+9,{maxWidth:colW-8});
+                doc.text("Asesor: "+asesor.substring(0,26),cx+6,py+9,{maxWidth:colW-8});
               }
             });
           });
