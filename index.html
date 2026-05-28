@@ -7369,6 +7369,7 @@ Respuesta: [respuesta exacta, conversacional]
                       ? asesoresCatalog.map(a=><option key={a.id||a.nombre} value={a.nombre}>{a.nombre}</option>)
                       : [...new Set(Object.values(crmData).flatMap(c=>[(c.asesorResponsable||"")]).filter(Boolean))].sort().map(n=><option key={n} value={n}>{n}</option>)
                     }
+                  </select>
                 <label style={{fontSize:10,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:0.8,display:"block",marginBottom:5}}>Notas iniciales (opcional)</label>
                 <textarea value={seguimientoForm.notas} onChange={e=>setSeguimientoForm({...seguimientoForm,notas:e.target.value})}
                   placeholder="Ej: Contacto vía anuncio de Meta, mostró interés en lote comercial..."
