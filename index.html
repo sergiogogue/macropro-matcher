@@ -616,6 +616,13 @@ const CANAL_COLORS = {
   "Otro":                  { bg:"#f1f5f9", color:"#475569" }
 };
 
+const CIUDADES_CRM = [
+  { id:"GDL",  label:"GDL",  color:"#1d4ed8", bg:"#dbeafe" },
+  { id:"CUN",  label:"CUN",  color:"#0369a1", bg:"#e0f2fe" },
+  { id:"CDMX", label:"CDMX", color:"#7c3aed", bg:"#ede9fe" },
+  { id:"MTY",  label:"MTY",  color:"#065f46", bg:"#d1fae5" },
+];
+
 function loadSolicitudesAsesor(){
   try{
     const raw = localStorage.getItem(SOLICITUDES_ASESOR_KEY);
@@ -1242,6 +1249,7 @@ function MacroProMatcher() {
   const setFilterDevCompania=(v)=>{setFilterDevCompaniaRaw(v);savePersisted(STORAGE_KEYS.filterDevCompania,v);setSelectedLotCRM(null);setFilterDesarrolloCRM("Todos");};
   const [filterSemaforo, setFilterSemaforo] = React.useState("Todos");
   const [filterCanal, setFilterCanal] = React.useState("Todos");
+  const [vistaKanban, setVistaKanban] = React.useState("board"); // "board" | "canales"
   const [canalesActivos, setCanalesActivosRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_canales_v1");return r?JSON.parse(r):CANALES_VENTA;}catch(e){return CANALES_VENTA;}});
   const setCanalesActivos=(fn)=>{setCanalesActivosRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_canales_v1",JSON.stringify(next));}catch(e){}return next;});};
   const [showGestorCanales, setShowGestorCanales] = React.useState(false);
@@ -5131,6 +5139,7 @@ function MacroProMatcher() {
       const [tempEdit,setTempEdit]=React.useState(p.temperatura||(cliQ&&cliQ.temperatura)||"");
       const [giroEdit,setGiroEdit]=React.useState(p.giro||"");
       const [canalEdit,setCanalEdit]=React.useState(p.canal||"");
+      const [ciudadEdit,setCiudadEdit]=React.useState(p.ciudad||"");
       const [asesorEdit,setAsesorEdit]=React.useState(p.asesor||crm.asesorResponsable||(cliQ&&cliQ.asesor)||"");
       const [notaEdit,setNotaEdit]=React.useState(p.nota||"");
       const [tabQ,setTabQ]=React.useState(quickProspInitTab||"acciones");
@@ -5149,7 +5158,7 @@ function MacroProMatcher() {
 
       const guardarCambios=()=>{
         setSaving(true);
-        const prospActualizado={...p,nombre:nombreEdit&&nombreEdit.trim()?nombreEdit.trim():p.nombre,temperatura:tempEdit||p.temperatura,asesor:asesorEdit,nota:notaEdit,giro:giroEdit,canal:canalEdit};
+        const prospActualizado={...p,nombre:nombreEdit&&nombreEdit.trim()?nombreEdit.trim():p.nombre,temperatura:tempEdit||p.temperatura,asesor:asesorEdit,nota:notaEdit,giro:giroEdit,canal:canalEdit,ciudad:ciudadEdit||undefined};
         if(loteEdit!==lot.id){
           // Mover prospecto al nuevo lote
           const prospOrigen=[...(crm.prospectos||[])];
@@ -5315,6 +5324,17 @@ function MacroProMatcher() {
                    <option value="">— Sin canal —</option>
                    {canalesActivos.map(c=><option key={c} value={c}>{c}</option>)}
                  </select>
+                 {/* Ciudad del cliente */}
+                 <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4,marginTop:12}}>CIUDAD DEL CLIENTE</label>
+                 <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+                   {CIUDADES_CRM.map(c=>(
+                     <button key={c.id} onClick={()=>setCiudadEdit(ciudadEdit===c.id?"":c.id)}
+                       style={{flex:1,minWidth:60,padding:"7px 4px",borderRadius:7,border:"2px solid "+(ciudadEdit===c.id?c.color:"#e5e7eb"),cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:ciudadEdit===c.id?c.bg:"#fff",color:ciudadEdit===c.id?c.color:"#6b7280",transition:"all 0.15s"}}>
+                       {c.label}
+                     </button>
+                   ))}
+                   {ciudadEdit&&<button onClick={()=>setCiudadEdit("")} style={{padding:"7px 10px",border:"1px solid #e5e7eb",borderRadius:7,background:"#f9fafb",color:"#9ca3af",fontSize:10,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✕</button>}
+                 </div>
                  <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>NOTA INTERNA</label>
                   <textarea value={notaEdit} onChange={e=>setNotaEdit(e.target.value)} placeholder="Notas internas sobre este prospecto..." rows={3}
                     style={{width:"100%",borderRadius:7,border:"1px solid "+B.grey1,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",resize:"none",outline:"none",boxSizing:"border-box"}}/>
@@ -5430,6 +5450,189 @@ function MacroProMatcher() {
               <button onClick={()=>setShowGestorCanales(false)} style={{padding:"8px 16px",background:"#fff",color:"#374151",border:"1px solid #e5e7eb",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancelar</button>
               <button onClick={guardarTodo} style={{padding:"8px 20px",background:"#002B49",color:"#fff",border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>💾 Guardar</button>
             </div>
+          </div>
+        </div>
+      );
+    };
+
+    const VistaCanalCiudad=()=>{
+      const ETAPAS_EXCLUIR=new Set(["Descartado","Disponible"]);
+      const ETAPA_COLORS={"Prospecto":"#64748b","Por Contactar":"#f59e0b","Contactado":"#3b82f6","Cita":"#0891b2","Visita":"#0d9488","En análisis":"#6366f1","En negociación":"#d97706","Propuesta":"#8b5cf6","Apartado":"#f97316","Contrato":"#06b6d4","Vendido":"#16a34a"};
+
+      // Construir dataset desde allProspectos filtrado por desarrollo
+      const datos=allProspectos.filter(x=>{
+        if(filterDesarrolloCRM!=="Todos"&&x.lot.desarrollo!==filterDesarrolloCRM) return false;
+        if(ETAPAS_EXCLUIR.has(x.pipeline)) return false;
+        return true;
+      });
+
+      // Para PDF
+      const generarPDF=()=>{
+        if(!window.jspdf){toast("⚠ jsPDF no disponible");return;}
+        const {jsPDF}=window.jspdf;
+        const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+        const dev=filterDesarrolloCRM!=="Todos"?filterDesarrolloCRM:"Todos los desarrollos";
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(16);
+        doc.setTextColor(0,43,73);
+        doc.text("CANALES · CLIENTES — "+dev,148,18,{align:"center"});
+        doc.setFontSize(9);
+        doc.setTextColor(100,100,100);
+        doc.text("Generado "+new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}),148,24,{align:"center"});
+
+        const colW=46; const rowH=7; const leftW=44; const startX=15; const startY=32;
+        // Header ciudades
+        doc.setFillColor(0,43,73);
+        doc.roundedRect(startX+leftW,startY,colW*CIUDADES_CRM.length,rowH,1,1,"F");
+        CIUDADES_CRM.forEach((c,ci)=>{
+          doc.setTextColor(255,255,255);
+          doc.setFont("helvetica","bold");
+          doc.setFontSize(9);
+          doc.text(c.label,startX+leftW+ci*colW+colW/2,startY+4.8,{align:"center"});
+        });
+
+        let y=startY+rowH;
+        canalesActivos.forEach((canal,ri)=>{
+          const canalColor=CANAL_COLORS[canal]||{color:"#475569",bg:"#f1f5f9"};
+          const rowClients=datos.filter(x=>x.prospecto.canal===canal);
+          const maxPerCol=Math.max(1,...CIUDADES_CRM.map(c=>rowClients.filter(x=>x.prospecto.ciudad===c.id).length));
+          const cellH=Math.max(14,maxPerCol*10+6);
+
+          // Canal label cell
+          doc.setFillColor(245,245,245);
+          doc.rect(startX,y,leftW,cellH,"F");
+          doc.setDrawColor(220,220,220);
+          doc.rect(startX,y,leftW,cellH,"S");
+          doc.setFont("helvetica","bold");
+          doc.setFontSize(8);
+          doc.setTextColor(0,43,73);
+          doc.text(canal.toUpperCase(),startX+leftW/2,y+cellH/2+2.5,{align:"center",maxWidth:leftW-4});
+
+          // Celdas por ciudad
+          CIUDADES_CRM.forEach((c,ci)=>{
+            const cx=startX+leftW+ci*colW;
+            doc.setFillColor(250,252,255);
+            doc.rect(cx,y,colW,cellH,"F");
+            doc.setDrawColor(220,220,220);
+            doc.rect(cx,y,colW,cellH,"S");
+            const clientes=rowClients.filter(x=>x.prospecto.ciudad===c.id);
+            clientes.forEach((x,k)=>{
+              const p=x.prospecto; const lot=x.lot;
+              const py=y+5+k*10;
+              // etapa dot
+              const ec=ETAPA_COLORS[p.pipeline||"Prospecto"]||"#64748b";
+              const rgb=ec.replace("#","");
+              const r=parseInt(rgb.substring(0,2),16),g=parseInt(rgb.substring(2,4),16),b=parseInt(rgb.substring(4,6),16);
+              doc.setFillColor(r,g,b);
+              doc.circle(cx+3,py+0.5,1.2,"F");
+              doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(0,43,73);
+              doc.text((p.nombre||"Sin nombre").substring(0,20),cx+6,py+1,{maxWidth:colW-8});
+              doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(80,80,80);
+              const precio=lot.precio_total?("$"+(lot.precio_total/1e6).toFixed(1)+"M"):lot.precio_m2?("$"+lot.precio_m2.toLocaleString()+"/m²"):"";
+              doc.text([lot.nombre||"",precio].filter(Boolean).join(" · "),cx+6,py+5,{maxWidth:colW-8});
+            });
+          });
+          y+=cellH;
+          if(y>185){doc.addPage();y=15;}
+        });
+
+        doc.save("canales_clientes_"+(filterDesarrolloCRM!=="Todos"?filterDesarrolloCRM:"todos")+".pdf");
+        toast("✅ PDF generado");
+      };
+
+      const totalClientes=datos.length;
+      const sinCiudad=datos.filter(x=>!x.prospecto.ciudad).length;
+
+      return (
+        <div style={{marginTop:0}}>
+          {/* Header del tablero */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{fontSize:13,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>Canales · Clientes</div>
+              <span style={{fontSize:10,background:B.navy,color:"#fff",borderRadius:10,padding:"2px 9px",fontWeight:700}}>{totalClientes}</span>
+              {sinCiudad>0&&<span style={{fontSize:10,background:"#fef3c7",color:"#92400e",borderRadius:10,padding:"2px 9px",fontWeight:700}}>⚠ {sinCiudad} sin ciudad</span>}
+            </div>
+            <button onClick={generarPDF}
+              style={{padding:"8px 16px",background:"linear-gradient(135deg,#002B49,#003a66)",color:"#fff",border:"none",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6,boxShadow:"0 2px 8px rgba(0,43,73,0.25)"}}>
+              📄 Exportar PDF
+            </button>
+          </div>
+
+          {/* Tabla */}
+          <div style={{overflowX:"auto",borderRadius:14,boxShadow:"0 4px 20px rgba(0,43,73,0.10)",border:"1px solid #e5e7eb"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:700,background:"#fff"}}>
+              <thead>
+                <tr>
+                  <th style={{width:160,padding:"12px 16px",background:"#002B49",color:"#fff",fontSize:11,fontWeight:800,textAlign:"left",fontFamily:"'DM Sans',sans-serif",borderRight:"1px solid rgba(255,255,255,0.15)"}}>CANAL</th>
+                  {CIUDADES_CRM.map(c=>(
+                    <th key={c.id} style={{padding:"12px 8px",background:"#002B49",color:"#fff",fontSize:11,fontWeight:800,textAlign:"center",fontFamily:"'DM Sans',sans-serif",borderRight:"1px solid rgba(255,255,255,0.15)",minWidth:180}}>
+                      <div style={{display:"inline-flex",alignItems:"center",gap:6,background:c.bg,color:c.color,borderRadius:8,padding:"3px 14px",fontWeight:900}}>{c.label}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {canalesActivos.map((canal,ri)=>{
+                  const cInfo=CANAL_COLORS[canal]||{color:"#475569",bg:"#f8fafc"};
+                  const rowData=datos.filter(x=>x.prospecto.canal===canal);
+                  const isEmpty=rowData.length===0;
+                  return (
+                    <tr key={canal} style={{borderBottom:"1px solid #f1f5f9",background:ri%2===0?"#fff":"#fafbfc"}}>
+                      {/* Canal label */}
+                      <td style={{padding:"14px 16px",borderRight:"1px solid #e5e7eb",verticalAlign:"middle",background:cInfo.bg+"44"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7}}>
+                          <div style={{width:10,height:10,borderRadius:"50%",background:cInfo.color,flexShrink:0}}/>
+                          <span style={{fontSize:11,fontWeight:800,color:cInfo.color,fontFamily:"'DM Sans',sans-serif",lineHeight:1.3,textTransform:"uppercase",letterSpacing:0.5}}>{canal}</span>
+                        </div>
+                        {!isEmpty&&<div style={{fontSize:9,color:"#94a3b8",marginTop:4,fontFamily:"'DM Sans',sans-serif",marginLeft:17}}>{rowData.length} cliente{rowData.length!==1?"s":""}</div>}
+                      </td>
+                      {/* Celdas por ciudad */}
+                      {CIUDADES_CRM.map(c=>{
+                        const cClientes=rowData.filter(x=>x.prospecto.ciudad===c.id);
+                        return (
+                          <td key={c.id} style={{padding:"10px 10px",borderRight:"1px solid #f1f5f9",verticalAlign:"top",minHeight:60}}>
+                            {cClientes.length===0?(
+                              <div style={{height:32,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                <div style={{width:20,height:1,background:"#e5e7eb"}}/>
+                              </div>
+                            ):(
+                              <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                                {cClientes.map((x,k)=>{
+                                  const p=x.prospecto; const lot=x.lot;
+                                  const etapa=p.pipeline||"Prospecto";
+                                  const eCol=ETAPA_COLORS[etapa]||"#64748b";
+                                  const precioTot=lot.precio_total||(lot.sup_m2&&lot.precio_m2?lot.sup_m2*lot.precio_m2:null);
+                                  const asesor=p.asesor||(x.cli&&x.cli.asesor)||x.crm.asesorResponsable||null;
+                                  return (
+                                    <div key={k}
+                                      onClick={()=>{setQuickProspData({lot:x.lot,p:x.prospecto,prospectoIdx:x.prospectoIdx,crm:crmData[x.lotId]||{},cli:x.cli||null});setShowQuickProspModal(true);}}
+                                      style={{background:"#fff",borderRadius:9,padding:"8px 10px",border:"1px solid #e5e7eb",cursor:"pointer",borderLeft:"3px solid "+eCol,boxShadow:"0 1px 4px rgba(0,43,73,0.06)",transition:"all 0.15s"}}
+                                      onMouseEnter={e=>{e.currentTarget.style.boxShadow="0 4px 14px rgba(0,43,73,0.14)";e.currentTarget.style.borderLeftColor=eCol;e.currentTarget.style.transform="translateY(-1px)";}}
+                                      onMouseLeave={e=>{e.currentTarget.style.boxShadow="0 1px 4px rgba(0,43,73,0.06)";e.currentTarget.style.transform="none";}}>
+                                      {/* Etapa badge + cliente */}
+                                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                                        <span style={{fontSize:8,fontWeight:800,background:eCol+"18",color:eCol,borderRadius:5,padding:"1px 6px",whiteSpace:"nowrap",flexShrink:0}}>{etapa}</span>
+                                        <span style={{fontSize:11,fontWeight:800,color:"#002B49",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'DM Sans',sans-serif"}}>{p.nombre||"Sin nombre"}</span>
+                                      </div>
+                                      {/* Lote + precio */}
+                                      <div style={{fontSize:10,color:"#0369a1",fontWeight:700,marginBottom:2,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏠 {lot.nombre}</div>
+                                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+                                        {asesor&&<span style={{fontSize:9,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"'DM Sans',sans-serif"}}>👤 {asesor}</span>}
+                                        {precioTot&&<span style={{fontSize:10,fontWeight:800,color:"#065f46",background:"#d1fae5",borderRadius:5,padding:"1px 7px",flexShrink:0,fontFamily:"'DM Sans',sans-serif"}}>${(precioTot/1e6).toFixed(1)}M</span>}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       );
@@ -7114,6 +7317,11 @@ Respuesta: [respuesta exacta, conversacional]
         {/* Filtros (en tabs lista/kanban) */}
         {activeTab==="kanban"&&(
           <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+            {/* Toggle vista */}
+            <div style={{display:"flex",background:"#f1f5f9",borderRadius:9,padding:3,gap:2,flexShrink:0}}>
+              <button onClick={()=>setVistaKanban("board")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaKanban==="board"?B.navy:"transparent",color:vistaKanban==="board"?"#fff":"#64748b",transition:"all 0.15s"}}>📋 Kanban</button>
+              <button onClick={()=>setVistaKanban("canales")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaKanban==="canales"?B.navy:"transparent",color:vistaKanban==="canales"?"#fff":"#64748b",transition:"all 0.15s"}}>🏷 Canales</button>
+            </div>
             {[["filterDesarrolloCRM",filterDesarrolloCRM,setFilterDesarrolloCRM,["Todos los desarrollos",...desarrollosCRM]],
               ["filterPipeline",filterPipeline,setFilterPipeline,["Todos",...PIPELINE_STAGES]]].map(([key,val,setter,opts])=>(
               <select key={key} value={val} onChange={e=>setter(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
@@ -7149,9 +7357,11 @@ Respuesta: [respuesta exacta, conversacional]
         {activeTab==="benchmark"&&VistaBenchmark()}
         {activeTab==="kanban"&&(
           <div>
+            {vistaKanban==="canales" ? VistaCanalCiudad() : (<>
             {KanbanBoard()}
             <div id="lot-detail-panel" style={{marginTop:14}}>{LotPanel()}</div>
             {PlanPanel()}
+            </>)}
           </div>
         )}
 
