@@ -5485,69 +5485,171 @@ function MacroProMatcher() {
         const devActualPDF = filterDesarrolloCRM!=="Todos"
           ? filterDesarrolloCRM
           : (()=>{const devs=[...new Set(datos.map(x=>x.lot.desarrollo).filter(Boolean))];return devs.length===1?devs[0]:devs.length>1?devs.join(", "):"Todos los desarrollos";})();
-        const cols=CIUDADES_CRM;
-        const colW=Math.floor(252/cols.length); const leftW=44; const startX=15; const rowH=7;
 
-        const drawHeader=(isFirst)=>{
-          const hY=isFirst?10:8;
+        // ── Constantes de layout ──
+        const PW=297, PH=210; // A4 landscape
+        const MX=12, MY=10;   // márgenes
+        const leftW=40;       // ancho columna canal
+        const cols=CIUDADES_CRM;
+        const colW=Math.floor((PW-MX*2-leftW)/cols.length); // ~56mm por ciudad
+        const startX=MX;
+        const CLIENT_H=12;    // altura por cliente en mm
+        const HEADER_H=7;     // altura fila de ciudades
+        const MAX_CLIENTS_PAGE=Math.floor((PH-MY*2-28-HEADER_H)/CLIENT_H); // máx clientes por página
+
+        // ── Dibujar encabezado de página ──
+        const drawPageHeader=(isFirst, pageY)=>{
           if(isFirst){
-            doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.setTextColor(0,43,73);
-            doc.text("CANALES \u00B7 CLIENTES \u2014 "+devActualPDF,148,hY,{align:"center"});
-            doc.setFontSize(9); doc.setTextColor(100,100,100);
-            doc.text("Generado "+new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}),148,hY+6,{align:"center"});
+            // Título principal
+            doc.setFillColor(0,43,73);
+            doc.rect(MX,pageY,PW-MX*2,9,"F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.setTextColor(255,255,255);
+            doc.text("CANALES  \u00B7  CLIENTES  \u2014  "+devActualPDF.toUpperCase(),(PW-MX*2)/2+MX,pageY+6,{align:"center"});
+            doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(255,255,255);
+            doc.text("Generado: "+new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}),PW-MX-2,pageY+6,{align:"right"});
+            const tY=pageY+10;
+            drawCityHeader(tY);
+            return tY+HEADER_H;
           } else {
-            doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,43,73);
-            doc.text("CANALES \u00B7 CLIENTES \u2014 "+devActualPDF+" (cont.)",148,hY,{align:"center"});
+            doc.setFillColor(0,43,73);
+            doc.rect(MX,pageY,PW-MX*2,6,"F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(255,255,255);
+            doc.text("CANALES  \u00B7  CLIENTES  \u2014  "+devActualPDF.toUpperCase()+" (continuaci\u00F3n)",(PW-MX*2)/2+MX,pageY+4.2,{align:"center"});
+            const tY=pageY+7;
+            drawCityHeader(tY);
+            return tY+HEADER_H;
           }
-          const tableY=isFirst?hY+12:hY+6;
-          // Header ciudades
-          doc.setFillColor(0,43,73);
-          doc.rect(startX+leftW,tableY,colW*cols.length,rowH,"F");
-          cols.forEach((c,ci)=>{
-            doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(9);
-            doc.text(c.label,startX+leftW+ci*colW+colW/2,tableY+4.8,{align:"center"});
-          });
-          return tableY+rowH;
         };
 
-        let y=drawHeader(true);
+        const drawCityHeader=(tY)=>{
+          // Celda CANAL
+          doc.setFillColor(0,43,73);
+          doc.rect(startX,tY,leftW,HEADER_H,"F");
+          doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(255,255,255);
+          doc.text("CANAL",startX+leftW/2,tY+4.5,{align:"center"});
+          // Celdas ciudades
+          cols.forEach((c,ci)=>{
+            const cx=startX+leftW+ci*colW;
+            const rgb=c.bg.replace("#","");
+            const cr=parseInt(rgb.substring(0,2),16),cg=parseInt(rgb.substring(2,4),16),cb=parseInt(rgb.substring(4,6),16);
+            doc.setFillColor(cr,cg,cb);
+            doc.rect(cx,tY,colW,HEADER_H,"F");
+            doc.setDrawColor(200,200,200); doc.rect(cx,tY,colW,HEADER_H,"S");
+            const cr2=parseInt(c.color.replace("#","").substring(0,2),16),cg2=parseInt(c.color.replace("#","").substring(2,4),16),cb2=parseInt(c.color.replace("#","").substring(4,6),16);
+            doc.setTextColor(cr2,cg2,cb2);
+            doc.setFont("helvetica","bold"); doc.setFontSize(9);
+            doc.text(c.label,cx+colW/2,tY+4.8,{align:"center"});
+          });
+        };
+
+        // ── Dibujar una fila de canal (puede ocupar múltiples páginas) ──
+        const drawCanalRow=(canal,rowClients,y,contentBottom)=>{
+          // Agrupar clientes por ciudad
+          const byCity=cols.map(c=>rowClients.filter(x=>(x.prospecto.ciudad||x.cli?.ciudad)===c.id));
+          const maxPerCol=Math.max(1,...byCity.map(a=>a.length));
+
+          // ¿Cabe todo en el espacio restante?
+          const needed=maxPerCol*CLIENT_H+4;
+          let curY=y;
+
+          if(curY+needed>contentBottom && curY>y+20){
+            // No cabe: nueva página
+            doc.addPage();
+            curY=drawPageHeader(false,MY);
+          }
+
+          // Si aún no cabe (fila muy grande), dividir en chunks
+          const availH=contentBottom-curY-4;
+          const clientsPerChunk=Math.max(1,Math.floor(availH/CLIENT_H));
+
+          const chunks=Math.ceil(maxPerCol/clientsPerChunk);
+          for(let chunk=0;chunk<chunks;chunk++){
+            if(chunk>0){
+              doc.addPage();
+              curY=drawPageHeader(false,MY);
+            }
+            const chunkClients=byCity.map(arr=>arr.slice(chunk*clientsPerChunk,(chunk+1)*clientsPerChunk));
+            const chunkMax=Math.max(1,...chunkClients.map(a=>a.length));
+            const cellH=chunkMax*CLIENT_H+4;
+
+            // Celda canal (izquierda)
+            doc.setFillColor(245,246,248);
+            doc.rect(startX,curY,leftW,cellH,"F");
+            doc.setDrawColor(200,200,200); doc.rect(startX,curY,leftW,cellH,"S");
+            const cc=CANAL_COLORS[canal]||{color:"#475569"};
+            const ccRgb=cc.color.replace("#","");
+            doc.setTextColor(parseInt(ccRgb.substring(0,2),16),parseInt(ccRgb.substring(2,4),16),parseInt(ccRgb.substring(4,6),16));
+            doc.setFont("helvetica","bold"); doc.setFontSize(7);
+            doc.text(canal.toUpperCase(),startX+leftW/2,curY+cellH/2+2,{align:"center",maxWidth:leftW-4});
+            if(chunk>0){
+              doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(150,150,150);
+              doc.text("(cont.)",startX+leftW/2,curY+cellH/2+5.5,{align:"center"});
+            }
+
+            // Celdas por ciudad
+            cols.forEach((c,ci)=>{
+              const cx=startX+leftW+ci*colW;
+              doc.setFillColor(ci%2===0?255:252,ci%2===0?255:253,ci%2===0?255:254);
+              doc.rect(cx,curY,colW,cellH,"F");
+              doc.setDrawColor(220,220,220); doc.rect(cx,curY,colW,cellH,"S");
+
+              chunkClients[ci].forEach((x,k)=>{
+                const p=x.prospecto; const lot=x.lot;
+                const py=curY+3+k*CLIENT_H;
+                const asesor=p.asesor||(x.cli&&x.cli.asesor)||x.crm?.asesorResponsable||"";
+                const etapa=p.pipeline||"Contactado";
+                const ec=ETAPA_COLORS[etapa]||"#64748b";
+                const er=parseInt(ec.replace("#","").substring(0,2),16),eg=parseInt(ec.replace("#","").substring(2,4),16),eb=parseInt(ec.replace("#","").substring(4,6),16);
+                // Barra de etapa (línea vertical)
+                doc.setFillColor(er,eg,eb);
+                doc.rect(cx+1,py,1.5,10,"F");
+                // Nombre
+                doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(0,43,73);
+                doc.text((p.nombre||"Sin nombre").substring(0,26),cx+4.5,py+3,{maxWidth:colW-6});
+                // Lote + precio
+                const invLot=inventory.find(inv=>inv.id===lot.id||(inv.nombre&&lot.nombre&&inv.nombre===lot.nombre&&inv.desarrollo===lot.desarrollo));
+                const precioTot=(lot.precio_total>0?lot.precio_total:null)||(lot.sup_m2&&lot.precio_m2>0?lot.sup_m2*lot.precio_m2:null)||(invLot&&invLot.precio_total>0?invLot.precio_total:null)||(invLot&&invLot.sup_m2&&invLot.precio_m2>0?invLot.sup_m2*invLot.precio_m2:null);
+                const precio=precioTot&&precioTot>0?("  $"+(precioTot/1e6).toFixed(1)+"M"):"";
+                doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(80,80,80);
+                doc.text((lot.nombre||"")+precio,cx+4.5,py+6.5,{maxWidth:colW-6});
+                // Asesor
+                if(asesor){
+                  doc.setFont("helvetica","italic"); doc.setFontSize(5); doc.setTextColor(120,120,160);
+                  doc.text(asesor.substring(0,28),cx+4.5,py+9.5,{maxWidth:colW-6});
+                }
+                // Separador entre clientes
+                if(k<chunkClients[ci].length-1){
+                  doc.setDrawColor(235,235,240); doc.setLineWidth(0.1);
+                  doc.line(cx+2,py+11,cx+colW-2,py+11);
+                }
+              });
+            });
+
+            // Número de página al pie
+            const pageCount=doc.internal.getNumberOfPages();
+            doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(180,180,180);
+            doc.text("Pág. "+pageCount,PW-MX,PH-4,{align:"right"});
+
+            curY+=cellH;
+          }
+          return curY;
+        };
+
+        // ── Render ──
+        let y=drawPageHeader(true,MY);
         canalesActivos.forEach(canal=>{
           const rowClients=datos.filter(x=>x.prospecto.canal===canal);
           if(rowClients.length===0) return;
-          const maxPerCol=Math.max(1,...cols.map(c=>rowClients.filter(x=>x.prospecto.ciudad===c.id).length));
-          const cellH=Math.max(18,maxPerCol*16+6);
-          // Nueva página si no cabe la fila
-          if(y+cellH>192){doc.addPage(); y=drawHeader(false);}
-          doc.setFillColor(245,245,245); doc.rect(startX,y,leftW,cellH,"F");
-          doc.setDrawColor(220,220,220); doc.rect(startX,y,leftW,cellH,"S");
-          doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.setTextColor(0,43,73);
-          doc.text(canal.toUpperCase(),startX+leftW/2,y+cellH/2+2.5,{align:"center",maxWidth:leftW-4});
-          cols.forEach((c,ci)=>{
-            const cx=startX+leftW+ci*colW;
-            doc.setFillColor(250,252,255); doc.rect(cx,y,colW,cellH,"F");
-            doc.setDrawColor(220,220,220); doc.rect(cx,y,colW,cellH,"S");
-            const clientes=rowClients.filter(x=>x.prospecto.ciudad===c.id);
-            clientes.forEach((x,k)=>{
-              const p=x.prospecto; const lot=x.lot; const py=y+5+k*16;
-              const asesor=p.asesor||(x.cli&&x.cli.asesor)||x.crm?.asesorResponsable||"";
-              const ec=ETAPA_COLORS[p.pipeline||"Contactado"]||"#64748b";
-              const rgb=ec.replace("#",""); const r=parseInt(rgb.substring(0,2),16),g=parseInt(rgb.substring(2,4),16),b2=parseInt(rgb.substring(4,6),16);
-              doc.setFillColor(r,g,b2); doc.circle(cx+3,py+0.5,1.2,"F");
-              doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(0,43,73);
-              doc.text((p.nombre||"Sin nombre").substring(0,24),cx+6,py+1,{maxWidth:colW-8});
-              doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(80,80,80);
-              const invLot=inventory.find(inv=>inv.id===lot.id||(inv.nombre&&lot.nombre&&inv.nombre===lot.nombre&&inv.desarrollo===lot.desarrollo));
-              const precioTot=(lot.precio_total>0?lot.precio_total:null)||(lot.sup_m2&&lot.precio_m2>0?lot.sup_m2*lot.precio_m2:null)||(invLot&&invLot.precio_total>0?invLot.precio_total:null)||(invLot&&invLot.sup_m2&&invLot.precio_m2>0?invLot.sup_m2*invLot.precio_m2:null);
-              const precio=precioTot&&precioTot>0?("$"+(precioTot/1e6).toFixed(1)+"M"):"";
-              doc.text([lot.nombre||"",precio].filter(Boolean).join(" · "),cx+6,py+5,{maxWidth:colW-8});
-              if(asesor){
-                doc.setFont("helvetica","italic"); doc.setFontSize(5.5); doc.setTextColor(100,100,130);
-                doc.text("Asesor: "+asesor.substring(0,26),cx+6,py+9,{maxWidth:colW-8});
-              }
-            });
-          });
-          y+=cellH;
+          y=drawCanalRow(canal,rowClients,y,PH-MY-4);
         });
+
+        // Número de página en última página
+        const totalPages=doc.internal.getNumberOfPages();
+        for(let p=1;p<=totalPages;p++){
+          doc.setPage(p);
+          doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(180,180,180);
+          doc.text("Pág. "+p+" / "+totalPages,PW-MX,PH-4,{align:"right"});
+        }
         doc.save("canales_clientes_"+(devActualPDF.replace(/[^a-zA-Z0-9]/g,"_").toLowerCase())+".pdf");
         toast("✅ PDF generado");
       };
