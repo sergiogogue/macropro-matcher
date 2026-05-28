@@ -5482,9 +5482,11 @@ function MacroProMatcher() {
         if(!window.jspdf){toast("⚠ jsPDF no disponible");return;}
         const {jsPDF}=window.jspdf;
         const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
-        const dev=filterDesarrolloCRM!=="Todos"?filterDesarrolloCRM:"Todos los desarrollos";
+        const devActualPDF = filterDesarrolloCRM!=="Todos"
+          ? filterDesarrolloCRM
+          : (()=>{const devs=[...new Set(datos.map(x=>x.lot.desarrollo).filter(Boolean))];return devs.length===1?devs[0]:devs.length>1?devs.join(", "):"Todos los desarrollos";})();
         doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.setTextColor(0,43,73);
-        doc.text("CANALES · CLIENTES — "+dev,148,18,{align:"center"});
+        doc.text("CANALES · CLIENTES — "+devActualPDF,148,18,{align:"center"});
         doc.setFontSize(9); doc.setTextColor(100,100,100);
         doc.text("Generado "+new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}),148,24,{align:"center"});
         const cols=CIUDADES_CRM; // PDF sin columna "sin ciudad"
@@ -5526,7 +5528,7 @@ function MacroProMatcher() {
           y+=cellH;
           if(y>185){doc.addPage();y=15;}
         });
-        doc.save("canales_clientes_"+(filterDesarrolloCRM!=="Todos"?filterDesarrolloCRM:"todos")+".pdf");
+        doc.save("canales_clientes_"+(devActualPDF.replace(/[^a-zA-Z0-9]/g,"_").toLowerCase())+".pdf");
         toast("✅ PDF generado");
       };
 
