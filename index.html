@@ -5463,6 +5463,18 @@ function MacroProMatcher() {
       const datos=allProspectos.filter(x=>{
         if(filterDesarrolloCRM!=="Todos"&&x.lot.desarrollo!==filterDesarrolloCRM) return false;
         if(!ETAPAS_MOSTRAR.has(x.pipeline)) return false;
+        if(filterAsesor!=="Todos"){
+          const asr=x.prospecto?.asesor||(x.cli&&x.cli.asesor)||x.crm?.asesorResponsable||"";
+          if(asr!==filterAsesor) return false;
+        }
+        if(filterCanal!=="Todos"){
+          const canal=x.prospecto?.canal||(x.cli&&x.cli.canal)||"";
+          if(canal!==filterCanal) return false;
+        }
+        if(filterSemaforo!=="Todos"){
+          const sem=getSemaforo(x.lotId);
+          if(sem!==filterSemaforo) return false;
+        }
         return true;
       });
 
