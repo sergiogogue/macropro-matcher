@@ -5305,10 +5305,8 @@ function MacroProMatcher() {
                   <select value={asesorEdit} onChange={e=>setAsesorEdit(e.target.value)}
                     style={{width:"100%",borderRadius:7,border:"1px solid "+B.grey1,padding:"7px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box",background:"#fff"}}>
                     <option value="">Sin asignar</option>
-                    {[...new Set([
-                      ...asesoresCatalog.map(a=>a.nombre),
-                      ...allProspectos.map(x=>(x.cli&&x.cli.asesor)||x.prospecto?.asesor||"").filter(Boolean)
-                    ])].sort().map(nombre=><option key={nombre} value={nombre}>{nombre}</option>)}
+                    {asesoresCatalog.map(a=><option key={a.id||a.nombre} value={a.nombre}>{a.nombre}</option>)}
+                  </select>
                   </select>
                 </div>
                 <div style={{marginBottom:14}}>
@@ -7312,7 +7310,10 @@ Respuesta: [respuesta exacta, conversacional]
             ))}
             <select value={filterAsesor} onChange={e=>setFilterAsesor(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
               <option value="Todos">Todos los asesores</option>
-              {[...new Set(allProspectos.map(x=>(x.cli&&x.cli.asesor)||x.prospecto?.asesor||"").filter(Boolean))].sort().map(a=><option key={a} value={a}>{a}</option>)}
+              {(asesoresCatalog.length>0
+                ? asesoresCatalog.map(a=>a.nombre)
+                : [...new Set(allProspectos.map(x=>x.prospecto?.asesor||"").filter(Boolean))]
+              ).sort().map(a=><option key={a} value={a}>{a}</option>)}
             </select>
             <select value={filterSemaforo} onChange={e=>setFilterSemaforo(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
               <option value="Todos">Todos los semáforos</option>
@@ -7365,13 +7366,10 @@ Respuesta: [respuesta exacta, conversacional]
                 <select value={seguimientoForm.asesor} onChange={e=>setSeguimientoForm({...seguimientoForm,asesor:e.target.value})}
                     style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid "+B.grey1,fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:14,boxSizing:"border-box",background:B.white}}>
                     <option value="">— Selecciona asesor —</option>
-                    {[...new Set([...asesoresCatalog.map(a=>a.nombre),...Object.values(crmData).flatMap(c=>[...(c.prospectos||[]).map(p=>p.asesor||""),...(c.seguimientoAsesor?[c.seguimientoAsesor.asesor||""]:[]),(c.asesorResponsable||"")]).filter(Boolean)])].sort().map(nombre=><option key={nombre} value={nombre}>{nombre}</option>)}
-                  </select>
-                {false&&(
-                  <input type="text" value={seguimientoForm.asesor} onChange={e=>setSeguimientoForm({...seguimientoForm,asesor:e.target.value})}
-                    placeholder="Nombre del asesor"
-                    style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid "+B.grey1,fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:14,boxSizing:"border-box"}}/>
-                )}
+                    {asesoresCatalog.length>0
+                      ? asesoresCatalog.map(a=><option key={a.id||a.nombre} value={a.nombre}>{a.nombre}</option>)
+                      : [...new Set(Object.values(crmData).flatMap(c=>[(c.asesorResponsable||"")]).filter(Boolean))].sort().map(n=><option key={n} value={n}>{n}</option>)
+                    }
                 <label style={{fontSize:10,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:0.8,display:"block",marginBottom:5}}>Notas iniciales (opcional)</label>
                 <textarea value={seguimientoForm.notas} onChange={e=>setSeguimientoForm({...seguimientoForm,notas:e.target.value})}
                   placeholder="Ej: Contacto vía anuncio de Meta, mostró interés en lote comercial..."
@@ -11502,7 +11500,10 @@ Respuesta: [respuesta exacta, conversacional]
               <select value={quickAssignForm.asesor} onChange={e=>setQuickAssignForm({...quickAssignForm,asesor:e.target.value})}
                   style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",marginBottom:14,boxSizing:"border-box",background:"#fff"}}>
                   <option value="">— Selecciona asesor —</option>
-                  {[...new Set([...asesoresCatalog.map(a=>a.nombre),...Object.values(crmData).flatMap(c=>[...(c.prospectos||[]).map(p=>p.asesor||""),...(c.seguimientoAsesor?[c.seguimientoAsesor.asesor||""]:[]),(c.asesorResponsable||"")]).filter(Boolean)])].sort().map(nombre=><option key={nombre} value={nombre}>{nombre}</option>)}
+                  {asesoresCatalog.length>0
+                    ? asesoresCatalog.map(a=><option key={a.id||a.nombre} value={a.nombre}>{a.nombre}</option>)
+                    : [...new Set(Object.values(crmData).flatMap(c=>[(c.asesorResponsable||"")]).filter(Boolean))].sort().map(n=><option key={n} value={n}>{n}</option>)
+                  }
                 </select>
               {false&&(
                 <input type="text" value={quickAssignForm.asesor} onChange={e=>setQuickAssignForm({...quickAssignForm,asesor:e.target.value})}
