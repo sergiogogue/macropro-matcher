@@ -5502,7 +5502,7 @@ function MacroProMatcher() {
           const rowClients=datos.filter(x=>x.prospecto.canal===canal);
           if(rowClients.length===0) return;
           const maxPerCol=Math.max(1,...cols.map(c=>rowClients.filter(x=>x.prospecto.ciudad===c.id).length));
-          const cellH=Math.max(14,maxPerCol*10+6);
+          const cellH=Math.max(18,maxPerCol*16+6);
           doc.setFillColor(245,245,245); doc.rect(startX,y,leftW,cellH,"F");
           doc.setDrawColor(220,220,220); doc.rect(startX,y,leftW,cellH,"S");
           doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.setTextColor(0,43,73);
@@ -5513,16 +5513,24 @@ function MacroProMatcher() {
             doc.setDrawColor(220,220,220); doc.rect(cx,y,colW,cellH,"S");
             const clientes=rowClients.filter(x=>x.prospecto.ciudad===c.id);
             clientes.forEach((x,k)=>{
-              const p=x.prospecto; const lot=x.lot; const py=y+5+k*10;
+              const p=x.prospecto; const lot=x.lot; const py=y+5+k*16;
+              const asesor=p.asesor||(x.cli&&x.cli.asesor)||x.crm?.asesorResponsable||"";
               const ec=ETAPA_COLORS[p.pipeline||"Contactado"]||"#64748b";
               const rgb=ec.replace("#",""); const r=parseInt(rgb.substring(0,2),16),g=parseInt(rgb.substring(2,4),16),b2=parseInt(rgb.substring(4,6),16);
               doc.setFillColor(r,g,b2); doc.circle(cx+3,py+0.5,1.2,"F");
+              // Nombre cliente
               doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(0,43,73);
-              doc.text((p.nombre||"Sin nombre").substring(0,22),cx+6,py+1,{maxWidth:colW-8});
+              doc.text((p.nombre||"Sin nombre").substring(0,24),cx+6,py+1,{maxWidth:colW-8});
+              // Lote + precio
               doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(80,80,80);
               const precioTot=lot.precio_total||(lot.sup_m2&&lot.precio_m2?lot.sup_m2*lot.precio_m2:null);
-              const precio=precioTot?("$"+(precioTot/1e6).toFixed(1)+"M"):"";
+              const precio=precioTot&&precioTot>0?("$"+(precioTot/1e6).toFixed(1)+"M"):"";
               doc.text([lot.nombre||"",precio].filter(Boolean).join(" · "),cx+6,py+5,{maxWidth:colW-8});
+              // Asesor
+              if(asesor){
+                doc.setFont("helvetica","italic"); doc.setFontSize(5.5); doc.setTextColor(100,100,130);
+                doc.text("👤 "+asesor.substring(0,26),cx+6,py+9,{maxWidth:colW-8});
+              }
             });
           });
           y+=cellH;
