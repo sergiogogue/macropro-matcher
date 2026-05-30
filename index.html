@@ -10701,15 +10701,20 @@ Respuesta: [respuesta exacta, conversacional]
           // Semáforo
           const sem=getSemaforo(lot.id);
           const semColor={"green":"#22c55e","yellow":"#f59e0b","red":"#ef4444","grey":"#9ca3af"}[sem]||"#9ca3af";
-          // Último comentario
-          const ints=[...(crm.interacciones||[])].sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
-          const ultComentario=ints[0]?.nota||ints[0]?.descripcion||ints[0]?.comentario||"";
+          // Comentario exclusivo del prospecto: primero p.nota, luego interacción filtrada por nombre
+          const ints=[...(crm.interacciones||[])].filter(x=>{
+            if(!x.prospecto&&!x.prospectoNombre&&!x.nombre) return false;
+            const nom=(x.prospecto||x.prospectoNombre||x.nombre||"").toLowerCase().trim();
+            return nom===p.nombre.toLowerCase().trim();
+          }).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+          // Si hay interacciones del prospecto, usarlas; si no, usar p.nota
+          const ultComentario=ints[0]?.nota||ints[0]?.descripcion||ints[0]?.comentario||p.nota||p.notaInterna||"";
           const ultFecha=ints[0]?.fecha||null;
           // Precio
           const precioM2=lot.precio_m2||0;
           const supM2=lot.sup_m2||0;
           const precioTotal=lot.precio_total>0?lot.precio_total:(supM2&&precioM2?supM2*precioM2:0);
-          rows.push({etapa,semColor,sem,nombre:p.nombre||cli?.nombre||"Sin nombre",empresa:p.giro||cli?.empresa||cli?.giro||"",lote:lot.nombre||"",supM2,precioM2,precioTotal,asesor:p.asesor||cli?.asesor||crm.asesorResponsable||"",ultComentario,ultFecha,lotId:lot.id});
+          rows.push({etapa,semColor,sem,nombre:p.nombre||cli?.nombre||"Sin nombre",empresa:p.giro||cli?.empresa||cli?.giro||"",canal:p.canal||cli?.canal||"",lote:lot.nombre||"",supM2,precioM2,precioTotal,asesor:p.asesor||cli?.asesor||crm.asesorResponsable||"",ultComentario,ultFecha,lotId:lot.id});
         });
       });
       rows.sort((a,b)=>ORDEN_ETAPAS.indexOf(a.etapa)-ORDEN_ETAPAS.indexOf(b.etapa));
@@ -10863,54 +10868,83 @@ Respuesta: [respuesta exacta, conversacional]
 
         // ─── COLUMNA IZQUIERDA: Info del cliente ───
         const ix=MX+16;
-        // Etapa badge
-        doc.setFillColor(er,eg,eb); doc.roundedRect(ix,cy+3,32,6,1,1,"F");
-        doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(255,255,255);
-        doc.text(f.etapa.toUpperCase(),ix+16,cy+7,{align:"center"});
 
-        // Nombre cliente
+        // Etapa badge + semáforo en línea
+        doc.setFillColor(er,eg,eb); doc.roundedRect(ix,cy+3,30,5.5,1,1,"F");
+        doc.setFont("helvetica","bold"); doc.setFontSize(5.5); doc.setTextColor(255,255,255);
+        doc.text(f.etapa.toUpperCase(),ix+15,cy+7,{align:"center"});
+
+        // Nombre cliente — grande
         doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.setTextColor(0,43,73);
-        doc.text(f.nombre.substring(0,28),ix,cy+17,{maxWidth:INFO_W-10});
+        doc.text(f.nombre.substring(0,30),ix,cy+16,{maxWidth:INFO_W-6});
 
-        // Empresa
+        // Empresa — destacada con color
         if(f.empresa){
-          doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(100,100,130);
-          doc.text(f.empresa.substring(0,30),ix,cy+24);
+          doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.setTextColor(80,90,170);
+          doc.text(f.empresa.substring(0,30),ix,cy+23);
         }
 
-        // Separador
-        doc.setDrawColor(200,205,215); doc.setLineWidth(0.2);
-        doc.line(ix,cy+27,ix+INFO_W-10,cy+27);
+        // ── Bloque terreno ──────────────────────────────────────────
+        doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.4);
+        doc.line(ix,cy+26,ix+INFO_W-8,cy+26);
 
-        // Datos del terreno
-        doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,43,73);
-        doc.text(f.lote||"Sin lote",ix,cy+34);
+        // Nombre terreno — grande y subrayado con color etapa
+        doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.setTextColor(0,43,73);
+        const loteText=f.lote||"Sin lote";
+        doc.text(loteText,ix,cy+33,{maxWidth:INFO_W-6});
+        const loteW=Math.min(doc.getTextWidth(loteText),INFO_W-6);
+        doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.6);
+        doc.line(ix,cy+34.5,ix+loteW,cy+34.5);
 
-        const datosLote=[
-          ["Superficie",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
-          ["Precio/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
-          ["Precio Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],
+        // Canal
+        if(f.canal){
+          doc.setFillColor(er,eg,eb); doc.setFillColor(230,234,255);
+          doc.roundedRect(ix,cy+36.5,Math.min(doc.getTextWidth("🏷 "+f.canal)+4,INFO_W-6),5,1,1,"F");
+          doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(40,50,140);
+          doc.text("Canal: "+f.canal.substring(0,22),ix+2,cy+40);
+        }
+
+        // Grid de datos — compacto 2 columnas
+        const gridY=cy+(f.canal?43.5:38);
+        const datos2=[
+          ["Sup.",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
+          ["$/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
+          ["Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],
+          ["Asesor",(f.asesor||"—").substring(0,20)],
         ];
-        datosLote.forEach(([lbl,val],di)=>{
-          const dy=cy+41+di*9;
-          doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(120,120,140);
-          doc.text(lbl+":",ix,dy);
-          doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(0,43,73);
-          doc.text(val,ix+28,dy);
+        datos2.forEach(([lbl,val],di)=>{
+          const col=di%2===0?0:INFO_W/2-4;
+          const row=Math.floor(di/2);
+          const gy=gridY+row*8;
+          doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.setTextColor(130,130,150);
+          doc.text(lbl+":",ix+col,gy);
+          doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(0,43,73);
+          doc.text(val,ix+col+14,gy);
         });
 
-        // Asesor
-        doc.setDrawColor(200,205,215); doc.line(ix,cy+69,ix+INFO_W-10,cy+69);
-        doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(120,120,140);
-        doc.text("Asesor:",ix,cy+74);
-        doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(0,43,73);
-        doc.text((f.asesor||"Sin asignar").substring(0,28),ix+18,cy+74);
-
-        // Último comentario
-        if(f.ultComentario){
-          doc.setFont("helvetica","italic"); doc.setFontSize(7); doc.setTextColor(80,90,110);
-          const comentLines=doc.splitTextToSize('"'+f.ultComentario.substring(0,120)+'"',INFO_W-12);
-          doc.text(comentLines.slice(0,2),ix,cy+81);
+        // ── COMENTARIO — protagonista ─────────────────────────────
+        const comentY=gridY+22;
+        // Fondo destacado para el comentario
+        doc.setFillColor(245,247,255);
+        doc.roundedRect(ix-2,comentY-3,INFO_W-4,CARD_H-(comentY-cy)-4,2,2,"F");
+        doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.3);
+        doc.roundedRect(ix-2,comentY-3,INFO_W-4,CARD_H-(comentY-cy)-4,2,2,"S");
+        // Label
+        doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(er,eg,eb);
+        doc.text("ÚLTIMO COMENTARIO",ix,comentY+1.5);
+        // Texto del comentario — grande
+        const comentH=CARD_H-(comentY-cy)-10;
+        const comentFontSize=8.5;
+        doc.setFont("helvetica","italic"); doc.setFontSize(comentFontSize); doc.setTextColor(20,30,70);
+        const comentMax=Math.floor(comentH/comentFontSize*2.2);
+        const comentTxt=f.ultComentario?'"'+f.ultComentario.substring(0,comentMax)+'"':"Sin comentarios registrados";
+        const comentLines=doc.splitTextToSize(comentTxt,INFO_W-8);
+        const maxLines=Math.floor(comentH/(comentFontSize*0.45));
+        doc.text(comentLines.slice(0,maxLines),ix,comentY+7);
+        // Fecha del comentario
+        if(f.ultFecha){
+          doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(150,155,170);
+          doc.text(new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}),ix+INFO_W-6,CARD_H+cy-10,{align:"right"});
         }
 
         // ─── COLUMNA DERECHA: Ficha técnica ───
