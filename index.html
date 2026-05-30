@@ -10792,7 +10792,9 @@ Respuesta: [respuesta exacta, conversacional]
       // Pre-cargar imágenes de fichas técnicas
       const fichaImgs={};
       await Promise.all(fichasFilas.map(async(f)=>{
-        const fd=fichasTecnicas[f.lotId];
+        const fd=fichasTecnicas[f.lotId]
+          ||(Object.values(fichasTecnicas).find(fi=>fi.lote&&f.lote&&fi.lote.toLowerCase().trim()===f.lote.toLowerCase().trim()))
+          ||null;
         if(!fd||!fd.src) return;
         try{
           if(fd.src.startsWith("data:image")){
@@ -11108,7 +11110,9 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{display:"flex",flexDirection:"column",gap:16}}>
                 {fichasFilas.map((f,fi)=>{
                   const eCol=COLORES_ETAPA[f.etapa]||"#475569";
-                  const fichaData=fichasTecnicas[f.lotId]||null;
+                  const fichaData=fichasTecnicas[f.lotId]
+                    ||(Object.values(fichasTecnicas).find(fd=>fd.lote&&f.lote&&fd.lote.toLowerCase().trim()===f.lote.toLowerCase().trim()))
+                    ||null;
                   const lot=inventory.find(l=>l.id===f.lotId)||{};
                   return (
                     <div key={fi} style={{background:"#fff",borderRadius:14,border:"1px solid #e5e7eb",boxShadow:"0 2px 12px rgba(0,43,73,0.07)",overflow:"hidden",display:"flex",minHeight:320,borderLeft:"4px solid "+eCol}}>
@@ -11165,8 +11169,10 @@ Respuesta: [respuesta exacta, conversacional]
                       {/* Columna derecha — Ficha técnica (60%) */}
                       <div style={{flex:"0 0 60%",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",position:"relative",minHeight:320,overflow:"hidden"}}>
                         {fichaData
-                          ?<img src={fichaData.src} alt={"Ficha "+f.lote}
-                              style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",objectFit:"contain"}}/>
+                          ?(fichaData.src.startsWith("data:application/pdf")
+                            ?<iframe src={fichaData.src} style={{width:"100%",height:"100%",minHeight:320,border:"none",position:"absolute",top:0,left:0}} title={"Ficha "+f.lote}/>
+                            :<img src={fichaData.src} alt={"Ficha "+f.lote} style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",objectFit:"contain"}}/>
+                          )
                           :<div style={{textAlign:"center",padding:40}}>
                             <div style={{fontSize:32,marginBottom:10}}>📎</div>
                             <div style={{fontSize:13,fontWeight:700,color:"#64748b"}}>Sin ficha técnica cargada</div>
