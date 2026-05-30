@@ -10869,82 +10869,82 @@ Respuesta: [respuesta exacta, conversacional]
         // ─── COLUMNA IZQUIERDA: Info del cliente ───
         const ix=MX+16;
 
-        // Etapa badge + semáforo en línea
+        // ── ZONA 1: Encabezado (cy → cy+28) ─────────────────────────
+        // Etapa badge
         doc.setFillColor(er,eg,eb); doc.roundedRect(ix,cy+3,30,5.5,1,1,"F");
         doc.setFont("helvetica","bold"); doc.setFontSize(5.5); doc.setTextColor(255,255,255);
         doc.text(f.etapa.toUpperCase(),ix+15,cy+7,{align:"center"});
 
-        // Nombre cliente — grande
-        doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.setTextColor(0,43,73);
-        doc.text(f.nombre.substring(0,30),ix,cy+16,{maxWidth:INFO_W-6});
+        // Nombre cliente
+        doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(0,43,73);
+        doc.text(f.nombre.substring(0,32),ix,cy+15,{maxWidth:INFO_W-4});
 
-        // Empresa — destacada con color
+        // Empresa
         if(f.empresa){
-          doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.setTextColor(80,90,170);
-          doc.text(f.empresa.substring(0,30),ix,cy+23);
+          doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.setTextColor(70,80,160);
+          doc.text(f.empresa.substring(0,30),ix,cy+22);
         }
 
-        // ── Bloque terreno ──────────────────────────────────────────
-        doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.4);
-        doc.line(ix,cy+26,ix+INFO_W-8,cy+26);
+        // ── Separador 1 ──────────────────────────────────────────────
+        doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.3);
+        doc.line(ix,cy+25,ix+INFO_W-8,cy+25);
 
-        // Nombre terreno — grande y subrayado con color etapa
-        doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.setTextColor(0,43,73);
+        // ── ZONA 2: Terreno (cy+26 → cy+48) ─────────────────────────
+        // Nombre lote grande
+        doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.setTextColor(0,43,73);
         const loteText=f.lote||"Sin lote";
-        doc.text(loteText,ix,cy+33,{maxWidth:INFO_W-6});
+        doc.text(loteText,ix,cy+32,{maxWidth:INFO_W-6});
         const loteW=Math.min(doc.getTextWidth(loteText),INFO_W-6);
-        doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.6);
-        doc.line(ix,cy+34.5,ix+loteW,cy+34.5);
+        doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.5);
+        doc.line(ix,cy+33.5,ix+loteW,cy+33.5);
 
-        // Canal
+        // Canal badge
         if(f.canal){
-          doc.setFillColor(er,eg,eb); doc.setFillColor(230,234,255);
-          doc.roundedRect(ix,cy+36.5,Math.min(doc.getTextWidth("🏷 "+f.canal)+4,INFO_W-6),5,1,1,"F");
-          doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(40,50,140);
-          doc.text("Canal: "+f.canal.substring(0,22),ix+2,cy+40);
+          doc.setFillColor(230,234,255);
+          doc.roundedRect(ix,cy+35,Math.min(doc.getTextWidth("Canal: "+f.canal)+4,INFO_W-8),5,1,1,"F");
+          doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(40,50,140);
+          doc.text("Canal: "+f.canal.substring(0,24),ix+2,cy+38.8);
         }
 
-        // Grid de datos — compacto 2 columnas
-        const gridY=cy+(f.canal?43.5:38);
-        const datos2=[
-          ["Sup.",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
-          ["$/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
-          ["Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],
-          ["Asesor",(f.asesor||"—").substring(0,20)],
-        ];
-        datos2.forEach(([lbl,val],di)=>{
-          const col=di%2===0?0:INFO_W/2-4;
+        // Grid 2×2: Sup · $/m² · Total · Asesor
+        const gY=cy+42;
+        [["Sup.",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
+         ["$/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
+         ["Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],
+         ["Asesor",(f.asesor||"—").substring(0,22)]
+        ].forEach(([lbl,val],di)=>{
+          const col=di%2===0?0:(INFO_W/2);
           const row=Math.floor(di/2);
-          const gy=gridY+row*8;
-          doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.setTextColor(130,130,150);
+          const gy=gY+row*7.5;
+          doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(130,130,150);
           doc.text(lbl+":",ix+col,gy);
-          doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(0,43,73);
-          doc.text(val,ix+col+14,gy);
+          doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(0,43,73);
+          doc.text(val,ix+col+13,gy,{maxWidth:INFO_W/2-14});
         });
 
-        // ── COMENTARIO — protagonista ─────────────────────────────
-        const comentY=gridY+22;
-        // Fondo destacado para el comentario
+        // ── ZONA 3: COMENTARIO (cy+58 → cy+86) — PROTAGONISTA ───────
+        const cY=cy+58;
+        const cH=CARD_H-60; // ~28mm para el comentario
         doc.setFillColor(245,247,255);
-        doc.roundedRect(ix-2,comentY-3,INFO_W-4,CARD_H-(comentY-cy)-4,2,2,"F");
+        doc.roundedRect(ix-2,cY-2,INFO_W-4,cH,2,2,"F");
         doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.3);
-        doc.roundedRect(ix-2,comentY-3,INFO_W-4,CARD_H-(comentY-cy)-4,2,2,"S");
-        // Label
-        doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(er,eg,eb);
-        doc.text("ÚLTIMO COMENTARIO",ix,comentY+1.5);
-        // Texto del comentario — grande
-        const comentH=CARD_H-(comentY-cy)-10;
-        const comentFontSize=8.5;
-        doc.setFont("helvetica","italic"); doc.setFontSize(comentFontSize); doc.setTextColor(20,30,70);
-        const comentMax=Math.floor(comentH/comentFontSize*2.2);
-        const comentTxt=f.ultComentario?'"'+f.ultComentario.substring(0,comentMax)+'"':"Sin comentarios registrados";
-        const comentLines=doc.splitTextToSize(comentTxt,INFO_W-8);
-        const maxLines=Math.floor(comentH/(comentFontSize*0.45));
-        doc.text(comentLines.slice(0,maxLines),ix,comentY+7);
-        // Fecha del comentario
+        doc.roundedRect(ix-2,cY-2,INFO_W-4,cH,2,2,"S");
+
+        // Label comentario
+        doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(er,eg,eb);
+        doc.text("ÚLTIMO COMENTARIO",ix,cY+3);
+
+        // Texto comentario — grande y legible
+        const comentTxt=f.ultComentario?'"'+f.ultComentario+'"':"Sin comentarios registrados";
+        doc.setFont("helvetica","italic"); doc.setFontSize(8.5); doc.setTextColor(15,25,65);
+        const cLines=doc.splitTextToSize(comentTxt,INFO_W-8);
+        const maxL=Math.floor((cH-8)/4.5);
+        doc.text(cLines.slice(0,maxL),ix,cY+9);
+
+        // Fecha
         if(f.ultFecha){
-          doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(150,155,170);
-          doc.text(new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}),ix+INFO_W-6,CARD_H+cy-10,{align:"right"});
+          doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(160,165,180);
+          doc.text(new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}),ix+INFO_W-8,cy+CARD_H-4,{align:"right"});
         }
 
         // ─── COLUMNA DERECHA: Ficha técnica ───
