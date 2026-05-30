@@ -9182,7 +9182,7 @@ Respuesta: [respuesta exacta, conversacional]
         </div>
 
         {tabEjec==="semaforo"&&<ReporteSemaforo/>}
-        {tabEjec==="ejecutivo"&&<>
+        {tabEjec==="ejecutivo"&&(<React.Fragment>
 
         {/* Filtros */}
         <div style={{background:B.white, borderRadius:12, padding:"14px 16px", marginBottom:20, border:"1px solid "+B.grey1, display:"flex", gap:10, alignItems:"center", flexWrap:"wrap"}}>
@@ -10689,7 +10689,7 @@ Respuesta: [respuesta exacta, conversacional]
           ))}
         </div>
         <div style={{textAlign:"center",marginTop:20,fontSize:11,color:B.grey3}}>MacroPro v3.0 · Dashboard Ejecutivo · Grupo Guía · {new Date().toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"})}</div>
-        </>}
+        </React.Fragment>)}
       </div>
     );
   };
