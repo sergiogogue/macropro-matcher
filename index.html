@@ -1253,6 +1253,8 @@ function MacroProMatcher() {
   const [canalesActivos, setCanalesActivosRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_canales_v1");return r?JSON.parse(r):CANALES_VENTA;}catch(e){return CANALES_VENTA;}});
   const setCanalesActivos=(fn)=>{setCanalesActivosRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_canales_v1",JSON.stringify(next));}catch(e){}return next;});};
   const [showGestorCanales, setShowGestorCanales] = React.useState(false);
+  const [fichasTecnicas, setFichasTecnicasRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_fichas_v1");return r?JSON.parse(r):{};}catch(e){return {};}});
+  const setFichasTecnicas=(fn)=>{setFichasTecnicasRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_fichas_v1",JSON.stringify(next));}catch(e){console.warn("No se pudo guardar ficha",e);}return next;});};
   const [planosDesarrollo, setPlanosDesarrolloRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_planos_v1");return r?JSON.parse(r):{};}catch(e){return {};}});
   const setPlanosDesarrollo=(fn)=>{setPlanosDesarrolloRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_planos_v1",JSON.stringify(next));}catch(e){console.warn("No se pudo guardar plano",e);}return next;});};
   const [planoVisible, setPlanoVisible] = React.useState(true);
@@ -1370,7 +1372,7 @@ function MacroProMatcher() {
   // ─── CRM STATE ────────────────────────────────────────────────────
   const CRM_KEY="macropro_crm_v1";
   const STAGE_MIGRATION={"Prospectado":"Prospecto","Propuesta formal":"Propuesta","Baja":"Descartado","Disponible":"Prospecto","Cierre":"Vendido","Perdido":"Descartado"};
-  const VALID_STAGES_SET=new Set(["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Contrato","Vendido","Descartado"]);
+  const VALID_STAGES_SET=new Set(["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"]);
   const migrateCRM=(d)=>{
     try{
       // MIGRACIÓN DE IDs: convierte claves "ML_135-r94" → "ML_135"
@@ -1827,7 +1829,7 @@ function MacroProMatcher() {
   const getSemaforo=(id)=>{const e=crmData[id];if(!e||e.pipeline==="Descartado"||e.pipeline==="Vendido")return "grey";if(!e.lastContact)return "yellow";const d=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));if(d<=30)return "green";if(d<=60)return "yellow";return "red";};
   const semaforoColor={green:"#22c55e",yellow:"#f59e0b",red:"#ef4444",grey:"#9ca3af"};
   const semaforoLabel={green:"Activo",yellow:"Tibio",red:"Frío — Acción requerida",grey:"Sin seguimiento"};
-  const PIPELINE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Contrato","Vendido","Descartado"];
+  const PIPELINE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
   const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Por Contactar":"#f59e0b","Contactado":"#3B82F6","Cita":"#0891b2","Visita":"#0d9488","En análisis":"#6366f1","En negociación":B.gold,"Propuesta":"#8B5CF6","Apartado":"#f97316","Contrato":"#06B6D4","Vendido":"#22c55e","Descartado":"#94a3b8"};
   // Probabilidades estándar industria para forecast ponderado
   const STAGE_PROBABILITY={"Prospecto":0.05,"Por Contactar":0.08,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En análisis":0.40,"En negociación":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
@@ -9151,23 +9153,36 @@ Respuesta: [respuesta exacta, conversacional]
     );
 
     // ─── RENDER ─────────────────────────────────────────────────────
+    const [tabEjec, setTabEjec] = React.useState("ejecutivo");
     return (
       <div style={{padding:"20px 24px", maxWidth:1400, margin:"0 auto"}}>
         {/* Header */}
-        <div style={{marginBottom:20, display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16, flexWrap:"wrap"}}>
+        <div style={{marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:16, flexWrap:"wrap"}}>
           <div>
             <div style={{fontSize:11, fontWeight:700, color:B.gold, letterSpacing:2, textTransform:"uppercase"}}>⬡ CEO Cockpit</div>
             <div style={{display:"flex", alignItems:"baseline", gap:14, flexWrap:"wrap"}}>
               <div style={{fontSize:28, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif", marginTop:2}}>Vista Ejecutiva</div>
               <div style={{fontSize:13, color:B.grey4}}>{ahora.toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
             </div>
-            <div style={{fontSize:12, color:B.grey4, marginTop:4}}>Cierre vs meta · Salud del pipeline · Riesgos · Performance · Tendencia</div>
           </div>
           <button onClick={()=>setShowPDFModal(true)}
             style={{padding:"12px 22px", borderRadius:10, border:"none", background:"linear-gradient(135deg,"+B.navy+" 0%,#003a66 100%)", color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 3px 12px rgba(0,43,73,0.25)", display:"flex", alignItems:"center", gap:8}}>
             <span style={{fontSize:18}}>📄</span> Generar Reporte PDF
           </button>
         </div>
+
+        {/* Tabs */}
+        <div style={{display:"flex",gap:4,marginBottom:20,background:"#f1f5f9",borderRadius:10,padding:4,width:"fit-content"}}>
+          {[["ejecutivo","📊 Dashboard"],["semaforo","🚦 Semáforo"]].map(([id,label])=>(
+            <button key={id} onClick={()=>setTabEjec(id)}
+              style={{padding:"8px 20px",borderRadius:7,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:tabEjec===id?B.navy:"transparent",color:tabEjec===id?"#fff":"#64748b",transition:"all 0.15s"}}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tabEjec==="semaforo"&&<ReporteSemaforo/>}
+        {tabEjec==="ejecutivo"&&<>
 
         {/* Filtros */}
         <div style={{background:B.white, borderRadius:12, padding:"14px 16px", marginBottom:20, border:"1px solid "+B.grey1, display:"flex", gap:10, alignItems:"center", flexWrap:"wrap"}}>
@@ -10674,6 +10689,202 @@ Respuesta: [respuesta exacta, conversacional]
           ))}
         </div>
         <div style={{textAlign:"center",marginTop:20,fontSize:11,color:B.grey3}}>MacroPro v3.0 · Dashboard Ejecutivo · Grupo Guía · {new Date().toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"})}</div>
+        </>}
+      </div>
+    );
+  };
+
+  // ─── REPORTE SEMÁFORO ──────────────────────────────────────────────────
+  const ReporteSemaforo = () => {
+    const ORDEN_ETAPAS=["Vendido","Contrato","Apartado","Propuesta","En negociación","En análisis","Visita","Cita","Contactado","Por Contactar"];
+    const COLORES_ETAPA={"Vendido":"#16a34a","Contrato":"#06b6d4","Apartado":"#f97316","Propuesta":"#8b5cf6","En negociación":"#d97706","En análisis":"#6366f1","Visita":"#0d9488","Cita":"#0891b2","Contactado":"#3b82f6","Por Contactar":"#f59e0b"};
+    const [filtDev,setFiltDev]=React.useState("Todos");
+
+    // Construir filas desde allProspectos
+    const filas=React.useMemo(()=>{
+      const rows=[];
+      allProspectos.forEach(x=>{
+        const etapa=x.pipeline||x.prospecto?.pipeline||"Prospecto";
+        if(!ORDEN_ETAPAS.includes(etapa)) return;
+        if(filtDev!=="Todos"&&x.lot.desarrollo!==filtDev) return;
+        const crm=crmData[x.lotId]||{};
+        const p=x.prospecto||{};
+        const lot=x.lot||{};
+        const cli=x.cli||null;
+        // Último comentario (última interacción del historial)
+        const ints=[...(crm.interacciones||[])].sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+        const ultComentario=ints[0]?.nota||ints[0]?.descripcion||ints[0]?.comentario||"";
+        const ultFecha=ints[0]?.fecha||null;
+        // Semáforo
+        const sem=getSemaforo(x.lotId);
+        const semColor={"green":"#22c55e","yellow":"#f59e0b","red":"#ef4444","grey":"#9ca3af"}[sem]||"#9ca3af";
+        // Precio
+        const invLot=inventory.find(inv=>inv.id===lot.id||(inv.nombre===lot.nombre&&inv.desarrollo===lot.desarrollo));
+        const precioM2=lot.precio_m2||(invLot?.precio_m2)||0;
+        const supM2=lot.sup_m2||(invLot?.sup_m2)||0;
+        const precioTotal=lot.precio_total>0?lot.precio_total:(invLot?.precio_total>0?invLot.precio_total:(supM2&&precioM2?supM2*precioM2:0));
+        rows.push({etapa,semColor,sem,nombre:p.nombre||cli?.nombre||"Sin nombre",empresa:p.giro||cli?.empresa||cli?.giro||"",lote:lot.nombre||"",supM2,precioM2,precioTotal,asesor:p.asesor||cli?.asesor||crm.asesorResponsable||"",ultComentario,ultFecha,lotId:x.lotId,prospectoIdx:x.prospectoIdx});
+      });
+      // Ordenar por etapa definida arriba
+      rows.sort((a,b)=>ORDEN_ETAPAS.indexOf(a.etapa)-ORDEN_ETAPAS.indexOf(b.etapa));
+      return rows;
+    },[filtDev,allProspectos,crmData]);
+
+    const fmtM=(v)=>v>0?"$"+(v/1e6).toFixed(1)+"M":"—";
+    const fmtM2=(v)=>v>0?"$"+v.toLocaleString():"—";
+    const fmtSup=(v)=>v>0?v.toLocaleString()+" m²":"—";
+
+    // Agrupar por etapa para separadores
+    const grupos=ORDEN_ETAPAS.map(e=>({etapa:e,filas:filas.filter(f=>f.etapa===e)})).filter(g=>g.filas.length>0);
+
+    const exportarPDF=()=>{
+      if(!window.jspdf){toast("⚠ jsPDF no disponible");return;}
+      const {jsPDF}=window.jspdf;
+      const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+      const dev=filtDev!=="Todos"?filtDev:"Todos los desarrollos";
+      doc.setFillColor(0,43,73); doc.rect(10,8,277,10,"F");
+      doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(255,255,255);
+      doc.text("SEMÁFORO Y SEGUIMIENTO DE CLIENTES — "+dev.toUpperCase(),148,15,{align:"center"});
+      doc.setFontSize(7); doc.setFont("helvetica","normal");
+      doc.text("Generado: "+new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}),285,15,{align:"right"});
+      // Headers tabla
+      const cols=[{t:"",w:6},{t:"ETAPA",w:24},{t:"CLIENTE",w:38},{t:"EMPRESA",w:28},{t:"LOTE",w:28},{t:"SUP m²",w:16},{t:"$/m²",w:16},{t:"TOTAL",w:18},{t:"ASESOR",w:30},{t:"ÚLTIMO COMENTARIO",w:73}];
+      let y=22; const sx=10;
+      const drawTableHeader=(ty)=>{
+        doc.setFillColor(30,58,95); let cx=sx;
+        cols.forEach(c=>{doc.rect(cx,ty,c.w,6,"F");cx+=c.w;});
+        doc.setFont("helvetica","bold"); doc.setFontSize(5.5); doc.setTextColor(255,255,255);
+        cx=sx; cols.forEach(c=>{doc.text(c.t,cx+c.w/2,ty+3.8,{align:"center",maxWidth:c.w-1});cx+=c.w;});
+        return ty+6;
+      };
+      y=drawTableHeader(y); let etapaActual="";
+      filas.forEach((f,ri)=>{
+        if(y>195){doc.addPage();y=10;doc.setFillColor(0,43,73);doc.rect(10,y,277,6,"F");doc.setFont("helvetica","bold");doc.setFontSize(7);doc.setTextColor(255,255,255);doc.text("SEMÁFORO Y SEGUIMIENTO (continuación)",148,y+4,{align:"center"});y+=7;y=drawTableHeader(y);}
+        if(f.etapa!==etapaActual){
+          etapaActual=f.etapa;
+          const ec=COLORES_ETAPA[f.etapa]||"#475569";
+          const er=parseInt(ec.slice(1,3),16),eg=parseInt(ec.slice(3,5),16),eb=parseInt(ec.slice(5,7),16);
+          doc.setFillColor(er,eg,eb); doc.rect(sx,y,277,5,"F");
+          doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(255,255,255);
+          doc.text(f.etapa.toUpperCase(),sx+4,y+3.5);y+=5;
+        }
+        const bg=ri%2===0?[255,255,255]:[248,249,252];
+        doc.setFillColor(...bg); let cx=sx; const rowH=5.5;
+        cols.forEach(c=>{doc.rect(cx,y,c.w,rowH,"F");doc.setDrawColor(220,220,225);doc.rect(cx,y,c.w,rowH,"S");cx+=c.w;});
+        // Semáforo
+        const sr=parseInt(f.semColor.slice(1,3),16),sg=parseInt(f.semColor.slice(3,5),16),sb=parseInt(f.semColor.slice(5,7),16);
+        doc.setFillColor(sr,sg,sb); doc.circle(sx+3,y+rowH/2,1.5,"F");
+        cx=sx+cols[0].w;
+        const vals=[f.etapa,f.nombre,f.empresa,f.lote,fmtSup(f.supM2),fmtM2(f.precioM2),fmtM(f.precioTotal),f.asesor,(f.ultComentario||"").substring(0,80)];
+        vals.forEach((v,vi)=>{
+          doc.setFont("helvetica",vi===1?"bold":"normal"); doc.setFontSize(5.5); doc.setTextColor(0,43,73);
+          doc.text(String(v||""),cx+1.5,y+3.6,{maxWidth:cols[vi+1].w-2});
+          cx+=cols[vi+1].w;
+        });
+        y+=rowH;
+      });
+      const tp=doc.internal.getNumberOfPages();
+      for(let p=1;p<=tp;p++){doc.setPage(p);doc.setFont("helvetica","normal");doc.setFontSize(6);doc.setTextColor(160,160,160);doc.text("Pág. "+p+" / "+tp,285,206,{align:"right"});doc.text(dev+" · MacroPro CRM",10,206);}
+      doc.save("semaforo_clientes_"+(filtDev!=="Todos"?filtDev:"todos").replace(/\s/g,"_").toLowerCase()+".pdf");
+      toast("✅ PDF generado");
+    };
+
+    return (
+      <div style={{padding:"0 0 32px"}}>
+        {/* Barra superior */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{fontSize:14,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>Semáforo · Seguimiento</div>
+            <span style={{fontSize:10,background:B.navy,color:"#fff",borderRadius:10,padding:"2px 9px",fontWeight:700}}>{filas.length}</span>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <select value={filtDev} onChange={e=>setFiltDev(e.target.value)}
+              style={{padding:"7px 12px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:"#fff",outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
+              <option value="Todos">Todos los desarrollos</option>
+              {desarrollosCRM.map(d=><option key={d} value={d}>{d}</option>)}
+            </select>
+            <button onClick={exportarPDF}
+              style={{padding:"8px 16px",background:"linear-gradient(135deg,#002B49,#003a66)",color:"#fff",border:"none",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
+              📄 Exportar PDF
+            </button>
+          </div>
+        </div>
+
+        {/* Tabla */}
+        <div style={{borderRadius:14,overflow:"hidden",border:"1px solid #e5e7eb",boxShadow:"0 4px 20px rgba(0,43,73,0.08)"}}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:900,fontSize:11,fontFamily:"'DM Sans',sans-serif"}}>
+              <thead>
+                <tr style={{background:"#002B49"}}>
+                  <th style={{width:32,padding:"10px 8px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"center"}}>🚦</th>
+                  <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"left",minWidth:120}}>Cliente</th>
+                  <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"left",minWidth:100}}>Empresa</th>
+                  <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"left",minWidth:100}}>Lote</th>
+                  <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"right",minWidth:80}}>Sup. m²</th>
+                  <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"right",minWidth:80}}>$/m²</th>
+                  <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"right",minWidth:80}}>Total</th>
+                  <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"left",minWidth:120}}>Asesor</th>
+                  <th style={{padding:"10px 14px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"left"}}>Último comentario</th>
+                </tr>
+              </thead>
+              <tbody>
+                {grupos.map(({etapa,filas:gRows})=>{
+                  const eCol=COLORES_ETAPA[etapa]||"#475569";
+                  return (
+                    <React.Fragment key={etapa}>
+                      {/* Separador de etapa */}
+                      <tr>
+                        <td colSpan={9} style={{background:eCol,padding:"5px 14px"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <span style={{fontSize:10,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:1.5}}>{etapa}</span>
+                            <span style={{fontSize:9,background:"rgba(255,255,255,0.25)",color:"#fff",borderRadius:8,padding:"1px 8px",fontWeight:700}}>{gRows.length}</span>
+                          </div>
+                        </td>
+                      </tr>
+                      {/* Filas de la etapa */}
+                      {gRows.map((f,ri)=>(
+                        <tr key={ri} style={{borderBottom:"1px solid #f1f5f9",background:ri%2===0?"#fff":"#fafbfc",cursor:"pointer",transition:"background 0.1s"}}
+                          onMouseEnter={e=>e.currentTarget.style.background="#f0f7ff"}
+                          onMouseLeave={e=>e.currentTarget.style.background=ri%2===0?"#fff":"#fafbfc"}>
+                          {/* Semáforo */}
+                          <td style={{padding:"10px 8px",textAlign:"center"}}>
+                            <div style={{width:12,height:12,borderRadius:"50%",background:f.semColor,margin:"0 auto",boxShadow:"0 1px 4px "+f.semColor+"66"}}/>
+                          </td>
+                          {/* Cliente */}
+                          <td style={{padding:"10px 12px",fontWeight:700,color:"#002B49"}}>{f.nombre}</td>
+                          {/* Empresa */}
+                          <td style={{padding:"10px 12px",color:"#64748b",fontSize:11}}>{f.empresa||<span style={{color:"#d1d5db"}}>—</span>}</td>
+                          {/* Lote */}
+                          <td style={{padding:"10px 12px",color:"#0369a1",fontWeight:600,fontSize:11}}>{f.lote||<span style={{color:"#d1d5db"}}>—</span>}</td>
+                          {/* Superficie */}
+                          <td style={{padding:"10px 12px",textAlign:"right",color:"#475569",fontSize:11}}>{f.supM2>0?f.supM2.toLocaleString()+" m²":"—"}</td>
+                          {/* $/m² */}
+                          <td style={{padding:"10px 12px",textAlign:"right",color:"#475569",fontSize:11}}>{f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"}</td>
+                          {/* Total */}
+                          <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:"#065f46",fontSize:11}}>{f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(1)+"M":"—"}</td>
+                          {/* Asesor */}
+                          <td style={{padding:"10px 12px",color:"#475569",fontSize:11}}>{f.asesor||<span style={{color:"#d1d5db"}}>—</span>}</td>
+                          {/* Último comentario */}
+                          <td style={{padding:"10px 14px",color:"#374151",fontSize:10,maxWidth:300}}>
+                            {f.ultComentario
+                              ?<div>
+                                <div style={{lineHeight:1.4}}>{f.ultComentario.substring(0,120)}{f.ultComentario.length>120?"…":""}</div>
+                                {f.ultFecha&&<div style={{fontSize:9,color:"#9ca3af",marginTop:2}}>{new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"})}</div>}
+                               </div>
+                              :<span style={{color:"#d1d5db",fontStyle:"italic"}}>Sin comentarios</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
+                {filas.length===0&&(
+                  <tr><td colSpan={9} style={{padding:40,textAlign:"center",color:"#9ca3af",fontStyle:"italic"}}>Sin prospectos activos para mostrar</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     );
   };
@@ -10682,6 +10893,22 @@ Respuesta: [respuesta exacta, conversacional]
   const ModalFichaTecnica = ({ lot, onClose }) => {
     if(!lot) return null;
     const precioTotal=lot.precio_total||(lot.sup_m2*lot.precio_m2);
+    const fichaData=fichasTecnicas[lot.id]||null;
+    const fichaInputRef=React.useRef(null);
+    const handleFichaUpload=(e)=>{
+      const file=e.target.files[0];
+      if(!file) return;
+      if(file.size>30*1024*1024){toast("⚠ El PDF no puede superar 30MB");e.target.value="";return;}
+      if(file.type!=="application/pdf"&&!file.name.toLowerCase().endsWith(".pdf")){toast("⚠ Solo se aceptan archivos PDF");e.target.value="";return;}
+      toast("⏳ Cargando ficha...");
+      const reader=new FileReader();
+      reader.onload=(ev)=>{
+        setFichasTecnicas(prev=>({...prev,[lot.id]:{src:ev.target.result,nombre:file.name,lote:lot.nombre,fecha:new Date().toISOString()}}));
+        toast("✅ Ficha técnica cargada · "+lot.nombre);
+      };
+      reader.readAsDataURL(file);
+      e.target.value="";
+    };
     const Field=({label,value,wide})=>{
       if(!value&&value!==0) return null;
       return <div style={{gridColumn:wide?"1 / -1":"auto",background:B.offW,borderRadius:8,padding:"9px 13px",border:`1px solid ${B.grey1}`}}><div style={{fontSize:9,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>{label}</div><div style={{fontSize:12,color:B.navy,fontWeight:600}}>{String(value)}</div></div>;
@@ -10701,6 +10928,32 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
           </div>
           <div style={{padding:"20px 24px"}}>
+            {/* Sección ficha técnica PDF */}
+            <div style={{background:"#f8fafc",borderRadius:12,padding:"14px 16px",border:"1px solid #e5e7eb",marginBottom:18}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:16}}>📎</span>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:800,color:B.navy,fontFamily:"'DM Sans',sans-serif"}}>Ficha técnica del lote</div>
+                    {fichaData
+                      ?<div style={{fontSize:10,color:"#16a34a",fontWeight:600}}>✓ {fichaData.nombre} · {new Date(fichaData.fecha).toLocaleDateString("es-MX")}</div>
+                      :<div style={{fontSize:10,color:"#9ca3af"}}>Sin ficha cargada</div>}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:7}}>
+                  {fichaData&&(
+                    <>
+                      <a href={fichaData.src} download={fichaData.nombre} style={{padding:"6px 12px",background:"#002B49",color:"#fff",borderRadius:7,fontSize:10,fontWeight:700,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:5}}>⬇ Descargar</a>
+                      <button onClick={()=>{if(window.confirm("¿Eliminar la ficha de "+lot.nombre+"?"))setFichasTecnicas(prev=>{const n={...prev};delete n[lot.id];return n;});}} style={{padding:"6px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer"}}>✕</button>
+                    </>
+                  )}
+                  <button onClick={()=>fichaInputRef.current&&fichaInputRef.current.click()} style={{padding:"6px 14px",background:fichaData?"#eff6ff":"#002B49",color:fichaData?"#1d4ed8":"#fff",border:fichaData?"1px solid #bfdbfe":"none",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                    {fichaData?"🔄 Cambiar":"📎 Subir PDF"}
+                  </button>
+                  <input ref={fichaInputRef} type="file" accept="application/pdf" onChange={handleFichaUpload} style={{display:"none"}}/>
+                </div>
+              </div>
+            </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
               {[["Superficie",lot.sup_m2?(lot.sup_m2.toLocaleString("es-MX")+" m²"):null],["Precio/m²",lot.precio_m2?("$"+lot.precio_m2.toLocaleString("es-MX")):null],["Precio Total",precioTotal?("$"+(precioTotal/1000000).toFixed(1)+" MDP"):null],["CUS",lot.cus||null],["Niveles",lot.niveles||null],["Entrega",lot.entrega||null]].filter(([,v])=>v).map(([l,v])=>(
                 <div key={l} style={{background:`linear-gradient(135deg,${B.navy}08,${B.navy}15)`,border:`2px solid ${B.navy}22`,borderRadius:10,padding:"11px 14px",textAlign:"center"}}>
