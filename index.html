@@ -11318,31 +11318,34 @@ Respuesta: [respuesta exacta, conversacional]
       doc.setFontSize(7); doc.setFont("helvetica","normal");
       doc.text("Etapas: En análisis · En negociación · Propuesta · Apartado · Contrato · Vendido",PW/2,MY+12,{align:"center"});
 
-      // ══ LAYOUT: 3 COLUMNAS IGUALES (Datos · Cotización · Ficha), 3 fichas por página ══
+      // ══ LAYOUT: 3 COLUMNAS IGUALES (Datos · Cotización · Ficha técnica), 3 fichas por página ══
       const GAP_COL=5;                              // separación entre columnas (mm)
-      const COL_W=(PW-MX*2-GAP_COL*2)/3;            // ancho idéntico de cada columna (~89mm)
+      const W_DATOS=(PW-MX*2-GAP_COL*2)/3;          // columnas iguales
+      const W_COT=W_DATOS, W_FICHA=W_DATOS;         // mismo ancho las tres
       const TITLE_H=7;                              // alto barra de título de cada columna
-      const CONTENT_H=48;                           // alto del contenido (apaisado → documentos llenan)
+      const CONTENT_H=48;                           // alto del contenido
       const ROW_H=CONTENT_H+TITLE_H;                // alto total de la fila (55mm)
       const SEP_H=4;                                // alto del separador de etapa
       const ROW_GAP=4;                              // separación vertical entre fichas
-      const COLS_X=[MX, MX+COL_W+GAP_COL, MX+COL_W*2+GAP_COL*2];
+      const X_DATOS=MX, X_COT=MX+W_DATOS+GAP_COL, X_FICHA=X_COT+W_COT+GAP_COL;
+      const COLS_X=[X_DATOS, X_COT, X_FICHA];       // X de cada columna
+      const COLS_W=[W_DATOS, W_COT, W_FICHA];       // ancho de cada columna (iguales)
       const TOP0=MY+16;                             // Y de inicio de la primera fila (24mm)
       const navy=[0,43,73];
       let cardIdx=0, cy=TOP0;
 
-      // Marco + barra de título de una columna
-      const colFrame=(cx,titulo)=>{
-        doc.setFillColor(252,253,254); doc.rect(cx,cy,COL_W,ROW_H,"F");
-        doc.setDrawColor(205,210,220); doc.setLineWidth(0.3); doc.rect(cx,cy,COL_W,ROW_H,"S");
-        doc.setFillColor(navy[0],navy[1],navy[2]); doc.rect(cx,cy,COL_W,TITLE_H,"F");
+      // Marco + barra de título de una columna (ancho cw variable)
+      const colFrame=(cx,cw,titulo)=>{
+        doc.setFillColor(252,253,254); doc.rect(cx,cy,cw,ROW_H,"F");
+        doc.setDrawColor(205,210,220); doc.setLineWidth(0.3); doc.rect(cx,cy,cw,ROW_H,"S");
+        doc.setFillColor(navy[0],navy[1],navy[2]); doc.rect(cx,cy,cw,TITLE_H,"F");
         doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(255,255,255);
-        doc.text(titulo,cx+COL_W/2,cy+TITLE_H/2+1.6,{align:"center"});
+        doc.text(titulo,cx+cw/2,cy+TITLE_H/2+1.6,{align:"center"});
       };
-      // Documento contain-centrado dentro de su columna
-      const colDoc=(cx,titulo,src,ar,emptyTxt)=>{
-        colFrame(cx,titulo);
-        const innerW=COL_W-3, innerH=CONTENT_H-3;
+      // Documento contain-centrado dentro de su columna (ancho cw variable)
+      const colDoc=(cx,cw,titulo,src,ar,emptyTxt)=>{
+        colFrame(cx,cw,titulo);
+        const innerW=cw-3, innerH=CONTENT_H-3;
         const ox0=cx+1.5, oy0=cy+TITLE_H+1.5;
         if(src){
           let iw=innerW, ih=iw/(ar||1.4);
@@ -11351,7 +11354,7 @@ Respuesta: [respuesta exacta, conversacional]
           try{ doc.addImage(src,"JPEG",ox,oy,iw,ih); }catch(e){}
         } else {
           doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(170,175,190);
-          doc.text(emptyTxt,cx+COL_W/2,cy+TITLE_H+CONTENT_H/2,{align:"center",maxWidth:COL_W-8});
+          doc.text(emptyTxt,cx+cw/2,cy+TITLE_H+CONTENT_H/2,{align:"center",maxWidth:cw-8});
         }
       };
 
@@ -11378,36 +11381,36 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setFillColor(sr2,sg2,sb2); doc.circle(PW-MX-3,cy-SEP_H+1.5,1.6,"F");
 
         // ── COLUMNA 1: DATOS DEL CLIENTE ──
-        colFrame(COLS_X[0],"DATOS DEL CLIENTE");
+        colFrame(COLS_X[0],COLS_W[0],"DATOS DEL CLIENTE");
         const ix=COLS_X[0]+3.5; let iy=cy+TITLE_H+4.5;
         const COMENT_H=11, comTop=cy+ROW_H-COMENT_H-2;   // franja de comentario fija al fondo
         // Nombre
         doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.setTextColor(0,43,73);
-        doc.text(f.nombre.substring(0,24),ix,iy,{maxWidth:COL_W-7}); iy+=4.2;
+        doc.text(f.nombre.substring(0,22),ix,iy,{maxWidth:W_DATOS-7}); iy+=4.2;
         // Empresa
         if(f.empresa){
           doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(70,80,160);
-          doc.text(f.empresa.substring(0,28),ix,iy); iy+=3.2;
+          doc.text(f.empresa.substring(0,26),ix,iy); iy+=3.2;
         }
         // Separador
-        doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.4); doc.line(ix,iy,COLS_X[0]+COL_W-3.5,iy); iy+=4;
+        doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.4); doc.line(ix,iy,COLS_X[0]+W_DATOS-3.5,iy); iy+=4;
         // Lote
         doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,43,73);
-        doc.text(f.lote||"Sin lote",ix,iy,{maxWidth:COL_W-7}); iy+=4.4;
+        doc.text(f.lote||"Sin lote",ix,iy,{maxWidth:W_DATOS-7}); iy+=4.4;
         // Canal badge (debajo del lote, sin encimar)
         if(f.canal){
-          const ctxt="Canal: "+f.canal.substring(0,22);
-          doc.setFontSize(5.5); const cw=Math.min(doc.getTextWidth(ctxt)+3,COL_W-7);
+          const ctxt="Canal: "+f.canal.substring(0,20);
+          doc.setFontSize(5.5); const cw=Math.min(doc.getTextWidth(ctxt)+3,W_DATOS-7);
           doc.setFillColor(230,234,255); doc.roundedRect(ix,iy,cw,4,1,1,"F");
           doc.setFont("helvetica","bold"); doc.setTextColor(40,50,140);
           doc.text(ctxt,ix+1.5,iy+2.8); iy+=5.6;
         } else { iy+=1.6; }
         // Grid 2×2
-        const gY=iy, halfW=(COL_W-7)/2;
+        const gY=iy, halfW=(W_DATOS-7)/2;
         [["Sup.",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
          ["$/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
          ["Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],
-         ["Asesor",(f.asesor||"—").substring(0,20)]
+         ["Asesor",(f.asesor||"—").substring(0,18)]
         ].forEach(([lbl,val],di)=>{
           const gx=ix+(di%2)*halfW, gy=gY+Math.floor(di/2)*4.8;
           doc.setFont("helvetica","normal"); doc.setFontSize(5.3); doc.setTextColor(130,130,150);
@@ -11417,19 +11420,19 @@ Respuesta: [respuesta exacta, conversacional]
         });
         // Comentario en franja fija al fondo
         const cBot=cy+ROW_H-2;
-        doc.setFillColor(245,247,255); doc.roundedRect(ix,comTop,COL_W-7,cBot-comTop,1.5,1.5,"F");
-        doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.25); doc.roundedRect(ix,comTop,COL_W-7,cBot-comTop,1.5,1.5,"S");
+        doc.setFillColor(245,247,255); doc.roundedRect(ix,comTop,W_DATOS-7,cBot-comTop,1.5,1.5,"F");
+        doc.setDrawColor(er,eg,eb); doc.setLineWidth(0.25); doc.roundedRect(ix,comTop,W_DATOS-7,cBot-comTop,1.5,1.5,"S");
         doc.setFont("helvetica","bold"); doc.setFontSize(5.3); doc.setTextColor(er,eg,eb);
         doc.text("ÚLTIMO COMENTARIO",ix+1.5,comTop+2.8);
         const comentTxt=f.ultComentario?'"'+f.ultComentario+'"':"Sin comentarios registrados";
         doc.setFont("helvetica","italic"); doc.setFontSize(6.8); doc.setTextColor(15,25,65);
-        const cLines=doc.splitTextToSize(comentTxt,COL_W-10);
+        const cLines=doc.splitTextToSize(comentTxt,W_DATOS-10);
         doc.text(cLines.slice(0,2),ix+1.5,comTop+5.8);
 
         // ── COLUMNAS 2 y 3: documentos ──
         const cotKey2=f.lotId+"_"+(f.prospectoIdx||0);
-        colDoc(COLS_X[1],"COTIZACIÓN",cotImgsPDF[cotKey2],cotAR[cotKey2]||1.4,"Sin cotización cargada");
-        colDoc(COLS_X[2],"FICHA TÉCNICA",fichaImgs[f.lotId],fichaAR[f.lotId]||1.4,"Sin ficha técnica cargada");
+        colDoc(COLS_X[1],COLS_W[1],"COTIZACIÓN",cotImgsPDF[cotKey2],cotAR[cotKey2]||1.4,"Sin cotización cargada");
+        colDoc(COLS_X[2],COLS_W[2],"FICHA TÉCNICA",fichaImgs[f.lotId],fichaAR[f.lotId]||1.4,"Sin ficha técnica cargada");
 
         cardIdx++;
       });
