@@ -10961,9 +10961,10 @@ Respuesta: [respuesta exacta, conversacional]
   };
 
 
-  // ─── FICHA CLIENTE CARD (componente con hook para renderizar PDF) ────────
+  // ─── FICHA CLIENTE CARD ───────────────────────────────────────────────────
   const FichaClienteCard = ({f, fi}) => {
     const eCol=PIPELINE_COLORS[f.etapa]||"#475569";
+    const semLabel={"green":"Activo","yellow":"Tibio","red":"Frío","grey":"Sin seguimiento"}[f.sem]||"";
     const fichaData=fichasTecnicas[f.lotId]
       ||(Object.values(fichasTecnicas).find(fd=>fd.lote&&f.lote&&fd.lote.toLowerCase().trim()===f.lote.toLowerCase().trim()))
       ||null;
@@ -10992,93 +10993,88 @@ Respuesta: [respuesta exacta, conversacional]
     },[fichaData?.src]);
 
     return (
-      <div key={fi}
-        onClick={()=>setSemaforoDrawer({f})}
-        style={{background:"#fff",borderRadius:14,border:"1px solid #e2e8f0",boxShadow:"0 4px 20px rgba(0,43,73,0.10)",overflow:"hidden",display:"flex",minHeight:340,cursor:"pointer",transition:"all 0.2s",position:"relative"}}
-        onMouseEnter={e=>{e.currentTarget.style.boxShadow="0 8px 32px rgba(0,43,73,0.18)";e.currentTarget.style.transform="translateY(-2px)";}}
-        onMouseLeave={e=>{e.currentTarget.style.boxShadow="0 4px 20px rgba(0,43,73,0.10)";e.currentTarget.style.transform="none";}}>
-        <div style={{position:"absolute",top:8,right:8,background:"rgba(0,43,73,0.07)",borderRadius:5,padding:"2px 7px",zIndex:1,pointerEvents:"none"}}>
-          <span style={{fontSize:8,color:"#64748b",fontWeight:600}}>Click para abrir →</span>
-        </div>
+      <div onClick={()=>setSemaforoDrawer({f})}
+        style={{background:"#fff",borderRadius:14,border:"1px solid #e2e8f0",boxShadow:"0 2px 16px rgba(0,43,73,0.08)",overflow:"hidden",display:"flex",height:320,cursor:"pointer",transition:"box-shadow 0.2s,transform 0.2s",borderLeft:"5px solid "+eCol}}
+        onMouseEnter={e=>{e.currentTarget.style.boxShadow="0 8px 32px rgba(0,43,73,0.16)";e.currentTarget.style.transform="translateY(-2px)";}}
+        onMouseLeave={e=>{e.currentTarget.style.boxShadow="0 2px 16px rgba(0,43,73,0.08)";e.currentTarget.style.transform="none";}}>
 
-        {/* Columna izquierda */}
-        <div style={{flex:"0 0 38%",display:"flex",flexDirection:"column",borderRight:"1px solid #f1f5f9"}}>
-          <div style={{background:`linear-gradient(135deg,${eCol},${eCol}cc)`,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:10,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:1.5}}>{f.etapa}</span>
-            <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <div style={{width:9,height:9,borderRadius:"50%",background:f.semColor,boxShadow:"0 0 6px "+f.semColor}}/>
-              <span style={{fontSize:9,color:"rgba(255,255,255,0.8)",fontWeight:600}}>
-                {{"green":"Activo","yellow":"Tibio","red":"Frío","grey":"Sin seguimiento"}[f.sem]||""}
-              </span>
-            </div>
+        {/* ── Izquierda: Info (38%) ── */}
+        <div style={{flex:"0 0 38%",padding:"18px 20px",display:"flex",flexDirection:"column",gap:10,borderRight:"1px solid #f1f5f9",overflow:"hidden"}}>
+
+          {/* Etapa + semáforo */}
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:9,fontWeight:800,background:eCol+"18",color:eCol,borderRadius:6,padding:"3px 10px",textTransform:"uppercase",letterSpacing:0.8,flexShrink:0}}>{f.etapa}</span>
+            <div style={{width:8,height:8,borderRadius:"50%",background:f.semColor,flexShrink:0}}/>
+            <span style={{fontSize:9,color:"#94a3b8",fontWeight:600}}>{semLabel}</span>
           </div>
-          <div style={{padding:"16px 18px",flex:1,display:"flex",flexDirection:"column",gap:0}}>
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:9,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Cliente</div>
-              <div style={{fontSize:15,fontWeight:800,color:"#002B49",lineHeight:1.2,marginBottom:3,fontFamily:"'Playfair Display',serif"}}>{f.nombre}</div>
-              {f.empresa&&<div style={{fontSize:11,fontWeight:700,color:"#5b6fd8"}}>{f.empresa}</div>}
-              {f.canal&&<div style={{display:"inline-flex",marginTop:5,background:"#eef2ff",borderRadius:5,padding:"2px 8px"}}>
-                <span style={{fontSize:9,fontWeight:700,color:"#4338ca"}}>📡 {f.canal}</span>
-              </div>}
-            </div>
-            <div style={{height:1,background:"#f1f5f9",marginBottom:12}}/>
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:9,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Terreno</div>
-              <div style={{fontSize:14,fontWeight:800,color:"#002B49",marginBottom:2}}>{f.lote||"Sin lote"}</div>
-              <div style={{width:32,height:2.5,background:eCol,borderRadius:2,marginBottom:8}}/>
-              {lot.uso&&<div style={{fontSize:10,color:"#64748b",marginBottom:6}}>🏗 {lot.uso}{lot.ciudad?" · "+lot.ciudad:""}</div>}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
-                {[["Superficie",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
-                  ["Precio/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
-                  ["Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],
-                  ["Asesor",f.asesor||"—"]
-                ].map(([lbl,val])=>(
-                  <div key={lbl} style={{background:"#f8fafc",borderRadius:7,padding:"7px 9px"}}>
-                    <div style={{fontSize:8,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{lbl}</div>
-                    <div style={{fontSize:11,fontWeight:700,color:"#002B49",lineHeight:1.2}}>{val}</div>
-                  </div>
-                ))}
-              </div>
-              {(lot.cos||lot.cus||lot.niveles)&&(
-                <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
-                  {lot.cos&&<div style={{background:"#f0fdf4",borderRadius:5,padding:"3px 8px"}}><span style={{fontSize:9,color:"#15803d",fontWeight:600}}>COS {lot.cos}</span></div>}
-                  {lot.cus&&<div style={{background:"#eff6ff",borderRadius:5,padding:"3px 8px"}}><span style={{fontSize:9,color:"#1d4ed8",fontWeight:600}}>CUS {lot.cus}</span></div>}
-                  {lot.niveles&&<div style={{background:"#fef3c7",borderRadius:5,padding:"3px 8px"}}><span style={{fontSize:9,color:"#92400e",fontWeight:600}}>{lot.niveles} niveles</span></div>}
+
+          {/* Cliente */}
+          <div>
+            <div style={{fontSize:15,fontWeight:800,color:"#002B49",lineHeight:1.2,marginBottom:2,fontFamily:"'Playfair Display',serif"}}>{f.nombre}</div>
+            {f.empresa&&<div style={{fontSize:11,fontWeight:700,color:"#5b6fd8"}}>{f.empresa}</div>}
+            {f.canal&&<div style={{display:"inline-flex",marginTop:4,background:"#eef2ff",borderRadius:5,padding:"2px 8px"}}>
+              <span style={{fontSize:9,fontWeight:700,color:"#4338ca"}}>📡 {f.canal}</span>
+            </div>}
+          </div>
+
+          <div style={{height:1,background:"#f1f5f9"}}/>
+
+          {/* Terreno */}
+          <div>
+            <div style={{fontSize:13,fontWeight:800,color:"#002B49",marginBottom:4}}>{f.lote||"Sin lote"}</div>
+            {lot.uso&&<div style={{fontSize:10,color:"#64748b",marginBottom:6}}>🏗 {lot.uso}{lot.ciudad?" · "+lot.ciudad:""}</div>}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              {[["Superficie",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
+                ["$/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
+                ["Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],
+                ["Asesor",f.asesor||"—"]
+              ].map(([lbl,val])=>(
+                <div key={lbl} style={{background:"#f8fafc",borderRadius:6,padding:"6px 8px"}}>
+                  <div style={{fontSize:8,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginBottom:1}}>{lbl}</div>
+                  <div style={{fontSize:10,fontWeight:700,color:"#002B49",lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val}</div>
                 </div>
-              )}
+              ))}
             </div>
-            <div style={{height:1,background:"#f1f5f9",marginBottom:12}}/>
-            <div style={{flex:1,background:"#f5f7ff",borderRadius:9,border:"1.5px solid "+eCol+"33",padding:"11px 13px"}}>
-              <div style={{fontSize:8,fontWeight:800,color:eCol,textTransform:"uppercase",letterSpacing:1,marginBottom:7}}>💬 Último comentario</div>
-              {f.ultComentario
-                ?<><div style={{fontSize:12,fontStyle:"italic",color:"#0f1a41",lineHeight:1.6}}>"{f.ultComentario}"</div>
-                  {f.ultFecha&&<div style={{fontSize:9,color:"#94a3b8",marginTop:6,textAlign:"right"}}>{new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"})}</div>}</>
-                :<div style={{fontSize:11,color:"#cbd5e1",fontStyle:"italic"}}>Sin comentarios</div>
-              }
-            </div>
+            {(lot.cos||lot.cus||lot.niveles)&&<div style={{display:"flex",gap:5,marginTop:6,flexWrap:"wrap"}}>
+              {lot.cos&&<span style={{fontSize:8,background:"#f0fdf4",color:"#15803d",borderRadius:4,padding:"2px 6px",fontWeight:600}}>COS {lot.cos}</span>}
+              {lot.cus&&<span style={{fontSize:8,background:"#eff6ff",color:"#1d4ed8",borderRadius:4,padding:"2px 6px",fontWeight:600}}>CUS {lot.cus}</span>}
+              {lot.niveles&&<span style={{fontSize:8,background:"#fef3c7",color:"#92400e",borderRadius:4,padding:"2px 6px",fontWeight:600}}>{lot.niveles} niv.</span>}
+            </div>}
+          </div>
+
+          {/* Comentario */}
+          <div style={{flex:1,background:"#f5f7ff",borderRadius:8,border:"1.5px solid "+eCol+"33",padding:"9px 11px",minHeight:0,overflow:"hidden"}}>
+            <div style={{fontSize:7.5,fontWeight:800,color:eCol,textTransform:"uppercase",letterSpacing:1,marginBottom:5}}>💬 Último comentario</div>
+            {f.ultComentario
+              ?<div style={{fontSize:11,fontStyle:"italic",color:"#0f1a41",lineHeight:1.5,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical"}}>"{f.ultComentario}"</div>
+              :<div style={{fontSize:10,color:"#cbd5e1",fontStyle:"italic"}}>Sin comentarios</div>
+            }
           </div>
         </div>
 
-        {/* Columna derecha — imagen */}
-        <div style={{flex:"0 0 62%",background:"#0f172a",position:"relative",minHeight:340,overflow:"hidden"}}>
+        {/* ── Derecha: Ficha técnica (62%) ── */}
+        <div style={{flex:"0 0 62%",background:"#0f172a",position:"relative",overflow:"hidden"}}>
           {imgSrc
-            ?<img src={imgSrc} alt={"Ficha "+f.lote} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"contain"}}/>
+            ?<img src={imgSrc} alt={f.lote} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"contain"}}/>
             :fichaData
               ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                 <div style={{fontSize:11,color:"#94a3b8"}}>⏳ Cargando ficha...</div>
+                 <div style={{fontSize:12,color:"#64748b"}}>⏳ Cargando...</div>
                </div>
-              :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,padding:32}}>
-                <div style={{fontSize:36}}>📎</div>
-                <div style={{fontSize:13,fontWeight:700,color:"#64748b"}}>Sin ficha técnica cargada</div>
-                <div style={{fontSize:11,color:"#475569",textAlign:"center",lineHeight:1.7}}>
-                  Súbela desde<br/>
-                  <span style={{color:"#93c5fd",fontWeight:600}}>📦 Inventario → {f.lote}</span>
+              :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
+                <div style={{fontSize:32}}>📎</div>
+                <div style={{fontSize:12,fontWeight:700,color:"#64748b"}}>Sin ficha técnica</div>
+                <div style={{fontSize:10,color:"#475569",textAlign:"center",lineHeight:1.7}}>
+                  Súbela desde<br/><span style={{color:"#93c5fd",fontWeight:600}}>📦 Inventario → {f.lote}</span>
                 </div>
               </div>
           }
+          {/* Badge lote + hint */}
           {imgSrc&&<div style={{position:"absolute",bottom:8,left:8,background:"rgba(0,43,73,0.85)",borderRadius:5,padding:"3px 9px"}}>
             <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{f.lote}</span>
           </div>}
+          <div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,0.4)",borderRadius:5,padding:"2px 8px"}}>
+            <span style={{fontSize:8,color:"rgba(255,255,255,0.7)",fontWeight:600}}>Click para abrir →</span>
+          </div>
         </div>
       </div>
     );
