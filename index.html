@@ -11321,7 +11321,7 @@ Respuesta: [respuesta exacta, conversacional]
       // 2 fichas por página — cada una ocupa la mitad del alto
       const CARD_H=88; // altura de cada tarjeta en mm
       const CARD_Y=[MY+17, MY+17+CARD_H+4]; // posición Y de tarjeta 1 y 2
-      const INFO_W=120; // ancho columna info (izquierda)
+      const INFO_W=98; // ancho columna info (izquierda) — reducido para agrandar documentos
       const IMG_W=PW-MX*2-INFO_W-4; // ancho imagen ficha (~151mm)
       let cardIdx=0;
       let currentEtapa2="";
@@ -11452,23 +11452,32 @@ Respuesta: [respuesta exacta, conversacional]
         const titleH=6;
         const cotKey2=f.lotId+"_"+(f.prospectoIdx||0);
 
-        // Dibuja un documento encajado (contain) y centrado dentro de su slot
+        // Dibuja un documento con marco a su medida (sin bandas blancas internas).
+        // Encabezados alineados arriba (mismo renglón); el marco abraza el documento.
+        const maxDocH=imgH-titleH-1; // alto máximo disponible para el documento
         const renderSlot=(sx,titulo,src,ar,emptyTxt)=>{
-          // Marco del slot
-          doc.setFillColor(247,249,252); doc.rect(sx,cy+2,slotW,imgH,"F");
-          doc.setDrawColor(210,215,225); doc.setLineWidth(0.2); doc.rect(sx,cy+2,slotW,imgH,"S");
-          // Barra de título
-          doc.setFillColor(0,43,73); doc.rect(sx,cy+2,slotW,titleH,"F");
-          doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(255,255,255);
-          doc.text(titulo,sx+slotW/2,cy+6.2,{align:"center"});
-          // Área útil del documento
-          const dx=sx+1.5, dy=cy+2+titleH+1.5, dw=slotW-3, dh=imgH-titleH-3;
           if(src){
-            let iw=dw, ih=dw/ar;
-            if(ih>dh){ ih=dh; iw=dh*ar; }
-            const ox=dx+(dw-iw)/2, oy=dy+(dh-ih)/2;
-            try{ doc.addImage(src,"JPEG",ox,oy,iw,ih); }catch(e){}
+            // Encajar: llenar el ancho del slot; si el alto excede, limitar por alto
+            let iw=slotW, ih=iw/(ar||1.4);
+            if(ih>maxDocH){ ih=maxDocH; iw=ih*(ar||1.4); }
+            const ox=sx+(slotW-iw)/2;   // centrado horizontal en el slot
+            const topY=cy+2;            // top-align: encabezados al mismo nivel
+            // Barra de título (ancho exacto del documento)
+            doc.setFillColor(0,43,73); doc.rect(ox,topY,iw,titleH,"F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(255,255,255);
+            doc.text(titulo,ox+iw/2,topY+4.2,{align:"center"});
+            // Documento
+            try{ doc.addImage(src,"JPEG",ox,topY+titleH,iw,ih); }catch(e){}
+            // Marco envolvente exacto (título + documento)
+            doc.setDrawColor(195,200,212); doc.setLineWidth(0.3);
+            doc.rect(ox,topY,iw,titleH+ih,"S");
           } else {
+            // Placeholder: caja completa del slot con texto centrado
+            doc.setFillColor(247,249,252); doc.rect(sx,cy+2,slotW,imgH,"F");
+            doc.setDrawColor(210,215,225); doc.setLineWidth(0.2); doc.rect(sx,cy+2,slotW,imgH,"S");
+            doc.setFillColor(0,43,73); doc.rect(sx,cy+2,slotW,titleH,"F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(255,255,255);
+            doc.text(titulo,sx+slotW/2,cy+6.2,{align:"center"});
             doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(165,170,185);
             doc.text(emptyTxt,sx+slotW/2,cy+2+imgH/2,{align:"center",maxWidth:slotW-8});
           }
