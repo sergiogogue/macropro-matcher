@@ -11343,15 +11343,31 @@ Respuesta: [respuesta exacta, conversacional]
         doc.text(titulo,cx+cw/2,cy+TITLE_H/2+1.6,{align:"center"});
       };
       // Documento contain-centrado dentro de su columna (ancho cw variable)
-      const colDoc=(cx,cw,titulo,src,ar,emptyTxt)=>{
+      const colDoc=(cx,cw,titulo,src,ar,emptyTxt,cover)=>{
         colFrame(cx,cw,titulo);
         const innerW=cw-3, innerH=CONTENT_H-3;
         const ox0=cx+1.5, oy0=cy+TITLE_H+1.5;
         if(src){
-          let iw=innerW, ih=iw/(ar||1.4);
-          if(ih>innerH){ ih=innerH; iw=ih*(ar||1.4); }
-          const ox=ox0+(innerW-iw)/2, oy=oy0+(innerH-ih)/2;
-          try{ doc.addImage(src,"JPEG",ox,oy,iw,ih); }catch(e){}
+          const A=ar||1.4;
+          if(cover){
+            // Llenar el recuadro recortando el margen sobrante (sin deformar).
+            // La imagen se escala para cubrir innerW×innerH y se recorta con clip.
+            let iw, ih;
+            if(A > innerW/innerH){ ih=innerH; iw=ih*A; }   // imagen más ancha → recorta lados
+            else { iw=innerW; ih=iw/A; }                    // imagen más alta → recorta arriba/abajo
+            const ox=ox0+(innerW-iw)/2, oy=oy0+(innerH-ih)/2;
+            doc.saveGraphicsState();
+            doc.rect(ox0,oy0,innerW,innerH,null);           // región de recorte
+            doc.clip(); doc.discardPath();
+            try{ doc.addImage(src,"JPEG",ox,oy,iw,ih); }catch(e){}
+            doc.restoreGraphicsState();
+          } else {
+            // Contener completo (sin recorte) — cotización
+            let iw=innerW, ih=iw/A;
+            if(ih>innerH){ ih=innerH; iw=ih*A; }
+            const ox=ox0+(innerW-iw)/2, oy=oy0+(innerH-ih)/2;
+            try{ doc.addImage(src,"JPEG",ox,oy,iw,ih); }catch(e){}
+          }
         } else {
           doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(170,175,190);
           doc.text(emptyTxt,cx+cw/2,cy+TITLE_H+CONTENT_H/2,{align:"center",maxWidth:cw-8});
@@ -11431,8 +11447,8 @@ Respuesta: [respuesta exacta, conversacional]
 
         // ── COLUMNAS 2 y 3: documentos ──
         const cotKey2=f.lotId+"_"+(f.prospectoIdx||0);
-        colDoc(COLS_X[1],COLS_W[1],"COTIZACIÓN",cotImgsPDF[cotKey2],cotAR[cotKey2]||1.4,"Sin cotización cargada");
-        colDoc(COLS_X[2],COLS_W[2],"FICHA TÉCNICA",fichaImgs[f.lotId],fichaAR[f.lotId]||1.4,"Sin ficha técnica cargada");
+        colDoc(COLS_X[1],COLS_W[1],"COTIZACIÓN",cotImgsPDF[cotKey2],cotAR[cotKey2]||1.4,"Sin cotización cargada",false);
+        colDoc(COLS_X[2],COLS_W[2],"FICHA TÉCNICA",fichaImgs[f.lotId],fichaAR[f.lotId]||1.4,"Sin ficha técnica cargada",true);
 
         cardIdx++;
       });
