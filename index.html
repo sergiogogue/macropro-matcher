@@ -1251,6 +1251,7 @@ function MacroProMatcher() {
   const [filterCanal, setFilterCanal] = React.useState("Todos");
   const [vistaKanban, setVistaKanban] = React.useState("board"); // "board" | "canales"
   const [tabEjecutivoGlobal, setTabEjecutivoGlobal] = React.useState("ejecutivo");
+  const [semaforoDrawer, setSemaforoDrawer] = React.useState(null);
   const [canalesActivos, setCanalesActivosRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_canales_v1");return r?JSON.parse(r):CANALES_VENTA;}catch(e){return CANALES_VENTA;}});
   const setCanalesActivos=(fn)=>{setCanalesActivosRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_canales_v1",JSON.stringify(next));}catch(e){}return next;});};
   const [showGestorCanales, setShowGestorCanales] = React.useState(false);
@@ -7926,6 +7927,7 @@ Respuesta: [respuesta exacta, conversacional]
         {ModalAnalisisProspecto()}
         {showQuickProspModal&&quickProspData&&<QuickProspectoModal/>}
         {showGestorCanales&&<GestorCanalesModal/>}
+      {semaforoDrawer&&<DrawerSemaforo/>}
 
         {/* ── MODAL: Detalle completo del lote ── */}
         {showLotDetailModal&&selectedLotCRM&&(
@@ -10681,6 +10683,235 @@ Respuesta: [respuesta exacta, conversacional]
     );
   };
 
+  // ─── DRAWER SEMÁFORO ─────────────────────────────────────────────────────
+  const DrawerSemaforo = () => {
+    if(!semaforoDrawer) return null;
+    const {f, fichaData} = semaforoDrawer;
+    const eCol = {"Vendido":"#16a34a","Contrato":"#06b6d4","Apartado":"#f97316","Propuesta":"#8b5cf6","En negociación":"#d97706","En análisis":"#6366f1","Visita":"#0d9488","Cita":"#0891b2","Contactado":"#3b82f6","Por Contactar":"#f59e0b"}[f.etapa]||"#475569";
+    const semLabel = {"green":"Activo","yellow":"Tibio","red":"Frío","grey":"Sin seguimiento"}[f.sem]||"";
+
+    // Estados del drawer
+    const [drawerTab, setDrawerTab] = React.useState("ficha"); // "ficha" | "acciones" | "editar"
+    const [nuevoComentario, setNuevoComentario] = React.useState("");
+    const [guardando, setGuardando] = React.useState(false);
+    const [nuevaEtapa, setNuevaEtapa] = React.useState(f.etapa);
+    const ETAPAS_ACTIVAS = ["Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
+
+    const guardarComentario = () => {
+      if(!nuevoComentario.trim()) return;
+      setGuardando(true);
+      const crm = crmData[f.lotId]||{};
+      const prospectos = (crm.prospectos||[]).map((p,idx) =>
+        idx===f.prospectoIdx ? {...p, nota: nuevoComentario.trim()} : p
+      );
+      updateCRM(f.lotId, {prospectos});
+      setTimeout(()=>{ setGuardando(false); setNuevoComentario(""); toast("✅ Comentario guardado"); setSemaforoDrawer(null); }, 300);
+    };
+
+    const cambiarEtapa = (etapa) => {
+      setNuevaEtapa(etapa);
+      const crm = crmData[f.lotId]||{};
+      const prospectos = (crm.prospectos||[]).map((p,idx) =>
+        idx===f.prospectoIdx ? {...p, pipeline: etapa} : p
+      );
+      updateCRM(f.lotId, {prospectos});
+      toast("✅ Etapa actualizada a "+etapa);
+    };
+
+    const abrirModalCompleto = () => {
+      const crm = crmData[f.lotId]||{};
+      const p = (crm.prospectos||[])[f.prospectoIdx]||{};
+      const lot = inventory.find(l=>l.id===f.lotId)||{id:f.lotId,nombre:f.lote};
+      const cli = clients.find(c=>c.nombre&&p.nombre&&c.nombre.toLowerCase()===p.nombre.toLowerCase())||null;
+      setQuickProspData({lot, p, prospectoIdx:f.prospectoIdx, crm, cli});
+      setShowQuickProspModal(true);
+      setSemaforoDrawer(null);
+    };
+
+    return (
+      <>
+        {/* Overlay */}
+        <div onClick={()=>setSemaforoDrawer(null)}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,backdropFilter:"blur(2px)"}}/>
+
+        {/* Panel lateral */}
+        <div style={{position:"fixed",top:0,right:0,bottom:0,width:"52%",maxWidth:780,background:"#fff",zIndex:3001,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,43,73,0.22)",animation:"slideInRight 0.25s ease"}}>
+          <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+
+          {/* ── Header ── */}
+          <div style={{background:`linear-gradient(135deg,#002B49,#003a66)`,padding:"16px 20px",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                  <span style={{fontSize:9,fontWeight:800,background:eCol,color:"#fff",borderRadius:5,padding:"2px 9px",textTransform:"uppercase",letterSpacing:1}}>{f.etapa}</span>
+                  <div style={{width:8,height:8,borderRadius:"50%",background:f.semColor}}/>
+                  <span style={{fontSize:9,color:"rgba(255,255,255,0.7)",fontWeight:600}}>{semLabel}</span>
+                </div>
+                <div style={{fontSize:20,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif",lineHeight:1.2,marginBottom:3}}>{f.nombre}</div>
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  {f.empresa&&<span style={{fontSize:11,color:"#93c5fd",fontWeight:600}}>{f.empresa}</span>}
+                  {f.canal&&<span style={{fontSize:9,background:"rgba(255,255,255,0.15)",color:"#fff",borderRadius:5,padding:"2px 8px",fontWeight:600}}>📡 {f.canal}</span>}
+                </div>
+              </div>
+              <button onClick={()=>setSemaforoDrawer(null)}
+                style={{background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>✕</button>
+            </div>
+
+            {/* Tabs del drawer */}
+            <div style={{display:"flex",gap:2,marginTop:14,background:"rgba(0,0,0,0.2)",borderRadius:8,padding:3}}>
+              {[["ficha","📎 Ficha"],["acciones","⚡ Acciones"],["editar","✏️ Editar"]].map(([id,label])=>(
+                <button key={id} onClick={()=>setDrawerTab(id)}
+                  style={{flex:1,padding:"7px 8px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:drawerTab===id?"#fff":"transparent",color:drawerTab===id?"#002B49":"rgba(255,255,255,0.7)",transition:"all 0.15s"}}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Contenido ── */}
+          <div style={{flex:1,overflowY:"auto"}}>
+
+            {/* TAB: FICHA */}
+            {drawerTab==="ficha"&&(
+              <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+                {/* Ficha técnica — grande */}
+                <div style={{flex:"0 0 62%",background:"#0f172a",position:"relative",minHeight:300}}>
+                  {fichaData
+                    ?(fichaData.src.startsWith("data:application/pdf")
+                      ?<iframe src={fichaData.src} style={{width:"100%",height:"100%",minHeight:300,border:"none",position:"absolute",top:0,left:0}} title={"Ficha "+f.lote}/>
+                      :<img src={fichaData.src} alt={f.lote} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"contain"}}/>
+                    )
+                    :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
+                      <div style={{fontSize:36}}>📎</div>
+                      <div style={{fontSize:13,fontWeight:700,color:"#64748b"}}>Sin ficha técnica</div>
+                      <div style={{fontSize:10,color:"#475569",textAlign:"center"}}>Súbela en 📦 Inventario → {f.lote}</div>
+                    </div>
+                  }
+                  {fichaData&&<div style={{position:"absolute",bottom:8,left:8,background:"rgba(0,43,73,0.8)",borderRadius:5,padding:"3px 9px"}}>
+                    <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{f.lote}</span>
+                  </div>}
+                </div>
+
+                {/* Datos del lote */}
+                <div style={{padding:"16px 20px",borderBottom:"1px solid #f1f5f9"}}>
+                  <div style={{fontSize:16,fontWeight:800,color:"#002B49",marginBottom:3}}>{f.lote}</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:10}}>
+                    {[["Superficie",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
+                      ["Precio/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
+                      ["Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"]
+                    ].map(([l,v])=>(
+                      <div key={l} style={{background:"#f8fafc",borderRadius:8,padding:"9px 11px",textAlign:"center"}}>
+                        <div style={{fontSize:8,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{l}</div>
+                        <div style={{fontSize:13,fontWeight:800,color:"#002B49"}}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Último comentario */}
+                <div style={{padding:"14px 20px"}}>
+                  <div style={{fontSize:9,fontWeight:700,color:eCol,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>💬 Último comentario</div>
+                  {f.ultComentario
+                    ?<div style={{background:"#f5f7ff",borderRadius:9,border:`1.5px solid ${eCol}33`,padding:"12px 14px"}}>
+                      <div style={{fontSize:13,fontStyle:"italic",color:"#0f1a41",lineHeight:1.6}}>"{f.ultComentario}"</div>
+                      {f.ultFecha&&<div style={{fontSize:9,color:"#94a3b8",marginTop:6,textAlign:"right"}}>{new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"})}</div>}
+                    </div>
+                    :<div style={{color:"#cbd5e1",fontStyle:"italic",fontSize:12}}>Sin comentarios</div>
+                  }
+                </div>
+              </div>
+            )}
+
+            {/* TAB: ACCIONES */}
+            {drawerTab==="acciones"&&(
+              <div style={{padding:"20px"}}>
+                {/* Cambiar etapa */}
+                <div style={{marginBottom:24}}>
+                  <div style={{fontSize:11,fontWeight:800,color:"#002B49",marginBottom:12,textTransform:"uppercase",letterSpacing:0.8}}>⚡ Cambiar etapa</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                    {ETAPAS_ACTIVAS.map(etapa=>{
+                      const ec = {"Vendido":"#16a34a","Contrato":"#06b6d4","Apartado":"#f97316","Propuesta":"#8b5cf6","En negociación":"#d97706","En análisis":"#6366f1","Visita":"#0d9488","Cita":"#0891b2","Contactado":"#3b82f6","Por Contactar":"#f59e0b","Descartado":"#94a3b8"}[etapa]||"#475569";
+                      const isActive = nuevaEtapa===etapa;
+                      return (
+                        <button key={etapa} onClick={()=>cambiarEtapa(etapa)}
+                          style={{padding:"8px 14px",borderRadius:8,border:`2px solid ${isActive?ec:"#e5e7eb"}`,background:isActive?ec+"18":"#fff",color:isActive?ec:"#64748b",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s"}}>
+                          {etapa}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Agregar comentario */}
+                <div style={{marginBottom:24}}>
+                  <div style={{fontSize:11,fontWeight:800,color:"#002B49",marginBottom:12,textTransform:"uppercase",letterSpacing:0.8}}>💬 Agregar comentario</div>
+                  <textarea value={nuevoComentario} onChange={e=>setNuevoComentario(e.target.value)}
+                    placeholder="Escribe el seguimiento, acuerdo o nota importante..."
+                    rows={4} style={{width:"100%",borderRadius:10,border:"1.5px solid #e5e7eb",padding:"12px 14px",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",resize:"vertical",boxSizing:"border-box",lineHeight:1.5}}/>
+                  <button onClick={guardarComentario} disabled={!nuevoComentario.trim()||guardando}
+                    style={{width:"100%",marginTop:8,padding:"12px",background:nuevoComentario.trim()?"#002B49":"#e5e7eb",color:nuevoComentario.trim()?"#fff":"#9ca3af",border:"none",borderRadius:9,fontSize:13,fontWeight:700,cursor:nuevoComentario.trim()?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",transition:"all 0.2s"}}>
+                    {guardando?"Guardando...":"💾 Guardar comentario"}
+                  </button>
+                </div>
+
+                {/* Historial */}
+                {(()=>{
+                  const crm=crmData[f.lotId]||{};
+                  const ints=[...(crm.interacciones||[])].filter(x=>{
+                    const nom=(x.prospecto||x.prospectoNombre||x.nombre||"").toLowerCase();
+                    return !nom||nom===f.nombre.toLowerCase();
+                  }).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0)).slice(0,5);
+                  if(!ints.length) return null;
+                  return (
+                    <div>
+                      <div style={{fontSize:11,fontWeight:800,color:"#002B49",marginBottom:12,textTransform:"uppercase",letterSpacing:0.8}}>📋 Historial reciente</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        {ints.map((it,i)=>(
+                          <div key={i} style={{background:"#f8fafc",borderRadius:8,padding:"10px 13px",borderLeft:`3px solid ${eCol}`}}>
+                            <div style={{fontSize:12,color:"#334155",lineHeight:1.4}}>{it.nota||it.descripcion||it.comentario||"Sin descripción"}</div>
+                            {it.fecha&&<div style={{fontSize:9,color:"#94a3b8",marginTop:4}}>{new Date(it.fecha).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"})}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* TAB: EDITAR */}
+            {drawerTab==="editar"&&(
+              <div style={{padding:"20px",display:"flex",flexDirection:"column",gap:16,alignItems:"center",justifyContent:"center",minHeight:200}}>
+                <div style={{textAlign:"center",marginBottom:8}}>
+                  <div style={{fontSize:36,marginBottom:8}}>✏️</div>
+                  <div style={{fontSize:14,fontWeight:700,color:"#002B49",marginBottom:4}}>Editar ficha completa</div>
+                  <div style={{fontSize:12,color:"#64748b"}}>Abre el editor completo con todos los campos: etapa, canal, ciudad, asesor, nota interna y más.</div>
+                </div>
+                <button onClick={abrirModalCompleto}
+                  style={{padding:"14px 28px",background:"linear-gradient(135deg,#002B49,#003a66)",color:"#fff",border:"none",borderRadius:11,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:"0 4px 14px rgba(0,43,73,0.25)",display:"flex",alignItems:"center",gap:8}}>
+                  ✏️ Abrir editor completo
+                </button>
+                <div style={{fontSize:10,color:"#94a3b8",textAlign:"center"}}>Incluye historial, acciones, canal, ciudad del cliente y más</div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Footer ── */}
+          <div style={{padding:"12px 20px",borderTop:"1px solid #e5e7eb",display:"flex",gap:8,background:"#f8fafc",flexShrink:0}}>
+            <button onClick={abrirModalCompleto}
+              style={{flex:1,padding:"10px",background:"#002B49",color:"#fff",border:"none",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+              ✏️ Editar ficha
+            </button>
+            <button onClick={()=>setSemaforoDrawer(null)}
+              style={{padding:"10px 16px",background:"#fff",color:"#64748b",border:"1px solid #e5e7eb",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  };
+
   // ─── REPORTE SEMÁFORO ──────────────────────────────────────────────────
   const ReporteSemaforo = () => {
     const ORDEN_ETAPAS=["Vendido","Contrato","Apartado","Propuesta","En negociación","En análisis","Visita","Cita","Contactado","Por Contactar"];
@@ -11115,70 +11346,121 @@ Respuesta: [respuesta exacta, conversacional]
                     ||null;
                   const lot=inventory.find(l=>l.id===f.lotId)||{};
                   return (
-                    <div key={fi} style={{background:"#fff",borderRadius:14,border:"1px solid #e5e7eb",boxShadow:"0 2px 12px rgba(0,43,73,0.07)",overflow:"hidden",display:"flex",minHeight:320,borderLeft:"4px solid "+eCol}}>
+                    <div key={fi}
+                      onClick={()=>setSemaforoDrawer({f, fichaData})}
+                      style={{background:"#fff",borderRadius:14,border:"1px solid #e2e8f0",boxShadow:"0 4px 20px rgba(0,43,73,0.10)",overflow:"hidden",display:"flex",minHeight:340,cursor:"pointer",transition:"all 0.2s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.boxShadow="0 8px 32px rgba(0,43,73,0.18)";e.currentTarget.style.transform="translateY(-2px)";}}
+                      onMouseLeave={e=>{e.currentTarget.style.boxShadow="0 4px 20px rgba(0,43,73,0.10)";e.currentTarget.style.transform="none";}}>
+                      {/* Click hint */}
+                      <div style={{position:"absolute",top:8,right:8,background:"rgba(0,43,73,0.07)",borderRadius:5,padding:"2px 7px",pointerEvents:"none",zIndex:1}}>
+                        <span style={{fontSize:8,color:"#64748b",fontWeight:600}}>Click para abrir →</span>
+                      </div>
 
-                      {/* Columna izquierda — Info (40%) */}
-                      <div style={{flex:"0 0 40%",padding:"20px 22px",borderRight:"1px solid #f1f5f9",display:"flex",flexDirection:"column",gap:0}}>
-                        {/* Etapa + semáforo */}
-                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                          <span style={{fontSize:9,fontWeight:800,background:eCol+"18",color:eCol,borderRadius:6,padding:"3px 10px",textTransform:"uppercase",letterSpacing:0.8}}>{f.etapa}</span>
-                          <div style={{width:9,height:9,borderRadius:"50%",background:f.semColor,boxShadow:"0 0 5px "+f.semColor+"88"}}/>
-                        </div>
-                        {/* Nombre */}
-                        <div style={{fontSize:16,fontWeight:800,color:"#002B49",fontFamily:"'Playfair Display',serif",lineHeight:1.3,marginBottom:4}}>{f.nombre}</div>
-                        {/* Empresa */}
-                        {f.empresa&&<div style={{fontSize:12,fontWeight:700,color:"#5b6fd8",marginBottom:10}}>{f.empresa}</div>}
+                      {/* Columna izquierda — Info (38%) */}
+                      <div style={{flex:"0 0 38%",display:"flex",flexDirection:"column",borderRight:"1px solid #e2e8f0"}}>
 
-                        <div style={{height:2,background:eCol,width:36,borderRadius:2,marginBottom:12}}/>
-
-                        {/* Nombre del lote */}
-                        <div style={{fontSize:14,fontWeight:800,color:"#002B49",marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>{f.lote||"Sin lote"}</div>
-
-                        {/* Canal */}
-                        {f.canal&&<div style={{display:"inline-flex",alignItems:"center",background:"#eef2ff",borderRadius:6,padding:"3px 10px",marginBottom:10,width:"fit-content"}}>
-                          <span style={{fontSize:9,fontWeight:700,color:"#4338ca"}}>Canal: {f.canal}</span>
-                        </div>}
-
-                        {/* Grid datos */}
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 0",marginBottom:14}}>
-                          {[["Superficie",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
-                            ["$/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
-                            ["Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],
-                            ["Asesor",f.asesor||"—"]
-                          ].map(([lbl,val])=>(
-                            <div key={lbl}>
-                              <div style={{fontSize:8,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginBottom:1}}>{lbl}</div>
-                              <div style={{fontSize:12,fontWeight:700,color:"#002B49"}}>{val}</div>
-                            </div>
-                          ))}
+                        {/* Header con color de etapa */}
+                        <div style={{background:`linear-gradient(135deg,${eCol},${eCol}cc)`,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <span style={{fontSize:10,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:1.5}}>{f.etapa}</span>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <div style={{width:9,height:9,borderRadius:"50%",background:f.semColor,boxShadow:"0 0 6px "+f.semColor}}/>
+                            <span style={{fontSize:9,color:"rgba(255,255,255,0.8)",fontWeight:600}}>
+                              {{"green":"Activo","yellow":"Tibio","red":"Frío","grey":"Sin seguimiento"}[f.sem]||""}
+                            </span>
+                          </div>
                         </div>
 
-                        {/* Comentario — protagonista, ocupa el resto */}
-                        <div style={{flex:1,background:"#f5f7ff",borderRadius:10,border:"1.5px solid "+eCol+"44",padding:"12px 14px",display:"flex",flexDirection:"column"}}>
-                          <div style={{fontSize:8,fontWeight:800,color:eCol,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Último comentario</div>
-                          {f.ultComentario
-                            ?<div style={{flex:1}}>
-                              <div style={{fontSize:13,fontStyle:"italic",color:"#0f1a41",lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>"{f.ultComentario}"</div>
-                              {f.ultFecha&&<div style={{fontSize:9,color:"#94a3b8",marginTop:8}}>{new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"})}</div>}
+                        {/* Cuerpo */}
+                        <div style={{padding:"16px 18px",flex:1,display:"flex",flexDirection:"column",gap:0}}>
+
+                          {/* CLIENTE */}
+                          <div style={{marginBottom:12}}>
+                            <div style={{fontSize:9,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Cliente</div>
+                            <div style={{fontSize:15,fontWeight:800,color:"#002B49",lineHeight:1.2,marginBottom:3,fontFamily:"'Playfair Display',serif"}}>{f.nombre}</div>
+                            {f.empresa&&<div style={{fontSize:11,fontWeight:700,color:"#5b6fd8"}}>{f.empresa}</div>}
+                            {f.canal&&<div style={{display:"inline-flex",marginTop:5,background:"#eef2ff",borderRadius:5,padding:"2px 8px"}}>
+                              <span style={{fontSize:9,fontWeight:700,color:"#4338ca"}}>📡 {f.canal}</span>
+                            </div>}
+                          </div>
+
+                          <div style={{height:1,background:"#f1f5f9",marginBottom:12}}/>
+
+                          {/* TERRENO */}
+                          <div style={{marginBottom:12}}>
+                            <div style={{fontSize:9,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Terreno</div>
+                            <div style={{fontSize:14,fontWeight:800,color:"#002B49",marginBottom:2}}>{f.lote||"Sin lote"}</div>
+                            <div style={{width:32,height:2.5,background:eCol,borderRadius:2,marginBottom:8}}/>
+                            {lot.uso&&<div style={{fontSize:10,color:"#64748b",marginBottom:6}}>🏗 {lot.uso}{lot.ciudad?` · ${lot.ciudad}`:""}</div>}
+
+                            {/* Grid datos 2×2 */}
+                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+                              {[
+                                ["Superficie", f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
+                                ["Precio/m²",  f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
+                                ["Total",       f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],
+                                ["Asesor",      f.asesor||"—"],
+                              ].map(([lbl,val])=>(
+                                <div key={lbl} style={{background:"#f8fafc",borderRadius:7,padding:"7px 9px"}}>
+                                  <div style={{fontSize:8,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{lbl}</div>
+                                  <div style={{fontSize:11,fontWeight:700,color:"#002B49",lineHeight:1.2}}>{val}</div>
+                                </div>
+                              ))}
                             </div>
-                            :<div style={{fontSize:12,color:"#d1d5db",fontStyle:"italic"}}>Sin comentarios registrados</div>
-                          }
+
+                            {/* Datos técnicos del lote si existen */}
+                            {(lot.cos||lot.cus||lot.niveles)&&(
+                              <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+                                {lot.cos&&<div style={{background:"#f0fdf4",borderRadius:5,padding:"3px 8px"}}>
+                                  <span style={{fontSize:9,color:"#15803d",fontWeight:600}}>COS {lot.cos}</span>
+                                </div>}
+                                {lot.cus&&<div style={{background:"#eff6ff",borderRadius:5,padding:"3px 8px"}}>
+                                  <span style={{fontSize:9,color:"#1d4ed8",fontWeight:600}}>CUS {lot.cus}</span>
+                                </div>}
+                                {lot.niveles&&<div style={{background:"#fef3c7",borderRadius:5,padding:"3px 8px"}}>
+                                  <span style={{fontSize:9,color:"#92400e",fontWeight:600}}>{lot.niveles} niveles</span>
+                                </div>}
+                              </div>
+                            )}
+                          </div>
+
+                          <div style={{height:1,background:"#f1f5f9",marginBottom:12}}/>
+
+                          {/* ÚLTIMO COMENTARIO — protagonista */}
+                          <div style={{flex:1,background:"#f5f7ff",borderRadius:9,border:`1.5px solid ${eCol}33`,padding:"11px 13px"}}>
+                            <div style={{fontSize:8,fontWeight:800,color:eCol,textTransform:"uppercase",letterSpacing:1,marginBottom:7}}>💬 Último comentario</div>
+                            {f.ultComentario
+                              ?<>
+                                <div style={{fontSize:12,fontStyle:"italic",color:"#0f1a41",lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>"{f.ultComentario}"</div>
+                                {f.ultFecha&&<div style={{fontSize:9,color:"#94a3b8",marginTop:6,textAlign:"right"}}>
+                                  {new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"})}
+                                </div>}
+                              </>
+                              :<div style={{fontSize:11,color:"#cbd5e1",fontStyle:"italic"}}>Sin comentarios registrados</div>
+                            }
+                          </div>
                         </div>
                       </div>
 
-                      {/* Columna derecha — Ficha técnica (60%) */}
-                      <div style={{flex:"0 0 60%",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",position:"relative",minHeight:320,overflow:"hidden"}}>
+                      {/* Columna derecha — Ficha técnica (62%) */}
+                      <div style={{flex:"0 0 62%",background:"#0f172a",position:"relative",minHeight:340,overflow:"hidden"}}>
                         {fichaData
                           ?(fichaData.src.startsWith("data:application/pdf")
-                            ?<iframe src={fichaData.src} style={{width:"100%",height:"100%",minHeight:320,border:"none",position:"absolute",top:0,left:0}} title={"Ficha "+f.lote}/>
+                            ?<iframe src={fichaData.src} style={{width:"100%",height:"100%",minHeight:340,border:"none",position:"absolute",top:0,left:0}} title={"Ficha "+f.lote}/>
                             :<img src={fichaData.src} alt={"Ficha "+f.lote} style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",objectFit:"contain"}}/>
                           )
-                          :<div style={{textAlign:"center",padding:40}}>
-                            <div style={{fontSize:32,marginBottom:10}}>📎</div>
+                          :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
+                            <div style={{fontSize:36}}>📎</div>
                             <div style={{fontSize:13,fontWeight:700,color:"#64748b"}}>Sin ficha técnica cargada</div>
-                            <div style={{fontSize:11,color:"#475569",marginTop:6,lineHeight:1.6}}>Súbela desde<br/>📦 Inventario → {f.lote}</div>
+                            <div style={{fontSize:11,color:"#475569",textAlign:"center",lineHeight:1.7}}>
+                              Súbela desde<br/>
+                              <span style={{color:"#93c5fd",fontWeight:600}}>📦 Inventario → {f.lote}</span>
+                            </div>
                           </div>
                         }
+                        {/* Badge nombre lote sobre la imagen */}
+                        {fichaData&&<div style={{position:"absolute",bottom:10,left:10,background:"rgba(0,43,73,0.85)",borderRadius:6,padding:"4px 10px",backdropFilter:"blur(4px)"}}>
+                          <span style={{fontSize:9,fontWeight:700,color:"#fff"}}>{f.lote}</span>
+                        </div>}
                       </div>
                     </div>
                   );
