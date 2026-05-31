@@ -10726,6 +10726,11 @@ Respuesta: [respuesta exacta, conversacional]
     const [pdfImg, setPdfImg] = React.useState(null);
     const [cotImg, setCotImg] = React.useState(null);
     const cotInputRef = React.useRef(null);
+    const [docZoom, setDocZoom] = React.useState(1);
+    const [docDrag, setDocDrag] = React.useState({x:0,y:0});
+    const [docDragging, setDocDragging] = React.useState(false);
+    const docDragStart = React.useRef(null);
+    const docAreaRef = React.useRef(null);
     const ETAPAS_ACTIVAS = ["Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
 
     const renderDoc = async (src, setter) => {
@@ -10795,6 +10800,13 @@ Respuesta: [respuesta exacta, conversacional]
 
     const docSrc = docTab==="ficha" ? pdfImg : cotImg;
     const docNombre = docTab==="ficha" ? (fichaData?.nombre||f.lote) : (cotData?.nombre||"");
+
+    // ── Zoom del visor de documentos (patrón Plano maestro) ──
+    const onDocMouseDown=(e)=>{ if(docZoom<=1) return; setDocDragging(true); docDragStart.current={x:e.clientX-docDrag.x,y:e.clientY-docDrag.y}; e.preventDefault(); };
+    const onDocMouseMove=(e)=>{ if(!docDragging||!docDragStart.current) return; setDocDrag({x:e.clientX-docDragStart.current.x,y:e.clientY-docDragStart.current.y}); };
+    const onDocMouseUp=()=>setDocDragging(false);
+    React.useEffect(()=>{ const el=docAreaRef.current; if(!el) return; const h=(ev)=>{ ev.preventDefault(); setDocZoom(z=>Math.min(4,Math.max(1,z-(ev.deltaY>0?0.15:-0.15)))); }; el.addEventListener("wheel",h,{passive:false}); return ()=>el.removeEventListener("wheel",h); },[docSrc]);
+    React.useEffect(()=>{ setDocZoom(1); setDocDrag({x:0,y:0}); },[docTab,docSrc]);
 
     return (
       <>
@@ -10918,26 +10930,41 @@ Respuesta: [respuesta exacta, conversacional]
               </div>
 
               {/* Visor de documento */}
-              <div style={{flex:1,position:"relative",overflow:"hidden"}}>
+              <div ref={docAreaRef}
+                onMouseDown={onDocMouseDown} onMouseMove={onDocMouseMove} onMouseUp={onDocMouseUp} onMouseLeave={onDocMouseUp}
+                style={{flex:1,position:"relative",overflow:"hidden",background:"#eef2f7",userSelect:"none",cursor:docSrc?(docZoom>1?(docDragging?"grabbing":"grab"):"default"):"default"}}>
                 {docSrc
-                  ?<img src={docSrc} alt={docNombre} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"contain"}}/>
+                  ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:14,boxSizing:"border-box"}}>
+                     <img src={docSrc} alt={docNombre} draggable={false}
+                       style={{maxWidth:"100%",maxHeight:"100%",width:"auto",height:"auto",objectFit:"contain",boxShadow:"0 2px 18px rgba(15,23,42,0.22)",borderRadius:2,
+                         transform:"scale("+docZoom+") translate("+(docDrag.x/docZoom)+"px,"+(docDrag.y/docZoom)+"px)",
+                         transformOrigin:"center center",transition:docDragging?"none":"transform 0.15s ease",pointerEvents:"none"}}/>
+                   </div>
                   :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,padding:32}}>
                     <div style={{fontSize:40}}>{docTab==="ficha"?"📎":"📄"}</div>
-                    <div style={{fontSize:14,fontWeight:700,color:"#64748b",textAlign:"center"}}>
+                    <div style={{fontSize:14,fontWeight:700,color:"#475569",textAlign:"center"}}>
                       {docTab==="ficha"?"Sin ficha técnica":"Sin cotización cargada"}
                     </div>
-                    <div style={{fontSize:11,color:"#475569",textAlign:"center",lineHeight:1.7}}>
+                    <div style={{fontSize:11,color:"#64748b",textAlign:"center",lineHeight:1.7}}>
                       {docTab==="ficha"
-                        ?<>Súbela desde<br/><span style={{color:"#93c5fd",fontWeight:600}}>📦 Inventario → {f.lote}</span></>
+                        ?<>Súbela desde<br/><span style={{color:"#2563AC",fontWeight:700}}>📦 Inventario → {f.lote}</span></>
                         :<button onClick={()=>cotInputRef.current&&cotInputRef.current.click()} style={{padding:"10px 20px",background:"#2563AC",color:"#fff",border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:4}}>📄 Subir cotización</button>
                       }
                     </div>
                   </div>
                 }
+                {/* Controles de zoom */}
+                {docSrc&&<div style={{position:"absolute",top:8,right:8,display:"flex",alignItems:"center",gap:3,background:"rgba(15,23,42,0.9)",borderRadius:8,padding:"4px 6px"}}>
+                  <button onClick={()=>setDocZoom(z=>{const nz=Math.max(1,z-0.25);if(nz<=1)setDocDrag({x:0,y:0});return nz;})} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#fff",fontWeight:700,padding:"0 5px",lineHeight:1}}>−</button>
+                  <span style={{fontSize:10,fontWeight:700,color:"#fff",minWidth:36,textAlign:"center",fontFamily:"'DM Sans',sans-serif"}}>{Math.round(docZoom*100)}%</span>
+                  <button onClick={()=>setDocZoom(z=>Math.min(4,z+0.25))} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#fff",fontWeight:700,padding:"0 5px",lineHeight:1}}>+</button>
+                  <button onClick={()=>{setDocZoom(1);setDocDrag({x:0,y:0});}} title="Restablecer" style={{background:"rgba(255,255,255,0.15)",border:"none",cursor:"pointer",fontSize:11,color:"#fff",fontWeight:700,padding:"3px 8px",borderRadius:6,fontFamily:"'DM Sans',sans-serif",marginLeft:3}}>↺</button>
+                </div>}
                 {/* Badge nombre doc */}
                 {docSrc&&<div style={{position:"absolute",bottom:8,left:8,background:"rgba(0,43,73,0.85)",borderRadius:5,padding:"3px 9px"}}>
                   <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{docNombre}</span>
                 </div>}
+                {docSrc&&<div style={{position:"absolute",bottom:8,right:10,fontSize:9,color:"rgba(15,23,42,0.45)",fontFamily:"'DM Sans',sans-serif",pointerEvents:"none"}}>{docZoom>1?"Arrastra para navegar · ":""}Scroll o +/− para zoom</div>}
               </div>
 
               {/* Footer documentos */}
@@ -11053,18 +11080,20 @@ Respuesta: [respuesta exacta, conversacional]
         </div>
 
         {/* ── Derecha: Ficha técnica (62%) ── */}
-        <div style={{flex:"0 0 62%",background:"#0f172a",position:"relative",overflow:"hidden"}}>
+        <div style={{flex:"0 0 62%",background:"#eef2f7",position:"relative",overflow:"hidden"}}>
           {imgSrc
-            ?<img src={imgSrc} alt={f.lote} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"contain"}}/>
+            ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:12,boxSizing:"border-box"}}>
+               <img src={imgSrc} alt={f.lote} draggable={false} style={{maxWidth:"100%",maxHeight:"100%",width:"auto",height:"auto",objectFit:"contain",boxShadow:"0 2px 14px rgba(15,23,42,0.18)",borderRadius:2}}/>
+             </div>
             :fichaData
               ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
                  <div style={{fontSize:12,color:"#64748b"}}>⏳ Cargando...</div>
                </div>
               :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
                 <div style={{fontSize:32}}>📎</div>
-                <div style={{fontSize:12,fontWeight:700,color:"#64748b"}}>Sin ficha técnica</div>
-                <div style={{fontSize:10,color:"#475569",textAlign:"center",lineHeight:1.7}}>
-                  Súbela desde<br/><span style={{color:"#93c5fd",fontWeight:600}}>📦 Inventario → {f.lote}</span>
+                <div style={{fontSize:12,fontWeight:700,color:"#475569"}}>Sin ficha técnica</div>
+                <div style={{fontSize:10,color:"#64748b",textAlign:"center",lineHeight:1.7}}>
+                  Súbela desde<br/><span style={{color:"#2563AC",fontWeight:700}}>📦 Inventario → {f.lote}</span>
                 </div>
               </div>
           }
@@ -11072,8 +11101,8 @@ Respuesta: [respuesta exacta, conversacional]
           {imgSrc&&<div style={{position:"absolute",bottom:8,left:8,background:"rgba(0,43,73,0.85)",borderRadius:5,padding:"3px 9px"}}>
             <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{f.lote}</span>
           </div>}
-          <div style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,0.4)",borderRadius:5,padding:"2px 8px"}}>
-            <span style={{fontSize:8,color:"rgba(255,255,255,0.7)",fontWeight:600}}>Click para abrir →</span>
+          <div style={{position:"absolute",top:8,right:8,background:"rgba(0,43,73,0.78)",borderRadius:5,padding:"2px 8px"}}>
+            <span style={{fontSize:8,color:"rgba(255,255,255,0.9)",fontWeight:600}}>Click para abrir →</span>
           </div>
         </div>
       </div>
