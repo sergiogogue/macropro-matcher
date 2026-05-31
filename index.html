@@ -11451,40 +11451,39 @@ Respuesta: [respuesta exacta, conversacional]
         const slotW=(imgW-GAP_DOC)/2;
         const titleH=6;
         const cotKey2=f.lotId+"_"+(f.prospectoIdx||0);
+        const cotSrcF=cotImgsPDF[cotKey2], fichaSrcF=fichaImgs[f.lotId];
+        const cotArF=cotAR[cotKey2]||1.4, fichaArF=fichaAR[f.lotId]||1.4;
 
-        // Dibuja un documento con marco a su medida (sin bandas blancas internas).
-        // Encabezados alineados arriba (mismo renglón); el marco abraza el documento.
-        const maxDocH=imgH-titleH-1; // alto máximo disponible para el documento
+        // El RECUADRO se adapta a la altura del documento (lo abraza). Los dos slots
+        // comparten la altura del documento más alto → gemelos sin blanco sobrante.
+        const maxContentH=imgH-titleH;   // tope: no exceder la banda de la tarjeta
+        const minContentH=32;            // mínimo cuando ambos están vacíos
+        const altoNat=(src,ar)=> src? Math.min(slotW/(ar||1.4), maxContentH) : 0;
+        let contentH=Math.max(altoNat(cotSrcF,cotArF), altoNat(fichaSrcF,fichaArF), minContentH);
+        const frameH=contentH+titleH;
+
         const renderSlot=(sx,titulo,src,ar,emptyTxt)=>{
+          // Marco (altura adaptada a la fila) — idéntico en ambos slots
+          doc.setFillColor(250,251,253); doc.rect(sx,cy+2,slotW,frameH,"F");
+          doc.setDrawColor(200,205,215); doc.setLineWidth(0.3); doc.rect(sx,cy+2,slotW,frameH,"S");
+          // Barra de título
+          doc.setFillColor(0,43,73); doc.rect(sx,cy+2,slotW,titleH,"F");
+          doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(255,255,255);
+          doc.text(titulo,sx+slotW/2,cy+6.2,{align:"center"});
           if(src){
-            // Encajar: llenar el ancho del slot; si el alto excede, limitar por alto
             let iw=slotW, ih=iw/(ar||1.4);
-            if(ih>maxDocH){ ih=maxDocH; iw=ih*(ar||1.4); }
-            const ox=sx+(slotW-iw)/2;   // centrado horizontal en el slot
-            const topY=cy+2;            // top-align: encabezados al mismo nivel
-            // Barra de título (ancho exacto del documento)
-            doc.setFillColor(0,43,73); doc.rect(ox,topY,iw,titleH,"F");
-            doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(255,255,255);
-            doc.text(titulo,ox+iw/2,topY+4.2,{align:"center"});
-            // Documento
-            try{ doc.addImage(src,"JPEG",ox,topY+titleH,iw,ih); }catch(e){}
-            // Marco envolvente exacto (título + documento)
-            doc.setDrawColor(195,200,212); doc.setLineWidth(0.3);
-            doc.rect(ox,topY,iw,titleH+ih,"S");
+            if(ih>contentH){ ih=contentH; iw=ih*(ar||1.4); } // limitar por alto si fuera vertical
+            const ox=sx+(slotW-iw)/2;                 // centrado horizontal
+            const oy=cy+2+titleH+(contentH-ih)/2;     // centrado vertical en el contenido
+            try{ doc.addImage(src,"JPEG",ox,oy,iw,ih); }catch(e){}
           } else {
-            // Placeholder: caja completa del slot con texto centrado
-            doc.setFillColor(247,249,252); doc.rect(sx,cy+2,slotW,imgH,"F");
-            doc.setDrawColor(210,215,225); doc.setLineWidth(0.2); doc.rect(sx,cy+2,slotW,imgH,"S");
-            doc.setFillColor(0,43,73); doc.rect(sx,cy+2,slotW,titleH,"F");
-            doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(255,255,255);
-            doc.text(titulo,sx+slotW/2,cy+6.2,{align:"center"});
             doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(165,170,185);
-            doc.text(emptyTxt,sx+slotW/2,cy+2+imgH/2,{align:"center",maxWidth:slotW-8});
+            doc.text(emptyTxt,sx+slotW/2,cy+2+frameH/2,{align:"center",maxWidth:slotW-8});
           }
         };
 
-        renderSlot(imgX, "COTIZACIÓN", cotImgsPDF[cotKey2], cotAR[cotKey2]||1.4, "Sin cotización cargada");
-        renderSlot(imgX+slotW+GAP_DOC, "FICHA TÉCNICA", fichaImgs[f.lotId], fichaAR[f.lotId]||1.4, "Sin ficha técnica cargada");
+        renderSlot(imgX, "COTIZACIÓN", cotSrcF, cotArF, "Sin cotización cargada");
+        renderSlot(imgX+slotW+GAP_DOC, "FICHA TÉCNICA", fichaSrcF, fichaArF, "Sin ficha técnica cargada");
 
         cardIdx++;
       });
