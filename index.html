@@ -1257,6 +1257,8 @@ function MacroProMatcher() {
   const [showGestorCanales, setShowGestorCanales] = React.useState(false);
   const [fichasTecnicas, setFichasTecnicasRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_fichas_v1");return r?JSON.parse(r):{};}catch(e){return {};}});
   const setFichasTecnicas=(fn)=>{setFichasTecnicasRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_fichas_v1",JSON.stringify(next));}catch(e){console.warn("No se pudo guardar ficha",e);}return next;});};
+  const [cotizaciones, setCotizacionesRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_cotizaciones_v1");return r?JSON.parse(r):{};}catch(e){return {};}});
+  const setCotizaciones=(fn)=>{setCotizacionesRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_cotizaciones_v1",JSON.stringify(next));}catch(e){console.warn("No se pudo guardar cotización",e);}return next;});};
   const [planosDesarrollo, setPlanosDesarrolloRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_planos_v1");return r?JSON.parse(r):{};}catch(e){return {};}});
   const setPlanosDesarrollo=(fn)=>{setPlanosDesarrolloRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_planos_v1",JSON.stringify(next));}catch(e){console.warn("No se pudo guardar plano",e);}return next;});};
   const [planoVisible, setPlanoVisible] = React.useState(true);
@@ -5343,6 +5345,26 @@ function MacroProMatcher() {
                 <button onClick={guardarCambios} disabled={saving} style={{width:"100%",padding:"9px",background:B.navy,color:B.gold,border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:saving?"wait":"pointer",fontFamily:"'DM Sans',sans-serif"}}>
                   {saving?"Guardando...":"💾 Guardar cambios"}
                 </button>
+                {/* Cotización */}
+                {(()=>{
+                  const cotKey3=lot.id+"_"+prospectoIdx;
+                  const cotExiste=cotizaciones[cotKey3];
+                  const cotRef=React.createRef();
+                  const handleCot=(e)=>{
+                    const file=e.target.files[0]; if(!file) return;
+                    if(file.size>30*1024*1024){toast("⚠ Máx 30MB");return;}
+                    const reader=new FileReader();
+                    reader.onload=(ev)=>{setCotizaciones(prev=>({...prev,[cotKey3]:{src:ev.target.result,nombre:file.name,fecha:new Date().toISOString(),cliente:p.nombre||"",lote:lot.nombre||""}}));toast("✅ Cotización guardada");};
+                    reader.readAsDataURL(file); e.target.value="";
+                  };
+                  return <div style={{marginTop:8,display:"flex",gap:7}}>
+                    <button onClick={()=>cotRef.current&&cotRef.current.click()} style={{flex:1,padding:"8px",background:cotExiste?"#f0fdf4":"#eff6ff",color:cotExiste?"#16a34a":"#1d4ed8",border:"1px solid "+(cotExiste?"#86efac":"#bfdbfe"),borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                      {cotExiste?"✅ Cotización cargada · Cambiar":"📄 Subir cotización"}
+                    </button>
+                    {cotExiste&&<button onClick={()=>{if(window.confirm("¿Eliminar cotización?"))setCotizaciones(prev=>{const n={...prev};delete n[cotKey3];return n;});}} style={{padding:"8px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>✕</button>}
+                    <input ref={cotRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleCot} style={{display:"none"}}/>
+                  </div>;
+                })()}
                 <button onClick={()=>{
                   if(!window.confirm("¿Quitar a "+( p.nombre||"este prospecto")+" del lote "+lot.nombre+"?\n\nEl cliente no se elimina del sistema, solo se desvincula de este lote.")) return;
                   const prospectos=(crm.prospectos||[]).filter((_,idx)=>idx!==prospectoIdx);
@@ -10686,258 +10708,247 @@ Respuesta: [respuesta exacta, conversacional]
   // ─── DRAWER SEMÁFORO ─────────────────────────────────────────────────────
   const DrawerSemaforo = () => {
     if(!semaforoDrawer) return null;
-    const {f, fichaData} = semaforoDrawer;
+    const {f} = semaforoDrawer;
+    // Buscar ficha en tiempo real — nunca usar snapshot
+    const fichaData = fichasTecnicas[f.lotId]
+      || Object.values(fichasTecnicas).find(fd=>fd.lote&&f.lote&&fd.lote.toLowerCase().trim()===f.lote.toLowerCase().trim())
+      || null;
     const eCol = {"Vendido":"#16a34a","Contrato":"#06b6d4","Apartado":"#f97316","Propuesta":"#8b5cf6","En negociación":"#d97706","En análisis":"#6366f1","Visita":"#0d9488","Cita":"#0891b2","Contactado":"#3b82f6","Por Contactar":"#f59e0b"}[f.etapa]||"#475569";
     const semLabel = {"green":"Activo","yellow":"Tibio","red":"Frío","grey":"Sin seguimiento"}[f.sem]||"";
+    const cotKey = f.lotId+"_"+(f.prospectoIdx||0);
+    const cotData = cotizaciones[cotKey]||null;
 
-    // Estados del drawer
-    const [drawerTab, setDrawerTab] = React.useState("ficha"); // "ficha" | "acciones" | "editar"
+    const [docTab, setDocTab] = React.useState("ficha"); // "ficha" | "cotizacion"
+    const [drawerTab, setDrawerTab] = React.useState("info"); // "info" | "acciones"
     const [nuevoComentario, setNuevoComentario] = React.useState("");
     const [guardando, setGuardando] = React.useState(false);
     const [nuevaEtapa, setNuevaEtapa] = React.useState(f.etapa);
+    const [pdfImg, setPdfImg] = React.useState(null);
+    const [cotImg, setCotImg] = React.useState(null);
+    const cotInputRef = React.useRef(null);
     const ETAPAS_ACTIVAS = ["Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
 
-    const [pdfImg, setPdfImg] = React.useState(null);
-
-    // Renderizar PDF como imagen al montar
-    React.useEffect(()=>{
-      if(!fichaData||!fichaData.src){setPdfImg(null);return;}
-      if(fichaData.src.startsWith("data:image")){setPdfImg(fichaData.src);return;}
-      if(fichaData.src.startsWith("data:application/pdf")&&window.pdfjsLib){
-        (async()=>{
-          try{
-            const arr=atob(fichaData.src.split(",")[1]);
-            const bytes=new Uint8Array(arr.length);
-            for(let i=0;i<arr.length;i++) bytes[i]=arr.charCodeAt(i);
-            const pdfDoc=await pdfjsLib.getDocument({data:bytes}).promise;
-            const page=await pdfDoc.getPage(1);
-            const scale=2.2;
-            const vp=page.getViewport({scale});
-            const cvs=document.createElement("canvas");
-            cvs.width=vp.width; cvs.height=vp.height;
-            await page.render({canvasContext:cvs.getContext("2d"),viewport:vp}).promise;
-            setPdfImg(cvs.toDataURL("image/jpeg",0.92));
-          }catch(e){console.warn("PDF render",e);}
-        })();
+    const renderDoc = async (src, setter) => {
+      if(!src) return;
+      if(src.startsWith("data:image")){ setter(src); return; }
+      if(src.startsWith("data:application/pdf")&&window.pdfjsLib){
+        try{
+          const arr=atob(src.split(",")[1]);
+          const bytes=new Uint8Array(arr.length);
+          for(let i=0;i<arr.length;i++) bytes[i]=arr.charCodeAt(i);
+          const pdf=await pdfjsLib.getDocument({data:bytes}).promise;
+          const pg=await pdf.getPage(1);
+          const scale=2.2; const vp=pg.getViewport({scale});
+          const cvs=document.createElement("canvas");
+          cvs.width=vp.width; cvs.height=vp.height;
+          await pg.render({canvasContext:cvs.getContext("2d"),viewport:vp}).promise;
+          setter(cvs.toDataURL("image/jpeg",0.92));
+        }catch(e){console.warn("render error",e);}
       }
-    },[fichaData]);
+    };
 
-    const guardarComentario = () => {
-      if(!nuevoComentario.trim()) return;
-      setGuardando(true);
-      const crm = crmData[f.lotId]||{};
-      const prospectos = (crm.prospectos||[]).map((p,idx) =>
-        idx===f.prospectoIdx ? {...p, nota: nuevoComentario.trim()} : p
-      );
-      updateCRM(f.lotId, {prospectos});
-      setTimeout(()=>{ setGuardando(false); setNuevoComentario(""); toast("✅ Comentario guardado"); setSemaforoDrawer(null); }, 300);
+    React.useEffect(()=>{ renderDoc(fichaData?.src, setPdfImg); },[fichaData]);
+    React.useEffect(()=>{ renderDoc(cotData?.src, setCotImg); },[cotData]);
+
+    const handleCotUpload = (e) => {
+      const file = e.target.files[0]; if(!file) return;
+      if(file.size>30*1024*1024){toast("⚠ Máx 30MB");return;}
+      toast("⏳ Cargando cotización...");
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setCotizaciones(prev=>({...prev,[cotKey]:{src:ev.target.result,nombre:file.name,fecha:new Date().toISOString(),cliente:f.nombre,lote:f.lote}}));
+        setCotImg(null);
+        setTimeout(()=>renderDoc(ev.target.result, setCotImg), 100);
+        setDocTab("cotizacion");
+        toast("✅ Cotización cargada");
+      };
+      reader.readAsDataURL(file);
+      e.target.value="";
     };
 
     const cambiarEtapa = (etapa) => {
       setNuevaEtapa(etapa);
-      const crm = crmData[f.lotId]||{};
-      const prospectos = (crm.prospectos||[]).map((p,idx) =>
-        idx===f.prospectoIdx ? {...p, pipeline: etapa} : p
-      );
-      updateCRM(f.lotId, {prospectos});
-      toast("✅ Etapa actualizada a "+etapa);
+      const crm=crmData[f.lotId]||{};
+      const prospectos=(crm.prospectos||[]).map((p,idx)=>idx===f.prospectoIdx?{...p,pipeline:etapa}:p);
+      updateCRM(f.lotId,{prospectos});
+      toast("✅ Etapa → "+etapa);
+    };
+
+    const guardarComentario = () => {
+      if(!nuevoComentario.trim()) return;
+      setGuardando(true);
+      const crm=crmData[f.lotId]||{};
+      const prospectos=(crm.prospectos||[]).map((p,idx)=>idx===f.prospectoIdx?{...p,nota:nuevoComentario.trim()}:p);
+      updateCRM(f.lotId,{prospectos});
+      setTimeout(()=>{setGuardando(false);setNuevoComentario("");toast("✅ Guardado");setSemaforoDrawer(null);},300);
     };
 
     const abrirModalCompleto = () => {
-      const crm = crmData[f.lotId]||{};
-      const p = (crm.prospectos||[])[f.prospectoIdx]||{};
-      const lot = inventory.find(l=>l.id===f.lotId)||{id:f.lotId,nombre:f.lote};
-      const cli = clients.find(c=>c.nombre&&p.nombre&&c.nombre.toLowerCase()===p.nombre.toLowerCase())||null;
-      setQuickProspData({lot, p, prospectoIdx:f.prospectoIdx, crm, cli});
+      const crm=crmData[f.lotId]||{};
+      const p=(crm.prospectos||[])[f.prospectoIdx]||{};
+      const lot=inventory.find(l=>l.id===f.lotId)||{id:f.lotId,nombre:f.lote};
+      const cli=clients.find(c=>c.nombre&&p.nombre&&c.nombre.toLowerCase()===p.nombre.toLowerCase())||null;
+      setQuickProspData({lot,p,prospectoIdx:f.prospectoIdx,crm,cli});
       setShowQuickProspModal(true);
       setSemaforoDrawer(null);
     };
 
+    const docSrc = docTab==="ficha" ? pdfImg : cotImg;
+    const docNombre = docTab==="ficha" ? (fichaData?.nombre||f.lote) : (cotData?.nombre||"");
+
     return (
       <>
-        {/* Overlay */}
-        <div onClick={()=>setSemaforoDrawer(null)}
-          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,backdropFilter:"blur(2px)"}}/>
-
-        {/* Panel lateral */}
-        <div onClick={e=>e.stopPropagation()}
-          style={{position:"fixed",top:0,right:0,bottom:0,width:"52%",maxWidth:780,background:"#fff",zIndex:3001,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,43,73,0.22)",animation:"slideInRight 0.25s ease"}}>
+        <div onClick={()=>setSemaforoDrawer(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,backdropFilter:"blur(2px)"}}/>
+        <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:0,right:0,bottom:0,width:"90%",maxWidth:1200,background:"#fff",zIndex:3001,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,43,73,0.22)",animation:"slideInRight 0.25s ease"}}>
           <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
 
           {/* ── Header ── */}
-          <div style={{background:`linear-gradient(135deg,#002B49,#003a66)`,padding:"16px 20px",flexShrink:0}}>
-            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
+          <div style={{background:`linear-gradient(135deg,#002B49,#003a66)`,padding:"14px 20px",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                   <span style={{fontSize:9,fontWeight:800,background:eCol,color:"#fff",borderRadius:5,padding:"2px 9px",textTransform:"uppercase",letterSpacing:1}}>{f.etapa}</span>
                   <div style={{width:8,height:8,borderRadius:"50%",background:f.semColor}}/>
                   <span style={{fontSize:9,color:"rgba(255,255,255,0.7)",fontWeight:600}}>{semLabel}</span>
+                  {f.canal&&<span style={{fontSize:9,background:"rgba(255,255,255,0.15)",color:"#fff",borderRadius:5,padding:"2px 8px"}}>📡 {f.canal}</span>}
                 </div>
-                <div style={{fontSize:20,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif",lineHeight:1.2,marginBottom:3}}>{f.nombre}</div>
-                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                  {f.empresa&&<span style={{fontSize:11,color:"#93c5fd",fontWeight:600}}>{f.empresa}</span>}
-                  {f.canal&&<span style={{fontSize:9,background:"rgba(255,255,255,0.15)",color:"#fff",borderRadius:5,padding:"2px 8px",fontWeight:600}}>📡 {f.canal}</span>}
-                </div>
+                <div style={{fontSize:18,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif",lineHeight:1.2}}>{f.nombre}</div>
+                {f.empresa&&<div style={{fontSize:11,color:"#93c5fd",fontWeight:600,marginTop:2}}>{f.empresa}</div>}
               </div>
-              <button onClick={()=>setSemaforoDrawer(null)}
-                style={{background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>✕</button>
-            </div>
-
-            {/* Tabs del drawer */}
-            <div style={{display:"flex",gap:2,marginTop:14,background:"rgba(0,0,0,0.2)",borderRadius:8,padding:3}}>
-              {[["ficha","📎 Ficha"],["acciones","⚡ Acciones"],["editar","✏️ Editar"]].map(([id,label])=>(
-                <button key={id} onClick={()=>setDrawerTab(id)}
-                  style={{flex:1,padding:"7px 8px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:drawerTab===id?"#fff":"transparent",color:drawerTab===id?"#002B49":"rgba(255,255,255,0.7)",transition:"all 0.15s"}}>
-                  {label}
-                </button>
-              ))}
+              <button onClick={()=>setSemaforoDrawer(null)} style={{background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>✕</button>
             </div>
           </div>
 
-          {/* ── Contenido ── */}
-          <div style={{flex:1,overflowY:"auto"}}>
+          {/* ── Body: split 50/50 ── */}
+          <div style={{flex:1,display:"flex",overflow:"hidden"}}>
 
-            {/* TAB: FICHA */}
-            {drawerTab==="ficha"&&(
-              <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-                {/* Ficha técnica — grande */}
-                <div style={{flex:"0 0 62%",background:"#0f172a",position:"relative",minHeight:300}}>
-                  {pdfImg
-                    ?<img src={pdfImg} alt={f.lote} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"contain"}}/>
-                    :fichaData
-                      ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                        <div style={{fontSize:12,color:"#94a3b8"}}>Cargando ficha...</div>
-                       </div>
-                      :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
-                        <div style={{fontSize:36}}>📎</div>
-                        <div style={{fontSize:13,fontWeight:700,color:"#64748b"}}>Sin ficha técnica</div>
-                        <div style={{fontSize:10,color:"#475569",textAlign:"center"}}>Súbela en 📦 Inventario → {f.lote}</div>
-                      </div>
-                  }
-                  {pdfImg&&<div style={{position:"absolute",bottom:8,left:8,background:"rgba(0,43,73,0.8)",borderRadius:5,padding:"3px 9px"}}>
-                    <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{f.lote}</span>
-                  </div>}
-                </div>
+            {/* ── IZQUIERDA: Info + Acciones (50%) ── */}
+            <div style={{flex:"0 0 50%",display:"flex",flexDirection:"column",borderRight:"1px solid #e5e7eb",overflow:"hidden"}}>
 
-                {/* Datos del lote */}
-                <div style={{padding:"16px 20px",borderBottom:"1px solid #f1f5f9"}}>
-                  <div style={{fontSize:16,fontWeight:800,color:"#002B49",marginBottom:3}}>{f.lote}</div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:10}}>
-                    {[["Superficie",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
-                      ["Precio/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
-                      ["Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"]
-                    ].map(([l,v])=>(
-                      <div key={l} style={{background:"#f8fafc",borderRadius:8,padding:"9px 11px",textAlign:"center"}}>
-                        <div style={{fontSize:8,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{l}</div>
-                        <div style={{fontSize:13,fontWeight:800,color:"#002B49"}}>{v}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Último comentario */}
-                <div style={{padding:"14px 20px"}}>
-                  <div style={{fontSize:9,fontWeight:700,color:eCol,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>💬 Último comentario</div>
-                  {f.ultComentario
-                    ?<div style={{background:"#f5f7ff",borderRadius:9,border:`1.5px solid ${eCol}33`,padding:"12px 14px"}}>
-                      <div style={{fontSize:13,fontStyle:"italic",color:"#0f1a41",lineHeight:1.6}}>"{f.ultComentario}"</div>
-                      {f.ultFecha&&<div style={{fontSize:9,color:"#94a3b8",marginTop:6,textAlign:"right"}}>{new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"})}</div>}
-                    </div>
-                    :<div style={{color:"#cbd5e1",fontStyle:"italic",fontSize:12}}>Sin comentarios</div>
-                  }
-                </div>
+              {/* Tabs izquierda */}
+              <div style={{display:"flex",borderBottom:"1px solid #e5e7eb",flexShrink:0}}>
+                {[["info","📋 Información"],["acciones","⚡ Acciones"]].map(([id,label])=>(
+                  <button key={id} onClick={()=>setDrawerTab(id)} style={{flex:1,padding:"11px 8px",border:"none",borderBottom:"2px solid "+(drawerTab===id?"#002B49":"transparent"),cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:"transparent",color:drawerTab===id?"#002B49":"#94a3b8",transition:"all 0.15s"}}>{label}</button>
+                ))}
               </div>
-            )}
 
-            {/* TAB: ACCIONES */}
-            {drawerTab==="acciones"&&(
-              <div style={{padding:"20px"}}>
-                {/* Cambiar etapa */}
-                <div style={{marginBottom:24}}>
-                  <div style={{fontSize:11,fontWeight:800,color:"#002B49",marginBottom:12,textTransform:"uppercase",letterSpacing:0.8}}>⚡ Cambiar etapa</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                    {ETAPAS_ACTIVAS.map(etapa=>{
-                      const ec = {"Vendido":"#16a34a","Contrato":"#06b6d4","Apartado":"#f97316","Propuesta":"#8b5cf6","En negociación":"#d97706","En análisis":"#6366f1","Visita":"#0d9488","Cita":"#0891b2","Contactado":"#3b82f6","Por Contactar":"#f59e0b","Descartado":"#94a3b8"}[etapa]||"#475569";
-                      const isActive = nuevaEtapa===etapa;
-                      return (
-                        <button key={etapa} onClick={()=>cambiarEtapa(etapa)}
-                          style={{padding:"8px 14px",borderRadius:8,border:`2px solid ${isActive?ec:"#e5e7eb"}`,background:isActive?ec+"18":"#fff",color:isActive?ec:"#64748b",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s"}}>
-                          {etapa}
-                        </button>
-                      );
-                    })}
+              <div style={{flex:1,overflowY:"auto",padding:"16px 18px"}}>
+
+                {/* TAB INFO */}
+                {drawerTab==="info"&&(<div style={{display:"flex",flexDirection:"column",gap:14}}>
+                  {/* Terreno */}
+                  <div>
+                    <div style={{fontSize:9,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Terreno</div>
+                    <div style={{fontSize:15,fontWeight:800,color:"#002B49",marginBottom:3}}>{f.lote||"Sin lote"}</div>
+                    <div style={{width:28,height:2.5,background:eCol,borderRadius:2,marginBottom:6}}/>
+                    {(()=>{const lot=inventory.find(l=>l.id===f.lotId)||{};return lot.uso&&<div style={{fontSize:10,color:"#64748b",marginBottom:6}}>🏗 {lot.uso}{lot.ciudad?" · "+lot.ciudad:""}</div>;})()}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                      {[["Superficie",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],["Precio/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],["Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],["Asesor",f.asesor||"—"]].map(([l,v])=>(
+                        <div key={l} style={{background:"#f8fafc",borderRadius:8,padding:"8px 10px"}}>
+                          <div style={{fontSize:8,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{l}</div>
+                          <div style={{fontSize:11,fontWeight:700,color:"#002B49"}}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {(()=>{const lot=inventory.find(l=>l.id===f.lotId)||{};return (lot.cos||lot.cus||lot.niveles)&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{lot.cos&&<span style={{fontSize:9,background:"#f0fdf4",color:"#15803d",borderRadius:5,padding:"2px 7px",fontWeight:600}}>COS {lot.cos}</span>}{lot.cus&&<span style={{fontSize:9,background:"#eff6ff",color:"#1d4ed8",borderRadius:5,padding:"2px 7px",fontWeight:600}}>CUS {lot.cus}</span>}{lot.niveles&&<span style={{fontSize:9,background:"#fef3c7",color:"#92400e",borderRadius:5,padding:"2px 7px",fontWeight:600}}>{lot.niveles} niveles</span>}</div>;})()}
                   </div>
-                </div>
 
-                {/* Agregar comentario */}
-                <div style={{marginBottom:24}}>
-                  <div style={{fontSize:11,fontWeight:800,color:"#002B49",marginBottom:12,textTransform:"uppercase",letterSpacing:0.8}}>💬 Agregar comentario</div>
-                  <textarea value={nuevoComentario} onChange={e=>setNuevoComentario(e.target.value)}
-                    placeholder="Escribe el seguimiento, acuerdo o nota importante..."
-                    rows={4} style={{width:"100%",borderRadius:10,border:"1.5px solid #e5e7eb",padding:"12px 14px",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",resize:"vertical",boxSizing:"border-box",lineHeight:1.5}}/>
-                  <button onClick={guardarComentario} disabled={!nuevoComentario.trim()||guardando}
-                    style={{width:"100%",marginTop:8,padding:"12px",background:nuevoComentario.trim()?"#002B49":"#e5e7eb",color:nuevoComentario.trim()?"#fff":"#9ca3af",border:"none",borderRadius:9,fontSize:13,fontWeight:700,cursor:nuevoComentario.trim()?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",transition:"all 0.2s"}}>
-                    {guardando?"Guardando...":"💾 Guardar comentario"}
+                  <div style={{height:1,background:"#f1f5f9"}}/>
+
+                  {/* Último comentario */}
+                  <div>
+                    <div style={{fontSize:9,fontWeight:700,color:eCol,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>💬 Último comentario</div>
+                    <div style={{background:"#f5f7ff",borderRadius:9,border:"1.5px solid "+eCol+"33",padding:"12px 14px"}}>
+                      {f.ultComentario
+                        ?<><div style={{fontSize:13,fontStyle:"italic",color:"#0f1a41",lineHeight:1.6}}>\{f.ultComentario}\</div>
+                          {f.ultFecha&&<div style={{fontSize:9,color:"#94a3b8",marginTop:6,textAlign:"right"}}>{new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"})}</div>}</>
+                        :<div style={{fontSize:11,color:"#cbd5e1",fontStyle:"italic"}}>Sin comentarios</div>
+                      }
+                    </div>
+                  </div>
+
+                  {/* Botón editar completo */}
+                  <button onClick={abrirModalCompleto} style={{width:"100%",padding:"11px",background:"linear-gradient(135deg,#002B49,#003a66)",color:"#fff",border:"none",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                    ✏️ Abrir editor completo
                   </button>
-                </div>
+                </div>)}
 
-                {/* Historial */}
-                {(()=>{
-                  const crm=crmData[f.lotId]||{};
-                  const ints=[...(crm.interacciones||[])].filter(x=>{
-                    const nom=(x.prospecto||x.prospectoNombre||x.nombre||"").toLowerCase();
-                    return !nom||nom===f.nombre.toLowerCase();
-                  }).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0)).slice(0,5);
-                  if(!ints.length) return null;
-                  return (
-                    <div>
-                      <div style={{fontSize:11,fontWeight:800,color:"#002B49",marginBottom:12,textTransform:"uppercase",letterSpacing:0.8}}>📋 Historial reciente</div>
-                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                        {ints.map((it,i)=>(
-                          <div key={i} style={{background:"#f8fafc",borderRadius:8,padding:"10px 13px",borderLeft:`3px solid ${eCol}`}}>
-                            <div style={{fontSize:12,color:"#334155",lineHeight:1.4}}>{it.nota||it.descripcion||it.comentario||"Sin descripción"}</div>
-                            {it.fecha&&<div style={{fontSize:9,color:"#94a3b8",marginTop:4}}>{new Date(it.fecha).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"})}</div>}
-                          </div>
-                        ))}
-                      </div>
+                {/* TAB ACCIONES */}
+                {drawerTab==="acciones"&&(<div style={{display:"flex",flexDirection:"column",gap:16}}>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:800,color:"#002B49",marginBottom:10,textTransform:"uppercase",letterSpacing:0.8}}>⚡ Cambiar etapa</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {ETAPAS_ACTIVAS.map(etapa=>{
+                        const ec={"Vendido":"#16a34a","Contrato":"#06b6d4","Apartado":"#f97316","Propuesta":"#8b5cf6","En negociación":"#d97706","En análisis":"#6366f1","Visita":"#0d9488","Cita":"#0891b2","Contactado":"#3b82f6","Por Contactar":"#f59e0b","Descartado":"#94a3b8"}[etapa]||"#475569";
+                        const isA=nuevaEtapa===etapa;
+                        return <button key={etapa} onClick={()=>cambiarEtapa(etapa)} style={{padding:"7px 12px",borderRadius:7,border:"2px solid "+(isA?ec:"#e5e7eb"),background:isA?ec+"18":"#fff",color:isA?ec:"#64748b",cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>{etapa}</button>;
+                      })}
                     </div>
-                  );
-                })()}
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:800,color:"#002B49",marginBottom:8,textTransform:"uppercase",letterSpacing:0.8}}>💬 Nuevo comentario</div>
+                    <textarea value={nuevoComentario} onChange={e=>setNuevoComentario(e.target.value)} placeholder="Seguimiento, acuerdo o nota importante..." rows={4} style={{width:"100%",borderRadius:9,border:"1.5px solid #e5e7eb",padding:"11px 13px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",resize:"none",boxSizing:"border-box",lineHeight:1.5}}/>
+                    <button onClick={guardarComentario} disabled={!nuevoComentario.trim()||guardando} style={{width:"100%",marginTop:6,padding:"11px",background:nuevoComentario.trim()?"#002B49":"#e5e7eb",color:nuevoComentario.trim()?"#fff":"#9ca3af",border:"none",borderRadius:9,fontSize:12,fontWeight:700,cursor:nuevoComentario.trim()?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif"}}>
+                      {guardando?"Guardando...":"💾 Guardar comentario"}
+                    </button>
+                  </div>
+                </div>)}
               </div>
-            )}
+            </div>
 
-            {/* TAB: EDITAR */}
-            {drawerTab==="editar"&&(
-              <div style={{padding:"20px",display:"flex",flexDirection:"column",gap:16,alignItems:"center",justifyContent:"center",minHeight:200}}>
-                <div style={{textAlign:"center",marginBottom:8}}>
-                  <div style={{fontSize:36,marginBottom:8}}>✏️</div>
-                  <div style={{fontSize:14,fontWeight:700,color:"#002B49",marginBottom:4}}>Editar ficha completa</div>
-                  <div style={{fontSize:12,color:"#64748b"}}>Abre el editor completo con todos los campos: etapa, canal, ciudad, asesor, nota interna y más.</div>
-                </div>
-                <button onClick={abrirModalCompleto}
-                  style={{padding:"14px 28px",background:"linear-gradient(135deg,#002B49,#003a66)",color:"#fff",border:"none",borderRadius:11,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:"0 4px 14px rgba(0,43,73,0.25)",display:"flex",alignItems:"center",gap:8}}>
-                  ✏️ Abrir editor completo
-                </button>
-                <div style={{fontSize:10,color:"#94a3b8",textAlign:"center"}}>Incluye historial, acciones, canal, ciudad del cliente y más</div>
+            {/* ── DERECHA: Documentos (50%) ── */}
+            <div style={{flex:"0 0 50%",display:"flex",flexDirection:"column",background:"#0f172a",overflow:"hidden"}}>
+
+              {/* Tabs documentos */}
+              <div style={{display:"flex",background:"#1e293b",flexShrink:0}}>
+                {[["ficha","📎 Ficha técnica"],["cotizacion","📄 Cotización"]].map(([id,label])=>(
+                  <button key={id} onClick={()=>setDocTab(id)} style={{flex:1,padding:"11px 8px",border:"none",borderBottom:"2px solid "+(docTab===id?"#60a5fa":"transparent"),cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:"transparent",color:docTab===id?"#60a5fa":"#64748b",transition:"all 0.15s"}}>{label}</button>
+                ))}
               </div>
-            )}
-          </div>
 
-          {/* ── Footer ── */}
-          <div style={{padding:"12px 20px",borderTop:"1px solid #e5e7eb",display:"flex",gap:8,background:"#f8fafc",flexShrink:0}}>
-            <button onClick={abrirModalCompleto}
-              style={{flex:1,padding:"10px",background:"#002B49",color:"#fff",border:"none",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
-              ✏️ Editar ficha
-            </button>
-            <button onClick={()=>setSemaforoDrawer(null)}
-              style={{padding:"10px 16px",background:"#fff",color:"#64748b",border:"1px solid #e5e7eb",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
-              Cerrar
-            </button>
+              {/* Visor de documento */}
+              <div style={{flex:1,position:"relative",overflow:"hidden"}}>
+                {docSrc
+                  ?<img src={docSrc} alt={docNombre} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"contain"}}/>
+                  :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,padding:32}}>
+                    <div style={{fontSize:40}}>{docTab==="ficha"?"📎":"📄"}</div>
+                    <div style={{fontSize:14,fontWeight:700,color:"#64748b",textAlign:"center"}}>
+                      {docTab==="ficha"?"Sin ficha técnica":"Sin cotización cargada"}
+                    </div>
+                    <div style={{fontSize:11,color:"#475569",textAlign:"center",lineHeight:1.7}}>
+                      {docTab==="ficha"
+                        ?<>Súbela desde<br/><span style={{color:"#93c5fd",fontWeight:600}}>📦 Inventario → {f.lote}</span></>
+                        :<button onClick={()=>cotInputRef.current&&cotInputRef.current.click()} style={{padding:"10px 20px",background:"#2563AC",color:"#fff",border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:4}}>📄 Subir cotización</button>
+                      }
+                    </div>
+                  </div>
+                }
+                {/* Badge nombre doc */}
+                {docSrc&&<div style={{position:"absolute",bottom:8,left:8,background:"rgba(0,43,73,0.85)",borderRadius:5,padding:"3px 9px"}}>
+                  <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{docNombre}</span>
+                </div>}
+              </div>
+
+              {/* Footer documentos */}
+              <div style={{padding:"10px 14px",background:"#1e293b",display:"flex",gap:8,flexShrink:0}}>
+                {docTab==="cotizacion"&&(
+                  <>
+                    <button onClick={()=>cotInputRef.current&&cotInputRef.current.click()} style={{flex:1,padding:"9px",background:"#2563AC",color:"#fff",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                      {cotData?"🔄 Cambiar cotización":"📄 Subir cotización"}
+                    </button>
+                    {cotData&&<button onClick={()=>{if(window.confirm("¿Eliminar cotización de "+f.nombre+"?"))setCotizaciones(prev=>{const n={...prev};delete n[cotKey];return n;});setCotImg(null);}} style={{padding:"9px 12px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✕</button>}
+                    <input ref={cotInputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleCotUpload} style={{display:"none"}}/>
+                  </>
+                )}
+                {docTab==="ficha"&&cotData&&<div style={{fontSize:10,color:"#4ade80",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:5}}>✓ Cotización disponible</div>}
+              </div>
+            </div>
           </div>
         </div>
       </>
     );
   };
+
 
   // ─── REPORTE SEMÁFORO ──────────────────────────────────────────────────
   const ReporteSemaforo = () => {
@@ -11047,7 +11058,28 @@ Respuesta: [respuesta exacta, conversacional]
       // ══════════ SECCIÓN 2: FICHAS DE CLIENTES ══════════
       const fichasFilas=filas.filter(f=>ETAPAS_FICHA.includes(f.etapa));
 
-      // Pre-cargar imágenes de fichas técnicas
+      // Pre-cargar imágenes de fichas técnicas y cotizaciones
+      const cotImgsPDF={};
+      await Promise.all(fichasFilas.map(async(f)=>{
+        const cotKey=f.lotId+"_"+(f.prospectoIdx||0);
+        const cd=cotizaciones[cotKey]||null;
+        if(!cd||!cd.src) return;
+        try{
+          if(cd.src.startsWith("data:image")){ cotImgsPDF[cotKey]=cd.src; }
+          else if(cd.src.startsWith("data:application/pdf")&&window.pdfjsLib){
+            const arr=atob(cd.src.split(",")[1]);
+            const bytes=new Uint8Array(arr.length);
+            for(let i=0;i<arr.length;i++) bytes[i]=arr.charCodeAt(i);
+            const pdfDoc2=await pdfjsLib.getDocument({data:bytes}).promise;
+            const pg2=await pdfDoc2.getPage(1);
+            const vp2=pg2.getViewport({scale:2.5});
+            const cvs2=document.createElement("canvas");
+            cvs2.width=vp2.width; cvs2.height=vp2.height;
+            await pg2.render({canvasContext:cvs2.getContext("2d"),viewport:vp2}).promise;
+            cotImgsPDF[cotKey]=cvs2.toDataURL("image/jpeg",0.9);
+          }
+        }catch(e){console.warn("cot render",e);}
+      }));
       const fichaImgs={};
       await Promise.all(fichasFilas.map(async(f)=>{
         const fd=fichasTecnicas[f.lotId]
@@ -11233,6 +11265,16 @@ Respuesta: [respuesta exacta, conversacional]
         }
 
         cardIdx++;
+
+        // Si tiene cotización, agregarla como página siguiente
+        const cotKey2=f.lotId+"_"+(f.prospectoIdx||0);
+        if(cotImgsPDF[cotKey2]){
+          doc.addPage();
+          doc.setFillColor(0,43,73); doc.rect(MX,MY,PW-MX*2,7,"F");
+          doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(255,255,255);
+          doc.text("COTIZACIÓN — "+f.nombre+" · "+f.lote,PW/2,MY+4.8,{align:"center"});
+          try{ doc.addImage(cotImgsPDF[cotKey2],"JPEG",MX,MY+9,PW-MX*2,PH-MY-15); }catch(e){}
+        }
       });
 
       // Pie de página en todas las páginas
@@ -11374,7 +11416,7 @@ Respuesta: [respuesta exacta, conversacional]
                   const lot=inventory.find(l=>l.id===f.lotId)||{};
                   return (
                     <div key={fi}
-                      onClick={()=>setSemaforoDrawer({f, fichaData})}
+                      onClick={()=>setSemaforoDrawer({f})}
                       style={{background:"#fff",borderRadius:14,border:"1px solid #e2e8f0",boxShadow:"0 4px 20px rgba(0,43,73,0.10)",overflow:"hidden",display:"flex",minHeight:340,cursor:"pointer",transition:"all 0.2s"}}
                       onMouseEnter={e=>{e.currentTarget.style.boxShadow="0 8px 32px rgba(0,43,73,0.18)";e.currentTarget.style.transform="translateY(-2px)";}}
                       onMouseLeave={e=>{e.currentTarget.style.boxShadow="0 4px 20px rgba(0,43,73,0.10)";e.currentTarget.style.transform="none";}}>
@@ -11472,7 +11514,7 @@ Respuesta: [respuesta exacta, conversacional]
                       <div style={{flex:"0 0 62%",background:"#0f172a",position:"relative",minHeight:340,overflow:"hidden"}}>
                         {fichaData
                           ?(fichaData.src.startsWith("data:application/pdf")
-                            ?<iframe src={fichaData.src} style={{width:"100%",height:"100%",minHeight:340,border:"none",position:"absolute",top:0,left:0}} title={"Ficha "+f.lote}/>
+                            ?<img src={fichaData.src} alt={"Ficha "+f.lote} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"contain"}}/>
                             :<img src={fichaData.src} alt={"Ficha "+f.lote} style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",objectFit:"contain"}}/>
                           )
                           :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
