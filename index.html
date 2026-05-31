@@ -11032,6 +11032,30 @@ Respuesta: [respuesta exacta, conversacional]
       }
     },[fichaData?.src]);
 
+    const cotKey=f.lotId+"_"+(f.prospectoIdx||0);
+    const cotData=cotizaciones[cotKey]||null;
+    const [cotSrc,setCotSrc]=React.useState(null);
+    React.useEffect(()=>{
+      if(!cotData?.src){setCotSrc(null);return;}
+      if(cotData.src.startsWith("data:image")){setCotSrc(cotData.src);return;}
+      if(cotData.src.startsWith("data:application/pdf")&&window.pdfjsLib){
+        (async()=>{
+          try{
+            const arr=atob(cotData.src.split(",")[1]);
+            const bytes=new Uint8Array(arr.length);
+            for(let i=0;i<arr.length;i++) bytes[i]=arr.charCodeAt(i);
+            const pdf=await pdfjsLib.getDocument({data:bytes}).promise;
+            const pg=await pdf.getPage(1);
+            const scale=2.0; const vp=pg.getViewport({scale});
+            const cvs=document.createElement("canvas");
+            cvs.width=vp.width; cvs.height=vp.height;
+            await pg.render({canvasContext:cvs.getContext("2d"),viewport:vp}).promise;
+            setCotSrc(cvs.toDataURL("image/jpeg",0.88));
+          }catch(e){console.warn("CotCard render",e);}
+        })();
+      }
+    },[cotData?.src]);
+
     return (
       <div onClick={()=>setSemaforoDrawer({f})}
         style={{background:"#fff",borderRadius:14,border:"1px solid #e2e8f0",boxShadow:"0 2px 16px rgba(0,43,73,0.08)",overflow:"hidden",display:"flex",height:320,cursor:"pointer",transition:"box-shadow 0.2s,transform 0.2s",borderLeft:"5px solid "+eCol}}
@@ -11093,30 +11117,31 @@ Respuesta: [respuesta exacta, conversacional]
         </div>
 
         {/* ── Derecha: Ficha técnica (62%) ── */}
-        <div style={{flex:"0 0 62%",background:"#eef2f7",position:"relative",overflow:"hidden"}}>
-          {imgSrc
-            ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:12,boxSizing:"border-box"}}>
-               <img src={imgSrc} alt={f.lote} draggable={false} style={{maxWidth:"100%",maxHeight:"100%",width:"auto",height:"auto",objectFit:"contain",boxShadow:"0 2px 14px rgba(15,23,42,0.18)",borderRadius:2}}/>
-             </div>
-            :fichaData
-              ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                 <div style={{fontSize:12,color:"#64748b"}}>⏳ Cargando...</div>
-               </div>
-              :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
-                <div style={{fontSize:32}}>📎</div>
-                <div style={{fontSize:12,fontWeight:700,color:"#475569"}}>Sin ficha técnica</div>
-                <div style={{fontSize:10,color:"#64748b",textAlign:"center",lineHeight:1.7}}>
-                  Súbela desde<br/><span style={{color:"#2563AC",fontWeight:700}}>📦 Inventario → {f.lote}</span>
-                </div>
-              </div>
-          }
-          {/* Badge lote + hint */}
-          {imgSrc&&<div style={{position:"absolute",bottom:8,left:8,background:"rgba(0,43,73,0.85)",borderRadius:5,padding:"3px 9px"}}>
-            <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{f.lote}</span>
-          </div>}
-          <div style={{position:"absolute",top:8,right:8,background:"rgba(0,43,73,0.78)",borderRadius:5,padding:"2px 8px"}}>
-            <span style={{fontSize:8,color:"rgba(255,255,255,0.9)",fontWeight:600}}>Click para abrir →</span>
-          </div>
+        <div onClick={e=>e.stopPropagation()} onMouseDown={e=>e.stopPropagation()}
+          style={{flex:"0 0 62%",display:"flex",overflow:"hidden",cursor:"default"}}>
+          {/* COTIZACIÓN (izquierda) */}
+          <DocViewerPane
+            src={cotSrc} nombre={cotData?.nombre} titulo="Cotización" icon="📄" hasData={!!cotData}
+            emptyNode={cotData
+              ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{fontSize:12,color:"#64748b"}}>⏳ Cargando...</div></div>
+              :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,padding:18}}>
+                <div style={{fontSize:28}}>📄</div>
+                <div style={{fontSize:11,fontWeight:700,color:"#475569",textAlign:"center"}}>Sin cotización</div>
+                <div style={{fontSize:9,color:"#64748b",textAlign:"center",lineHeight:1.6}}>Súbela en el Kanban del prospecto</div>
+              </div>}
+          />
+          <div style={{width:2,background:"#0b1220",flexShrink:0}}/>
+          {/* FICHA TÉCNICA (derecha) */}
+          <DocViewerPane
+            src={imgSrc} nombre={f.lote} titulo="Ficha técnica" icon="📎" hasData={!!fichaData}
+            emptyNode={fichaData
+              ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{fontSize:12,color:"#64748b"}}>⏳ Cargando...</div></div>
+              :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,padding:18}}>
+                <div style={{fontSize:28}}>📎</div>
+                <div style={{fontSize:11,fontWeight:700,color:"#475569",textAlign:"center"}}>Sin ficha técnica</div>
+                <div style={{fontSize:9,color:"#64748b",textAlign:"center",lineHeight:1.6}}>Súbela desde<br/><span style={{color:"#2563AC",fontWeight:700}}>📦 Inventario → {f.lote}</span></div>
+              </div>}
+          />
         </div>
       </div>
     );
@@ -12354,7 +12379,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v4.9-FINAL</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.0-VISOR</span>
         </div>
         <div style={s.navLinks}>
           {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["dashboard","📊 Dashboard"],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
