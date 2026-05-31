@@ -10867,10 +10867,21 @@ Respuesta: [respuesta exacta, conversacional]
                     </div>
                   </div>
 
-                  {/* Botón editar completo */}
-                  <button onClick={abrirModalCompleto} style={{width:"100%",padding:"11px",background:"linear-gradient(135deg,#002B49,#003a66)",color:"#fff",border:"none",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
-                    ✏️ Abrir editor completo
-                  </button>
+                  {/* Accesos rápidos */}
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    <button onClick={abrirModalCompleto}
+                      style={{width:"100%",padding:"11px",background:"linear-gradient(135deg,#002B49,#003a66)",color:"#fff",border:"none",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                      ✏️ Abrir ficha del cliente
+                    </button>
+                    <button onClick={()=>{
+                        const lot=inventory.find(l=>l.id===f.lotId);
+                        if(lot){setSelectedLotDetail(lot);setSemaforoDrawer(null);}
+                        else toast("⚠ Lote no encontrado en inventario");
+                      }}
+                      style={{width:"100%",padding:"11px",background:"#fff",color:"#002B49",border:"2px solid #002B49",borderRadius:9,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                      📎 Ver ficha técnica del lote
+                    </button>
+                  </div>
                 </div>)}
 
                 {/* TAB ACCIONES */}
@@ -10949,6 +10960,129 @@ Respuesta: [respuesta exacta, conversacional]
     );
   };
 
+
+  // ─── FICHA CLIENTE CARD (componente con hook para renderizar PDF) ────────
+  const FichaClienteCard = ({f, fi}) => {
+    const eCol=COLORES_ETAPA[f.etapa]||"#475569";
+    const fichaData=fichasTecnicas[f.lotId]
+      ||(Object.values(fichasTecnicas).find(fd=>fd.lote&&f.lote&&fd.lote.toLowerCase().trim()===f.lote.toLowerCase().trim()))
+      ||null;
+    const lot=inventory.find(l=>l.id===f.lotId)||{};
+    const [imgSrc,setImgSrc]=React.useState(null);
+
+    React.useEffect(()=>{
+      if(!fichaData?.src){setImgSrc(null);return;}
+      if(fichaData.src.startsWith("data:image")){setImgSrc(fichaData.src);return;}
+      if(fichaData.src.startsWith("data:application/pdf")&&window.pdfjsLib){
+        (async()=>{
+          try{
+            const arr=atob(fichaData.src.split(",")[1]);
+            const bytes=new Uint8Array(arr.length);
+            for(let i=0;i<arr.length;i++) bytes[i]=arr.charCodeAt(i);
+            const pdf=await pdfjsLib.getDocument({data:bytes}).promise;
+            const pg=await pdf.getPage(1);
+            const scale=2.0; const vp=pg.getViewport({scale});
+            const cvs=document.createElement("canvas");
+            cvs.width=vp.width; cvs.height=vp.height;
+            await pg.render({canvasContext:cvs.getContext("2d"),viewport:vp}).promise;
+            setImgSrc(cvs.toDataURL("image/jpeg",0.88));
+          }catch(e){console.warn("FichaCard render",e);}
+        })();
+      }
+    },[fichaData?.src]);
+
+    return (
+      <div key={fi}
+        onClick={()=>setSemaforoDrawer({f})}
+        style={{background:"#fff",borderRadius:14,border:"1px solid #e2e8f0",boxShadow:"0 4px 20px rgba(0,43,73,0.10)",overflow:"hidden",display:"flex",minHeight:340,cursor:"pointer",transition:"all 0.2s",position:"relative"}}
+        onMouseEnter={e=>{e.currentTarget.style.boxShadow="0 8px 32px rgba(0,43,73,0.18)";e.currentTarget.style.transform="translateY(-2px)";}}
+        onMouseLeave={e=>{e.currentTarget.style.boxShadow="0 4px 20px rgba(0,43,73,0.10)";e.currentTarget.style.transform="none";}}>
+        <div style={{position:"absolute",top:8,right:8,background:"rgba(0,43,73,0.07)",borderRadius:5,padding:"2px 7px",zIndex:1,pointerEvents:"none"}}>
+          <span style={{fontSize:8,color:"#64748b",fontWeight:600}}>Click para abrir →</span>
+        </div>
+
+        {/* Columna izquierda */}
+        <div style={{flex:"0 0 38%",display:"flex",flexDirection:"column",borderRight:"1px solid #f1f5f9"}}>
+          <div style={{background:`linear-gradient(135deg,${eCol},${eCol}cc)`,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:10,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:1.5}}>{f.etapa}</span>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <div style={{width:9,height:9,borderRadius:"50%",background:f.semColor,boxShadow:"0 0 6px "+f.semColor}}/>
+              <span style={{fontSize:9,color:"rgba(255,255,255,0.8)",fontWeight:600}}>
+                {{"green":"Activo","yellow":"Tibio","red":"Frío","grey":"Sin seguimiento"}[f.sem]||""}
+              </span>
+            </div>
+          </div>
+          <div style={{padding:"16px 18px",flex:1,display:"flex",flexDirection:"column",gap:0}}>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:9,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Cliente</div>
+              <div style={{fontSize:15,fontWeight:800,color:"#002B49",lineHeight:1.2,marginBottom:3,fontFamily:"'Playfair Display',serif"}}>{f.nombre}</div>
+              {f.empresa&&<div style={{fontSize:11,fontWeight:700,color:"#5b6fd8"}}>{f.empresa}</div>}
+              {f.canal&&<div style={{display:"inline-flex",marginTop:5,background:"#eef2ff",borderRadius:5,padding:"2px 8px"}}>
+                <span style={{fontSize:9,fontWeight:700,color:"#4338ca"}}>📡 {f.canal}</span>
+              </div>}
+            </div>
+            <div style={{height:1,background:"#f1f5f9",marginBottom:12}}/>
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:9,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Terreno</div>
+              <div style={{fontSize:14,fontWeight:800,color:"#002B49",marginBottom:2}}>{f.lote||"Sin lote"}</div>
+              <div style={{width:32,height:2.5,background:eCol,borderRadius:2,marginBottom:8}}/>
+              {lot.uso&&<div style={{fontSize:10,color:"#64748b",marginBottom:6}}>🏗 {lot.uso}{lot.ciudad?" · "+lot.ciudad:""}</div>}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+                {[["Superficie",f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
+                  ["Precio/m²",f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
+                  ["Total",f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],
+                  ["Asesor",f.asesor||"—"]
+                ].map(([lbl,val])=>(
+                  <div key={lbl} style={{background:"#f8fafc",borderRadius:7,padding:"7px 9px"}}>
+                    <div style={{fontSize:8,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{lbl}</div>
+                    <div style={{fontSize:11,fontWeight:700,color:"#002B49",lineHeight:1.2}}>{val}</div>
+                  </div>
+                ))}
+              </div>
+              {(lot.cos||lot.cus||lot.niveles)&&(
+                <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+                  {lot.cos&&<div style={{background:"#f0fdf4",borderRadius:5,padding:"3px 8px"}}><span style={{fontSize:9,color:"#15803d",fontWeight:600}}>COS {lot.cos}</span></div>}
+                  {lot.cus&&<div style={{background:"#eff6ff",borderRadius:5,padding:"3px 8px"}}><span style={{fontSize:9,color:"#1d4ed8",fontWeight:600}}>CUS {lot.cus}</span></div>}
+                  {lot.niveles&&<div style={{background:"#fef3c7",borderRadius:5,padding:"3px 8px"}}><span style={{fontSize:9,color:"#92400e",fontWeight:600}}>{lot.niveles} niveles</span></div>}
+                </div>
+              )}
+            </div>
+            <div style={{height:1,background:"#f1f5f9",marginBottom:12}}/>
+            <div style={{flex:1,background:"#f5f7ff",borderRadius:9,border:"1.5px solid "+eCol+"33",padding:"11px 13px"}}>
+              <div style={{fontSize:8,fontWeight:800,color:eCol,textTransform:"uppercase",letterSpacing:1,marginBottom:7}}>💬 Último comentario</div>
+              {f.ultComentario
+                ?<><div style={{fontSize:12,fontStyle:"italic",color:"#0f1a41",lineHeight:1.6}}>"{f.ultComentario}"</div>
+                  {f.ultFecha&&<div style={{fontSize:9,color:"#94a3b8",marginTop:6,textAlign:"right"}}>{new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"})}</div>}</>
+                :<div style={{fontSize:11,color:"#cbd5e1",fontStyle:"italic"}}>Sin comentarios</div>
+              }
+            </div>
+          </div>
+        </div>
+
+        {/* Columna derecha — imagen */}
+        <div style={{flex:"0 0 62%",background:"#0f172a",position:"relative",minHeight:340,overflow:"hidden"}}>
+          {imgSrc
+            ?<img src={imgSrc} alt={"Ficha "+f.lote} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"contain"}}/>
+            :fichaData
+              ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                 <div style={{fontSize:11,color:"#94a3b8"}}>⏳ Cargando ficha...</div>
+               </div>
+              :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,padding:32}}>
+                <div style={{fontSize:36}}>📎</div>
+                <div style={{fontSize:13,fontWeight:700,color:"#64748b"}}>Sin ficha técnica cargada</div>
+                <div style={{fontSize:11,color:"#475569",textAlign:"center",lineHeight:1.7}}>
+                  Súbela desde<br/>
+                  <span style={{color:"#93c5fd",fontWeight:600}}>📦 Inventario → {f.lote}</span>
+                </div>
+              </div>
+          }
+          {imgSrc&&<div style={{position:"absolute",bottom:8,left:8,background:"rgba(0,43,73,0.85)",borderRadius:5,padding:"3px 9px"}}>
+            <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{f.lote}</span>
+          </div>}
+        </div>
+      </div>
+    );
+  };
 
   // ─── REPORTE SEMÁFORO ──────────────────────────────────────────────────
   const ReporteSemaforo = () => {
@@ -11408,132 +11542,9 @@ Respuesta: [respuesta exacta, conversacional]
 
               {/* Grid de tarjetas */}
               <div style={{display:"flex",flexDirection:"column",gap:16}}>
-                {fichasFilas.map((f,fi)=>{
-                  const eCol=COLORES_ETAPA[f.etapa]||"#475569";
-                  const fichaData=fichasTecnicas[f.lotId]
-                    ||(Object.values(fichasTecnicas).find(fd=>fd.lote&&f.lote&&fd.lote.toLowerCase().trim()===f.lote.toLowerCase().trim()))
-                    ||null;
-                  const lot=inventory.find(l=>l.id===f.lotId)||{};
-                  return (
-                    <div key={fi}
-                      onClick={()=>setSemaforoDrawer({f})}
-                      style={{background:"#fff",borderRadius:14,border:"1px solid #e2e8f0",boxShadow:"0 4px 20px rgba(0,43,73,0.10)",overflow:"hidden",display:"flex",minHeight:340,cursor:"pointer",transition:"all 0.2s"}}
-                      onMouseEnter={e=>{e.currentTarget.style.boxShadow="0 8px 32px rgba(0,43,73,0.18)";e.currentTarget.style.transform="translateY(-2px)";}}
-                      onMouseLeave={e=>{e.currentTarget.style.boxShadow="0 4px 20px rgba(0,43,73,0.10)";e.currentTarget.style.transform="none";}}>
-                      {/* Click hint */}
-                      <div style={{position:"absolute",top:8,right:8,background:"rgba(0,43,73,0.07)",borderRadius:5,padding:"2px 7px",pointerEvents:"none",zIndex:1}}>
-                        <span style={{fontSize:8,color:"#64748b",fontWeight:600}}>Click para abrir →</span>
-                      </div>
-
-                      {/* Columna izquierda — Info (38%) */}
-                      <div style={{flex:"0 0 38%",display:"flex",flexDirection:"column",borderRight:"1px solid #e2e8f0"}}>
-
-                        {/* Header con color de etapa */}
-                        <div style={{background:`linear-gradient(135deg,${eCol},${eCol}cc)`,padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                          <span style={{fontSize:10,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:1.5}}>{f.etapa}</span>
-                          <div style={{display:"flex",alignItems:"center",gap:6}}>
-                            <div style={{width:9,height:9,borderRadius:"50%",background:f.semColor,boxShadow:"0 0 6px "+f.semColor}}/>
-                            <span style={{fontSize:9,color:"rgba(255,255,255,0.8)",fontWeight:600}}>
-                              {{"green":"Activo","yellow":"Tibio","red":"Frío","grey":"Sin seguimiento"}[f.sem]||""}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Cuerpo */}
-                        <div style={{padding:"16px 18px",flex:1,display:"flex",flexDirection:"column",gap:0}}>
-
-                          {/* CLIENTE */}
-                          <div style={{marginBottom:12}}>
-                            <div style={{fontSize:9,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Cliente</div>
-                            <div style={{fontSize:15,fontWeight:800,color:"#002B49",lineHeight:1.2,marginBottom:3,fontFamily:"'Playfair Display',serif"}}>{f.nombre}</div>
-                            {f.empresa&&<div style={{fontSize:11,fontWeight:700,color:"#5b6fd8"}}>{f.empresa}</div>}
-                            {f.canal&&<div style={{display:"inline-flex",marginTop:5,background:"#eef2ff",borderRadius:5,padding:"2px 8px"}}>
-                              <span style={{fontSize:9,fontWeight:700,color:"#4338ca"}}>📡 {f.canal}</span>
-                            </div>}
-                          </div>
-
-                          <div style={{height:1,background:"#f1f5f9",marginBottom:12}}/>
-
-                          {/* TERRENO */}
-                          <div style={{marginBottom:12}}>
-                            <div style={{fontSize:9,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Terreno</div>
-                            <div style={{fontSize:14,fontWeight:800,color:"#002B49",marginBottom:2}}>{f.lote||"Sin lote"}</div>
-                            <div style={{width:32,height:2.5,background:eCol,borderRadius:2,marginBottom:8}}/>
-                            {lot.uso&&<div style={{fontSize:10,color:"#64748b",marginBottom:6}}>🏗 {lot.uso}{lot.ciudad?` · ${lot.ciudad}`:""}</div>}
-
-                            {/* Grid datos 2×2 */}
-                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
-                              {[
-                                ["Superficie", f.supM2>0?f.supM2.toLocaleString()+" m²":"—"],
-                                ["Precio/m²",  f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"],
-                                ["Total",       f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(2)+"M":"—"],
-                                ["Asesor",      f.asesor||"—"],
-                              ].map(([lbl,val])=>(
-                                <div key={lbl} style={{background:"#f8fafc",borderRadius:7,padding:"7px 9px"}}>
-                                  <div style={{fontSize:8,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{lbl}</div>
-                                  <div style={{fontSize:11,fontWeight:700,color:"#002B49",lineHeight:1.2}}>{val}</div>
-                                </div>
-                              ))}
-                            </div>
-
-                            {/* Datos técnicos del lote si existen */}
-                            {(lot.cos||lot.cus||lot.niveles)&&(
-                              <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
-                                {lot.cos&&<div style={{background:"#f0fdf4",borderRadius:5,padding:"3px 8px"}}>
-                                  <span style={{fontSize:9,color:"#15803d",fontWeight:600}}>COS {lot.cos}</span>
-                                </div>}
-                                {lot.cus&&<div style={{background:"#eff6ff",borderRadius:5,padding:"3px 8px"}}>
-                                  <span style={{fontSize:9,color:"#1d4ed8",fontWeight:600}}>CUS {lot.cus}</span>
-                                </div>}
-                                {lot.niveles&&<div style={{background:"#fef3c7",borderRadius:5,padding:"3px 8px"}}>
-                                  <span style={{fontSize:9,color:"#92400e",fontWeight:600}}>{lot.niveles} niveles</span>
-                                </div>}
-                              </div>
-                            )}
-                          </div>
-
-                          <div style={{height:1,background:"#f1f5f9",marginBottom:12}}/>
-
-                          {/* ÚLTIMO COMENTARIO — protagonista */}
-                          <div style={{flex:1,background:"#f5f7ff",borderRadius:9,border:`1.5px solid ${eCol}33`,padding:"11px 13px"}}>
-                            <div style={{fontSize:8,fontWeight:800,color:eCol,textTransform:"uppercase",letterSpacing:1,marginBottom:7}}>💬 Último comentario</div>
-                            {f.ultComentario
-                              ?<>
-                                <div style={{fontSize:12,fontStyle:"italic",color:"#0f1a41",lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>"{f.ultComentario}"</div>
-                                {f.ultFecha&&<div style={{fontSize:9,color:"#94a3b8",marginTop:6,textAlign:"right"}}>
-                                  {new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"})}
-                                </div>}
-                              </>
-                              :<div style={{fontSize:11,color:"#cbd5e1",fontStyle:"italic"}}>Sin comentarios registrados</div>
-                            }
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Columna derecha — Ficha técnica (62%) */}
-                      <div style={{flex:"0 0 62%",background:"#0f172a",position:"relative",minHeight:340,overflow:"hidden"}}>
-                        {fichaData
-                          ?(fichaData.src.startsWith("data:application/pdf")
-                            ?<img src={fichaData.src} alt={"Ficha "+f.lote} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"contain"}}/>
-                            :<img src={fichaData.src} alt={"Ficha "+f.lote} style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",objectFit:"contain"}}/>
-                          )
-                          :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10}}>
-                            <div style={{fontSize:36}}>📎</div>
-                            <div style={{fontSize:13,fontWeight:700,color:"#64748b"}}>Sin ficha técnica cargada</div>
-                            <div style={{fontSize:11,color:"#475569",textAlign:"center",lineHeight:1.7}}>
-                              Súbela desde<br/>
-                              <span style={{color:"#93c5fd",fontWeight:600}}>📦 Inventario → {f.lote}</span>
-                            </div>
-                          </div>
-                        }
-                        {/* Badge nombre lote sobre la imagen */}
-                        {fichaData&&<div style={{position:"absolute",bottom:10,left:10,background:"rgba(0,43,73,0.85)",borderRadius:6,padding:"4px 10px",backdropFilter:"blur(4px)"}}>
-                          <span style={{fontSize:9,fontWeight:700,color:"#fff"}}>{f.lote}</span>
-                        </div>}
-                      </div>
-                    </div>
-                  );
-                })}
+                {fichasFilas.map((f,fi)=>(
+                  <FichaClienteCard key={fi} f={f} fi={fi}/>
+                ))}
               </div>
             </div>
           );
@@ -11551,8 +11562,10 @@ Respuesta: [respuesta exacta, conversacional]
     const handleFichaUpload=(e)=>{
       const file=e.target.files[0];
       if(!file) return;
-      if(file.size>30*1024*1024){toast("⚠ El PDF no puede superar 30MB");e.target.value="";return;}
-      if(file.type!=="application/pdf"&&!file.name.toLowerCase().endsWith(".pdf")){toast("⚠ Solo se aceptan archivos PDF");e.target.value="";return;}
+      if(file.size>30*1024*1024){toast("⚠ El archivo no puede superar 30MB");e.target.value="";return;}
+      const esImagen=file.type.startsWith("image/");
+      const esPDF=file.type==="application/pdf"||file.name.toLowerCase().endsWith(".pdf");
+      if(!esImagen&&!esPDF){toast("⚠ Solo se aceptan JPG, PNG, WEBP o PDF");e.target.value="";return;}
       toast("⏳ Cargando ficha...");
       const reader=new FileReader();
       reader.onload=(ev)=>{
@@ -11603,7 +11616,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <button onClick={()=>fichaInputRef.current&&fichaInputRef.current.click()} style={{padding:"6px 14px",background:fichaData?"#eff6ff":"#002B49",color:fichaData?"#1d4ed8":"#fff",border:fichaData?"1px solid #bfdbfe":"none",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
                     {fichaData?"🔄 Cambiar":"📎 Subir PDF"}
                   </button>
-                  <input ref={fichaInputRef} type="file" accept="application/pdf" onChange={handleFichaUpload} style={{display:"none"}}/>
+                  <input ref={fichaInputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleFichaUpload} style={{display:"none"}}/>
                 </div>
               </div>
             </div>
