@@ -1328,37 +1328,7 @@ function MacroProMatcher() {
       window.removeEventListener('appinstalled',installedHandler);
     };
   },[]);
-  // ── NOTIFICACIONES: actividades vencidas y a 1 día ────────────
-  const notifActs = React.useMemo(()=>{
-    const hoy=new Date(); hoy.setHours(0,0,0,0);
-    const acts=[];
-    Object.entries(crmData||{}).forEach(([lotId,crm])=>{
-      const lot=inventory.find(l=>l.id===lotId);
-      const lotNombre=lot?.nombre||lotId;
-      const lotDes=lot?.desarrollo||"";
-      (crm.prospectos||[]).forEach(p=>{
-        (p.actividades||[]).filter(a=>!a.completada).forEach(a=>{
-          const diff=Math.floor((new Date(a.fecha+"T12:00:00")-hoy)/864e5);
-          if(diff<0||diff===1) acts.push({lotId,lotNombre,lotDes,prospecto:p.nombre,actividad:a,diff,tipo:diff<0?"vencida":"mañana"});
-        });
-      });
-      (crm.seguimientoAsesor?.actividades||[]).filter(a=>!a.completada).forEach(a=>{
-        const diff=Math.floor((new Date(a.fecha+"T12:00:00")-hoy)/864e5);
-        if(diff<0||diff===1) acts.push({lotId,lotNombre,lotDes,prospecto:crm.seguimientoAsesor?.asesor||"Sin asesor",actividad:a,diff,tipo:diff<0?"vencida":"mañana"});
-      });
-    });
-    return acts.sort((a,b)=>a.diff-b.diff);
-  },[crmData,inventory]);
-  React.useEffect(()=>{
-    if(!notifAutoShownRef.current&&notifActs.length>0){
-      notifAutoShownRef.current=true;
-      setShowNotifModal(true);
-    }
-    if(window.__crmCorrupto){
-      window.__crmCorrupto=false;
-      toast("⚠ CRM reiniciado por datos corruptos. Usa '⬆ Importar' para restaurar tu backup JSON.");
-    }
-  },[notifActs.length]);
+  // ── NOTIFICACIONES: (definido más abajo, después de declarar crmData, para evitar TDZ) ──
   const triggerPWAInstall=()=>{
     if(window.__triggerPWAInstall){
       window.__triggerPWAInstall().then(accepted=>{
@@ -1418,6 +1388,37 @@ function MacroProMatcher() {
   const updateCRM=(id,patch)=>{setCrmData(prev=>{const next={...prev,[id]:{...(prev[id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]}), ...patch}};saveCRM(next);return next;});};
   const [showNotifModal, setShowNotifModal] = React.useState(false);
   const notifAutoShownRef = React.useRef(false);
+  // ── NOTIFICACIONES: actividades vencidas y a 1 día (reubicado tras crmData para evitar TDZ) ──
+  const notifActs = React.useMemo(()=>{
+    const hoy=new Date(); hoy.setHours(0,0,0,0);
+    const acts=[];
+    Object.entries(crmData||{}).forEach(([lotId,crm])=>{
+      const lot=inventory.find(l=>l.id===lotId);
+      const lotNombre=lot?.nombre||lotId;
+      const lotDes=lot?.desarrollo||"";
+      (crm.prospectos||[]).forEach(p=>{
+        (p.actividades||[]).filter(a=>!a.completada).forEach(a=>{
+          const diff=Math.floor((new Date(a.fecha+"T12:00:00")-hoy)/864e5);
+          if(diff<0||diff===1) acts.push({lotId,lotNombre,lotDes,prospecto:p.nombre,actividad:a,diff,tipo:diff<0?"vencida":"mañana"});
+        });
+      });
+      (crm.seguimientoAsesor?.actividades||[]).filter(a=>!a.completada).forEach(a=>{
+        const diff=Math.floor((new Date(a.fecha+"T12:00:00")-hoy)/864e5);
+        if(diff<0||diff===1) acts.push({lotId,lotNombre,lotDes,prospecto:crm.seguimientoAsesor?.asesor||"Sin asesor",actividad:a,diff,tipo:diff<0?"vencida":"mañana"});
+      });
+    });
+    return acts.sort((a,b)=>a.diff-b.diff);
+  },[crmData,inventory]);
+  React.useEffect(()=>{
+    if(!notifAutoShownRef.current&&notifActs.length>0){
+      notifAutoShownRef.current=true;
+      setShowNotifModal(true);
+    }
+    if(window.__crmCorrupto){
+      window.__crmCorrupto=false;
+      toast("⚠ CRM reiniciado por datos corruptos. Usa '⬆ Importar' para restaurar tu backup JSON.");
+    }
+  },[notifActs.length]);
   // ── EJECUTIVO + METAS ────────────────────────────────────────────
   const [metasData, setMetasData] = React.useState(()=>loadMetas());
   const [ejecFiltroDesarrollador, setEjecFiltroDesarrollador] = React.useState(()=>localStorage.getItem("macropro_ejec_filtro_dev")||"Todos");
@@ -10706,6 +10707,53 @@ Respuesta: [respuesta exacta, conversacional]
   };
 
   // ─── DRAWER SEMÁFORO ─────────────────────────────────────────────────────
+  // ─── VISOR DE DOCUMENTO CON ZOOM (reutilizable) ───────────────────────────
+  const DocViewerPane = ({src, nombre, titulo, icon, emptyNode, onUpload, onDelete, uploadLabel, hasData}) => {
+    const [z, setZ] = React.useState(1);
+    const [dr, setDr] = React.useState({x:0,y:0});
+    const [dragging, setDragging] = React.useState(false);
+    const startRef = React.useRef(null);
+    const areaRef = React.useRef(null);
+    React.useEffect(()=>{ setZ(1); setDr({x:0,y:0}); },[src]);
+    React.useEffect(()=>{
+      const el=areaRef.current; if(!el) return;
+      const h=(ev)=>{ ev.preventDefault(); setZ(zz=>Math.min(4,Math.max(1,zz-(ev.deltaY>0?0.15:-0.15)))); };
+      el.addEventListener("wheel",h,{passive:false});
+      return ()=>el.removeEventListener("wheel",h);
+    },[src]);
+    const md=(e)=>{ if(z<=1) return; setDragging(true); startRef.current={x:e.clientX-dr.x,y:e.clientY-dr.y}; e.preventDefault(); };
+    const mm=(e)=>{ if(!dragging||!startRef.current) return; setDr({x:e.clientX-startRef.current.x,y:e.clientY-startRef.current.y}); };
+    const mu=()=>setDragging(false);
+    return (
+      <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",background:"#0f172a",overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",background:"#1e293b",flexShrink:0}}>
+          <span style={{fontSize:11,fontWeight:700,color:"#e2e8f0",fontFamily:"'DM Sans',sans-serif",flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{icon} {titulo}</span>
+          {src&&<div style={{display:"flex",alignItems:"center",gap:2,background:"rgba(255,255,255,0.08)",borderRadius:7,padding:"2px 4px"}}>
+            <button onClick={()=>setZ(zz=>{const nz=Math.max(1,zz-0.25);if(nz<=1)setDr({x:0,y:0});return nz;})} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#fff",fontWeight:700,padding:"0 5px",lineHeight:1}}>−</button>
+            <span style={{fontSize:9,fontWeight:700,color:"#cbd5e1",minWidth:30,textAlign:"center"}}>{Math.round(z*100)}%</span>
+            <button onClick={()=>setZ(zz=>Math.min(4,zz+0.25))} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#fff",fontWeight:700,padding:"0 5px",lineHeight:1}}>+</button>
+            <button onClick={()=>{setZ(1);setDr({x:0,y:0});}} title="Restablecer" style={{background:"rgba(255,255,255,0.12)",border:"none",cursor:"pointer",fontSize:10,color:"#fff",fontWeight:700,padding:"2px 6px",borderRadius:5,marginLeft:2}}>↺</button>
+          </div>}
+        </div>
+        <div ref={areaRef} onMouseDown={md} onMouseMove={mm} onMouseUp={mu} onMouseLeave={mu}
+          style={{flex:1,position:"relative",overflow:"hidden",background:"#eef2f7",userSelect:"none",cursor:src?(z>1?(dragging?"grabbing":"grab"):"default"):"default"}}>
+          {src
+            ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:12,boxSizing:"border-box"}}>
+               <img src={src} alt={nombre||titulo} draggable={false}
+                 style={{maxWidth:"100%",maxHeight:"100%",width:"auto",height:"auto",objectFit:"contain",boxShadow:"0 2px 16px rgba(15,23,42,0.22)",borderRadius:2,transform:"scale("+z+") translate("+(dr.x/z)+"px,"+(dr.y/z)+"px)",transformOrigin:"center center",transition:dragging?"none":"transform 0.15s ease",pointerEvents:"none"}}/>
+             </div>
+            : emptyNode
+          }
+          {src&&nombre&&<div style={{position:"absolute",bottom:6,left:6,background:"rgba(0,43,73,0.85)",borderRadius:5,padding:"2px 8px"}}><span style={{fontSize:8,color:"#fff",fontWeight:700}}>{nombre}</span></div>}
+        </div>
+        {(onUpload||onDelete)&&<div style={{padding:"8px 10px",background:"#1e293b",display:"flex",gap:6,flexShrink:0}}>
+          {onUpload&&<button onClick={onUpload} style={{flex:1,padding:"8px",background:"#2563AC",color:"#fff",border:"none",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{uploadLabel||(hasData?"🔄 Cambiar":"📄 Subir")}</button>}
+          {onDelete&&hasData&&<button onClick={onDelete} style={{padding:"8px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer"}}>✕</button>}
+        </div>}
+      </div>
+    );
+  };
+
   const DrawerSemaforo = () => {
     if(!semaforoDrawer) return null;
     const {f} = semaforoDrawer;
@@ -10811,7 +10859,7 @@ Respuesta: [respuesta exacta, conversacional]
     return (
       <>
         <div onClick={()=>setSemaforoDrawer(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,backdropFilter:"blur(2px)"}}/>
-        <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:0,right:0,bottom:0,width:"90%",maxWidth:1200,background:"#fff",zIndex:3001,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,43,73,0.22)",animation:"slideInRight 0.25s ease"}}>
+        <div onClick={e=>e.stopPropagation()} style={{position:"fixed",top:0,right:0,bottom:0,width:"95%",maxWidth:1500,background:"#fff",zIndex:3001,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,43,73,0.22)",animation:"slideInRight 0.25s ease"}}>
           <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
 
           {/* ── Header ── */}
@@ -10834,8 +10882,8 @@ Respuesta: [respuesta exacta, conversacional]
           {/* ── Body: split 50/50 ── */}
           <div style={{flex:1,display:"flex",overflow:"hidden"}}>
 
-            {/* ── IZQUIERDA: Info + Acciones (50%) ── */}
-            <div style={{flex:"0 0 50%",display:"flex",flexDirection:"column",borderRight:"1px solid #e5e7eb",overflow:"hidden"}}>
+            {/* ── IZQUIERDA: Info + Acciones (34%) ── */}
+            <div style={{flex:"0 0 34%",display:"flex",flexDirection:"column",borderRight:"1px solid #e5e7eb",overflow:"hidden"}}>
 
               {/* Tabs izquierda */}
               <div style={{display:"flex",borderBottom:"1px solid #e5e7eb",flexShrink:0}}>
@@ -10919,67 +10967,32 @@ Respuesta: [respuesta exacta, conversacional]
               </div>
             </div>
 
-            {/* ── DERECHA: Documentos (50%) ── */}
-            <div style={{flex:"0 0 50%",display:"flex",flexDirection:"column",background:"#0f172a",overflow:"hidden"}}>
-
-              {/* Tabs documentos */}
-              <div style={{display:"flex",background:"#1e293b",flexShrink:0}}>
-                {[["ficha","📎 Ficha técnica"],["cotizacion","📄 Cotización"]].map(([id,label])=>(
-                  <button key={id} onClick={()=>setDocTab(id)} style={{flex:1,padding:"11px 8px",border:"none",borderBottom:"2px solid "+(docTab===id?"#60a5fa":"transparent"),cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:"transparent",color:docTab===id?"#60a5fa":"#64748b",transition:"all 0.15s"}}>{label}</button>
-                ))}
-              </div>
-
-              {/* Visor de documento */}
-              <div ref={docAreaRef}
-                onMouseDown={onDocMouseDown} onMouseMove={onDocMouseMove} onMouseUp={onDocMouseUp} onMouseLeave={onDocMouseUp}
-                style={{flex:1,position:"relative",overflow:"hidden",background:"#eef2f7",userSelect:"none",cursor:docSrc?(docZoom>1?(docDragging?"grabbing":"grab"):"default"):"default"}}>
-                {docSrc
-                  ?<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:14,boxSizing:"border-box"}}>
-                     <img src={docSrc} alt={docNombre} draggable={false}
-                       style={{maxWidth:"100%",maxHeight:"100%",width:"auto",height:"auto",objectFit:"contain",boxShadow:"0 2px 18px rgba(15,23,42,0.22)",borderRadius:2,
-                         transform:"scale("+docZoom+") translate("+(docDrag.x/docZoom)+"px,"+(docDrag.y/docZoom)+"px)",
-                         transformOrigin:"center center",transition:docDragging?"none":"transform 0.15s ease",pointerEvents:"none"}}/>
-                   </div>
-                  :<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,padding:32}}>
-                    <div style={{fontSize:40}}>{docTab==="ficha"?"📎":"📄"}</div>
-                    <div style={{fontSize:14,fontWeight:700,color:"#475569",textAlign:"center"}}>
-                      {docTab==="ficha"?"Sin ficha técnica":"Sin cotización cargada"}
-                    </div>
-                    <div style={{fontSize:11,color:"#64748b",textAlign:"center",lineHeight:1.7}}>
-                      {docTab==="ficha"
-                        ?<>Súbela desde<br/><span style={{color:"#2563AC",fontWeight:700}}>📦 Inventario → {f.lote}</span></>
-                        :<button onClick={()=>cotInputRef.current&&cotInputRef.current.click()} style={{padding:"10px 20px",background:"#2563AC",color:"#fff",border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:4}}>📄 Subir cotización</button>
-                      }
-                    </div>
-                  </div>
-                }
-                {/* Controles de zoom */}
-                {docSrc&&<div style={{position:"absolute",top:8,right:8,display:"flex",alignItems:"center",gap:3,background:"rgba(15,23,42,0.9)",borderRadius:8,padding:"4px 6px"}}>
-                  <button onClick={()=>setDocZoom(z=>{const nz=Math.max(1,z-0.25);if(nz<=1)setDocDrag({x:0,y:0});return nz;})} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#fff",fontWeight:700,padding:"0 5px",lineHeight:1}}>−</button>
-                  <span style={{fontSize:10,fontWeight:700,color:"#fff",minWidth:36,textAlign:"center",fontFamily:"'DM Sans',sans-serif"}}>{Math.round(docZoom*100)}%</span>
-                  <button onClick={()=>setDocZoom(z=>Math.min(4,z+0.25))} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#fff",fontWeight:700,padding:"0 5px",lineHeight:1}}>+</button>
-                  <button onClick={()=>{setDocZoom(1);setDocDrag({x:0,y:0});}} title="Restablecer" style={{background:"rgba(255,255,255,0.15)",border:"none",cursor:"pointer",fontSize:11,color:"#fff",fontWeight:700,padding:"3px 8px",borderRadius:6,fontFamily:"'DM Sans',sans-serif",marginLeft:3}}>↺</button>
+            {/* ── DERECHA: Documentos (66%) — Cotización (izq) + Ficha técnica (der) ── */}
+            <div style={{flex:"0 0 66%",display:"flex",overflow:"hidden"}}>
+              {/* COTIZACIÓN (izquierda) */}
+              <DocViewerPane
+                src={cotImg} nombre={cotData?.nombre} titulo="Cotización" icon="📄" hasData={!!cotData}
+                uploadLabel={cotData?"🔄 Cambiar cotización":"📄 Subir cotización"}
+                onUpload={()=>cotInputRef.current&&cotInputRef.current.click()}
+                onDelete={()=>{if(window.confirm("¿Eliminar cotización de "+f.nombre+"?")){setCotizaciones(prev=>{const n={...prev};delete n[cotKey];return n;});setCotImg(null);}}}
+                emptyNode={<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,padding:24}}>
+                  <div style={{fontSize:36}}>📄</div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#475569",textAlign:"center"}}>Sin cotización cargada</div>
+                  <button onClick={()=>cotInputRef.current&&cotInputRef.current.click()} style={{padding:"9px 18px",background:"#2563AC",color:"#fff",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📄 Subir cotización</button>
                 </div>}
-                {/* Badge nombre doc */}
-                {docSrc&&<div style={{position:"absolute",bottom:8,left:8,background:"rgba(0,43,73,0.85)",borderRadius:5,padding:"3px 9px"}}>
-                  <span style={{fontSize:9,color:"#fff",fontWeight:700}}>{docNombre}</span>
+              />
+              {/* Separador */}
+              <div style={{width:2,background:"#0b1220",flexShrink:0}}/>
+              {/* FICHA TÉCNICA (derecha) */}
+              <DocViewerPane
+                src={pdfImg} nombre={fichaData?.nombre||f.lote} titulo="Ficha técnica" icon="📎" hasData={!!fichaData}
+                emptyNode={<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,padding:24}}>
+                  <div style={{fontSize:36}}>📎</div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#475569",textAlign:"center"}}>Sin ficha técnica</div>
+                  <div style={{fontSize:10,color:"#64748b",textAlign:"center",lineHeight:1.6}}>Súbela desde<br/><span style={{color:"#2563AC",fontWeight:700}}>📦 Inventario → {f.lote}</span></div>
                 </div>}
-                {docSrc&&<div style={{position:"absolute",bottom:8,right:10,fontSize:9,color:"rgba(15,23,42,0.45)",fontFamily:"'DM Sans',sans-serif",pointerEvents:"none"}}>{docZoom>1?"Arrastra para navegar · ":""}Scroll o +/− para zoom</div>}
-              </div>
-
-              {/* Footer documentos */}
-              <div style={{padding:"10px 14px",background:"#1e293b",display:"flex",gap:8,flexShrink:0}}>
-                {docTab==="cotizacion"&&(
-                  <>
-                    <button onClick={()=>cotInputRef.current&&cotInputRef.current.click()} style={{flex:1,padding:"9px",background:"#2563AC",color:"#fff",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
-                      {cotData?"🔄 Cambiar cotización":"📄 Subir cotización"}
-                    </button>
-                    {cotData&&<button onClick={()=>{if(window.confirm("¿Eliminar cotización de "+f.nombre+"?"))setCotizaciones(prev=>{const n={...prev};delete n[cotKey];return n;});setCotImg(null);}} style={{padding:"9px 12px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✕</button>}
-                    <input ref={cotInputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleCotUpload} style={{display:"none"}}/>
-                  </>
-                )}
-                {docTab==="ficha"&&cotData&&<div style={{fontSize:10,color:"#4ade80",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:5}}>✓ Cotización disponible</div>}
-              </div>
+              />
+              <input ref={cotInputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleCotUpload} style={{display:"none"}}/>
             </div>
           </div>
         </div>
