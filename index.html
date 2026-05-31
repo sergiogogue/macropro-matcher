@@ -11302,6 +11302,13 @@ Respuesta: [respuesta exacta, conversacional]
         }catch(e){console.warn("Error cargando ficha",f.lotId,e);}
       }));
 
+      // Aspect ratios (ancho/alto) para encajar cada documento sin deformar
+      const cotAR={}, fichaAR={};
+      await Promise.all([
+        ...Object.entries(cotImgsPDF).map(([k,src])=>new Promise(r=>{const im=new Image();im.onload=()=>{cotAR[k]=(im.naturalWidth/im.naturalHeight)||1.4;r();};im.onerror=()=>{cotAR[k]=1.4;r();};im.src=src;})),
+        ...Object.entries(fichaImgs).map(([k,src])=>new Promise(r=>{const im=new Image();im.onload=()=>{fichaAR[k]=(im.naturalWidth/im.naturalHeight)||1.4;r();};im.onerror=()=>{fichaAR[k]=1.4;r();};im.src=src;}))
+      ]);
+
       // Nueva página para iniciar sección 2
       doc.addPage();
       // Header sección 2
@@ -11436,42 +11443,41 @@ Respuesta: [respuesta exacta, conversacional]
           doc.text(new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}),ix+INFO_W-8,cy+CARD_H-4,{align:"right"});
         }
 
-        // ─── COLUMNA DERECHA: Ficha técnica ───
+        // ─── COLUMNA DERECHA: Cotización (izq) + Ficha técnica (der), mismo renglón ───
         const imgX=MX+INFO_W+6;
         const imgW=IMG_W;
         const imgH=CARD_H-4;
-        const imgSrc=fichaImgs[f.lotId];
-        if(imgSrc){
-          try{
-            doc.addImage(imgSrc,"JPEG",imgX,cy+2,imgW,imgH);
-            // Borde sobre imagen
-            doc.setDrawColor(200,205,215); doc.setLineWidth(0.2);
-            doc.rect(imgX,cy+2,imgW,imgH,"S");
-          }catch(e){
-            doc.setFillColor(240,242,245); doc.rect(imgX,cy+2,imgW,imgH,"F");
-            doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(160,160,180);
-            doc.text("Sin ficha técnica",imgX+imgW/2,cy+CARD_H/2,{align:"center"});
+        const GAP_DOC=3;
+        const slotW=(imgW-GAP_DOC)/2;
+        const titleH=6;
+        const cotKey2=f.lotId+"_"+(f.prospectoIdx||0);
+
+        // Dibuja un documento encajado (contain) y centrado dentro de su slot
+        const renderSlot=(sx,titulo,src,ar,emptyTxt)=>{
+          // Marco del slot
+          doc.setFillColor(247,249,252); doc.rect(sx,cy+2,slotW,imgH,"F");
+          doc.setDrawColor(210,215,225); doc.setLineWidth(0.2); doc.rect(sx,cy+2,slotW,imgH,"S");
+          // Barra de título
+          doc.setFillColor(0,43,73); doc.rect(sx,cy+2,slotW,titleH,"F");
+          doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(255,255,255);
+          doc.text(titulo,sx+slotW/2,cy+6.2,{align:"center"});
+          // Área útil del documento
+          const dx=sx+1.5, dy=cy+2+titleH+1.5, dw=slotW-3, dh=imgH-titleH-3;
+          if(src){
+            let iw=dw, ih=dw/ar;
+            if(ih>dh){ ih=dh; iw=dh*ar; }
+            const ox=dx+(dw-iw)/2, oy=dy+(dh-ih)/2;
+            try{ doc.addImage(src,"JPEG",ox,oy,iw,ih); }catch(e){}
+          } else {
+            doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(165,170,185);
+            doc.text(emptyTxt,sx+slotW/2,cy+2+imgH/2,{align:"center",maxWidth:slotW-8});
           }
-        } else {
-          doc.setFillColor(240,242,245); doc.rect(imgX,cy+2,imgW,imgH,"F");
-          doc.setDrawColor(210,215,225); doc.rect(imgX,cy+2,imgW,imgH,"S");
-          doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(160,160,180);
-          doc.text("Sin ficha técnica cargada",imgX+imgW/2,cy+CARD_H/2,{align:"center"});
-          doc.setFontSize(6); doc.setTextColor(180,185,195);
-          doc.text("Súbela desde el inventario → "+f.lote,imgX+imgW/2,cy+CARD_H/2+6,{align:"center"});
-        }
+        };
+
+        renderSlot(imgX, "COTIZACIÓN", cotImgsPDF[cotKey2], cotAR[cotKey2]||1.4, "Sin cotización cargada");
+        renderSlot(imgX+slotW+GAP_DOC, "FICHA TÉCNICA", fichaImgs[f.lotId], fichaAR[f.lotId]||1.4, "Sin ficha técnica cargada");
 
         cardIdx++;
-
-        // Si tiene cotización, agregarla como página siguiente
-        const cotKey2=f.lotId+"_"+(f.prospectoIdx||0);
-        if(cotImgsPDF[cotKey2]){
-          doc.addPage();
-          doc.setFillColor(0,43,73); doc.rect(MX,MY,PW-MX*2,7,"F");
-          doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(255,255,255);
-          doc.text("COTIZACIÓN — "+f.nombre+" · "+f.lote,PW/2,MY+4.8,{align:"center"});
-          try{ doc.addImage(cotImgsPDF[cotKey2],"JPEG",MX,MY+9,PW-MX*2,PH-MY-15); }catch(e){}
-        }
       });
 
       // Pie de página en todas las páginas
