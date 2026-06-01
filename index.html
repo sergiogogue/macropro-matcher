@@ -2547,14 +2547,14 @@ function MacroProMatcher() {
     const [fTemp,setFTemp]=useState("Todos");
     const [fStatus,setFStatus]=useState("Todos");
     const [fSearch,setFSearch]=useState("");
-    const fAsesor=filterAsesor, setFAsesor=setFilterAsesor;
+    const [fAsesor,setFAsesor]=useState("Todos");  // local: no hereda el filtro de asesor de otras vistas
 
     const cCities=["Todas",...new Set(srcInv.map(l=>l.ciudad))];
     const cUsos=["Todos",...new Set(srcInv.flatMap(l=>l.usos_todos&&l.usos_todos.length>0?l.usos_todos:[l.uso||""]).filter(Boolean))].sort();
     const devs=(()=>{if(fCity==="Todas")return["Todos",...new Set(srcInv.map(l=>l.desarrollo).filter(Boolean))].sort((a,b)=>a==="Todos"?-1:b==="Todos"?1:a.localeCompare(b));return["Todos",...new Set(srcInv.filter(l=>l.ciudad===fCity).map(l=>l.desarrollo).filter(Boolean))].sort();})();
     const lotsFiltered=srcInv.filter(l=>(fCity==="Todas"||l.ciudad===fCity)&&(fDev==="Todos"||l.desarrollo===fDev)&&(fUso==="Todos"||(l.usos_todos&&l.usos_todos.length>0?l.usos_todos.includes(fUso):l.uso===fUso))&&(!fSupMin||l.sup_m2>=parseFloat(fSupMin))&&(!fSupMax||l.sup_m2<=parseFloat(fSupMax))&&(!fPrecioMax||l.precio_total<=parseFloat(fPrecioMax)*1000000));
     const cliSrc=clients.length>0?clients:DEMO_CLIENTS;
-    const clientAsesores=["Todos",...new Set(cliSrc.map(c=>c.asesor).filter(Boolean))].sort();
+    const clientAsesores=["Todos",...[...new Set(cliSrc.map(c=>c.asesor).filter(Boolean))].sort()];
     const clientsFiltered=cliSrc.filter(c=>(fStatus==="Todos"||c.status===fStatus)&&(fAsesor==="Todos"||c.asesor===fAsesor)&&(!fSearch||c.nombre?.toLowerCase().includes(fSearch.toLowerCase())||c.empresa?.toLowerCase().includes(fSearch.toLowerCase())));
 
     return (
@@ -2702,7 +2702,7 @@ function MacroProMatcher() {
     const [fTemp,setFTemp]=useState("Todos");
     const [fStatus,setFStatus]=useState("Todos");
     const [fSearch,setFSearch]=useState("");
-    const fAsesor=filterAsesor, setFAsesor=setFilterAsesor;
+    const [fAsesor,setFAsesor]=useState("Todos");  // local: no hereda el filtro de asesor de otras vistas
     const [fPresupMax,setFPresupMax]=useState("");
 
     const lotCities=["Todas",...new Set(srcInv.map(l=>l.ciudad))];
@@ -2710,7 +2710,7 @@ function MacroProMatcher() {
     const devs=(()=>{if(fCity==="Todas")return["Todos",...new Set(srcInv.map(l=>l.desarrollo).filter(Boolean))].sort((a,b)=>a==="Todos"?-1:b==="Todos"?1:a.localeCompare(b));return["Todos",...new Set(srcInv.filter(l=>l.ciudad===fCity).map(l=>l.desarrollo).filter(Boolean))].sort();})();
     const lotsFiltered=srcInv.filter(l=>(fCity==="Todas"||l.ciudad===fCity)&&(fDev==="Todos"||l.desarrollo===fDev)&&(fUso==="Todos"||(l.usos_todos&&l.usos_todos.length>0?l.usos_todos.includes(fUso):l.uso===fUso)));
     const cliSrc=clients.length>0?clients:DEMO_CLIENTS;
-    const clientAsesores=["Todos",...new Set(cliSrc.map(c=>c.asesor).filter(Boolean))].sort();
+    const clientAsesores=["Todos",...[...new Set(cliSrc.map(c=>c.asesor).filter(Boolean))].sort()];
     const clientsFiltered=cliSrc.filter(c=>{
       // Filtros de UI
       if(fStatus!=="Todos"&&c.status!==fStatus) return false;
@@ -2879,7 +2879,7 @@ function MacroProMatcher() {
     // En Lote→Clientes: asesor es el asesor del cliente (viene del catálogo)
     // En Cliente→Lotes: asesor es el asesor opcionador del lote
     const isClientMode2=matchResults?.mode==="clientToLots";
-    const asesores=["Todos",...new Set(results.map(r=>r.data?.asesor).filter(Boolean))].sort();
+    const asesores=["Todos",...[...new Set(results.map(r=>r.data?.asesor).filter(Boolean))].sort()];
     return (
       <div style={s.page}>
         <div style={{background:`linear-gradient(135deg,${B.navy},${B.navyL})`,borderRadius:16,padding:"24px 28px",marginBottom:20,display:"flex",alignItems:"center",gap:18}}>
