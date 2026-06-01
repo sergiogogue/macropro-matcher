@@ -11152,6 +11152,7 @@ Respuesta: [respuesta exacta, conversacional]
     const ORDEN_ETAPAS=["Vendido","Contrato","Apartado","Propuesta","En negociación","En análisis","Visita","Cita","Contactado","Por Contactar"];
     const COLORES_ETAPA={"Vendido":"#16a34a","Contrato":"#06b6d4","Apartado":"#f97316","Propuesta":"#8b5cf6","En negociación":"#d97706","En análisis":"#6366f1","Visita":"#0d9488","Cita":"#0891b2","Contactado":"#3b82f6","Por Contactar":"#f59e0b"};
     const [filtDev,setFiltDev]=React.useState("Todos");
+    const [filtAsesor,setFiltAsesor]=React.useState("Todos");
 
     // Construir filas directamente desde crmData e inventory (scope del componente principal)
     const filas=React.useMemo(()=>{
@@ -11183,8 +11184,26 @@ Respuesta: [respuesta exacta, conversacional]
           rows.push({etapa,semColor,sem,nombre:p.nombre||cli?.nombre||"Sin nombre",empresa:p.giro||cli?.empresa||cli?.giro||"",canal:p.canal||cli?.canal||"",lote:lot.nombre||"",supM2,precioM2,precioTotal,asesor:p.asesor||cli?.asesor||crm.asesorResponsable||"",ultComentario,ultFecha,lotId:lot.id,prospectoIdx:idx});
         });
       });
-      rows.sort((a,b)=>ORDEN_ETAPAS.indexOf(a.etapa)-ORDEN_ETAPAS.indexOf(b.etapa));
-      return rows;
+      const rowsFiltradas=filtAsesor!=="Todos"?rows.filter(r=>(r.asesor||"")===filtAsesor):rows;
+      rowsFiltradas.sort((a,b)=>ORDEN_ETAPAS.indexOf(a.etapa)-ORDEN_ETAPAS.indexOf(b.etapa));
+      return rowsFiltradas;
+    },[filtDev,filtAsesor,crmData,inventory,clients]);
+
+    // Lista de asesores disponibles (respeta el filtro de desarrollo, no el de asesor)
+    const asesoresDisponibles=React.useMemo(()=>{
+      const set=new Set();
+      inventory.forEach(lot=>{
+        if(filtDev!=="Todos"&&lot.desarrollo!==filtDev) return;
+        const crm=crmData[lot.id]||{};
+        (crm.prospectos||[]).forEach(p=>{
+          const etapa=p.pipeline||crm.pipeline||"Prospecto";
+          if(!ORDEN_ETAPAS.includes(etapa)) return;
+          const cli=clients.find(c=>c.nombre&&p.nombre&&c.nombre.toLowerCase().trim()===p.nombre.toLowerCase().trim())||null;
+          const asesor=p.asesor||cli?.asesor||crm.asesorResponsable||"";
+          if(asesor) set.add(asesor);
+        });
+      });
+      return [...set].sort();
     },[filtDev,crmData,inventory,clients]);
 
     const fmtM=(v)=>v>0?"$"+(v/1e6).toFixed(1)+"M":"—";
@@ -11462,7 +11481,8 @@ Respuesta: [respuesta exacta, conversacional]
         doc.text(dev+" · MacroPro CRM",MX,PH-3);
       }
 
-      doc.save("reporte_seguimiento_"+(filtDev!=="Todos"?filtDev:"todos").replace(/\s/g,"_").toLowerCase()+".pdf");
+      const slugAsesor=filtAsesor!=="Todos"?"_"+filtAsesor.replace(/\s/g,"_").toLowerCase():"";
+      doc.save("reporte_seguimiento_"+(filtDev!=="Todos"?filtDev:"todos").replace(/\s/g,"_").toLowerCase()+slugAsesor+".pdf");
       toast("✅ Reporte completo generado");
     };
 
@@ -11475,10 +11495,15 @@ Respuesta: [respuesta exacta, conversacional]
             <span style={{fontSize:10,background:B.navy,color:"#fff",borderRadius:10,padding:"2px 9px",fontWeight:700}}>{filas.length}</span>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            <select value={filtDev} onChange={e=>setFiltDev(e.target.value)}
+            <select value={filtDev} onChange={e=>{setFiltDev(e.target.value);setFiltAsesor("Todos");}}
               style={{padding:"7px 12px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:"#fff",outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
               <option value="Todos">Todos los desarrollos</option>
               {[...new Set(inventory.map(l=>l.desarrollo).filter(Boolean))].sort().map(d=><option key={d} value={d}>{d}</option>)}
+            </select>
+            <select value={filtAsesor} onChange={e=>setFiltAsesor(e.target.value)}
+              style={{padding:"7px 12px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:"#fff",outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
+              <option value="Todos">Todos los asesores</option>
+              {asesoresDisponibles.map(a=><option key={a} value={a}>{a}</option>)}
             </select>
             <button onClick={exportarPDF}
               style={{padding:"8px 16px",background:"linear-gradient(135deg,#002B49,#003a66)",color:"#fff",border:"none",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
