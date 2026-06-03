@@ -161,3 +161,43 @@ dependa de ellas antes de restringirlas.)
 > (proyecto xugrrabebphdelgwqnwc). Confírmame que leíste todo y dime tu plan para la Fase 1 antes
 > de escribir código. Recuerda: cliente Supabase se llama `sb`, validar hooks con harness jsdom,
 > y nunca activar RLS sin su política en la misma operación.
+
+---
+
+## BITÁCORA / ESTADO (actualizado 2026-06-03)
+
+### ✅ Fase 0 — Respaldos
+Hechos: export JSON, CSV de tablas clave, copia fechada del `index.html`
+(`backups/index_v8.5_pre-sprint6_2026-06-03.html`), tag `v8.5-pre-sprint6`.
+
+### ✅ Fase 0.5 — Limpieza de datos (no estaba planeada, surgió aquí)
+La tabla `lotes` tenía **334 filas** corruptas: duplicados por *case* (`CN-001`/`cn-001`),
+numeración KU vieja **sin cero** (`KU-16…38`, descartada) y un **off-by-one** en Kulkana.
+Se reconcilió contra `Inventario_Macrolotes_8.6.xlsx` → **147 lotes** correctos
+(CN13, CS13, GEN5, KU30, LR1, ML85). Snapshot de seguridad: `lotes_backup_merge_20260603`.
+Decisión: **id canónico = minúscula**; para KU la **mayúscula con cero era la autoritativa**.
+
+### ✅ Fase 1 — Login (DESPLEGADO en producción vía PR #1)
+- `AuthGate` en `index.html` (login antes de la app + botón "Salir"); validado con Babel + jsdom
+  y prueba real de login (5/5). Cliente `sb`, sin `location.reload()`, hooks con `React.useEffect`.
+- **3 usuarios** creados en Supabase Auth.
+- **⚠ RLS: se activó por error y se REVIRTIÓ → hoy está OFF** en las tablas de datos
+  (`cotizaciones` sigue ON con sus políticas anon). Las políticas `usuarios_autenticados_todo`
+  YA están definidas en todas las tablas; **solo falta reactivar con `ENABLE`** (empezar por
+  `metas`, verificar, luego el resto). **No activar RLS hasta confirmar que el login lleva días
+  funcionando en producción** (si no, la app anónima se rompe).
+
+### ⏳ Pendientes (en orden)
+1. **Reactivar RLS** tras unos días con login estable → cierra Fase 1.
+2. **Fase 2 — bajada automática:** que `bajarDeSupabase` traiga **lotes + clientes + crm** (hoy solo
+   trae crm). Esto además llena solo un equipo nuevo (p. ej. el iPad de Sergio) al iniciar sesión.
+3. **Fase 3 — subida automática + OFFLINE real (pedido de Sergio):** trabajar sin conexión y que
+   suba solo al reconectar; service worker cacheando la app/librerías (hoy el SW **borra caché en
+   cada apertura**, así que no hay offline confiable). **Pilotar primero solo con Sergio** (reduce
+   conflictos). Upsert por registro, claves no nulas.
+
+### Notas operativas vigentes
+- Otros usuarios: **verificar su inventario (147, KU bien) ANTES de "Migrar a nube"**; su
+  `localStorage` puede tener datos viejos y pisar la nube.
+- Pasar datos entre equipos hoy: **Exportar JSON → Importar** (porque la bajada de Supabase es
+  parcial hasta la Fase 2). Protocolo manual: "uno a la vez".
