@@ -201,3 +201,38 @@ Decisión: **id canónico = minúscula**; para KU la **mayúscula con cero era l
   `localStorage` puede tener datos viejos y pisar la nube.
 - Pasar datos entre equipos hoy: **Exportar JSON → Importar** (porque la bajada de Supabase es
   parcial hasta la Fase 2). Protocolo manual: "uno a la vez".
+
+---
+
+## SINCRONIZACIÓN AUTOMÁTICA — estado y plan (2026-06-04)
+
+### Incidente recurrente (¡importante!)
+Al usar los botones **"Migrar a nube" / "Migrar TODO" / "Solo Lotes"**, los lotes se **re-duplicaron**
+(147 → 294, pares `cn-001` + `CN-001`). Causa: una **subida en MAYÚSCULA** (versión VIEJA en caché de
+otro equipo, o ruta de subida que no minimiza el id) choca con la nube en minúscula y duplica. Es el
+**mismo bug** del incidente original de 334. Recuperado borrando las MAYÚSCULAS (anclado al Excel) → 147.
+
+### Cimientos YA aplicados (seguros)
+1. **Índice único anti-duplicados** en la base — impide físicamente duplicar por mayúscula/espacios,
+   venga de la versión/usuario que venga:
+   ```sql
+   CREATE UNIQUE INDEX IF NOT EXISTS lotes_id_norm_uniq
+     ON public.lotes (lower(regexp_replace(btrim(id), '\s+', '_', 'g')));
+   ```
+2. **`bajarDeSupabase` ahora FUSIONA (no reemplaza)** el CRM → bajar de la nube ya nunca borra lo local.
+
+### Plan del auto-sync (por incrementos PROBADOS — es la fase de mayor riesgo)
+- **Inc. 0 (hecho):** no se puede duplicar (índice) · bajar no borra (fusión).
+- **Inc. 1 — sembrar la nube:** dejar lotes(147)/clientes/CRM correctos y completos en la nube.
+  Pendiente: el **CRM no está subido** (`crm=4`); subirlo con **"Solo CRM"** (ya seguro con el índice).
+  Verificar `clientes` (estaba en 249, confirmar que es correcto). **NO subir lotes** (ya están limpios).
+- **Inc. 2 — bajada automática:** al iniciar sesión, si el equipo está vacío, baja lotes+clientes+CRM
+  de la nube (equipos nuevos/iPad se llenan solos). Mapear cloud→local. Validar jsdom + probar real.
+- **Inc. 3 — subida automática + Realtime:** cada cambio sube solo, **por registro** (upsert id/email/
+  lote_id, claves no nulas, **id siempre en minúscula**), sin pisar a otros. Probar con 2 usuarios.
+
+### Reglas para esta fase
+- **La subida DEBE minimizar el id** (`loteKey`) siempre; idealmente **deshabilitar/blindar los botones
+  manuales** ("Migrar TODO", "Solo Lotes") para evitar el footgun.
+- **No activar la bajada automática** hasta confirmar que la nube está completa y correcta.
+- Probar contra Supabase real + simular 2 usuarios antes de producción.
