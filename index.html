@@ -1789,9 +1789,12 @@ function MacroProMatcher() {
           seguimientosAsesor: parseJ(row.seguimientos_asesor),
         };
       });
-      saveCRM(crmLocal);
-      setCrmData(crmLocal);
-      setMigrateState(s=>({...s,running:false,results:{crm:{success:true,message:`✓ ${data.length} seguimientos descargados`}}}));
+      // BLINDAJE (Sprint 6): fusionar en vez de reemplazar — la nube NUNCA borra lo local.
+      // Lo de la nube actualiza/agrega por lote; los lotes que solo existen en local se conservan.
+      const mergedCRM = { ...(crmData || {}), ...crmLocal };
+      saveCRM(mergedCRM);
+      setCrmData(mergedCRM);
+      setMigrateState(s=>({...s,running:false,results:{crm:{success:true,message:`✓ ${data.length} seguimientos fusionados desde la nube`}}}));
       toast(`✅ ${data.length} seguimientos CRM recuperados de Supabase`);
       setShowMigrateModal(false);
     } catch(err) {
