@@ -237,7 +237,6 @@ function clienteToSupabase(cliente) {
     tipo_comprador: cliente.tipo_comprador || null,
     ciudad_interes: Array.isArray(cliente.ciudad_interes) ? cliente.ciudad_interes : [],
     telefono: cliente.telefono || "",
-    correo: cliente.correo || cliente.email || "",
     uso_interes: Array.isArray(cliente.uso_interes) ? cliente.uso_interes : [],
     presupuesto_min: Number(cliente.presupuesto_min) || null,
     presupuesto_max: Number(cliente.presupuesto_max) || null,
