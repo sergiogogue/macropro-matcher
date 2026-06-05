@@ -249,6 +249,63 @@ function clienteToSupabase(cliente) {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// MAPEADORES INVERSOS (nube → local) para la BAJADA AUTOMÁTICA (Sprint 6 · Inc. 2)
+// Reconstruyen el objeto local a partir de la fila de Supabase.
+// ═══════════════════════════════════════════════════════════════════
+function loteFromSupabase(r) {
+  if (!r) return null;
+  return {
+    id: (r.id_macrolote || r.id || "").toString(),
+    nombre: r.nombre || r.nombre_terreno || "",
+    desarrollo: r.desarrollo || "",
+    desarrollador: r.desarrollador || "",
+    tipo: r.tipo || r.tipo_inventario || "",
+    ciudad: r.ciudad || "",
+    estado: r.estado || "",
+    colonia: r.colonia || "",
+    sup_m2: Number(r.superficie_m2) || 0,
+    precio_m2: Number(r.precio_m2) || 0,
+    precio_total: Number(r.precio_total) || 0,
+    uso: r.uso || "",
+    usos_todos: Array.isArray(r.usos_todos) ? r.usos_todos : [],
+    status: r.status_inventario || r.status || "Disponible",
+    entrega: r.entrega || "",
+    maps_url: r.maps_url || "",
+    cos: Number(r.cos) || 0,
+    cus: Number(r.cus) || 0,
+    lat: (r.lat !== null && r.lat !== undefined && r.lat !== "") ? Number(r.lat) : null,
+    lng: (r.lng !== null && r.lng !== undefined && r.lng !== "") ? Number(r.lng) : null,
+    niveles: r.niveles || "",
+    viv_max: Number(r.viv_max) || 0,
+    agua: r.agua || "", luz: r.luz || "", drenaje: r.drenaje || "", acceso: r.acceso || "",
+    fortaleza: r.fortaleza || "", atributos: r.atributos || "", comprador: r.comprador || "",
+    asesor: r.asesor || "", condiciones_pago: r.condiciones_pago || "", observaciones: r.observaciones || "",
+    fecha_ingreso: r.fecha_ingreso || "",
+  };
+}
+function clienteFromSupabase(r) {
+  if (!r) return null;
+  return {
+    id: r.id_cliente || r.email || "",
+    nombre: r.nombre || "",
+    empresa: r.empresa || "",
+    asesor: r.asesor || "",
+    correo: r.correo || r.email || "",
+    email: r.email || r.correo || "",
+    telefono: r.telefono || "",
+    tipo_comprador: r.tipo_comprador || "",
+    ciudad_interes: Array.isArray(r.ciudad_interes) ? r.ciudad_interes : [],
+    uso_interes: Array.isArray(r.uso_interes) ? r.uso_interes : [],
+    presupuesto_min: Number(r.presupuesto_min) || 0,
+    presupuesto_max: Number(r.presupuesto_max) || 0,
+    sup_min: Number(r.sup_min) || 0,
+    sup_max: Number(r.sup_max) || 0,
+    status: r.status || "Prospecto",
+    activo: r.activo !== false,
+  };
+}
+
 // Subir lotes en lotes (batch) a Supabase — upsert por clave_unica
 async function migrarLotesASupabase(lotes, onProgress) {
   const ok = await waitForSupabase();
@@ -1802,6 +1859,51 @@ function MacroProMatcher() {
       toast("❌ Error al bajar CRM: "+err.message);
     }
   };
+  // ═══ BAJADA COMPLETA (Sprint 6 · Inc. 2): lotes + clientes + CRM desde la nube ═══
+  // Fusiona el CRM (nunca borra). Lotes/clientes solo se reemplazan si la nube trae datos.
+  const bajarTodoDeSupabase = async (opts) => {
+    const silent = !!(opts && opts.silent);
+    if(!sb){ if(!silent) toast("⚠ Sin conexión a Supabase"); return {success:false}; }
+    try {
+      const [L,C,K] = await Promise.all([
+        sb.from('lotes').select('*'),
+        sb.from('clientes').select('*'),
+        sb.from('crm_lotes').select('lote_id,pipeline,asesor_asignado,prospectos,interacciones,dev_feedback,seguimientos_asesor'),
+      ]);
+      if(L.error) throw new Error('lotes: '+L.error.message);
+      if(C.error) throw new Error('clientes: '+C.error.message);
+      if(K.error) throw new Error('crm_lotes: '+K.error.message);
+      if(Array.isArray(L.data) && L.data.length){ setInventory(L.data.map(loteFromSupabase).filter(Boolean)); }
+      if(Array.isArray(C.data) && C.data.length){ setClients(C.data.map(clienteFromSupabase).filter(Boolean)); }
+      if(Array.isArray(K.data) && K.data.length){
+        const parseJ=(v)=>{try{return v?JSON.parse(JSON.stringify(v)):[];}catch(e){return [];}};
+        const crmCloud={};
+        K.data.forEach(row=>{ if(!row.lote_id) return; crmCloud[row.lote_id]={pipeline:row.pipeline||"Disponible",asesorResponsable:row.asesor_asignado||"",interacciones:parseJ(row.interacciones),prospectos:parseJ(row.prospectos),devFeedback:parseJ(row.dev_feedback),seguimientosAsesor:parseJ(row.seguimientos_asesor)};});
+        const mergedCRM={...(crmData||{}),...crmCloud};
+        saveCRM(mergedCRM); setCrmData(mergedCRM);
+      }
+      if(!silent) toast(`✅ Bajado de la nube: ${(L.data||[]).length} lotes · ${(C.data||[]).length} clientes · ${(K.data||[]).length} CRM`);
+      return {success:true};
+    } catch(err){
+      if(!silent) toast("❌ Error al bajar de la nube: "+err.message);
+      return {success:false, error:err.message};
+    }
+  };
+
+  // Auto-llenado SOLO en equipos vacíos (Inc. 2): si no hay inventario local, traer de la nube.
+  // No toca equipos que ya tienen datos. Corre una sola vez tras montar (con sesión iniciada).
+  const autoBajadaRef = React.useRef(false);
+  React.useEffect(() => {
+    if(autoBajadaRef.current) return;
+    if(inventory && inventory.length > 0) return;   // ya tiene datos → no auto-bajar
+    let cancel = false;
+    const t = setInterval(() => {
+      if(cancel) return;
+      if(window.sb){ clearInterval(t); autoBajadaRef.current = true; bajarTodoDeSupabase({silent:true}); }
+    }, 400);
+    return () => { cancel = true; clearInterval(t); };
+  }, []);
+
   const runMigrationTodo = async () => {
     // Orden obligatorio: lotes → clientes → crm (CRM depende de lotes existiendo)
     setMigrateState(s => ({ ...s, results: null, error: null }));
