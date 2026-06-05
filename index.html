@@ -1267,6 +1267,14 @@ async function generarMatchLoteClientes(lote, resultados) {
   await pptx.writeFile({ fileName:`Match_${(lote.nombre||lote.id||"lote").replace(/\s/g,"_")}_Clientes.pptx`});
 }
 
+// ═══ IndexedDB para archivos pesados (planos/fichas/cotizaciones) — Sprint 6 ═══
+// Saca los blobs base64 del localStorage (límite ~5MB) y los pone en IndexedDB (cientos de MB).
+const IDB_NAME="macropro_idb", IDB_STORE="kv";
+function idbOpen(){ return new Promise((res,rej)=>{ try{ if(typeof indexedDB==="undefined") return rej(new Error("IndexedDB no disponible")); const req=indexedDB.open(IDB_NAME,1); req.onupgradeneeded=()=>{ try{req.result.createObjectStore(IDB_STORE);}catch(e){} }; req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error); }catch(e){rej(e);} }); }
+async function idbGet(key){ try{ const db=await idbOpen(); return await new Promise((res,rej)=>{ const tx=db.transaction(IDB_STORE,"readonly"); const r=tx.objectStore(IDB_STORE).get(key); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }catch(e){ return undefined; } }
+async function idbSet(key,val){ const db=await idbOpen(); return await new Promise((res,rej)=>{ const tx=db.transaction(IDB_STORE,"readwrite"); const r=tx.objectStore(IDB_STORE).put(val,key); r.onsuccess=()=>res(true); r.onerror=()=>rej(r.error); }); }
+if(typeof window!=="undefined"){ window.__idbSet=idbSet; window.__idbGet=idbGet; }
+
 // ─── MAIN APP ─────────────────────────────────────────────────────
 function MacroProMatcher() {
   // ═══════════════════════════════════════════════════════════
@@ -1289,7 +1297,7 @@ function MacroProMatcher() {
     }catch(e){return defaultVal;}
   };
   const savePersisted=(key,val)=>{
-    try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn("No se pudo guardar "+key,e);}
+    try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn("No se pudo guardar "+key,e);try{toast("⚠ NO se guardó ("+key+"): almacenamiento del navegador lleno. Tu cambio NO quedó guardado.");}catch(_){}}
   };
 
   const [view, setViewRaw] = useState(()=>loadPersisted(STORAGE_KEYS.view,"home"));
@@ -1314,12 +1322,32 @@ function MacroProMatcher() {
   const [canalesActivos, setCanalesActivosRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_canales_v1");return r?JSON.parse(r):CANALES_VENTA;}catch(e){return CANALES_VENTA;}});
   const setCanalesActivos=(fn)=>{setCanalesActivosRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_canales_v1",JSON.stringify(next));}catch(e){}return next;});};
   const [showGestorCanales, setShowGestorCanales] = React.useState(false);
-  const [fichasTecnicas, setFichasTecnicasRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_fichas_v1");return r?JSON.parse(r):{};}catch(e){return {};}});
-  const setFichasTecnicas=(fn)=>{setFichasTecnicasRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_fichas_v1",JSON.stringify(next));}catch(e){console.warn("No se pudo guardar ficha",e);}return next;});};
-  const [cotizaciones, setCotizacionesRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_cotizaciones_v1");return r?JSON.parse(r):{};}catch(e){return {};}});
-  const setCotizaciones=(fn)=>{setCotizacionesRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_cotizaciones_v1",JSON.stringify(next));}catch(e){console.warn("No se pudo guardar cotización",e);}return next;});};
-  const [planosDesarrollo, setPlanosDesarrolloRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_planos_v1");return r?JSON.parse(r):{};}catch(e){return {};}});
-  const setPlanosDesarrollo=(fn)=>{setPlanosDesarrolloRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;try{localStorage.setItem("macropro_planos_v1",JSON.stringify(next));}catch(e){console.warn("No se pudo guardar plano",e);}return next;});};
+  // Blobs pesados ahora en IndexedDB (init vacío; se cargan async tras montar). Ver useEffect de migración.
+  const [fichasTecnicas, setFichasTecnicasRaw] = React.useState({});
+  const [cotizaciones, setCotizacionesRaw] = React.useState({});
+  const [planosDesarrollo, setPlanosDesarrolloRaw] = React.useState({});
+  const persistIDB = (key, label, val) => {
+    idbSet(key, val).catch(e => { try{ toast("⚠ NO se pudo guardar "+label+" — espacio/IndexedDB: "+((e&&e.message)||e)); }catch(_){} console.error("IDB save "+key, e); });
+  };
+  const setFichasTecnicas=(fn)=>{setFichasTecnicasRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;persistIDB("macropro_fichas_v1","ficha",next);return next;});};
+  const setCotizaciones=(fn)=>{setCotizacionesRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;persistIDB("macropro_cotizaciones_v1","cotización",next);return next;});};
+  const setPlanosDesarrollo=(fn)=>{setPlanosDesarrolloRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;persistIDB("macropro_planos_v1","plano",next);return next;});};
+  // Cargar blobs desde IndexedDB al montar; migrar desde localStorage si quedaron ahí (y liberarlo).
+  React.useEffect(()=>{
+    let cancel=false;
+    (async()=>{
+      const map=[["macropro_fichas_v1",setFichasTecnicasRaw],["macropro_cotizaciones_v1",setCotizacionesRaw],["macropro_planos_v1",setPlanosDesarrolloRaw]];
+      for(const [key,setter] of map){
+        try{
+          const ls=localStorage.getItem(key);
+          if(ls){ try{ await idbSet(key,JSON.parse(ls)); localStorage.removeItem(key); }catch(e){} }
+          const val=await idbGet(key);
+          if(!cancel && val && typeof val==="object") setter(val);
+        }catch(e){ console.warn("IDB load "+key,e); }
+      }
+    })();
+    return ()=>{cancel=true;};
+  },[]);
   const [planoVisible, setPlanoVisible] = React.useState(true);
   const [selectedAsesorLotes, setSelectedAsesorLotes] = React.useState(null);
   const [inventory, setInventoryRaw] = useState(()=>loadPersisted(STORAGE_KEYS.inventory,[]));
@@ -1442,7 +1470,7 @@ function MacroProMatcher() {
       return {};
     }
   };
-  const saveCRM=(d)=>{try{localStorage.setItem(CRM_KEY,JSON.stringify(d));}catch(e){console.warn("⚠ No se pudo guardar CRM:",e.message);}};
+  const saveCRM=(d)=>{try{localStorage.setItem(CRM_KEY,JSON.stringify(d));}catch(e){console.warn("⚠ No se pudo guardar CRM:",e.message);try{toast("⚠ NO se guardó el CRM: almacenamiento del navegador lleno. Tus cambios NO quedaron.");}catch(_){}}};
   const [crmData,setCrmData]=React.useState(()=>loadCRM());
   const updateCRM=(id,patch)=>{setCrmData(prev=>{const next={...prev,[id]:{...(prev[id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]}), ...patch}};saveCRM(next);return next;});};
   const [showNotifModal, setShowNotifModal] = React.useState(false);
