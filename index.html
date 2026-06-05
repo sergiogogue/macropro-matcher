@@ -12329,14 +12329,14 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
           )}
 
-          {/* Botón Bajar de Supabase */}
+          {/* Botón Bajar TODO de la nube (Inc.2 — manual; lotes + clientes + CRM) */}
           <button
-            onClick={bajarDeSupabase}
+            onClick={()=>{ if(window.confirm("Traer TODO de la nube (lotes + clientes + CRM) a este equipo. Reemplaza tu inventario y clientes locales con los de la nube (el CRM se fusiona). ¿Continuar?")) bajarTodoDeSupabase(); }}
             disabled={running || !sb}
             style={{width:"100%",padding:"12px",background:(running||!sb)?B.grey1:"linear-gradient(135deg,#059669,#047857)",color:"#fff",border:"none",borderRadius:10,cursor:(running||!sb)?"not-allowed":"pointer",fontSize:13,fontWeight:800,fontFamily:"'DM Sans',sans-serif",marginBottom:12,boxShadow:(running||!sb)?"none":"0 4px 14px rgba(5,150,105,0.35)"}}>
-            {running && migrateState.stage==='bajar' ? "⏳ Descargando..." : "⬇️ Bajar de Supabase"}
+            ⬇️ Bajar TODO de la nube
           </button>
-          <div style={{fontSize:10,color:B.grey3,textAlign:"center",marginBottom:14}}>↑ Descarga CRM desde la nube a este dispositivo</div>
+          <div style={{fontSize:10,color:B.grey3,textAlign:"center",marginBottom:14}}>↑ Trae lotes + clientes + CRM de la nube a este equipo</div>
 
           {/* Botón principal: Migrar TODO */}
           <button
