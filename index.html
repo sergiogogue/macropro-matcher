@@ -1936,6 +1936,31 @@ function MacroProMatcher() {
     return () => { cancel = true; clearInterval(t); };
   }, []);
 
+  // ═══ SUBIDA AUTOMÁTICA (Inc.3): sube clientes y CRM al cambiar, por registro, con debounce ═══
+  // Lotes NO se auto-suben (se manejan por Excel / "Solo Lotes"); son los de mayor riesgo de duplicar.
+  const AUTO_SUBIDA_ON = true;
+  const syncReadyRef = React.useRef(false);
+  const syncTimerRef = React.useRef(null);
+  const subiendoRef = React.useRef(false);
+  // Marcar "listo" 7s tras montar: evita subir durante la carga inicial / auto-bajada.
+  React.useEffect(()=>{ const t=setTimeout(()=>{ syncReadyRef.current = true; }, 7000); return ()=>clearTimeout(t); },[]);
+  React.useEffect(()=>{
+    if(!AUTO_SUBIDA_ON || !syncReadyRef.current || !sb || subiendoRef.current) return;
+    if(syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(async ()=>{
+      if(subiendoRef.current) return;
+      subiendoRef.current = true;
+      try{
+        if(window.sbHelpers){
+          if(clients && clients.length)               await window.sbHelpers.migrarClientes(clients, ()=>{});
+          if(crmData && Object.keys(crmData).length)  await window.sbHelpers.migrarCRM(crmData, ()=>{});
+        }
+      }catch(e){ console.warn("auto-subida:", e && e.message); }
+      finally{ subiendoRef.current = false; }
+    }, 4000);
+    return ()=>{ if(syncTimerRef.current) clearTimeout(syncTimerRef.current); };
+  }, [clients, crmData]);
+
   const runMigrationTodo = async () => {
     // Orden obligatorio: lotes → clientes → crm (CRM depende de lotes existiendo)
     setMigrateState(s => ({ ...s, results: null, error: null }));
