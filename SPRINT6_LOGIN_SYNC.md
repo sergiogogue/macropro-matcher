@@ -236,3 +236,30 @@ otro equipo, o ruta de subida que no minimiza el id) choca con la nube en minús
   manuales** ("Migrar TODO", "Solo Lotes") para evitar el footgun.
 - **No activar la bajada automática** hasta confirmar que la nube está completa y correcta.
 - Probar contra Supabase real + simular 2 usuarios antes de producción.
+
+---
+
+## BLOQUEO DETECTADO (2026-06-05): el CRM quedó desenganchado de los lotes limpios
+
+Al intentar sembrar el CRM en la nube ("Solo CRM"), resultado:
+**"0 seguimientos CRM migrados (13 omitidos — lote no encontrado en nube)"**.
+
+**Causa:** la limpieza de lotes eliminó la numeración VIEJA de Kulkana (`ku-16…ku-38`) y dejó la
+correcta (`ku-001…ku-030`). Pero el CRM local (109 prospectos en 13 lotes) **sigue apuntando a las
+claves viejas** → la nube no las encuentra y omite todo. El CRM está **a salvo en local**, no se perdió.
+
+**Pendiente antes de sembrar el CRM y activar el auto-sync:**
+1. **Re-enganchar el CRM**: construir el mapeo viejo→nuevo de ids KU (por nombre/precio del lote;
+   ej. `ku-16` "Mz 13 Lt 01" → `ku-024`) y reescribir las claves de `crmData` (localStorage
+   `macropro_crm_v1`). Requiere ver las 13 claves reales del CRM. Fuentes para el mapeo: snapshots
+   `lotes_backup_294_20260604` / `lotes_backup_merge_20260603` (tienen los lotes viejos) + el Excel 8.6.
+2. Luego sí: subir CRM/clientes (con el índice ya protegiendo lotes) → nube completa.
+3. Probar la **bajada automática (Inc. 2, ya en la rama)** contra Supabase real → desplegar.
+4. Después, **Inc. 3** (subida automática por registro + Realtime).
+
+**Estado del código (rama `claude/wizardly-cerf-QhtU1`, NO desplegado aún):**
+- Inc. 2 listo: mapeadores `loteFromSupabase`/`clienteFromSupabase` + `bajarTodoDeSupabase()` +
+  auto-llenado en equipos vacíos. Validado con jsdom + unit-test de mapeadores. Falta sembrar
+  la nube (bloqueado por el re-enganche del CRM) y probar contra Supabase real antes de desplegar.
+
+⛔ Mientras tanto: NO usar "Migrar TODO a la nube" (re-duplica). El CRM vive sano en el equipo de Sergio.
