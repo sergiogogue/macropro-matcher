@@ -224,8 +224,9 @@ function loteToSupabase(lote) {
 
 // Transforma un cliente del localStorage al formato de la tabla Supabase 'clientes'
 function clienteToSupabase(cliente) {
-  const email = (cliente.email || "").toString().trim().toLowerCase();
-  if (!email) return null; // Sin email no se puede migrar (clave única acordada)
+  // Leer correo de cualquiera de los campos (los clientes importados usan 'correo', no 'email')
+  const email = (cliente.email || cliente.correo || "").toString().trim().toLowerCase();
+  if (!email) return null; // Sin correo no se puede migrar (clave única acordada)
   return {
     email: email,
     id_cliente: (cliente.id || cliente.id_cliente || "").toString().trim() || null,
