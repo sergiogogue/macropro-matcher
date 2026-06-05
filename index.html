@@ -1924,7 +1924,7 @@ function MacroProMatcher() {
   // No toca equipos que ya tienen datos. Corre una sola vez tras montar (con sesión iniciada).
   const autoBajadaRef = React.useRef(false);
   // ⚠ Inc.2 DESACTIVADA hasta probarla contra Supabase real (regla: probar antes de producción).
-  const AUTO_BAJADA_ON = false;
+  const AUTO_BAJADA_ON = true;
   React.useEffect(() => {
     if(!AUTO_BAJADA_ON || autoBajadaRef.current) return;
     if(inventory && inventory.length > 0) return;   // ya tiene datos → no auto-bajar
