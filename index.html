@@ -1952,10 +1952,12 @@ function MacroProMatcher() {
       subiendoRef.current = true;
       try{
         if(window.sbHelpers){
-          if(clients && clients.length)               await window.sbHelpers.migrarClientes(clients, ()=>{});
-          if(crmData && Object.keys(crmData).length)  await window.sbHelpers.migrarCRM(crmData, ()=>{});
+          let cN=0, kN=0;
+          if(clients && clients.length){ const r=await window.sbHelpers.migrarClientes(clients, ()=>{}); cN=(r&&r.count)||0; }
+          if(crmData && Object.keys(crmData).length){ const r=await window.sbHelpers.migrarCRM(crmData, ()=>{}); kN=(r&&r.count)||0; }
+          try{ toast("☁️ Sincronizado a la nube ("+cN+" clientes · "+kN+" CRM)"); }catch(_){}
         }
-      }catch(e){ console.warn("auto-subida:", e && e.message); }
+      }catch(e){ console.warn("auto-subida:", e && e.message); try{ toast("⚠ No se pudo sincronizar a la nube: "+((e&&e.message)||e)); }catch(_){} }
       finally{ subiendoRef.current = false; }
     }, 4000);
     return ()=>{ if(syncTimerRef.current) clearTimeout(syncTimerRef.current); };
