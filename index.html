@@ -1893,8 +1893,10 @@ function MacroProMatcher() {
   // Auto-llenado SOLO en equipos vacíos (Inc. 2): si no hay inventario local, traer de la nube.
   // No toca equipos que ya tienen datos. Corre una sola vez tras montar (con sesión iniciada).
   const autoBajadaRef = React.useRef(false);
+  // ⚠ Inc.2 DESACTIVADA hasta probarla contra Supabase real (regla: probar antes de producción).
+  const AUTO_BAJADA_ON = false;
   React.useEffect(() => {
-    if(autoBajadaRef.current) return;
+    if(!AUTO_BAJADA_ON || autoBajadaRef.current) return;
     if(inventory && inventory.length > 0) return;   // ya tiene datos → no auto-bajar
     let cancel = false;
     const t = setInterval(() => {
