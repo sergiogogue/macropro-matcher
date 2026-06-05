@@ -161,3 +161,105 @@ dependa de ellas antes de restringirlas.)
 > (proyecto xugrrabebphdelgwqnwc). Confírmame que leíste todo y dime tu plan para la Fase 1 antes
 > de escribir código. Recuerda: cliente Supabase se llama `sb`, validar hooks con harness jsdom,
 > y nunca activar RLS sin su política en la misma operación.
+
+---
+
+## BITÁCORA / ESTADO (actualizado 2026-06-03)
+
+### ✅ Fase 0 — Respaldos
+Hechos: export JSON, CSV de tablas clave, copia fechada del `index.html`
+(`backups/index_v8.5_pre-sprint6_2026-06-03.html`), tag `v8.5-pre-sprint6`.
+
+### ✅ Fase 0.5 — Limpieza de datos (no estaba planeada, surgió aquí)
+La tabla `lotes` tenía **334 filas** corruptas: duplicados por *case* (`CN-001`/`cn-001`),
+numeración KU vieja **sin cero** (`KU-16…38`, descartada) y un **off-by-one** en Kulkana.
+Se reconcilió contra `Inventario_Macrolotes_8.6.xlsx` → **147 lotes** correctos
+(CN13, CS13, GEN5, KU30, LR1, ML85). Snapshot de seguridad: `lotes_backup_merge_20260603`.
+Decisión: **id canónico = minúscula**; para KU la **mayúscula con cero era la autoritativa**.
+
+### ✅ Fase 1 — Login (DESPLEGADO en producción vía PR #1)
+- `AuthGate` en `index.html` (login antes de la app + botón "Salir"); validado con Babel + jsdom
+  y prueba real de login (5/5). Cliente `sb`, sin `location.reload()`, hooks con `React.useEffect`.
+- **3 usuarios** creados en Supabase Auth.
+- **⚠ RLS: se activó por error y se REVIRTIÓ → hoy está OFF** en las tablas de datos
+  (`cotizaciones` sigue ON con sus políticas anon). Las políticas `usuarios_autenticados_todo`
+  YA están definidas en todas las tablas; **solo falta reactivar con `ENABLE`** (empezar por
+  `metas`, verificar, luego el resto). **No activar RLS hasta confirmar que el login lleva días
+  funcionando en producción** (si no, la app anónima se rompe).
+
+### ⏳ Pendientes (en orden)
+1. **Reactivar RLS** tras unos días con login estable → cierra Fase 1.
+2. **Fase 2 — bajada automática:** que `bajarDeSupabase` traiga **lotes + clientes + crm** (hoy solo
+   trae crm). Esto además llena solo un equipo nuevo (p. ej. el iPad de Sergio) al iniciar sesión.
+3. **Fase 3 — subida automática + OFFLINE real (pedido de Sergio):** trabajar sin conexión y que
+   suba solo al reconectar; service worker cacheando la app/librerías (hoy el SW **borra caché en
+   cada apertura**, así que no hay offline confiable). **Pilotar primero solo con Sergio** (reduce
+   conflictos). Upsert por registro, claves no nulas.
+
+### Notas operativas vigentes
+- Otros usuarios: **verificar su inventario (147, KU bien) ANTES de "Migrar a nube"**; su
+  `localStorage` puede tener datos viejos y pisar la nube.
+- Pasar datos entre equipos hoy: **Exportar JSON → Importar** (porque la bajada de Supabase es
+  parcial hasta la Fase 2). Protocolo manual: "uno a la vez".
+
+---
+
+## SINCRONIZACIÓN AUTOMÁTICA — estado y plan (2026-06-04)
+
+### Incidente recurrente (¡importante!)
+Al usar los botones **"Migrar a nube" / "Migrar TODO" / "Solo Lotes"**, los lotes se **re-duplicaron**
+(147 → 294, pares `cn-001` + `CN-001`). Causa: una **subida en MAYÚSCULA** (versión VIEJA en caché de
+otro equipo, o ruta de subida que no minimiza el id) choca con la nube en minúscula y duplica. Es el
+**mismo bug** del incidente original de 334. Recuperado borrando las MAYÚSCULAS (anclado al Excel) → 147.
+
+### Cimientos YA aplicados (seguros)
+1. **Índice único anti-duplicados** en la base — impide físicamente duplicar por mayúscula/espacios,
+   venga de la versión/usuario que venga:
+   ```sql
+   CREATE UNIQUE INDEX IF NOT EXISTS lotes_id_norm_uniq
+     ON public.lotes (lower(regexp_replace(btrim(id), '\s+', '_', 'g')));
+   ```
+2. **`bajarDeSupabase` ahora FUSIONA (no reemplaza)** el CRM → bajar de la nube ya nunca borra lo local.
+
+### Plan del auto-sync (por incrementos PROBADOS — es la fase de mayor riesgo)
+- **Inc. 0 (hecho):** no se puede duplicar (índice) · bajar no borra (fusión).
+- **Inc. 1 — sembrar la nube:** dejar lotes(147)/clientes/CRM correctos y completos en la nube.
+  Pendiente: el **CRM no está subido** (`crm=4`); subirlo con **"Solo CRM"** (ya seguro con el índice).
+  Verificar `clientes` (estaba en 249, confirmar que es correcto). **NO subir lotes** (ya están limpios).
+- **Inc. 2 — bajada automática:** al iniciar sesión, si el equipo está vacío, baja lotes+clientes+CRM
+  de la nube (equipos nuevos/iPad se llenan solos). Mapear cloud→local. Validar jsdom + probar real.
+- **Inc. 3 — subida automática + Realtime:** cada cambio sube solo, **por registro** (upsert id/email/
+  lote_id, claves no nulas, **id siempre en minúscula**), sin pisar a otros. Probar con 2 usuarios.
+
+### Reglas para esta fase
+- **La subida DEBE minimizar el id** (`loteKey`) siempre; idealmente **deshabilitar/blindar los botones
+  manuales** ("Migrar TODO", "Solo Lotes") para evitar el footgun.
+- **No activar la bajada automática** hasta confirmar que la nube está completa y correcta.
+- Probar contra Supabase real + simular 2 usuarios antes de producción.
+
+---
+
+## BLOQUEO DETECTADO (2026-06-05): el CRM quedó desenganchado de los lotes limpios
+
+Al intentar sembrar el CRM en la nube ("Solo CRM"), resultado:
+**"0 seguimientos CRM migrados (13 omitidos — lote no encontrado en nube)"**.
+
+**Causa:** la limpieza de lotes eliminó la numeración VIEJA de Kulkana (`ku-16…ku-38`) y dejó la
+correcta (`ku-001…ku-030`). Pero el CRM local (109 prospectos en 13 lotes) **sigue apuntando a las
+claves viejas** → la nube no las encuentra y omite todo. El CRM está **a salvo en local**, no se perdió.
+
+**Pendiente antes de sembrar el CRM y activar el auto-sync:**
+1. **Re-enganchar el CRM**: construir el mapeo viejo→nuevo de ids KU (por nombre/precio del lote;
+   ej. `ku-16` "Mz 13 Lt 01" → `ku-024`) y reescribir las claves de `crmData` (localStorage
+   `macropro_crm_v1`). Requiere ver las 13 claves reales del CRM. Fuentes para el mapeo: snapshots
+   `lotes_backup_294_20260604` / `lotes_backup_merge_20260603` (tienen los lotes viejos) + el Excel 8.6.
+2. Luego sí: subir CRM/clientes (con el índice ya protegiendo lotes) → nube completa.
+3. Probar la **bajada automática (Inc. 2, ya en la rama)** contra Supabase real → desplegar.
+4. Después, **Inc. 3** (subida automática por registro + Realtime).
+
+**Estado del código (rama `claude/wizardly-cerf-QhtU1`, NO desplegado aún):**
+- Inc. 2 listo: mapeadores `loteFromSupabase`/`clienteFromSupabase` + `bajarTodoDeSupabase()` +
+  auto-llenado en equipos vacíos. Validado con jsdom + unit-test de mapeadores. Falta sembrar
+  la nube (bloqueado por el re-enganche del CRM) y probar contra Supabase real antes de desplegar.
+
+⛔ Mientras tanto: NO usar "Migrar TODO a la nube" (re-duplica). El CRM vive sano en el equipo de Sergio.

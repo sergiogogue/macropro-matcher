@@ -64,6 +64,25 @@ exportación a PDF/PPTX/iCal y sincronización con Supabase. Está construido co
 - **Sincronización por registro, no por base completa:** upsert por `id`/`clave_unica`
   (last-write-wins por registro), nunca reemplazar toda la tabla — eso permite que un usuario
   pise a otro.
+- **ID canónico de lotes = MINÚSCULA.** `loteKey()` (≈línea 187) hace `.toLowerCase()`, así que la
+  app siempre escribe ids en minúscula (`cn-001`, `ku-001`). El `id` de Postgres es sensible a
+  mayúsculas → `CN-001` ≠ `cn-001` causó duplicación. **No cambiar el case sin migrar todas las
+  referencias** (`crm_lotes.lote_id`, etc. apuntan a minúscula).
+- **`bajarDeSupabase` (≈línea 1767) HOY solo baja el CRM (`crm_lotes`), NO lotes ni clientes.** Por
+  eso un equipo nuevo no se llena solo: hay que importar el Excel (lotes) y/o JSON (clientes/CRM).
+  Esto lo resuelve la Fase 2.
+- **AuthGate / hooks:** en el scope global del `<script type="text/babel">` solo están
+  `useState, useRef, useCallback` (≈línea 126). **`useEffect` NO está** → usar `React.useEffect`.
+- **Incidente de datos resuelto 2026-06-03:** la tabla `lotes` tenía 334 filas (duplicados
+  mayúscula/minúscula + numeración KU vieja sin cero + un off-by-one en Kulkana). Se reparó contra
+  `Inventario_Macrolotes_8.6.xlsx` (147 lotes reales: CN13, CS13, GEN5, KU30, LR1, ML85). Snapshot:
+  `lotes_backup_merge_20260603`. Fuente de verdad de lotes = ese Excel; mayúscula KU = autoritativa.
+- **La subida (`Migrar a nube`) es un footgun:** subir con ids en MAYÚSCULA re-duplica los lotes
+  (incidente repetido 2026-06-04, 147→294). Mitigado con un **índice único** en la base:
+  `CREATE UNIQUE INDEX lotes_id_norm_uniq ON lotes (lower(regexp_replace(btrim(id),'\s+','_','g')))`.
+  La subida SIEMPRE debe minimizar el id (`loteKey`). Idealmente blindar/deshabilitar esos botones.
+- **`bajarDeSupabase` ahora FUSIONA, no reemplaza** el CRM (nunca borra lo local). La bajada de
+  lotes/clientes completa es trabajo de la Fase 2 (ver `SPRINT6_LOGIN_SYNC.md`).
 
 ## Cómo se actualiza a los 3 usuarios
 
