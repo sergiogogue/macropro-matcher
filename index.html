@@ -1923,8 +1923,8 @@ function MacroProMatcher() {
   // Auto-llenado SOLO en equipos vacíos (Inc. 2): si no hay inventario local, traer de la nube.
   // No toca equipos que ya tienen datos. Corre una sola vez tras montar (con sesión iniciada).
   const autoBajadaRef = React.useRef(false);
-  // ⚠ Inc.2 DESACTIVADA hasta probarla contra Supabase real (regla: probar antes de producción).
-  const AUTO_BAJADA_ON = true;
+  // ⚠ HOTFIX: auto-sincronización DESACTIVADA (causaba desalineación de datos). Re-evaluar antes de reactivar.
+  const AUTO_BAJADA_ON = false;
   React.useEffect(() => {
     if(!AUTO_BAJADA_ON || autoBajadaRef.current) return;
     if(inventory && inventory.length > 0) return;   // ya tiene datos → no auto-bajar
@@ -1937,8 +1937,8 @@ function MacroProMatcher() {
   }, []);
 
   // ═══ SUBIDA AUTOMÁTICA (Inc.3): sube clientes y CRM al cambiar, por registro, con debounce ═══
-  // Lotes NO se auto-suben (se manejan por Excel / "Solo Lotes"); son los de mayor riesgo de duplicar.
-  const AUTO_SUBIDA_ON = true;
+  // ⚠ HOTFIX: subida automática DESACTIVADA (podía propagar datos desalineados a la nube).
+  const AUTO_SUBIDA_ON = false;
   const syncReadyRef = React.useRef(false);
   const syncTimerRef = React.useRef(null);
   const subiendoRef = React.useRef(false);
