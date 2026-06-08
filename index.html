@@ -1473,6 +1473,26 @@ function MacroProMatcher() {
   const saveCRM=(d)=>{try{localStorage.setItem(CRM_KEY,JSON.stringify(d));}catch(e){console.warn("⚠ No se pudo guardar CRM:",e.message);try{toast("⚠ NO se guardó el CRM: almacenamiento del navegador lleno. Tus cambios NO quedaron.");}catch(_){}}};
   const [crmData,setCrmData]=React.useState(()=>loadCRM());
   const updateCRM=(id,patch)=>{setCrmData(prev=>{const next={...prev,[id]:{...(prev[id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]}), ...patch}};saveCRM(next);return next;});};
+  // ═══ AUTO-RE-ENLACE CRM↔inventario (fix raíz): el CRM se "desaparecía" cuando sus claves no
+  // empataban con los ids del inventario por mayúsculas/espacios (ej. clave 'gen_05' vs lote 'GEN_05').
+  // Esto re-clava cada entrada del CRM al id EXACTO del lote (comparando normalizado). Sin pérdida (fusiona). ═══
+  React.useEffect(()=>{
+    if(!inventory || inventory.length===0) return;
+    const norm=s=>String(s||"").trim().toLowerCase().replace(/\s+/g,"_");
+    const byNorm={}; inventory.forEach(l=>{ if(l&&l.id) byNorm[norm(l.id)]=l.id; });
+    setCrmData(prev=>{
+      const cur=prev||{}; const out={}; let changed=false;
+      Object.keys(cur).forEach(k=>{
+        const real=byNorm[norm(k)]||k;
+        if(real!==k) changed=true;
+        if(out[real]){ out[real]={...out[real], prospectos:[...((out[real].prospectos)||[]),...((cur[k].prospectos)||[])], interacciones:[...((out[real].interacciones)||[]),...((cur[k].interacciones)||[])]}; changed=true; }
+        else out[real]=cur[k];
+      });
+      if(!changed) return prev;       // sin cambios → no re-render (evita bucle)
+      saveCRM(out);
+      return out;
+    });
+  }, [inventory, crmData]);
   const [showNotifModal, setShowNotifModal] = React.useState(false);
   const notifAutoShownRef = React.useRef(false);
   // ── NOTIFICACIONES: actividades vencidas y a 1 día (reubicado tras crmData para evitar TDZ) ──
