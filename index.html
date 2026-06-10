@@ -7164,6 +7164,14 @@ function MacroProMatcher() {
         .filter(c => benchFiltroDesarrollador==="Todos" || (c.desarrollador||"—")===benchFiltroDesarrollador)
         .filter(c => !benchFiltroNombre.trim() || (c.nombre||"").toLowerCase().includes(benchFiltroNombre.trim().toLowerCase()))
         .sort((a,b)=>a.distancia-b.distancia);
+      // Competidor más cercano SIN límite de radio → detecta falta de cobertura en la zona del ancla
+      const competidorMasCercano = !ancla ? null : competencia
+        .filter(c => c.lat && c.lng && c.nombre.toLowerCase().trim() !== anclaNameNorm)
+        .map(c => ({nombre:c.nombre, zona:c.zona, distancia: haversineKm(ancla.lat,ancla.lng,c.lat,c.lng)}))
+        .sort((a,b)=>a.distancia-b.distancia)[0] || null;
+      // Sin cobertura: hay competencia cargada pero el más cercano está lejísimos (>50 km) del ancla
+      const sinCobertura = competidoresEnRadio.length===0 && competencia.length>0
+        && competidorMasCercano && competidorMasCercano.distancia > 50;
       // KPIs
       const conPrecio = competidoresEnRadio.filter(c=>(c.pm2_lote||c.pm2_dpto||c.pm2_casa)>0);
       const getPm2=(c)=>c.pm2_lote||c.pm2_dpto||c.pm2_casa||0;
@@ -7294,6 +7302,16 @@ function MacroProMatcher() {
             {kpi("Tu posición",pm2Ancla>0&&percentil!==null?`Percentil ${percentil}`:"—",pm2Ancla>0?`$${Math.round(pm2Ancla).toLocaleString("es-MX")}/m² · ${masBaratos} más baratos que tú`:"Sin precio promedio en inventario",B.navy)}
             {kpi("Ventaja en área",ventajaArea!==null?(ventajaArea>=0?`+${ventajaArea}%`:ventajaArea+"%"):"—",areaAnclaAvg>0?`${Math.round(areaAnclaAvg)} m² (tú) vs ${Math.round(areaMercado)} m² (mercado)`:"Sin áreas disponibles",B.green)}
           </div>
+          {/* ── AVISO: sin cobertura de competencia en la zona del ancla ── */}
+          {sinCobertura && (
+            <div style={{background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:12,padding:"14px 18px",marginBottom:18,display:"flex",gap:12,alignItems:"flex-start"}}>
+              <span style={{fontSize:20,lineHeight:1}}>⚠️</span>
+              <div style={{fontSize:13,color:"#92400e",lineHeight:1.5}}>
+                <b>No hay datos de competencia en la zona de {ancla?.nombre}.</b> El competidor más cercano del archivo cargado está a <b>{Math.round(competidorMasCercano.distancia).toLocaleString("es-MX")} km</b>{competidorMasCercano.zona?` (zona ${competidorMasCercano.zona})`:""}, fuera de cualquier radio razonable.<br/>
+                <span style={{color:"#a16207"}}>El Benchmark por radio solo funciona si cargas un archivo de competencia que cubra esta zona. Revisa también que las coordenadas de <b>{ancla?.nombre}</b> en el inventario sean correctas.</span>
+              </div>
+            </div>
+          )}
           {/* ── TABLA + HISTOGRAMA ── */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:14,marginBottom:18}}>
             {/* Tabla de competidores */}
@@ -7304,7 +7322,11 @@ function MacroProMatcher() {
               </div>
               {sorted.length===0 ? (
                 <div style={{padding:"32px",textAlign:"center",color:B.grey3,fontSize:13}}>
-                  Sin competidores en este radio y filtro de tipo.{competencia.length>0&&" Amplía el radio o activa más tipos."}
+                  {competencia.length===0
+                    ? "Carga el Excel de competencia para ver el benchmark."
+                    : sinCobertura
+                      ? `No hay competencia cargada para la zona de ${ancla?.nombre} (la más cercana está a ${Math.round(competidorMasCercano.distancia).toLocaleString("es-MX")} km).`
+                      : "Sin competidores en este radio y filtro de tipo. Amplía el radio o activa más tipos."}
                 </div>
               ) : (
                 <div style={{overflowX:"auto"}}>
