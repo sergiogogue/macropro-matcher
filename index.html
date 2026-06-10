@@ -179,6 +179,22 @@ async function waitForSupabase(timeoutMs = 10000) {
   return !!sb;
 }
 
+// Normaliza coordenadas al sistema de México (lat 10–35°N, lng −80…−120°O).
+// Detecta lat/lng invertidas y fuerza el signo correcto de la longitud (oeste = negativo).
+// El inventario ya hace esto; la competencia NO → competidores quedaban a miles de km y
+// nada entraba al radio del Benchmark. Devuelve {lat:null,lng:null} si no son coords válidas de MX.
+function normCoordMX(lat, lng) {
+  const num = v => { if(v===null||v===undefined||v==="") return null; const n=parseFloat(String(v).replace(/,/g,".")); return isNaN(n)?null:n; };
+  let a = num(lat), b = num(lng);
+  if(a===null || b===null) return {lat:null, lng:null};
+  const isLat = x => Math.abs(x)>=10 && Math.abs(x)<=35;
+  const isLng = x => Math.abs(x)>=80 && Math.abs(x)<=120;
+  // Si vienen invertidas (la "lat" parece longitud y la "lng" parece latitud) → intercambiar
+  if(!isLat(a) && isLat(b) && isLng(a)) { const t=a; a=b; b=t; }
+  if(!isLat(a) || !isLng(b)) return {lat:null, lng:null};
+  return { lat: Math.abs(a), lng: -Math.abs(b) }; // lat positiva, lng negativa (oeste)
+}
+
 // Genera clave única para un lote: ID Macrolote limpio (sin sufijo -rN interno)
 function loteKey(lote) {
   // El ID interno tiene formato "ML_001-r5" — quitamos el "-rN"
@@ -1367,7 +1383,12 @@ function MacroProMatcher() {
     }
   };
   // ── COMPETENCIA (Benchmark) ───────────────────────────────────────
-  const [competencia, setCompetenciaRaw] = useState(()=>loadPersisted(STORAGE_KEYS.competencia,[]));
+  // Re-normaliza al cargar las coords ya guardadas (los Excel viejos pudieron entrar con la
+  // longitud positiva o lat/lng invertidas → así funcionan sin re-subir el archivo).
+  const [competencia, setCompetenciaRaw] = useState(()=>{
+    const raw = loadPersisted(STORAGE_KEYS.competencia,[]);
+    return Array.isArray(raw) ? raw.map(c=>{ const co=normCoordMX(c.lat,c.lng); return {...c, lat:co.lat, lng:co.lng}; }) : [];
+  });
   const setCompetencia=(data)=>{setCompetenciaRaw(data);savePersisted(STORAGE_KEYS.competencia,data);};
   const competenciaFileRef = React.useRef(null);
   const [benchRadio, setBenchRadio] = useState(10);
@@ -2432,8 +2453,8 @@ function MacroProMatcher() {
           .map(r => ({
             nombre: String(r[0]||"").trim(),
             desarrollador: String(r[1]||"").trim(),
-            lat: cn(r[2]),
-            lng: cn(r[3]),
+            lat: normCoordMX(r[2],r[3]).lat,
+            lng: normCoordMX(r[2],r[3]).lng,
             zona: String(r[4]||"").trim(),
             tipo: String(r[5]||"").trim().toLowerCase(),
             unidades: cn(r[6]),
