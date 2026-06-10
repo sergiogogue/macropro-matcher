@@ -7120,6 +7120,9 @@ function MacroProMatcher() {
       // Coordenadas del ancla: SOLO inventario propio
       // Nunca usar archivo de competencia para posicionar nuestros desarrollos
       // (la competencia son competidores, no nuestros lotes)
+      // Centro del desarrollo por MEDIANA (no promedio): resiste lotes con coords-placeholder.
+      // Un solo lote mal puesto (ej. placeholder de otra ciudad) no arruina la ubicación del ancla.
+      const mediana = arr => { const s=[...arr].sort((a,b)=>a-b); const m=Math.floor(s.length/2); return s.length%2 ? s[m] : (s[m-1]+s[m])/2; };
       const getCoordDesarrollo = (devName) => {
         if(!devName) return null;
         const lats=[],lngs=[];
@@ -7127,8 +7130,8 @@ function MacroProMatcher() {
           if((l.desarrollo||"")=== devName && l.lat && l.lng) { lats.push(l.lat); lngs.push(l.lng); }
         });
         if(lats.length>0) return {
-          lat:lats.reduce((a,b)=>a+b,0)/lats.length,
-          lng:lngs.reduce((a,b)=>a+b,0)/lngs.length,
+          lat:mediana(lats),
+          lng:mediana(lngs),
           fuente:"inventario"
         };
         return null; // sin coordenadas en inventario → no aparece como ancla
