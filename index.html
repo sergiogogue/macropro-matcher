@@ -179,6 +179,22 @@ async function waitForSupabase(timeoutMs = 10000) {
   return !!sb;
 }
 
+// Normaliza coordenadas al sistema de México (lat 10–35°N, lng −80…−120°O).
+// Detecta lat/lng invertidas y fuerza el signo correcto de la longitud (oeste = negativo).
+// El inventario ya hace esto; la competencia NO → competidores quedaban a miles de km y
+// nada entraba al radio del Benchmark. Devuelve {lat:null,lng:null} si no son coords válidas de MX.
+function normCoordMX(lat, lng) {
+  const num = v => { if(v===null||v===undefined||v==="") return null; const n=parseFloat(String(v).replace(/,/g,".")); return isNaN(n)?null:n; };
+  let a = num(lat), b = num(lng);
+  if(a===null || b===null) return {lat:null, lng:null};
+  const isLat = x => Math.abs(x)>=10 && Math.abs(x)<=35;
+  const isLng = x => Math.abs(x)>=80 && Math.abs(x)<=120;
+  // Si vienen invertidas (la "lat" parece longitud y la "lng" parece latitud) → intercambiar
+  if(!isLat(a) && isLat(b) && isLng(a)) { const t=a; a=b; b=t; }
+  if(!isLat(a) || !isLng(b)) return {lat:null, lng:null};
+  return { lat: Math.abs(a), lng: -Math.abs(b) }; // lat positiva, lng negativa (oeste)
+}
+
 // Genera clave única para un lote: ID Macrolote limpio (sin sufijo -rN interno)
 function loteKey(lote) {
   // El ID interno tiene formato "ML_001-r5" — quitamos el "-rN"
@@ -1367,7 +1383,12 @@ function MacroProMatcher() {
     }
   };
   // ── COMPETENCIA (Benchmark) ───────────────────────────────────────
-  const [competencia, setCompetenciaRaw] = useState(()=>loadPersisted(STORAGE_KEYS.competencia,[]));
+  // Re-normaliza al cargar las coords ya guardadas (los Excel viejos pudieron entrar con la
+  // longitud positiva o lat/lng invertidas → así funcionan sin re-subir el archivo).
+  const [competencia, setCompetenciaRaw] = useState(()=>{
+    const raw = loadPersisted(STORAGE_KEYS.competencia,[]);
+    return Array.isArray(raw) ? raw.map(c=>{ const co=normCoordMX(c.lat,c.lng); return {...c, lat:co.lat, lng:co.lng}; }) : [];
+  });
   const setCompetencia=(data)=>{setCompetenciaRaw(data);savePersisted(STORAGE_KEYS.competencia,data);};
   const competenciaFileRef = React.useRef(null);
   const [benchRadio, setBenchRadio] = useState(10);
@@ -2432,8 +2453,8 @@ function MacroProMatcher() {
           .map(r => ({
             nombre: String(r[0]||"").trim(),
             desarrollador: String(r[1]||"").trim(),
-            lat: cn(r[2]),
-            lng: cn(r[3]),
+            lat: normCoordMX(r[2],r[3]).lat,
+            lng: normCoordMX(r[2],r[3]).lng,
             zona: String(r[4]||"").trim(),
             tipo: String(r[5]||"").trim().toLowerCase(),
             unidades: cn(r[6]),
@@ -7099,6 +7120,9 @@ function MacroProMatcher() {
       // Coordenadas del ancla: SOLO inventario propio
       // Nunca usar archivo de competencia para posicionar nuestros desarrollos
       // (la competencia son competidores, no nuestros lotes)
+      // Centro del desarrollo por MEDIANA (no promedio): resiste lotes con coords-placeholder.
+      // Un solo lote mal puesto (ej. placeholder de otra ciudad) no arruina la ubicación del ancla.
+      const mediana = arr => { const s=[...arr].sort((a,b)=>a-b); const m=Math.floor(s.length/2); return s.length%2 ? s[m] : (s[m-1]+s[m])/2; };
       const getCoordDesarrollo = (devName) => {
         if(!devName) return null;
         const lats=[],lngs=[];
@@ -7106,8 +7130,8 @@ function MacroProMatcher() {
           if((l.desarrollo||"")=== devName && l.lat && l.lng) { lats.push(l.lat); lngs.push(l.lng); }
         });
         if(lats.length>0) return {
-          lat:lats.reduce((a,b)=>a+b,0)/lats.length,
-          lng:lngs.reduce((a,b)=>a+b,0)/lngs.length,
+          lat:mediana(lats),
+          lng:mediana(lngs),
           fuente:"inventario"
         };
         return null; // sin coordenadas en inventario → no aparece como ancla
@@ -7143,6 +7167,14 @@ function MacroProMatcher() {
         .filter(c => benchFiltroDesarrollador==="Todos" || (c.desarrollador||"—")===benchFiltroDesarrollador)
         .filter(c => !benchFiltroNombre.trim() || (c.nombre||"").toLowerCase().includes(benchFiltroNombre.trim().toLowerCase()))
         .sort((a,b)=>a.distancia-b.distancia);
+      // Competidor más cercano SIN límite de radio → detecta falta de cobertura en la zona del ancla
+      const competidorMasCercano = !ancla ? null : competencia
+        .filter(c => c.lat && c.lng && c.nombre.toLowerCase().trim() !== anclaNameNorm)
+        .map(c => ({nombre:c.nombre, zona:c.zona, distancia: haversineKm(ancla.lat,ancla.lng,c.lat,c.lng)}))
+        .sort((a,b)=>a.distancia-b.distancia)[0] || null;
+      // Sin cobertura: hay competencia cargada pero el más cercano está lejísimos (>50 km) del ancla
+      const sinCobertura = competidoresEnRadio.length===0 && competencia.length>0
+        && competidorMasCercano && competidorMasCercano.distancia > 50;
       // KPIs
       const conPrecio = competidoresEnRadio.filter(c=>(c.pm2_lote||c.pm2_dpto||c.pm2_casa)>0);
       const getPm2=(c)=>c.pm2_lote||c.pm2_dpto||c.pm2_casa||0;
@@ -7273,6 +7305,16 @@ function MacroProMatcher() {
             {kpi("Tu posición",pm2Ancla>0&&percentil!==null?`Percentil ${percentil}`:"—",pm2Ancla>0?`$${Math.round(pm2Ancla).toLocaleString("es-MX")}/m² · ${masBaratos} más baratos que tú`:"Sin precio promedio en inventario",B.navy)}
             {kpi("Ventaja en área",ventajaArea!==null?(ventajaArea>=0?`+${ventajaArea}%`:ventajaArea+"%"):"—",areaAnclaAvg>0?`${Math.round(areaAnclaAvg)} m² (tú) vs ${Math.round(areaMercado)} m² (mercado)`:"Sin áreas disponibles",B.green)}
           </div>
+          {/* ── AVISO: sin cobertura de competencia en la zona del ancla ── */}
+          {sinCobertura && (
+            <div style={{background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:12,padding:"14px 18px",marginBottom:18,display:"flex",gap:12,alignItems:"flex-start"}}>
+              <span style={{fontSize:20,lineHeight:1}}>⚠️</span>
+              <div style={{fontSize:13,color:"#92400e",lineHeight:1.5}}>
+                <b>No hay datos de competencia en la zona de {ancla?.nombre}.</b> El competidor más cercano del archivo cargado está a <b>{Math.round(competidorMasCercano.distancia).toLocaleString("es-MX")} km</b>{competidorMasCercano.zona?` (zona ${competidorMasCercano.zona})`:""}, fuera de cualquier radio razonable.<br/>
+                <span style={{color:"#a16207"}}>El Benchmark por radio solo funciona si cargas un archivo de competencia que cubra esta zona. Revisa también que las coordenadas de <b>{ancla?.nombre}</b> en el inventario sean correctas.</span>
+              </div>
+            </div>
+          )}
           {/* ── TABLA + HISTOGRAMA ── */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 340px",gap:14,marginBottom:18}}>
             {/* Tabla de competidores */}
@@ -7283,7 +7325,11 @@ function MacroProMatcher() {
               </div>
               {sorted.length===0 ? (
                 <div style={{padding:"32px",textAlign:"center",color:B.grey3,fontSize:13}}>
-                  Sin competidores en este radio y filtro de tipo.{competencia.length>0&&" Amplía el radio o activa más tipos."}
+                  {competencia.length===0
+                    ? "Carga el Excel de competencia para ver el benchmark."
+                    : sinCobertura
+                      ? `No hay competencia cargada para la zona de ${ancla?.nombre} (la más cercana está a ${Math.round(competidorMasCercano.distancia).toLocaleString("es-MX")} km).`
+                      : "Sin competidores en este radio y filtro de tipo. Amplía el radio o activa más tipos."}
                 </div>
               ) : (
                 <div style={{overflowX:"auto"}}>
