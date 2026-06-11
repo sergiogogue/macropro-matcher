@@ -1346,7 +1346,7 @@ function MacroProMatcher() {
   const [filterPipeline, setFilterPipeline] = React.useState("Todos");
   const [filterDesarrolloCRM, setFilterDesarrolloCRM] = React.useState("Todos");
   const [filterDesarrolloGlobal, setFilterDesarrolloGlobalRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterDesarrolloGlobal,"Todos"));
-  const setFilterDesarrolloGlobal=(v)=>{setFilterDesarrolloGlobalRaw(v);savePersisted(STORAGE_KEYS.filterDesarrolloGlobal,v);setBenchDesarrolloAncla("");setSelectedLotCRM(null);setFilterDesarrolloCRM("Todos");};
+  const setFilterDesarrolloGlobal=(v)=>{setFilterDesarrolloGlobalRaw(v);savePersisted(STORAGE_KEYS.filterDesarrolloGlobal,v);setBenchDesarrolloAncla("");setBenchTerrenoFocus("");setSelectedLotCRM(null);setFilterDesarrolloCRM("Todos");};
   const [filterDevCompania, setFilterDevCompaniaRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.filterDevCompania,"Todos"));
   const setFilterDevCompania=(v)=>{setFilterDevCompaniaRaw(v);savePersisted(STORAGE_KEYS.filterDevCompania,v);setSelectedLotCRM(null);setFilterDesarrolloCRM("Todos");};
   const [filterSemaforo, setFilterSemaforo] = React.useState("Todos");
@@ -1412,6 +1412,7 @@ function MacroProMatcher() {
   const competenciaFileRef = React.useRef(null);
   const [benchRadio, setBenchRadio] = useState(10);
   const [benchDesarrolloAncla, setBenchDesarrolloAncla] = useState("");
+  const [benchTerrenoFocus, setBenchTerrenoFocus] = useState(""); // tipo Corretaje: terreno enfocado (id) o "" = todos
   const [benchTipos, setBenchTipos] = useState([]);
   const [benchSortCol, setBenchSortCol] = useState("distancia");
   const [benchSortDir, setBenchSortDir] = useState("asc");
@@ -2697,7 +2698,7 @@ function MacroProMatcher() {
 
   // ─── VIEW HOME ────────────────────────────────────────────────────
   // ── LEAFLET MAP COMPONENT (proper component for hooks) ───────────
-  const LeafletMap = React.memo(({ancla, competitors, radio}) => {
+  const LeafletMap = React.memo(({ancla, anclas, competitors, radio}) => {
     const mapRef = React.useRef(null);
     const leafRef = React.useRef(null);
     React.useEffect(()=>{
@@ -2722,6 +2723,18 @@ function MacroProMatcher() {
       window.L.marker([ancla.lat,ancla.lng],{icon:anclaIcon,zIndexOffset:1000})
         .addTo(map)
         .bindPopup(`<div style="font-family:sans-serif;min-width:160px;padding:2px 0;"><b style="font-size:13px;color:#002B49;">${ancla.nombre}</b><br><span style="color:#C49A22;font-weight:700;font-size:12px;">Grupo Guía</span><br>${ancla.pm2_ancla>0?"<b>$"+Math.round(ancla.pm2_ancla).toLocaleString("es-MX")+"/m²</b>":""}</div>`);
+      // ── PINS DE TODOS LOS TERRENOS (modo Corretaje: cartera dispersa) ──
+      const terrenosPins = Array.isArray(anclas) ? anclas : [];
+      terrenosPins.forEach(t=>{
+        if(!t.lat||!t.lng) return;
+        if(Math.abs(t.lat-ancla.lat)<1e-9 && Math.abs(t.lng-ancla.lng)<1e-9) return; // el enfocado ya tiene su badge dorado
+        const tHtml=`<div style="display:inline-flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 5px rgba(0,0,0,0.3));">
+          <div style="background:#1e3a5f;color:#FFD978;border-radius:8px 8px 8px 2px;padding:3px 8px;font-size:10px;font-weight:800;white-space:nowrap;border:2px solid #fff;line-height:1.25;">★ ${String(t.nombre||"").slice(0,18)}</div>
+          <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid #1e3a5f;"></div>
+        </div>`;
+        window.L.marker([t.lat,t.lng],{icon:window.L.divIcon({html:tHtml,className:"",iconAnchor:[40,30]}),zIndexOffset:900}).addTo(map)
+          .bindPopup(`<div style="font-family:sans-serif;min-width:150px;"><b style="color:#002B49;">${t.nombre}</b><br><span style="color:#C49A22;font-weight:700;font-size:11px;">Grupo Guía · terreno</span>${t.pm2_ancla>0?'<br><b>$'+Math.round(t.pm2_ancla).toLocaleString("es-MX")+'/m²</b>':''}</div>`);
+      });
       // ── PINS COMPETIDORES ──
       competitors.forEach(c=>{
         if(!c.lat||!c.lng) return;
@@ -2753,11 +2766,17 @@ function MacroProMatcher() {
           .addTo(map)
           .bindPopup(`<div style="font-family:sans-serif;min-width:170px;padding:2px 0;"><b style="font-size:12px;color:#002B49;">${c.nombre}</b><br><span style="color:#888;font-size:11px;">${c.desarrollador||"—"}</span><br>${popupPm2}<br>${c.area_lote?`<span style="color:#555;font-size:11px;">${Math.round(c.area_lote)} m² prom</span><br>`:""}<span style="color:#999;font-size:10px;">${c.tipo} · ${c.distancia.toFixed(1)} km</span></div>`);
       });
+      // Encuadrar a todos los terrenos (modo Corretaje) para que se vean todos
+      if(terrenosPins.length>1){
+        const pts=terrenosPins.filter(t=>t.lat&&t.lng).map(t=>[t.lat,t.lng]);
+        (competitors||[]).forEach(c=>{ if(c.lat&&c.lng) pts.push([c.lat,c.lng]); });
+        if(pts.length>1){ try{ map.fitBounds(window.L.latLngBounds(pts).pad(0.15)); }catch(e){} }
+      }
       leafRef.current = map;
       // Force Leaflet to recalculate size after render
       setTimeout(()=>{ if(leafRef.current) leafRef.current.invalidateSize(); }, 100);
       return ()=>{ if(leafRef.current){leafRef.current.remove();leafRef.current=null;} };
-    },[ancla,competitors,radio]);
+    },[ancla,anclas,competitors,radio]);
     if(!window.L) return <div style={{background:"#f1f5f9",borderRadius:12,padding:"32px",textAlign:"center",color:"#64748b",fontSize:13}}>⏳ Cargando mapa…</div>;
     return <div ref={mapRef} style={{height:"calc(100vh - 280px)",minHeight:600,width:"100%",borderRadius:12,overflow:"hidden",border:"1px solid #e2e8f0"}}/>;
   });
@@ -2959,6 +2978,16 @@ function MacroProMatcher() {
                         toast("✅ "+lot.nombre+" → "+selectedClient.nombre+" asignado · sigue eligiendo");
                       }} style={{padding:"4px 10px",background:"#22c55e",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📌 Asignar a CRM</button>
                       <button onClick={()=>setSelectedLotDetail(lot)} style={{padding:"4px 10px",background:B.gold,color:B.navy,border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📋 Ficha</button>
+                      <button onClick={()=>{
+                        if(!selectedClient.sb_id){toast("⚠ El cliente no tiene id de nube. Usa 🔄 Sincronizar primero.");return;}
+                        const crm=crmData[lot.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
+                        if(!(crm.prospectos||[]).some(p=>p.nombre===selectedClient.nombre)){
+                          const prospectos=[...(crm.prospectos||[]),{nombre:selectedClient.nombre,empresa:selectedClient.empresa||"",telefono:"",email:"",pipeline:"Prospecto",nota:"Cotizando — "+new Date().toLocaleDateString("es-MX")}];
+                          updateCRM(lot.id,{prospectos,pipeline:crm.pipeline==="Disponible"?"Prospecto":crm.pipeline,lastContact:new Date().toISOString().slice(0,10)});
+                        }
+                        abrirCotizador(selectedClient.sb_id, loteKey(lot), slugDesarrollo(lot.desarrollo));
+                        toast("🧮 Abriendo cotizador · "+lot.nombre+" → "+selectedClient.nombre);
+                      }} style={{padding:"4px 12px",background:`linear-gradient(135deg,${B.gold},${B.goldD})`,color:B.navy,border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 8px rgba(196,154,34,0.45)"}} title="Asigna el lote al cliente y abre MacroCotizador">🧮 Cotizar</button>
                     </div>}
                   </div>
                 </div>
@@ -7268,21 +7297,33 @@ function MacroProMatcher() {
         : "";
       const anclaKey = benchDesarrolloAncla || anclaKeyFromFilter || (desarrollosConCoords[0]?.nombre||"");
       const ancla = desarrollosConCoords.find(d=>d.nombre===anclaKey) || desarrollosConCoords[0];
+      // ── MODO CORRETAJE: terrenos dispersos (coordenada por terreno) ──
+      // Si el desarrollo ancla es tipo Corretaje, se trabajan sus terrenos individuales.
+      const anclaLots = inventory.filter(l=>(l.desarrollo||"")===anclaKey && l.lat && l.lng);
+      const esCorretaje = anclaLots.length>0 && anclaLots.filter(l=>(l.tipo||"").toLowerCase()==="corretaje").length*2 >= anclaLots.length;
+      const terrenos = esCorretaje ? anclaLots.map(l=>({id:loteKey(l), nombre:l.nombre||l.id, lat:l.lat, lng:l.lng, pm2_ancla:Number(l.precio_m2)||0})) : [];
+      const terrenoFoco = esCorretaje ? (terrenos.find(t=>t.id===benchTerrenoFocus)||null) : null;
+      // Punto base para KPIs/mapa: terreno enfocado, o el ancla (mediana) normal
+      const anclaCalc = terrenoFoco ? {nombre:terrenoFoco.nombre, lat:terrenoFoco.lat, lng:terrenoFoco.lng, pm2_ancla:terrenoFoco.pm2_ancla} : ancla;
+      // Distancia: al terreno enfocado/ancla; en Corretaje "Todos" = distancia al terreno MÁS cercano
+      const distAncla = (c)=> (esCorretaje && !terrenoFoco && terrenos.length>0)
+        ? Math.min.apply(null, terrenos.map(t=>haversineKm(t.lat,t.lng,c.lat,c.lng)))
+        : haversineKm(anclaCalc.lat, anclaCalc.lng, c.lat, c.lng);
       // Competidores filtrados por radio y tipo — excluye el desarrollo ancla
       const anclaNameNorm = (ancla?.nombre||"").toLowerCase().trim();
-      const competidoresEnRadio = !ancla ? [] : competencia
+      const competidoresEnRadio = !anclaCalc ? [] : competencia
         .filter(c => c.lat && c.lng)
         .filter(c => benchTipos.length===0 || benchTipos.includes(c.tipo))
         .filter(c => c.nombre.toLowerCase().trim() !== anclaNameNorm) // excluir propio desarrollo
-        .map(c => ({...c, distancia: haversineKm(ancla.lat,ancla.lng,c.lat,c.lng)}))
+        .map(c => ({...c, distancia: distAncla(c)}))
         .filter(c => c.distancia <= benchRadio)
         .filter(c => benchFiltroDesarrollador==="Todos" || (c.desarrollador||"—")===benchFiltroDesarrollador)
         .filter(c => !benchFiltroNombre.trim() || (c.nombre||"").toLowerCase().includes(benchFiltroNombre.trim().toLowerCase()))
         .sort((a,b)=>a.distancia-b.distancia);
-      // Competidor más cercano SIN límite de radio → detecta falta de cobertura en la zona del ancla
-      const competidorMasCercano = !ancla ? null : competencia
+      // Competidor más cercano SIN límite de radio → detecta falta de cobertura en la zona
+      const competidorMasCercano = !anclaCalc ? null : competencia
         .filter(c => c.lat && c.lng && c.nombre.toLowerCase().trim() !== anclaNameNorm)
-        .map(c => ({nombre:c.nombre, zona:c.zona, distancia: haversineKm(ancla.lat,ancla.lng,c.lat,c.lng)}))
+        .map(c => ({nombre:c.nombre, zona:c.zona, distancia: distAncla(c)}))
         .sort((a,b)=>a.distancia-b.distancia)[0] || null;
       // Sin cobertura: hay competencia cargada pero el más cercano está lejísimos (>50 km) del ancla
       const sinCobertura = competidoresEnRadio.length===0 && competencia.length>0
@@ -7295,7 +7336,7 @@ function MacroProMatcher() {
       const promMercado = preciosPM2.length>0 ? preciosPM2.reduce((a,b)=>a+b,0)/preciosPM2.length : 0;
       const minMercado = preciosPM2.length>0 ? Math.min(...preciosPM2) : 0;
       const maxMercado = preciosPM2.length>0 ? Math.max(...preciosPM2) : 0;
-      const pm2Ancla = ancla?.pm2_ancla||0;
+      const pm2Ancla = anclaCalc?.pm2_ancla||0;
       const masBaratos = conPrecio.filter(c=>getPm2(c)<pm2Ancla).length;
       const percentil = conPrecio.length>0 ? Math.round(masBaratos/conPrecio.length*100) : null;
       const areasProm = competidoresEnRadio.filter(c=>c.area_lote>0).map(c=>c.area_lote);
@@ -7363,6 +7404,15 @@ function MacroProMatcher() {
                 })}
               </select>
             </div>
+            {esCorretaje && terrenos.length>0 && (
+              <div>
+                <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:5}}>Terreno (Corretaje)</div>
+                <select value={benchTerrenoFocus} onChange={e=>setBenchTerrenoFocus(e.target.value)} style={{...s.select,minWidth:200}}>
+                  <option value="">📍 Todos los terrenos ({terrenos.length})</option>
+                  {terrenos.map(t=><option key={t.id} value={t.id}>{t.nombre}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:5}}>Radio</div>
               <div style={{display:"flex",gap:4}}>
@@ -7383,7 +7433,7 @@ function MacroProMatcher() {
             </div>
             <div style={{marginLeft:"auto",fontSize:12,color:B.grey3,alignSelf:"center",textAlign:"right"}}>
               <b style={{color:B.navy,fontSize:18}}>{competidoresEnRadio.length}</b> competidores<br/>
-              <span style={{fontSize:10}}>en {benchRadio} km desde {anclaKey.split(" ")[0]||"ancla"}</span>
+              <span style={{fontSize:10}}>en {benchRadio} km {esCorretaje?(terrenoFoco?("del terreno "+terrenoFoco.nombre):("de cualquiera de los "+terrenos.length+" terrenos")):("desde "+(anclaKey.split(" ")[0]||"ancla"))}</span>
             </div>
           </div>
           {/* ── FILA 2: Filtros de desarrollador + nombre ── */}
@@ -7523,7 +7573,8 @@ function MacroProMatcher() {
             </div>
             {ancla ? (
               <LeafletMap
-                ancla={{...ancla}}
+                ancla={{...anclaCalc}}
+                anclas={esCorretaje?terrenos:undefined}
                 competitors={competidoresEnRadio}
                 radio={benchRadio}
               />
