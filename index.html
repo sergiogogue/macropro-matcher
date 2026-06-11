@@ -135,10 +135,12 @@ const SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
 // MacroCotizador (misma base Supabase, sin REST entre apps). Se abre con cliente+lote por URL.
 const MACROCOTIZADOR_URL = "https://macrocotizador.vercel.app";
 // Abre el cotizador ya armado con el cliente (cliente_id = clientes.id) y el lote (id normalizado).
+// Ambos parámetros son opcionales; se omiten si vienen vacíos.
 function abrirCotizador(clienteSbId, loteId) {
-  let url = MACROCOTIZADOR_URL + "/cotizar?cliente_id=" + encodeURIComponent(clienteSbId || "");
-  if (loteId) url += "&lote=" + encodeURIComponent(loteId);
-  window.open(url, "_blank");
+  const params = [];
+  if (clienteSbId) params.push("cliente_id=" + encodeURIComponent(clienteSbId));
+  if (loteId) params.push("lote=" + encodeURIComponent(loteId));
+  window.open(MACROCOTIZADOR_URL + "/cotizar" + (params.length ? "?" + params.join("&") : ""), "_blank");
 }
 // IMPORTANTE: usamos 'sb' (no 'supabase') para no colisionar con window.supabase (la librería)
 let sb = null;
@@ -1629,6 +1631,9 @@ function MacroProMatcher() {
   const [quickClientSearch,setQuickClientSearch]=React.useState("");
   const [quickClientFilterAsesor,setQuickClientFilterAsesor]=React.useState("Todos");
   const [quickClientNota,setQuickClientNota]=React.useState("");
+  // Selector "Cotizar este terreno": elige cliente y abre MacroCotizador ligado (cliente+lote)
+  const [cotizarLote,setCotizarLote]=React.useState(null); // {id, nombre, desarrollo}
+  const [cotizarSearch,setCotizarSearch]=React.useState("");
   const executeQuickClient=(cliente)=>{
     if(!quickClientLot||!cliente) return;
     setCrmData(prev=>{
@@ -4064,6 +4069,7 @@ function MacroProMatcher() {
                 <button style={{...s.btn("ghost"),fontSize:11,padding:"6px 11px",border:`1px solid ${B.grey2}`}} onClick={()=>setSelectedLotDetail(lot)}>📋 Ficha</button>
                 <button style={{padding:"6px 11px",background:"#2563AC",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>{setQuickAssignLot({id:lot.id,nombre:lot.nombre,desarrollo:lot.desarrollo});const existing=crmData[lot.id]&&crmData[lot.id].seguimientoAsesor;setQuickAssignForm({asesor:(existing&&existing.asesor)||"",notas:(existing&&existing.notas)||""});}}>👤 Seguir por asesor</button>
                 <button style={{padding:"6px 11px",background:"#16a34a",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>{setQuickClientLot({id:lot.id,nombre:lot.nombre,desarrollo:lot.desarrollo});setQuickClientSearch("");setQuickClientFilterAsesor("Todos");setQuickClientNota("");}}>👥 Asignar cliente</button>
+                <button style={{padding:"6px 11px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>{setCotizarLote({id:lot.id,nombre:lot.nombre,desarrollo:lot.desarrollo});setCotizarSearch("");}} title="Cotizar este terreno en MacroCotizador">🧮 Cotizar</button>
                 <button style={s.btn("sm")} onClick={()=>{setSelectedLot(lot);setView("matchLot");}}>🎯 Match</button>
                 {inventory.length>0&&<button style={{...s.btn("sm"),background:B.redL,color:B.red}} onClick={()=>deleteLot(lot.id)}>🗑</button>}
               </div>
@@ -12090,6 +12096,7 @@ Respuesta: [respuesta exacta, conversacional]
                   📍 Ver en Google Maps
                 </a>
               )}
+              <button style={{padding:"9px 16px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>{setCotizarLote({id:lot.id,nombre:lot.nombre,desarrollo:lot.desarrollo});setCotizarSearch("");onClose();}}>🧮 Cotizar este terreno</button>
               <button style={s.btn("primary")} onClick={()=>{setSelectedLot(lot);setView("matchLot");onClose();}}>🎯 Match con Clientes</button>
             </div>
           </div>
@@ -13096,6 +13103,64 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{display:"flex",justifyContent:"flex-end",marginTop:10}}>
                 <button onClick={()=>setQuickClientLot(null)} style={{background:"#fff",border:"1.5px solid #e5e7eb",color:"#4b5563",borderRadius:8,padding:"8px 16px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cerrar</button>
               </div>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* Modal: Cotizar este terreno → elegir cliente y abrir MacroCotizador ligado */}
+      {cotizarLote&&(() => {
+        const srcClients=clients.length>0?clients:DEMO_CLIENTS;
+        const q=cotizarSearch.trim().toLowerCase();
+        const filtrados=srcClients.filter(c=>{
+          if(!q) return true;
+          return (c.nombre&&c.nombre.toLowerCase().includes(q))
+            ||(c.empresa&&c.empresa.toLowerCase().includes(q))
+            ||(c.asesor&&c.asesor.toLowerCase().includes(q));
+        }).slice(0,50);
+        const loteIdNorm=loteKey({id:cotizarLote.id});
+        const cerrar=()=>{setCotizarLote(null);setCotizarSearch("");};
+        return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={e=>e.target===e.currentTarget&&cerrar()}>
+          <div style={{background:"#fff",borderRadius:14,width:"100%",maxWidth:640,maxHeight:"85vh",boxShadow:"0 20px 60px rgba(0,43,73,0.35)",overflow:"hidden",display:"flex",flexDirection:"column"}}>
+            <div style={{background:"linear-gradient(135deg,#5b21b6,#7c3aed)",padding:"18px 22px",flexShrink:0}}>
+              <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.85)",letterSpacing:2,textTransform:"uppercase",marginBottom:3,fontFamily:"'DM Sans',sans-serif"}}>🧮 Cotizar este terreno · elige el cliente</div>
+              <div style={{fontSize:17,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>{cotizarLote.nombre}</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.85)",marginTop:2,fontFamily:"'DM Sans',sans-serif"}}>{cotizarLote.desarrollo} · {loteIdNorm}</div>
+            </div>
+            <div style={{padding:"14px 20px",borderBottom:"1px solid #e5e7eb",flexShrink:0,background:"#f7f8fa"}}>
+              <input type="text" value={cotizarSearch} onChange={e=>setCotizarSearch(e.target.value)} autoFocus
+                placeholder="🔍 Buscar cliente por nombre, empresa, asesor..."
+                style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"}}/>
+              <div style={{fontSize:10,color:"#6b7280",marginTop:6,fontFamily:"'DM Sans',sans-serif"}}>{filtrados.length} cliente{filtrados.length!==1?"s":""}{srcClients.length>50?" (máx 50)":""} · Se abrirá el cotizador con el cliente y el lote ya seleccionados.</div>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"10px 16px"}}>
+              {filtrados.length===0&&<div style={{textAlign:"center",padding:40,color:"#9ca3af",fontSize:13,fontFamily:"'DM Sans',sans-serif"}}>Sin clientes con ese criterio</div>}
+              {filtrados.map((c,i)=>{
+                const sinId=!c.sb_id;
+                return (
+                  <div key={c.id||i} onClick={()=>{ if(sinId){toast("⚠ "+c.nombre+" no tiene id de nube. Usa 🔄 Sincronizar primero.");return;} abrirCotizador(c.sb_id,loteIdNorm); cerrar(); }}
+                    style={{background:"#fff",borderRadius:10,padding:"12px 14px",marginBottom:8,border:"1.5px solid #e5e7eb",cursor:sinId?"not-allowed":"pointer",opacity:sinId?0.55:1,transition:"all 0.15s"}}
+                    onMouseEnter={e=>{if(!sinId){e.currentTarget.style.borderColor="#7c3aed";e.currentTarget.style.background="#faf5ff";}}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor="#e5e7eb";e.currentTarget.style.background="#fff";}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <div style={{flex:"1 1 200px",minWidth:180}}>
+                        <div style={{fontSize:13,fontWeight:800,color:"#002B49",marginBottom:3,fontFamily:"'DM Sans',sans-serif"}}>{c.nombre}</div>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                          {c.empresa&&<span style={{fontSize:11,color:"#4b5563",fontFamily:"'DM Sans',sans-serif"}}>🏢 {c.empresa}</span>}
+                          {c.asesor&&<span style={{fontSize:10,color:"#2563AC",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>👤 {c.asesor}</span>}
+                        </div>
+                      </div>
+                      <span style={{padding:"6px 12px",background:sinId?"#d1d5db":"#7c3aed",color:"#fff",borderRadius:6,fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",flexShrink:0}}>{sinId?"sin id nube":"🧮 Cotizar →"}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{padding:"12px 20px",borderTop:"1px solid #e5e7eb",background:"#f7f8fa",flexShrink:0,display:"flex",justifyContent:"space-between",gap:10}}>
+              <button onClick={()=>{abrirCotizador("",loteIdNorm);cerrar();}} style={{background:"#fff",border:"1.5px solid #7c3aed",color:"#7c3aed",borderRadius:8,padding:"8px 14px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Abrir sin cliente (elijo en el cotizador)</button>
+              <button onClick={cerrar} style={{background:"#fff",border:"1.5px solid #e5e7eb",color:"#4b5563",borderRadius:8,padding:"8px 16px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cerrar</button>
             </div>
           </div>
         </div>
