@@ -10641,7 +10641,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% Uds</th>
                   <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Plan $</th>
                   <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Real $</th>
-                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% $</th>
+                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% Vta vs Meta</th>
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Estatus</th>
                 </tr>
               </thead>
@@ -10671,7 +10671,14 @@ Respuesta: [respuesta exacta, conversacional]
                       <td style={{padding:"11px 8px", textAlign:"center", fontWeight:700, color:cumU>=1?"#16a34a":cumU>=0.85?"#1e40af":cumU>=0.5?"#b45309":"#b91c1c"}}>{d.planUds===0?"—":(cumU*100).toFixed(0)+"%"}</td>
                       <td style={{padding:"11px 8px", textAlign:"right", color:B.grey4, fontSize:11}}>{fmtMiles(d.planMonto)}</td>
                       <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:d.realMonto>=d.planMonto&&d.planMonto>0?"#16a34a":B.navy, fontSize:11}}>{fmtMiles(d.realMonto)}</td>
-                      <td style={{padding:"11px 8px", textAlign:"center", fontWeight:700, color:cumM>=1?"#16a34a":cumM>=0.85?"#1e40af":cumM>=0.5?"#b45309":"#b91c1c"}}>{d.planMonto===0?"—":(cumM*100).toFixed(0)+"%"}</td>
+                      <td style={{padding:"11px 8px", textAlign:"center"}}>
+                        {d.planMonto===0 ? <span style={{color:B.grey3,fontWeight:700}}>—</span> : (()=>{ const cVM=cumM>=1?"#16a34a":cumM>=0.85?"#1e40af":cumM>=0.5?"#b45309":"#b91c1c"; return (
+                          <div style={{minWidth:66, margin:"0 auto"}}>
+                            <div style={{fontWeight:800, color:cVM, fontSize:12, marginBottom:3}}>{(cumM*100).toFixed(0)}%</div>
+                            <div style={{height:5, background:B.grey1, borderRadius:3, overflow:"hidden"}}><div style={{height:"100%", width:Math.min(100,cumM*100)+"%", background:cVM, borderRadius:3}}/></div>
+                          </div>
+                        ); })()}
+                      </td>
                       <td style={{padding:"11px 8px", textAlign:"center"}}>
                         <span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:est.bg, color:est.color, whiteSpace:"nowrap"}}>{est.icon} {est.label}</span>
                       </td>
@@ -10687,7 +10694,14 @@ Respuesta: [respuesta exacta, conversacional]
                   <td style={{padding:"12px 8px", textAlign:"center", color:B.gold}}>{resumen.planUdsTotal===0?"—":(resumen.cumplUds*100).toFixed(0)+"%"}</td>
                   <td style={{padding:"12px 8px", textAlign:"right", color:B.gold, fontSize:11}}>{fmtMiles(resumen.planMontoTotal)}</td>
                   <td style={{padding:"12px 8px", textAlign:"right", color:B.gold, fontSize:11}}>{fmtMiles(resumen.realMontoTotal)}</td>
-                  <td style={{padding:"12px 8px", textAlign:"center", color:B.gold}}>{resumen.planMontoTotal===0?"—":(resumen.cumplMonto*100).toFixed(0)+"%"}</td>
+                  <td style={{padding:"12px 8px", textAlign:"center"}}>
+                    {resumen.planMontoTotal===0?<span style={{color:B.gold}}>—</span>:(
+                      <div style={{minWidth:66, margin:"0 auto"}}>
+                        <div style={{fontWeight:800, color:B.gold, fontSize:12, marginBottom:3}}>{(resumen.cumplMonto*100).toFixed(0)}%</div>
+                        <div style={{height:5, background:"rgba(255,255,255,0.2)", borderRadius:3, overflow:"hidden"}}><div style={{height:"100%", width:Math.min(100,resumen.cumplMonto*100)+"%", background:B.gold, borderRadius:3}}/></div>
+                      </div>
+                    )}
+                  </td>
                   <td style={{padding:"12px 8px", textAlign:"center"}}>
                     <span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:estatusMonto.bg, color:estatusMonto.color}}>{estatusMonto.icon} {estatusMonto.label}</span>
                   </td>
