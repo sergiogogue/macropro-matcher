@@ -132,6 +132,14 @@ const { useState, useRef, useCallback } = React;
 // ═══════════════════════════════════════════════════════════════════
 const SUPABASE_URL = "https://xugrrabebphdelgwqnwc.supabase.co";
 const SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
+// MacroCotizador (misma base Supabase, sin REST entre apps). Se abre con cliente+lote por URL.
+const MACROCOTIZADOR_URL = "https://macrocotizador.vercel.app";
+// Abre el cotizador ya armado con el cliente (cliente_id = clientes.id) y el lote (id normalizado).
+function abrirCotizador(clienteSbId, loteId) {
+  let url = MACROCOTIZADOR_URL + "/cotizar?cliente_id=" + encodeURIComponent(clienteSbId || "");
+  if (loteId) url += "&lote=" + encodeURIComponent(loteId);
+  window.open(url, "_blank");
+}
 // IMPORTANTE: usamos 'sb' (no 'supabase') para no colisionar con window.supabase (la librería)
 let sb = null;
 function initSupabase() {
@@ -304,6 +312,7 @@ function clienteFromSupabase(r) {
   if (!r) return null;
   return {
     id: r.id_cliente || r.email || "",
+    sb_id: (r.id !== undefined && r.id !== null) ? r.id : null, // PK real de clientes (lo usa el cotizador: cotizaciones.cliente_id)
     nombre: r.nombre || "",
     empresa: r.empresa || "",
     asesor: r.asesor || "",
@@ -3322,6 +3331,10 @@ function MacroProMatcher() {
                 <div style={{display:"flex",gap:8,marginTop:12,paddingTop:10,borderTop:"1px solid "+B.grey1,flexWrap:"wrap"}}>
                   {isClientMode&&<button onClick={()=>setSelectedLotDetail(item)} style={{padding:"7px 14px",background:B.gold,color:B.navy,border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📋 Ficha</button>}
                   {isClientMode&&<button onClick={()=>{
+                    if(!subject.sb_id){toast("⚠ El cliente no tiene id de nube. Usa 🔄 Sincronizar primero.");return;}
+                    abrirCotizador(subject.sb_id, loteKey(item));
+                  }} style={{padding:"7px 14px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title="Abre MacroCotizador con este cliente y lote ya seleccionados">🧮 Cotizar este terreno</button>}
+                  {isClientMode&&<button onClick={()=>{
                     const crm=crmData[item.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
                     const yaExiste=(crm.prospectos||[]).some(p=>p.nombre===subject.nombre);
                     if(!yaExiste){
@@ -3846,6 +3859,82 @@ function MacroProMatcher() {
   };
 
   // ─── VIEW CLIENTS ─────────────────────────────────────────────────
+  // ─── COTIZACIONES DEL CLIENTE (solo lectura, desde MacroCotizador) ──────────
+  // Lee la tabla 'cotizaciones' (misma base Supabase) ligada por cliente_id = clientes.id.
+  // Carga perezosa al expandir; nunca inserta/edita (solo lectura).
+  const CotizacionesCliente = ({ cliente }) => {
+    const [open, setOpen] = React.useState(false);
+    const [cots, setCots] = React.useState(null); // null = aún no cargado
+    const [err, setErr] = React.useState(null);
+    const cid = (cliente && cliente.sb_id) ? cliente.sb_id : null;
+    React.useEffect(() => {
+      if (!open || cots !== null) return; // cargar una sola vez al abrir
+      if (!sb || !cid) { setCots([]); return; }
+      let alive = true;
+      (async () => {
+        try {
+          const { data, error } = await sb
+            .from('cotizaciones')
+            .select('id, created_at, precio_lista, precio_final, estatus, nombre_asesor, plan_seleccionado, uuid_publico, desarrollos ( nombre ), lotes ( nombre_terreno )')
+            .eq('cliente_id', cid)
+            .order('created_at', { ascending: false });
+          if (!alive) return;
+          if (error) { setErr(error.message); setCots([]); }
+          else setCots(Array.isArray(data) ? data : []);
+        } catch (e) { if (alive) { setErr(String((e && e.message) || e)); setCots([]); } }
+      })();
+      return () => { alive = false; };
+    }, [open]);
+    const fMXN = v => (v || v === 0) ? "$" + Number(v).toLocaleString("es-MX", { maximumFractionDigits: 0 }) : "—";
+    const fFecha = v => { try { return v ? new Date(v).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }) : "—"; } catch (e) { return "—"; } };
+    const planNombre = p => { if (!p) return "—"; if (typeof p === "string") return p; return p.nombre || p.plan || "—"; };
+    const th = { textAlign: "left", padding: "6px 8px", fontSize: 10, fontWeight: 700, color: B.grey3, textTransform: "uppercase", letterSpacing: 0.5, borderBottom: "1px solid " + B.grey1 };
+    const td = { padding: "6px 8px", fontSize: 12, color: B.navy, borderBottom: "1px solid " + B.grey1, whiteSpace: "nowrap" };
+    const count = Array.isArray(cots) ? cots.length : null;
+    return (
+      <div style={{ marginTop: 8 }}>
+        <button onClick={() => setOpen(o => !o)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px", background: open ? B.navy : B.blueL, color: open ? "#fff" : B.navy, border: "none", borderRadius: 7, cursor: "pointer", fontSize: 11, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>
+          {open ? "▾" : "▸"} 🧾 Cotizaciones
+          {count !== null && <span style={{ background: count > 0 ? B.gold : B.grey2, color: count > 0 ? B.navy : "#fff", borderRadius: 9, padding: "0 7px", fontSize: 10, fontWeight: 800 }}>{count}</span>}
+        </button>
+        {open && (
+          <div style={{ marginTop: 8, background: "#fff", border: "1px solid " + B.grey1, borderRadius: 10, overflow: "hidden" }}>
+            {!cid ? (
+              <div style={{ padding: "12px 14px", fontSize: 12, color: B.grey3 }}>Este cliente no tiene id de nube. Usa <b>🔄 Sincronizar</b> para verlo cotizaciones.</div>
+            ) : cots === null ? (
+              <div style={{ padding: "12px 14px", fontSize: 12, color: B.grey3 }}>Cargando cotizaciones…</div>
+            ) : err ? (
+              <div style={{ padding: "12px 14px", fontSize: 12, color: B.red }}>Error: {err}</div>
+            ) : cots.length === 0 ? (
+              <div style={{ padding: "12px 14px", fontSize: 12, color: B.grey3 }}>Sin cotizaciones registradas para este cliente.</div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr>
+                    <th style={th}>Fecha</th><th style={th}>Desarrollo · Lote</th><th style={th}>Plan</th>
+                    <th style={{ ...th, textAlign: "right" }}>Precio final</th><th style={th}>Estatus</th><th style={th}>Asesor</th>
+                  </tr></thead>
+                  <tbody>
+                    {cots.map(c => (
+                      <tr key={c.id}>
+                        <td style={td}>{fFecha(c.created_at)}</td>
+                        <td style={td}><b>{(c.desarrollos && c.desarrollos.nombre) || "—"}</b>{(c.lotes && c.lotes.nombre_terreno) ? " · " + c.lotes.nombre_terreno : ""}</td>
+                        <td style={td}>{planNombre(c.plan_seleccionado)}</td>
+                        <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{fMXN(c.precio_final)}</td>
+                        <td style={td}><Tag label={c.estatus || "—"} color={B.blue} bg={B.blueL} /></td>
+                        <td style={td}>{c.nombre_asesor || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const ViewClients = () => {
     const [fSearch,setFSearch]=useState("");
     const [fStatus,setFStatus]=useState("Todos");
@@ -3890,6 +3979,7 @@ function MacroProMatcher() {
                 {clients.length>0&&<button style={{...s.btn("sm"),background:B.redL,color:B.red}} onClick={()=>deleteClient(c.id)}>🗑 Eliminar</button>}
               </div>
             </div>
+            <CotizacionesCliente cliente={c}/>
           </div>
         ))}
         {filtered.length===0&&<div style={{textAlign:"center",padding:40,color:B.grey3,fontSize:14}}>Sin clientes con estos filtros</div>}
