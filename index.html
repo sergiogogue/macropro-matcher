@@ -134,11 +134,19 @@ const SUPABASE_URL = "https://xugrrabebphdelgwqnwc.supabase.co";
 const SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
 // MacroCotizador (misma base Supabase, sin REST entre apps). Se abre con cliente+lote por URL.
 const MACROCOTIZADOR_URL = "https://macrocotizador.vercel.app";
-// Abre el cotizador ya armado con el cliente (cliente_id = clientes.id) y el lote (id normalizado).
-// Ambos parámetros son opcionales; se omiten si vienen vacíos.
-function abrirCotizador(clienteSbId, loteId) {
+// Slug del desarrollo a partir del nombre (best-effort para desarrollos.slug; ej. "Kulkana"→"kulkana").
+// Si no empata exacto, el cotizador deriva el desarrollo desde el lote (sin romper).
+function slugDesarrollo(nombre) {
+  return (nombre || "").toString().trim().toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "") // quitar acentos
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+// Abre el cotizador ya armado con cliente (cliente_id = clientes.id), desarrollo (slug) y lote (id de la tabla).
+// Todos los parámetros son opcionales; se omiten si vienen vacíos.
+function abrirCotizador(clienteSbId, loteId, desarrolloSlug) {
   const params = [];
   if (clienteSbId) params.push("cliente_id=" + encodeURIComponent(clienteSbId));
+  if (desarrolloSlug) params.push("desarrollo=" + encodeURIComponent(desarrolloSlug));
   if (loteId) params.push("lote=" + encodeURIComponent(loteId));
   window.open(MACROCOTIZADOR_URL + "/cotizar" + (params.length ? "?" + params.join("&") : ""), "_blank");
 }
@@ -3337,8 +3345,16 @@ function MacroProMatcher() {
                   {isClientMode&&<button onClick={()=>setSelectedLotDetail(item)} style={{padding:"7px 14px",background:B.gold,color:B.navy,border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📋 Ficha</button>}
                   {isClientMode&&<button onClick={()=>{
                     if(!subject.sb_id){toast("⚠ El cliente no tiene id de nube. Usa 🔄 Sincronizar primero.");return;}
-                    abrirCotizador(subject.sb_id, loteKey(item));
-                  }} style={{padding:"7px 14px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title="Abre MacroCotizador con este cliente y lote ya seleccionados">🧮 Cotizar este terreno</button>}
+                    // 1) Asignar el lote al CRM del cliente (misma lógica que "Asignar a CRM") → al Kanban
+                    const crm=crmData[item.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
+                    if(!(crm.prospectos||[]).some(p=>p.nombre===subject.nombre)){
+                      const prospectos=[...(crm.prospectos||[]),{nombre:subject.nombre,empresa:subject.empresa||"",telefono:"",email:"",pipeline:"Prospecto",nota:"Cotizando — "+new Date().toLocaleDateString("es-MX")}];
+                      updateCRM(item.id,{prospectos,pipeline:crm.pipeline==="Disponible"?"Prospecto":crm.pipeline,lastContact:new Date().toISOString().slice(0,10)});
+                    }
+                    // 2) Abrir el cotizador con cliente + desarrollo (slug) + lote
+                    abrirCotizador(subject.sb_id, loteKey(item), slugDesarrollo(item.desarrollo));
+                    toast("🧮 Abriendo cotizador · "+item.nombre+" → "+subject.nombre);
+                  }} style={{padding:"7px 16px",background:`linear-gradient(135deg,${B.gold},${B.goldD})`,color:B.navy,border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:800,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 10px rgba(196,154,34,0.45)"}} title="Asigna el lote al cliente y abre MacroCotizador ya armado (cliente + desarrollo + lote)">🧮 Cotizar</button>}
                   {isClientMode&&<button onClick={()=>{
                     const crm=crmData[item.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
                     const yaExiste=(crm.prospectos||[]).some(p=>p.nombre===subject.nombre);
@@ -13140,7 +13156,7 @@ Respuesta: [respuesta exacta, conversacional]
               {filtrados.map((c,i)=>{
                 const sinId=!c.sb_id;
                 return (
-                  <div key={c.id||i} onClick={()=>{ if(sinId){toast("⚠ "+c.nombre+" no tiene id de nube. Usa 🔄 Sincronizar primero.");return;} abrirCotizador(c.sb_id,loteIdNorm); cerrar(); }}
+                  <div key={c.id||i} onClick={()=>{ if(sinId){toast("⚠ "+c.nombre+" no tiene id de nube. Usa 🔄 Sincronizar primero.");return;} abrirCotizador(c.sb_id,loteIdNorm,slugDesarrollo(cotizarLote.desarrollo)); cerrar(); }}
                     style={{background:"#fff",borderRadius:10,padding:"12px 14px",marginBottom:8,border:"1.5px solid #e5e7eb",cursor:sinId?"not-allowed":"pointer",opacity:sinId?0.55:1,transition:"all 0.15s"}}
                     onMouseEnter={e=>{if(!sinId){e.currentTarget.style.borderColor="#7c3aed";e.currentTarget.style.background="#faf5ff";}}}
                     onMouseLeave={e=>{e.currentTarget.style.borderColor="#e5e7eb";e.currentTarget.style.background="#fff";}}>
@@ -13159,7 +13175,7 @@ Respuesta: [respuesta exacta, conversacional]
               })}
             </div>
             <div style={{padding:"12px 20px",borderTop:"1px solid #e5e7eb",background:"#f7f8fa",flexShrink:0,display:"flex",justifyContent:"space-between",gap:10}}>
-              <button onClick={()=>{abrirCotizador("",loteIdNorm);cerrar();}} style={{background:"#fff",border:"1.5px solid #7c3aed",color:"#7c3aed",borderRadius:8,padding:"8px 14px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Abrir sin cliente (elijo en el cotizador)</button>
+              <button onClick={()=>{abrirCotizador("",loteIdNorm,slugDesarrollo(cotizarLote.desarrollo));cerrar();}} style={{background:"#fff",border:"1.5px solid #7c3aed",color:"#7c3aed",borderRadius:8,padding:"8px 14px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Abrir sin cliente (elijo en el cotizador)</button>
               <button onClick={cerrar} style={{background:"#fff",border:"1.5px solid #e5e7eb",color:"#4b5563",borderRadius:8,padding:"8px 16px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cerrar</button>
             </div>
           </div>
