@@ -2978,6 +2978,16 @@ function MacroProMatcher() {
                         toast("✅ "+lot.nombre+" → "+selectedClient.nombre+" asignado · sigue eligiendo");
                       }} style={{padding:"4px 10px",background:"#22c55e",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📌 Asignar a CRM</button>
                       <button onClick={()=>setSelectedLotDetail(lot)} style={{padding:"4px 10px",background:B.gold,color:B.navy,border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📋 Ficha</button>
+                      <button onClick={()=>{
+                        if(!selectedClient.sb_id){toast("⚠ El cliente no tiene id de nube. Usa 🔄 Sincronizar primero.");return;}
+                        const crm=crmData[lot.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
+                        if(!(crm.prospectos||[]).some(p=>p.nombre===selectedClient.nombre)){
+                          const prospectos=[...(crm.prospectos||[]),{nombre:selectedClient.nombre,empresa:selectedClient.empresa||"",telefono:"",email:"",pipeline:"Prospecto",nota:"Cotizando — "+new Date().toLocaleDateString("es-MX")}];
+                          updateCRM(lot.id,{prospectos,pipeline:crm.pipeline==="Disponible"?"Prospecto":crm.pipeline,lastContact:new Date().toISOString().slice(0,10)});
+                        }
+                        abrirCotizador(selectedClient.sb_id, loteKey(lot), slugDesarrollo(lot.desarrollo));
+                        toast("🧮 Abriendo cotizador · "+lot.nombre+" → "+selectedClient.nombre);
+                      }} style={{padding:"4px 12px",background:`linear-gradient(135deg,${B.gold},${B.goldD})`,color:B.navy,border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 8px rgba(196,154,34,0.45)"}} title="Asigna el lote al cliente y abre MacroCotizador">🧮 Cotizar</button>
                     </div>}
                   </div>
                 </div>
