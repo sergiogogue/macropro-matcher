@@ -590,16 +590,7 @@ function loadMetas(){
   try{
     const r=localStorage.getItem(METAS_KEY);
     if(!r) return {};
-    const data=JSON.parse(r);
-    const allMontos=Object.values(data).flatMap(d=>[...(d?.plan?.monto||[]),...(d?.real?.monto||[])]).filter(v=>v>0);
-    const maxMonto=allMontos.length>0?Math.max(...allMontos):0;
-    if(maxMonto>0&&maxMonto<100000){
-      Object.values(data).forEach(d=>{
-        if(d?.plan?.monto) d.plan.monto=d.plan.monto.map(v=>(v||0)*1000000);
-        if(d?.real?.monto) d.real.monto=d.real.monto.map(v=>(v||0)*1000000);
-      });
-    }
-    return data;
+    return JSON.parse(r); // montos se guardan tal cual del Excel (en miles MXN) — sin inflar
   }catch(e){return {};}
 }
 function saveMetas(d){try{localStorage.setItem(METAS_KEY,JSON.stringify(d));}catch(e){}}
@@ -10639,8 +10630,8 @@ Respuesta: [respuesta exacta, conversacional]
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Plan U</th>
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Real U</th>
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% Uds</th>
-                  <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Plan $</th>
-                  <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Real $</th>
+                  <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Plan $ <span style={{fontSize:8,opacity:0.7}}>(miles)</span></th>
+                  <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Real $ <span style={{fontSize:8,opacity:0.7}}>(miles)</span></th>
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% Vta vs Meta</th>
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Estatus</th>
                 </tr>
@@ -12441,7 +12432,7 @@ Respuesta: [respuesta exacta, conversacional]
           const isMonto=c2.includes("$");
           const isUds=!isMonto&&c2.toLowerCase().startsWith("ud");
           if(!isMonto&&!isUds) continue;
-          mesColsC.forEach((col,m)=>{ if(col>=0&&col<row.length){ const v=toNumCap(row[col]); if(isMonto) resC[curC][labelC].monto[m]=v*1000000; else resC[curC][labelC].uds[m]=v; } });
+          mesColsC.forEach((col,m)=>{ if(col>=0&&col<row.length){ const v=toNumCap(row[col]); if(isMonto) resC[curC][labelC].monto[m]=v; else resC[curC][labelC].uds[m]=v; } });
         }
         if(Object.keys(resC).length>0){
           const catNm=wb.SheetNames.find(s=>s.toLowerCase().includes("catálogo")||s.toLowerCase().includes("catalogo"));
@@ -12490,7 +12481,7 @@ Respuesta: [respuesta exacta, conversacional]
           if(!result[proyecto]) result[proyecto]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
           const destKey=rowTipo==="real"?"real":"plan";
           mesIdx.forEach((col,m)=>{
-            if(col>=0&&col<row.length) result[proyecto][destKey][tipo][m]=tipo==="monto"?toNum(row[col])*1000000:toNum(row[col]);
+            if(col>=0&&col<row.length) result[proyecto][destKey][tipo][m]=toNum(row[col]); // monto crudo (miles MXN), sin inflar
           });
         }
       };
