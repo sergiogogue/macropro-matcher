@@ -2970,14 +2970,13 @@ function MacroProMatcher() {
                       }} style={{padding:"4px 10px",background:"#22c55e",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📌 Asignar a CRM</button>
                       <button onClick={()=>setSelectedLotDetail(lot)} style={{padding:"4px 10px",background:B.gold,color:B.navy,border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📋 Ficha</button>
                       <button onClick={()=>{
-                        if(!selectedClient.sb_id){toast("⚠ El cliente no tiene id de nube. Usa 🔄 Sincronizar primero.");return;}
                         const crm=crmData[lot.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
                         if(!(crm.prospectos||[]).some(p=>p.nombre===selectedClient.nombre)){
                           const prospectos=[...(crm.prospectos||[]),{nombre:selectedClient.nombre,empresa:selectedClient.empresa||"",telefono:"",email:"",pipeline:"Prospecto",nota:"Cotizando — "+new Date().toLocaleDateString("es-MX")}];
                           updateCRM(lot.id,{prospectos,pipeline:crm.pipeline==="Disponible"?"Prospecto":crm.pipeline,lastContact:new Date().toISOString().slice(0,10)});
                         }
-                        abrirCotizador(selectedClient.sb_id, loteKey(lot), slugDesarrollo(lot.desarrollo));
-                        toast("🧮 Abriendo cotizador · "+lot.nombre+" → "+selectedClient.nombre);
+                        abrirCotizador(selectedClient.sb_id||"", loteKey(lot), slugDesarrollo(lot.desarrollo));
+                        toast(selectedClient.sb_id?("🧮 Abriendo cotizador · "+lot.nombre+" → "+selectedClient.nombre):("🧮 Cotizador abierto · liga el cliente allá (sin id de nube). Asignado al CRM"));
                       }} style={{padding:"4px 12px",background:`linear-gradient(135deg,${B.gold},${B.goldD})`,color:B.navy,border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 8px rgba(196,154,34,0.45)"}} title="Asigna el lote al cliente y abre MacroCotizador">🧮 Cotizar</button>
                     </div>}
                   </div>
@@ -3364,16 +3363,15 @@ function MacroProMatcher() {
                 <div style={{display:"flex",gap:8,marginTop:12,paddingTop:10,borderTop:"1px solid "+B.grey1,flexWrap:"wrap"}}>
                   {isClientMode&&<button onClick={()=>setSelectedLotDetail(item)} style={{padding:"7px 14px",background:B.gold,color:B.navy,border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📋 Ficha</button>}
                   {isClientMode&&<button onClick={()=>{
-                    if(!subject.sb_id){toast("⚠ El cliente no tiene id de nube. Usa 🔄 Sincronizar primero.");return;}
                     // 1) Asignar el lote al CRM del cliente (misma lógica que "Asignar a CRM") → al Kanban
                     const crm=crmData[item.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
                     if(!(crm.prospectos||[]).some(p=>p.nombre===subject.nombre)){
                       const prospectos=[...(crm.prospectos||[]),{nombre:subject.nombre,empresa:subject.empresa||"",telefono:"",email:"",pipeline:"Prospecto",nota:"Cotizando — "+new Date().toLocaleDateString("es-MX")}];
                       updateCRM(item.id,{prospectos,pipeline:crm.pipeline==="Disponible"?"Prospecto":crm.pipeline,lastContact:new Date().toISOString().slice(0,10)});
                     }
-                    // 2) Abrir el cotizador con cliente + desarrollo (slug) + lote
-                    abrirCotizador(subject.sb_id, loteKey(item), slugDesarrollo(item.desarrollo));
-                    toast("🧮 Abriendo cotizador · "+item.nombre+" → "+subject.nombre);
+                    // 2) Abrir el cotizador con cliente (si tiene id de nube) + desarrollo (slug) + lote
+                    abrirCotizador(subject.sb_id||"", loteKey(item), slugDesarrollo(item.desarrollo));
+                    toast(subject.sb_id?("🧮 Abriendo cotizador · "+item.nombre+" → "+subject.nombre):("🧮 Cotizador abierto · liga el cliente allá (sin id de nube). Asignado al CRM"));
                   }} style={{padding:"7px 16px",background:`linear-gradient(135deg,${B.gold},${B.goldD})`,color:B.navy,border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:800,fontFamily:"'DM Sans',sans-serif",boxShadow:"0 2px 10px rgba(196,154,34,0.45)"}} title="Asigna el lote al cliente y abre MacroCotizador ya armado (cliente + desarrollo + lote)">🧮 Cotizar</button>}
                   {isClientMode&&<button onClick={()=>{
                     const crm=crmData[item.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
@@ -13261,9 +13259,9 @@ Respuesta: [respuesta exacta, conversacional]
               {filtrados.map((c,i)=>{
                 const sinId=!c.sb_id;
                 return (
-                  <div key={c.id||i} onClick={()=>{ if(sinId){toast("⚠ "+c.nombre+" no tiene id de nube. Usa 🔄 Sincronizar primero.");return;} abrirCotizador(c.sb_id,loteIdNorm,slugDesarrollo(cotizarLote.desarrollo)); cerrar(); }}
-                    style={{background:"#fff",borderRadius:10,padding:"12px 14px",marginBottom:8,border:"1.5px solid #e5e7eb",cursor:sinId?"not-allowed":"pointer",opacity:sinId?0.55:1,transition:"all 0.15s"}}
-                    onMouseEnter={e=>{if(!sinId){e.currentTarget.style.borderColor="#7c3aed";e.currentTarget.style.background="#faf5ff";}}}
+                  <div key={c.id||i} onClick={()=>{ abrirCotizador(c.sb_id||"",loteIdNorm,slugDesarrollo(cotizarLote.desarrollo)); if(sinId) toast("🧮 Cotizador abierto · liga el cliente allá ("+c.nombre+" sin id de nube)"); cerrar(); }}
+                    style={{background:"#fff",borderRadius:10,padding:"12px 14px",marginBottom:8,border:"1.5px solid #e5e7eb",cursor:"pointer",transition:"all 0.15s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor="#7c3aed";e.currentTarget.style.background="#faf5ff";}}
                     onMouseLeave={e=>{e.currentTarget.style.borderColor="#e5e7eb";e.currentTarget.style.background="#fff";}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                       <div style={{flex:"1 1 200px",minWidth:180}}>
@@ -13273,7 +13271,7 @@ Respuesta: [respuesta exacta, conversacional]
                           {c.asesor&&<span style={{fontSize:10,color:"#2563AC",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>👤 {c.asesor}</span>}
                         </div>
                       </div>
-                      <span style={{padding:"6px 12px",background:sinId?"#d1d5db":"#7c3aed",color:"#fff",borderRadius:6,fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",flexShrink:0}}>{sinId?"sin id nube":"🧮 Cotizar →"}</span>
+                      <span style={{padding:"6px 12px",background:sinId?"#9ca3af":"#7c3aed",color:"#fff",borderRadius:6,fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",flexShrink:0}} title={sinId?"Se abre sin ligar (sin id de nube). Sincroniza para ligarlo.":""}>{sinId?"🧮 Cotizar (sin liga) →":"🧮 Cotizar →"}</span>
                     </div>
                   </div>
                 );
