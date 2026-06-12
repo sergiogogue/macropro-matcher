@@ -10641,7 +10641,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% Uds</th>
                   <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Plan $</th>
                   <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Real $</th>
-                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% $</th>
+                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% Vta vs Meta</th>
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Estatus</th>
                 </tr>
               </thead>
@@ -10671,7 +10671,14 @@ Respuesta: [respuesta exacta, conversacional]
                       <td style={{padding:"11px 8px", textAlign:"center", fontWeight:700, color:cumU>=1?"#16a34a":cumU>=0.85?"#1e40af":cumU>=0.5?"#b45309":"#b91c1c"}}>{d.planUds===0?"—":(cumU*100).toFixed(0)+"%"}</td>
                       <td style={{padding:"11px 8px", textAlign:"right", color:B.grey4, fontSize:11}}>{fmtMiles(d.planMonto)}</td>
                       <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:d.realMonto>=d.planMonto&&d.planMonto>0?"#16a34a":B.navy, fontSize:11}}>{fmtMiles(d.realMonto)}</td>
-                      <td style={{padding:"11px 8px", textAlign:"center", fontWeight:700, color:cumM>=1?"#16a34a":cumM>=0.85?"#1e40af":cumM>=0.5?"#b45309":"#b91c1c"}}>{d.planMonto===0?"—":(cumM*100).toFixed(0)+"%"}</td>
+                      <td style={{padding:"11px 8px", textAlign:"center"}}>
+                        {d.planMonto===0 ? <span style={{color:B.grey3,fontWeight:700}}>—</span> : (()=>{ const cVM=cumM>=1?"#16a34a":cumM>=0.85?"#1e40af":cumM>=0.5?"#b45309":"#b91c1c"; return (
+                          <div style={{minWidth:66, margin:"0 auto"}}>
+                            <div style={{fontWeight:800, color:cVM, fontSize:12, marginBottom:3}}>{(cumM*100).toFixed(0)}%</div>
+                            <div style={{height:5, background:B.grey1, borderRadius:3, overflow:"hidden"}}><div style={{height:"100%", width:Math.min(100,cumM*100)+"%", background:cVM, borderRadius:3}}/></div>
+                          </div>
+                        ); })()}
+                      </td>
                       <td style={{padding:"11px 8px", textAlign:"center"}}>
                         <span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:est.bg, color:est.color, whiteSpace:"nowrap"}}>{est.icon} {est.label}</span>
                       </td>
@@ -10687,7 +10694,14 @@ Respuesta: [respuesta exacta, conversacional]
                   <td style={{padding:"12px 8px", textAlign:"center", color:B.gold}}>{resumen.planUdsTotal===0?"—":(resumen.cumplUds*100).toFixed(0)+"%"}</td>
                   <td style={{padding:"12px 8px", textAlign:"right", color:B.gold, fontSize:11}}>{fmtMiles(resumen.planMontoTotal)}</td>
                   <td style={{padding:"12px 8px", textAlign:"right", color:B.gold, fontSize:11}}>{fmtMiles(resumen.realMontoTotal)}</td>
-                  <td style={{padding:"12px 8px", textAlign:"center", color:B.gold}}>{resumen.planMontoTotal===0?"—":(resumen.cumplMonto*100).toFixed(0)+"%"}</td>
+                  <td style={{padding:"12px 8px", textAlign:"center"}}>
+                    {resumen.planMontoTotal===0?<span style={{color:B.gold}}>—</span>:(
+                      <div style={{minWidth:66, margin:"0 auto"}}>
+                        <div style={{fontWeight:800, color:B.gold, fontSize:12, marginBottom:3}}>{(resumen.cumplMonto*100).toFixed(0)}%</div>
+                        <div style={{height:5, background:"rgba(255,255,255,0.2)", borderRadius:3, overflow:"hidden"}}><div style={{height:"100%", width:Math.min(100,resumen.cumplMonto*100)+"%", background:B.gold, borderRadius:3}}/></div>
+                      </div>
+                    )}
+                  </td>
                   <td style={{padding:"12px 8px", textAlign:"center"}}>
                     <span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:estatusMonto.bg, color:estatusMonto.color}}>{estatusMonto.icon} {estatusMonto.label}</span>
                   </td>
@@ -10848,6 +10862,18 @@ Respuesta: [respuesta exacta, conversacional]
                     <div style={{fontSize:10, color:"rgba(255,255,255,0.65)", marginTop:2, marginBottom:6}}>Tu objetivo de referencia</div>
                     <div style={{fontSize:22, fontWeight:800, color:B.gold, fontFamily:"'Playfair Display',serif"}}>{fmtVal(planTotal)}</div>
                     <div style={{fontSize:10, color:"rgba(255,255,255,0.7)", marginTop:4}}>{mesesTranscurridos} meses transcurridos · {12-mesesTranscurridos} restantes</div>
+                    {(() => { const pctMeta = planTotal>0?Math.round(realTotal/planTotal*100):0; const cMeta = pctMeta>=100?"#4ade80":pctMeta>=50?B.gold:"#fca5a5"; return (
+                      <div style={{marginTop:10, paddingTop:10, borderTop:"1px solid rgba(255,255,255,0.15)"}}>
+                        <div style={{display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:5}}>
+                          <span style={{fontSize:10, color:"rgba(255,255,255,0.7)", fontWeight:700, textTransform:"uppercase", letterSpacing:0.5}}>% Ventas vs meta</span>
+                          <span style={{fontSize:20, fontWeight:800, color:cMeta, fontFamily:"'Playfair Display',serif"}}>{pctMeta}%</span>
+                        </div>
+                        <div style={{height:7, background:"rgba(255,255,255,0.15)", borderRadius:4, overflow:"hidden"}}>
+                          <div style={{height:"100%", width:Math.min(100,pctMeta)+"%", background:cMeta, borderRadius:4, transition:"width 0.4s"}}/>
+                        </div>
+                        <div style={{fontSize:9, color:"rgba(255,255,255,0.6)", marginTop:4}}>{fmtVal(realTotal)} vendido de {fmtVal(planTotal)}</div>
+                      </div>
+                    ); })()}
                   </div>
                 </div>
                 {/* Brecha analítica */}
@@ -12387,6 +12413,43 @@ Respuesta: [respuesta exacta, conversacional]
     const [importing, setImporting] = React.useState(false);
 
     const parseMetasExcel = (wb) => {
+      // ── FUENTE PREFERIDA: hoja "📋 Captura Ventas" ──
+      // Plan = filas "Plan Desarr." · Real = filas "✏️ Venta Real". Ahí los nombres están
+      // correctos (ej. "Gran Valle" sin typo) → evita el desarrollo duplicado.
+      const MESES_CAP=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+      const toNumCap = v=>parseFloat(String(v||"0").replace(/[$,\s]/g,""))||0;
+      const capName = wb.SheetNames.find(s=>{ const n=s.toLowerCase(); return n.includes("captura")&&n.includes("venta"); });
+      if(capName){
+        const rawC=XLSX.utils.sheet_to_json(wb.Sheets[capName],{defval:"",header:1});
+        const resC={};
+        let curC=null, mesColsC=null, labelC=null;
+        for(let i=0;i<rawC.length;i++){
+          const row=rawC[i]||[];
+          const c1=String(row[1]||"").trim();
+          const c2=String(row[2]||"").trim();
+          // Header de bloque: col2 = "Inv: N" y meses en cols 3..; nombre del desarrollo en col1
+          if(/^inv\b/i.test(c2)||/^inv:/i.test(c2)){
+            mesColsC=MESES_CAP.map(m=>row.findIndex((h,idx)=>idx>=3&&String(h||"").toLowerCase().startsWith(m)));
+            curC=c1||null;
+            if(curC&&!resC[curC]) resC[curC]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
+            labelC=null; continue;
+          }
+          if(!curC||!mesColsC) continue;
+          // col1 fija el bloque: "Plan Desarr."→plan, "Venta Real"→real; otras (Meta SGG, Diferencia)→ignorar
+          if(c1){ const l=c1.toLowerCase(); labelC = l.includes("plan desarr")?"plan" : (l.includes("venta re")?"real":null); }
+          if(!labelC) continue;
+          const isMonto=c2.includes("$");
+          const isUds=!isMonto&&c2.toLowerCase().startsWith("ud");
+          if(!isMonto&&!isUds) continue;
+          mesColsC.forEach((col,m)=>{ if(col>=0&&col<row.length){ const v=toNumCap(row[col]); if(isMonto) resC[curC][labelC].monto[m]=v*1000000; else resC[curC][labelC].uds[m]=v; } });
+        }
+        if(Object.keys(resC).length>0){
+          const catNm=wb.SheetNames.find(s=>s.toLowerCase().includes("catálogo")||s.toLowerCase().includes("catalogo"));
+          if(catNm){ const catRaw=XLSX.utils.sheet_to_json(wb.Sheets[catNm],{defval:"",header:1}); catRaw.slice(1).forEach(row=>{ const dev=String(row[3]||"").trim(); const desa=String(row[4]||"").trim(); if(dev&&desa&&resC[dev]) resC[dev].desarrollador=desa; }); }
+          return {data:resC, replace:true}; // Captura Ventas = fuente autoritativa → reemplaza (limpia stale como 'Gfran Valle')
+        }
+      }
+      // ── FALLBACK: hoja "🎯 Metas" (estructura anterior Plan/Real, UNIDADES+MONTO) ──
       // Find the global Metas sheet
       const sheetName = wb.SheetNames.find(s=>{
         const n=s.replace(/[🎯📊⚙️📋\s]/g,"").toLowerCase();
@@ -12446,7 +12509,7 @@ Respuesta: [respuesta exacta, conversacional]
       }
 
       if(Object.keys(result).length===0) throw new Error("No se encontraron desarrollos con tipo 'Plan'. Verifica que el Excel tenga filas con TIPO=Plan");
-      return result;
+      return {data:result, replace:false}; // fallback hoja Metas → fusiona (comportamiento anterior)
     };
 
     const handleFile = (f) => {
@@ -12455,10 +12518,11 @@ Respuesta: [respuesta exacta, conversacional]
       reader.onload = (ev) => {
         try {
           const wb = XLSX.read(ev.target.result,{type:"binary"});
-          const parsed = parseMetasExcel(wb);
+          const out = parseMetasExcel(wb);
+          const parsed = out.data;
           const keys = Object.keys(parsed);
           if(keys.length===0) throw new Error("No se encontraron desarrollos en el Excel");
-          setPreview({parsed, count:keys.length, keys});
+          setPreview({parsed, replace:out.replace, count:keys.length, keys});
         } catch(e){ setError("Error al leer: "+e.message); }
       };
       reader.readAsBinaryString(f);
@@ -12469,7 +12533,7 @@ Respuesta: [respuesta exacta, conversacional]
       setImporting(true);
       try {
         setMetasData(prev=>{
-          const updated={...prev};
+          const updated = preview.replace ? {} : {...prev}; // Captura Ventas reemplaza (limpia duplicados stale)
           Object.entries(preview.parsed).forEach(([nombre,d])=>{ updated[nombre]=d; });
           saveMetas(updated);
           return updated;
@@ -12496,9 +12560,8 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{padding:"20px 22px"}}>
             {/* Instrucciones */}
             <div style={{background:"#f0f9ff",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:12,color:"#0369a1",border:"1px solid #bae6fd"}}>
-              <strong>Formato esperado:</strong> Excel con columnas:<br/>
-              <code style={{fontSize:11}}>Desarrollo | Desarrollador | Ene | Feb | Mar | Abr | May | Jun | Jul | Ago | Sep | Oct | Nov | Dic</code><br/>
-              Una sección para <strong>Unidades</strong> y otra para <strong>Monto ($)</strong>. Los datos existentes se conservan para los desarrollos que no estén en el Excel.
+              <strong>Lee la hoja <code>📋 Captura Ventas</code></strong> (preferida): toma el <strong>Plan Desarr.</strong> y la <strong>Venta Real</strong> de cada desarrollo. Si no existe, usa la hoja <code>🎯 Metas</code> (Plan/Real, Unidades + Monto).<br/>
+              Al importar desde Captura Ventas se <strong>reemplazan</strong> las metas con esa fuente (evita duplicados como un nombre mal escrito).
             </div>
 
             {/* File input */}
