@@ -830,15 +830,40 @@ const DESARROLLADORES_OFICIALES = ["TYA","HITO","Corretaje","Garvi","Favier","Gy
 const MAPEO_DESARROLLADOR_KEY = "macropro_mapeo_desarrolladores_v1";
 
 // Carga el mapeo desde localStorage (enriquecido por imports + auto-aprendizaje)
+// Prioridad (de menor a mayor): BASE → storage/aprendido → CATÁLOGO CANÓNICO (Supabase).
+// El catálogo de la tabla `desarrollos` siempre gana (Fase B) — es la fuente medular.
+const DESARROLLOS_CAT_KEY = "macropro_desarrollos_v1";       // catálogo completo (cache)
+const DESARROLLOS_DEV_KEY = "macropro_desarrollos_dev_v1";   // mapa nombre→desarrollador (canónico)
 function loadMapeoDesarrollador(){
+  let mapeo = { ...MAPEO_DESARROLLADOR_BASE };
   try{
     const stored = localStorage.getItem(MAPEO_DESARROLLADOR_KEY);
-    if(stored){
-      const parsed = JSON.parse(stored);
-      return { ...MAPEO_DESARROLLADOR_BASE, ...parsed };
-    }
+    if(stored) mapeo = { ...mapeo, ...JSON.parse(stored) };
   }catch(e){ console.warn("Error cargando mapeo:",e); }
-  return { ...MAPEO_DESARROLLADOR_BASE };
+  try{
+    const canon = localStorage.getItem(DESARROLLOS_DEV_KEY);
+    if(canon) mapeo = { ...mapeo, ...JSON.parse(canon) };   // canónico = máxima prioridad
+  }catch(e){ console.warn("Error cargando catálogo desarrollos:",e); }
+  return mapeo;
+}
+// Aplica el catálogo canónico de `desarrollos` (Supabase): cachea filas + arma el mapa
+// nombre→desarrollador que loadMapeoDesarrollador layerea con máxima prioridad.
+function aplicarDesarrollosCatalogo(rows){
+  if(!Array.isArray(rows) || !rows.length) return false;
+  const mapaDev = {};
+  rows.forEach(d=>{
+    const nombre = (d && (d.nombre||"")).toString().trim();
+    const dev = (d && (d.desarrollador||"")).toString().trim();
+    if(nombre && dev) mapaDev[nombre] = dev;
+  });
+  try{ localStorage.setItem(DESARROLLOS_CAT_KEY, JSON.stringify(rows)); }catch(e){}
+  try{ if(Object.keys(mapaDev).length) localStorage.setItem(DESARROLLOS_DEV_KEY, JSON.stringify(mapaDev)); }catch(e){}
+  return Object.keys(mapaDev).length > 0;
+}
+// Lee el catálogo cacheado de desarrollos (array de filas) — para tipo/ciudad/coords.
+function getDesarrollosCatalogo(){
+  try{ const c = localStorage.getItem(DESARROLLOS_CAT_KEY); if(c) return JSON.parse(c)||[]; }catch(e){}
+  return [];
 }
 function saveMapeoDesarrollador(mapeo){
   try{ localStorage.setItem(MAPEO_DESARROLLADOR_KEY, JSON.stringify(mapeo)); }catch(e){}
@@ -2034,6 +2059,32 @@ function MacroProMatcher() {
       return {success:false, error:err.message};
     }
   };
+
+  // ═══ Catálogo canónico de desarrollos (Fase B) ═══
+  // Alimenta el mapeo de desarrollador (y tipo/coords vía cache) desde la tabla `desarrollos`.
+  // 1) aplica la cache local al instante (offline) · 2) refresca desde Supabase cuando haya sb.
+  // Si falla o no hay nube, la app se comporta igual que antes (fallback total).
+  React.useEffect(()=>{
+    try{
+      const cached = JSON.parse(localStorage.getItem(DESARROLLOS_CAT_KEY)||'null');
+      if(Array.isArray(cached) && cached.length) aplicarDesarrollosCatalogo(cached);
+    }catch(e){}
+    let cancel=false;
+    const t=setInterval(async ()=>{
+      if(cancel){ clearInterval(t); return; }
+      if(window.sb){
+        clearInterval(t);
+        try{
+          const D = await window.sb.from('desarrollos')
+            .select('slug,nombre,desarrollador,tipo,ciudad,estado,lat,lng,activo');
+          if(!cancel && D && !D.error && Array.isArray(D.data) && D.data.length){
+            aplicarDesarrollosCatalogo(D.data);
+          }
+        }catch(e){ /* no romper: queda la cache / base */ }
+      }
+    },400);
+    return ()=>{ cancel=true; clearInterval(t); };
+  }, []);
 
   // Auto-llenado SOLO en equipos vacíos (Inc. 2): si no hay inventario local, traer de la nube.
   // No toca equipos que ya tienen datos. Corre una sola vez tras montar (con sesión iniciada).
