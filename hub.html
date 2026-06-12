@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hub Grupo Guía · Apps y Desarrollos</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏗️</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{ --navy:#0a2540; --navy2:#0d2e52; --gold:#c9a961; --goldD:#a8893f; --bg:#f3f4f7; --ink:#1f2a37; --mut:#6b7280; --line:#e6e8ee; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ font-family:'DM Sans',system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  header{ background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:20; }
+  .hbar{ max-width:1240px; margin:0 auto; padding:14px 22px; display:flex; align-items:center; justify-content:space-between; }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand .mark{ width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,var(--navy),var(--navy2)); display:grid; place-items:center; color:var(--gold); font-weight:800; }
+  .brand b{ font-size:16px; } .brand span{ color:var(--mut); font-size:12px; display:block; margin-top:-2px; }
+  .who{ text-align:right; } .who b{ font-size:13px; } .who span{ display:block; font-size:11px; color:var(--mut); }
+  .wrap{ max-width:1240px; margin:0 auto; padding:24px 22px 60px; }
+  .hero h1{ font-size:24px; font-weight:800; } .hero p{ color:var(--mut); font-size:13px; margin-top:4px; }
+  .sect{ font-size:12px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; color:var(--mut); margin:26px 0 12px; display:flex; align-items:center; gap:10px; }
+  .sect::after{ content:""; flex:1; height:1px; background:var(--line); }
+  .apps{ display:grid; grid-template-columns:repeat(auto-fill,minmax(165px,1fr)); gap:14px; }
+  .app{ position:relative; background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px; cursor:pointer; transition:.18s; text-align:left; width:100%; font-family:inherit; color:inherit; }
+  .app:hover{ transform:translateY(-3px); box-shadow:0 12px 26px rgba(10,37,64,.14); }
+  .app .ic{ width:42px; height:42px; border-radius:11px; display:grid; place-items:center; font-size:21px; color:#fff; overflow:hidden; }
+  .app .ic img{ width:100%; height:100%; object-fit:cover; }
+  .app b{ display:block; margin-top:11px; font-size:14px; } .app small{ color:var(--mut); font-size:11px; }
+  .app.core{ background:linear-gradient(135deg,var(--navy),var(--navy2)); border-color:transparent; color:#fff; } .app.core small{ color:#aebfd6; }
+  .app.admin{ border:1.5px solid var(--gold); }
+  .app.off{ opacity:.6; cursor:not-allowed; }
+  .badge{ position:absolute; top:10px; right:10px; font-size:9px; font-weight:800; padding:3px 7px; border-radius:999px; letter-spacing:.3px; }
+  .badge.ctx{ background:rgba(201,169,97,.18); color:var(--goldD); } .app.core .badge.ctx{ background:rgba(201,169,97,.3); color:#f3e3bf; }
+  .badge.soon{ background:#fff3cd; color:#8a6d00; border:1px solid #f0e0a8; }
+  .add{ border:2px dashed #c7ccd6; background:transparent; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--mut); text-align:center; min-height:118px; }
+  .add:hover{ border-color:var(--gold); color:var(--goldD); } .add .plus{ font-size:26px; }
+  .filters{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 18px; }
+  .chip{ border:1px solid var(--line); background:#fff; padding:7px 14px; border-radius:999px; font-size:12px; font-weight:600; cursor:pointer; } .chip:hover{ border-color:var(--gold); } .chip.on{ background:var(--navy); color:#fff; border-color:var(--navy); }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:18px; }
+  .card{ background:#fff; border:1px solid var(--line); border-radius:16px; overflow:hidden; display:flex; flex-direction:column; transition:.18s; } .card:hover{ box-shadow:0 12px 30px rgba(10,37,64,.12); transform:translateY(-3px); }
+  .band{ height:90px; position:relative; display:flex; align-items:center; gap:12px; padding:0 16px; }
+  .logo{ width:48px; height:48px; border-radius:12px; background:rgba(255,255,255,.92); display:grid; place-items:center; font-weight:800; font-size:16px; box-shadow:0 3px 10px rgba(0,0,0,.18); overflow:hidden; }
+  .logo img{ width:100%; height:100%; object-fit:cover; }
+  .band h3{ color:#fff; font-size:16px; font-weight:800; text-shadow:0 1px 6px rgba(0,0,0,.35); }
+  .tipo{ position:absolute; top:10px; right:10px; font-size:10px; font-weight:800; text-transform:uppercase; background:rgba(0,0,0,.32); color:#fff; padding:4px 9px; border-radius:999px; }
+  .body{ padding:12px 16px; flex:1; } .rowp{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:9px; }
+  .pill{ font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; background:#f1f3f8; color:var(--navy); } .pill.dev{ background:rgba(201,169,97,.16); color:var(--goldD); }
+  .meta{ display:flex; justify-content:space-between; font-size:12px; color:var(--mut); border-top:1px dashed var(--line); padding-top:9px; } .meta b{ color:var(--ink); }
+  .acts{ display:grid; grid-template-columns:1fr 1fr; gap:7px; padding:0 16px 16px; }
+  .btn{ font-size:11px; font-weight:700; padding:9px 8px; border-radius:9px; border:1px solid var(--line); background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; color:inherit; font-family:inherit; } .btn:hover{ border-color:var(--navy); }
+  .btn.macropro{ background:var(--navy); color:#fff; border-color:var(--navy); } .btn.cot{ background:linear-gradient(135deg,var(--gold),var(--goldD)); color:var(--navy); border:none; }
+  .ov{ position:fixed; inset:0; background:rgba(10,20,35,.55); display:none; align-items:center; justify-content:center; padding:20px; z-index:50; } .ov.show{ display:flex; }
+  .modal{ background:#fff; border-radius:18px; max-width:560px; width:100%; overflow:hidden; box-shadow:0 30px 80px rgba(0,0,0,.4); }
+  .mhead{ height:120px; display:flex; align-items:flex-end; padding:16px; } .mhead h2{ color:#fff; font-size:22px; font-weight:800; text-shadow:0 2px 8px rgba(0,0,0,.4); }
+  .mbody{ padding:18px; } .stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; } .stat{ background:var(--bg); border-radius:12px; padding:12px; text-align:center; } .stat b{ font-size:18px; display:block; } .stat span{ font-size:11px; color:var(--mut); }
+  .macts{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .x{ float:right; cursor:pointer; color:#fff; font-size:22px; font-weight:700; line-height:1; text-shadow:0 1px 4px rgba(0,0,0,.4); }
+  .note{ text-align:center; color:var(--mut); font-size:11px; margin-top:30px; } .note b{ color:var(--goldD); }
+  .src{ text-align:center; font-size:10px; color:#9aa3af; margin-top:6px; }
+</style>
+</head>
+<body>
+<header><div class="hbar">
+  <div class="brand"><div class="mark">G</div><div><b>Grupo Guía · Hub</b><span>Tus apps y desarrollos en un lugar</span></div></div>
+  <div class="who"><b id="userName">Grupo Guía</b><span>Macrolotes</span></div>
+</div></header>
+
+<div class="wrap">
+  <div class="hero"><h1>Hola 👋</h1><p>Abre cualquier app, o entra a un desarrollo en particular.</p></div>
+  <div class="sect">🏗️ Macrolotes (conectadas a tu base de datos)</div>
+  <div class="apps" id="core"></div>
+  <div class="sect">🧰 Herramientas Grupo Guía</div>
+  <div class="apps" id="tools"></div>
+  <div class="sect">🏠 Tus desarrollos</div>
+  <div class="filters" id="filters"></div>
+  <div class="grid" id="grid"></div>
+  <p class="note">Las apps y desarrollos se administran desde Supabase (registros <b>apps</b> y <b>desarrollos</b>).</p>
+  <p class="src" id="src"></p>
+</div>
+
+<div class="ov" id="ov"><div class="modal">
+  <div class="mhead" id="mhead"><span class="x" onclick="cerrar()">×</span><h2 id="mtit"></h2></div>
+  <div class="mbody"><div class="stats" id="mstats"></div><div class="macts" id="macts"></div></div>
+</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://xugrrabebphdelgwqnwc.supabase.co";
+const SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
+
+// Fallback (si la tabla `apps` aún no existe o no hay red) — el Hub nunca queda vacío.
+const APPS_FALLBACK = [
+  {slug:"macropro",nombre:"MacroPro",descripcion:"Inventario y matching",icono:"📊",color:"#0a2540",url:"",grupo:"core",recibe_desarrollo:true,integrada:true,orden:10},
+  {slug:"macrocotizador",nombre:"MacroCotizador",descripcion:"Cotizaciones",icono:"🧮",color:"#a8893f",url:"https://macrocotizador.vercel.app",grupo:"core",recibe_desarrollo:true,integrada:true,orden:20},
+  {slug:"guia-intelligence",nombre:"Guia-Intelligence",descripcion:"Analítica y metas",icono:"🧠",color:"#1f5f3f",url:"",grupo:"core",recibe_desarrollo:true,integrada:false,orden:30},
+  {slug:"administrador",nombre:"Administrador",descripcion:"Datos: Excel, desarrollos, clientes",icono:"⚙️",color:"#c9a961",url:"",grupo:"core",recibe_desarrollo:false,integrada:true,orden:40,admin:true},
+  {slug:"grupoguia",nombre:"grupoguia.mx",descripcion:"Sitio corporativo",icono:"🌐",color:"#e0a800",url:"https://grupoguia.mx",grupo:"tool",recibe_desarrollo:false,integrada:true,orden:50},
+  {slug:"hubspot",nombre:"HubSpot",descripcion:"CRM corporativo",icono:"🔶",color:"#ff7a59",url:"https://app.hubspot.com",grupo:"tool",recibe_desarrollo:false,integrada:true,orden:60},
+  {slug:"guiarvis",nombre:"Guiarvis",descripcion:"Plataforma Guía",icono:"🟡",color:"#f2b705",url:"",grupo:"tool",recibe_desarrollo:false,integrada:true,orden:70},
+  {slug:"outlook",nombre:"Outlook",descripcion:"Correo",icono:"📧",color:"#0a6ed1",url:"https://outlook.office.com",grupo:"tool",recibe_desarrollo:false,integrada:true,orden:80},
+  {slug:"pcloud",nombre:"pCloud",descripcion:"Archivos",icono:"☁️",color:"#27a8e0",url:"https://my.pcloud.com",grupo:"tool",recibe_desarrollo:false,integrada:true,orden:90},
+  {slug:"wiggot",nombre:"Wiggot",descripcion:"Portal inmobiliario",icono:"🏘️",color:"#2db58a",url:"https://new.wiggot.com",grupo:"tool",recibe_desarrollo:false,integrada:true,orden:100},
+  {slug:"guia-connect",nombre:"Guia Connect",descripcion:"Comunidad",icono:"🤝",color:"#bfa14a",url:"",grupo:"tool",recibe_desarrollo:false,integrada:true,orden:110},
+  {slug:"teams",nombre:"Teams",descripcion:"Comunicación",icono:"👥",color:"#6264a7",url:"https://teams.microsoft.com",grupo:"tool",recibe_desarrollo:false,integrada:true,orden:120},
+  {slug:"guia-store",nombre:"Guia Store",descripcion:"Tienda",icono:"🛒",color:"#111827",url:"",grupo:"tool",recibe_desarrollo:false,integrada:true,orden:130},
+];
+
+const DES_FALLBACK = [
+  {slug:"kulkana",nombre:"Kulkana",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"Cancún",color_principal:"#1f5f3f",color_secundario:"#c9a961"},
+  {slug:"graavalle",nombre:"Gran Valle",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#7d6654",color_secundario:"#b9a489"},
+  {slug:"valle-imperial",nombre:"Valle Imperial",desarrollador:"GyG",tipo:"Desarrollo",ciudad:"—",color_principal:"#3a6ea5",color_secundario:"#6b7280"},
+  {slug:"corretaje",nombre:"Corretaje",desarrollador:"Corretaje",tipo:"Corretaje",ciudad:"Varias plazas",color_principal:"#042058",color_secundario:"#c9a961"},
+  {slug:"terrasoles",nombre:"Terrasoles",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"El Marqués",color_principal:"#C9A66B",color_secundario:"#806b4a"},
+  {slug:"capital-norte",nombre:"Capital Norte",desarrollador:"Corretaje",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#298e15",color_secundario:"#6b7280"},
+  {slug:"capital-sur",nombre:"Capital Sur",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"Querétaro",color_principal:"#806b6b",color_secundario:"#75f0a4"},
+  {slug:"cinco-valles",nombre:"Cinco Valles",desarrollador:"Favier",tipo:"Corretaje",ciudad:"ZMGDL",color_principal:"#5b6b4a",color_secundario:"#a8893f"},
+  {slug:"altika",nombre:"Altika",desarrollador:"Garvi",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#6B7280",color_secundario:"#9aa3af"},
+  {slug:"alva",nombre:"Alva",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#80704d",color_secundario:"#c9a961"},
+  {slug:"las-rosas",nombre:"Las Rosas",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#b14f6a",color_secundario:"#6B7280"},
+  {slug:"punto-sur",nombre:"Punto Sur",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#3f7f7a",color_secundario:"#6B7280"},
+  {slug:"luxia-amado-nervo",nombre:"Luxia Amado Nervo",desarrollador:"Garvi",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#6B7280",color_secundario:"#9aa3af"},
+  {slug:"esenika-boreales",nombre:"Esenika Boreales",desarrollador:"Garvi",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#6B7280",color_secundario:"#9aa3af"},
+  {slug:"corretaje-norte",nombre:"Corretaje Norte",desarrollador:"Corretaje",tipo:"Corretaje",ciudad:"ZMGDL",color_principal:"#042058",color_secundario:"#c9a961"},
+];
+const norm = s => (s||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+const inic = n => (n||"?").split(/\s+/).slice(0,2).map(w=>w[0]).join("").toUpperCase();
+const urlValida = u => u && !/^PON_LA_URL/i.test(u);
+let sb = null;
+try{ if(window.supabase) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); }catch(e){}
+
+let APPS = APPS_FALLBACK, DES = [], COUNT = {};
+
+async function cargar(){
+  let online = false;
+  if(sb){
+    try{ const a = await sb.from('apps').select('*').eq('activo',true).order('orden',{ascending:true});
+      if(!a.error && Array.isArray(a.data) && a.data.length){ APPS = a.data; online = true; } }catch(e){}
+    try{ const d = await sb.from('desarrollos')
+        .select('slug,nombre,desarrollador,tipo,ciudad,color_principal,color_secundario,logo_url,activo');
+      if(!d.error && Array.isArray(d.data)){ DES = d.data.filter(x=>x.activo!==false); online = true; } }catch(e){}
+    try{ const l = await sb.from('lotes').select('desarrollo');
+      if(!l.error && Array.isArray(l.data)) l.data.forEach(r=>{ const k=norm(r.desarrollo); if(k) COUNT[k]=(COUNT[k]||0)+1; }); }catch(e){}
+  }
+  if(!DES.length) DES = DES_FALLBACK;   // nunca queda vacío
+  document.getElementById("src").textContent = online ? "✓ datos en vivo desde Supabase" : "⚠ mostrando datos de respaldo (sin conexión a Supabase)";
+  renderApps(); renderDes();
+}
+
+function appEl(a){
+  const cls = "app"+(a.grupo==="core"?" core":"")+(a.admin?" admin":"")+((!a.integrada||!urlValida(a.url))?" off":"");
+  const badge = a.recibe_desarrollo ? `<span class="badge ctx">🎯 recibe desarrollo</span>`
+              : (!a.integrada ? `<span class="badge soon">⏳ por integrar</span>`
+              : (!urlValida(a.url) ? `<span class="badge soon">⏳ falta URL</span>` : ""));
+  const ico = /^https?:/.test(a.icono||"") ? `<img src="${a.icono}" alt="">` : (a.icono||"🔗");
+  const onclick = urlValida(a.url) ? `onclick="window.open('${a.url}','_blank')"` : "";
+  return `<button class="${cls}" ${onclick}>${badge}<div class="ic" style="background:${a.color||'#0a2540'}">${ico}</div><b>${a.nombre}</b><small>${a.descripcion||""}</small></button>`;
+}
+function renderApps(){
+  const core = APPS.filter(a=>a.grupo==="core").sort((x,y)=>(x.orden||0)-(y.orden||0));
+  const tool = APPS.filter(a=>a.grupo!=="core").sort((x,y)=>(x.orden||0)-(y.orden||0));
+  const add = g => `<button class="app add"><div class="plus">＋</div><b>Dar de alta app</b><small>${g}</small></button>`;
+  document.getElementById("core").innerHTML = core.map(appEl).join("") + add("Macrolotes");
+  document.getElementById("tools").innerHTML = tool.map(appEl).join("") + add("Herramienta");
+}
+
+function appBySlug(s){ return APPS.find(a=>a.slug===s); }
+function deepLink(appSlug, desSlug){
+  const a = appBySlug(appSlug);
+  if(!a || !urlValida(a.url)) return null;
+  return a.url + (a.url.includes("?")?"&":"?") + "desarrollo=" + encodeURIComponent(desSlug);
+}
+let filtro = "Todos";
+function renderDes(){
+  const devs = ["Todos", ...[...new Set(DES.map(d=>d.desarrollador).filter(Boolean))].sort()];
+  document.getElementById("filters").innerHTML = devs.map(x=>`<div class="chip ${x===filtro?'on':''}" onclick="setF('${x.replace(/'/g,"\\'")}')">${x}${x==='Todos'?' ('+DES.length+')':''}</div>`).join("");
+  const list = DES.filter(d=> filtro==="Todos" || d.desarrollador===filtro)
+                  .sort((a,b)=>(COUNT[norm(b.nombre)]||0)-(COUNT[norm(a.nombre)]||0));
+  document.getElementById("grid").innerHTML = list.map(d=>{
+    const c1=d.color_principal||"#6B7280", c2=d.color_secundario||c1;
+    const n = COUNT[norm(d.nombre)]||0;
+    const logo = d.logo_url && /^https?:/.test(d.logo_url) ? `<img src="${d.logo_url}" alt="">` : `<span style="color:${c1}">${inic(d.nombre)}</span>`;
+    const mk = (slug,cls,txt)=>{ const u=deepLink(slug,d.slug); return `<button class="btn ${cls}" ${u?`onclick="window.open('${u}','_blank')"`:'disabled title="Falta URL/integración"'}>${txt}</button>`; };
+    return `<div class="card">
+      <div class="band" style="background:linear-gradient(135deg,${c1},${c2})"><div class="logo">${logo}</div><h3>${d.nombre}</h3><span class="tipo">${d.tipo||'Desarrollo'}</span></div>
+      <div class="body"><div class="rowp"><span class="pill dev">${d.desarrollador||'—'}</span><span class="pill">📍 ${d.ciudad||'—'}</span></div><div class="meta"><span>Lotes</span><b>${n}</b></div></div>
+      <div class="acts">${mk('macropro','macropro','📊 MacroPro')}${mk('macrocotizador','cot','🧮 Cotizador')}${mk('guia-intelligence','','🧠 Intelligence')}<button class="btn" onclick='abrir(${JSON.stringify(d).replace(/'/g,"&#39;")})'>📄 Ficha</button></div>
+    </div>`;
+  }).join("");
+}
+function setF(x){ filtro=x; renderDes(); }
+function abrir(d){
+  const c1=d.color_principal||"#6B7280", c2=d.color_secundario||c1, n=COUNT[norm(d.nombre)]||0;
+  document.getElementById("mhead").style.background=`linear-gradient(135deg,${c1},${c2})`;
+  document.getElementById("mtit").textContent=d.nombre;
+  document.getElementById("mstats").innerHTML=`<div class="stat"><b>${n}</b><span>lotes</span></div><div class="stat"><b>${d.desarrollador||'—'}</b><span>desarrollador</span></div><div class="stat"><b>${d.tipo||'Desarrollo'}</b><span>tipo</span></div>`;
+  const mk=(slug,cls,txt)=>{ const u=deepLink(slug,d.slug); return `<button class="btn ${cls}" ${u?`onclick="window.open('${u}','_blank')"`:'disabled'}>${txt}</button>`; };
+  document.getElementById("macts").innerHTML = mk('macropro','macropro','📊 MacroPro')+mk('macrocotizador','cot','🧮 Cotizador')+mk('guia-intelligence','','🧠 Intelligence');
+  document.getElementById("ov").classList.add("show");
+}
+function cerrar(){ document.getElementById("ov").classList.remove("show"); }
+document.getElementById("ov").addEventListener("click",e=>{ if(e.target.id==="ov") cerrar(); });
+
+cargar();
+</script>
+</body>
+</html>
