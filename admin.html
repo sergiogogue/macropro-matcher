@@ -18,6 +18,8 @@
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:18px}
   .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:8px;min-height:170px}
   .card .ic{font-size:26px}.card b{font-size:16px;color:var(--navy)}.card .n{font-size:13px;color:var(--mut)}
+  .feeds{font-size:11px;line-height:1.6;color:var(--green);background:#f0f7f1;border:1px solid #d6ebda;border-radius:8px;padding:7px 9px;margin-top:2px}
+  .feeds .soon{color:#8a6d00}
   .row{margin-top:auto;display:flex;gap:8px;flex-wrap:wrap}
   .btn{font-family:inherit;font-size:12px;font-weight:700;padding:9px 14px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer}
   .btn:hover{border-color:var(--navy)} .btn.navy{background:var(--navy);color:#fff;border-color:var(--navy)} .btn.gold{background:linear-gradient(135deg,var(--gold),var(--goldD));color:var(--navy);border:none}
@@ -224,14 +226,17 @@ function renderApp(){
     <div class="hero"><h1>Hola 👋</h1><p>Carga el inventario y clientes una vez; se guardan en la nube y los leen todas las apps.</p></div>
     <div class="grid">
       <div class="card"><div class="ic">📦</div><b>Inventario</b><div class="n">${state.lotes} lotes en la nube</div>
+        <div class="feeds">Carga en: ✅ MacroPro · ✅ Cotizador · ✅ Hub<br><span class="soon">⏳ Intelligence · Analytics · Presentaciones</span></div>
         <div class="row"><button class="btn navy" onclick="document.getElementById('invFile').click()">📤 Cargar Excel</button></div></div>
       <div class="card"><div class="ic">👥</div><b>Clientes</b><div class="n">${state.clientes} clientes en la nube</div>
+        <div class="feeds">Carga en: ✅ MacroPro · ✅ Cotizador<br><span class="soon">⏳ Intelligence</span></div>
         <div class="row"><button class="btn navy" onclick="document.getElementById('cliFile').click()">📤 Cargar Excel</button></div></div>
       <div class="card"><div class="ic">🏗️</div><b>Desarrollos</b><div class="n">${state.desarrollos.length} desarrollos</div>
+        <div class="feeds">Carga en: ✅ MacroPro · ✅ Cotizador · ✅ Hub<br><span class="soon">⏳ Intelligence · Presentaciones</span></div>
         <div class="row"><button class="btn gold" onclick="openDes()">✏️ Editar</button></div></div>
     </div>
     ${state.log.length?`<div class="log">${state.log.slice(0,8).join('\n')}</div>`:''}
-    <p style="font-size:11px;color:var(--mut);margin-top:18px">💡 Cargas aquí → Supabase → lo leen MacroPro, Cotizador, Intelligence, Analytics, Presentaciones, Hub. El inventario se sube COMPLETO (todas las columnas).</p>
+    <p style="font-size:11px;color:var(--mut);margin-top:18px">💡 Todo lo que cargas aquí se guarda en Supabase. <b>✅ = la app ya lo lee</b> · <b>⏳ = por conectar (Fase 2)</b>. El inventario se sube COMPLETO (todas las columnas).</p>
    </div>
    <div class="modal-ov" id="desmodal"><div class="modal">
      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><b style="font-size:18px;color:var(--navy)">🏗️ Desarrollos (${state.desarrollos.length})</b><button class="btn" onclick="closeDes()">✕ Cerrar</button></div>
