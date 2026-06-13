@@ -2925,6 +2925,7 @@ function MacroProMatcher() {
         <button style={s.btn("ghost")} onClick={()=>fileRef.current?.click()}>📤 Cargar Inventario Excel</button>
         <button style={s.btn("ghost")} onClick={()=>setView("clients")}>👥 Gestionar Clientes</button>
         <button style={s.btn("ghost")} onClick={()=>setView("lots")}>📦 Ver Inventario</button>
+        <button style={{...s.btn("ghost"),borderColor:B.gold,color:B.goldD}} onClick={()=>setView("admin")}>⚙️ Administrador</button>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleExcelUpload}/>
       </div>
       {(inventory.length===0||clients.length===0)&&(
@@ -4077,6 +4078,108 @@ function MacroProMatcher() {
             )}
           </div>
         )}
+      </div>
+    );
+  };
+
+  // ─── ⚙️ ADMINISTRADOR: edita la tabla canónica `desarrollos` (escribe a Supabase) ───
+  // Lee la tabla, edita un desarrollo a la vez y guarda con UPDATE por id (PK). Nunca
+  // inserta/borra. Tras guardar refresca la cache + el mapeo de desarrollador (Fase B).
+  const ViewAdmin = () => {
+    const [rows,setRows]=useState(null);       // null = cargando
+    const [err,setErr]=useState(null);
+    const [editId,setEditId]=useState(null);
+    const [draft,setDraft]=useState({});
+    const [saving,setSaving]=useState(false);
+    React.useEffect(()=>{
+      let alive=true;
+      (async()=>{
+        if(!sb){ setRows([]); setErr("Sin conexión a Supabase"); return; }
+        try{
+          const { data, error } = await sb.from('desarrollos')
+            .select('id,slug,nombre,desarrollador,tipo,ciudad,estado,lat,lng,activo,color_principal,color_secundario,tagline,logo_url')
+            .order('nombre',{ascending:true});
+          if(!alive) return;
+          if(error){ setErr(error.message); setRows([]); }
+          else setRows(Array.isArray(data)?data:[]);
+        }catch(e){ if(alive){ setErr(String((e&&e.message)||e)); setRows([]); } }
+      })();
+      return ()=>{ alive=false; };
+    },[]);
+    const startEdit=(r)=>{ setEditId(r.id); setDraft({...r}); };
+    const cancel=()=>{ setEditId(null); setDraft({}); };
+    const setF=(k,v)=>setDraft(d=>({...d,[k]:v}));
+    const guardar=async()=>{
+      if(!sb||!editId) return;
+      setSaving(true);
+      const payload={
+        nombre:draft.nombre||null, desarrollador:draft.desarrollador||null, tipo:draft.tipo||null,
+        ciudad:draft.ciudad||null, estado:draft.estado||null,
+        lat:(draft.lat===""||draft.lat==null)?null:Number(draft.lat),
+        lng:(draft.lng===""||draft.lng==null)?null:Number(draft.lng),
+        activo:draft.activo!==false,
+        color_principal:draft.color_principal||null, color_secundario:draft.color_secundario||null,
+        tagline:draft.tagline||null, logo_url:draft.logo_url||null,
+      };
+      try{
+        const { error } = await sb.from('desarrollos').update(payload).eq('id',editId);
+        if(error){ toast("❌ Error al guardar: "+error.message); setSaving(false); return; }
+        const next=(rows||[]).map(r=> r.id===editId ? {...r,...payload} : r);
+        setRows(next);
+        aplicarDesarrollosCatalogo(next);   // refresca cache + mapeo de desarrollador
+        toast("✅ "+(payload.nombre||"Desarrollo")+" guardado");
+        cancel();
+      }catch(e){ toast("❌ "+((e&&e.message)||e)); }
+      setSaving(false);
+    };
+    const inp={width:"100%",padding:"8px 10px",border:"1.5px solid "+B.grey1,borderRadius:8,fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
+    const lbl={display:"block",fontSize:11,fontWeight:700,color:B.navy,marginBottom:4};
+    const DEVS=["TYA","HITO","Corretaje","Garvi","Favier","GyG"];
+    return (
+      <div style={s.page}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8,flexWrap:"wrap"}}>
+          <button style={s.btn("ghost")} onClick={()=>setView("home")}>← Inicio</button>
+          <div style={s.sectionTitle}>⚙️ Administrador · Desarrollos</div>
+          <div style={{marginLeft:"auto",fontSize:12,color:B.grey3}}>{Array.isArray(rows)?rows.length+" desarrollos":""}</div>
+        </div>
+        <div style={{...s.sectionSub,marginBottom:16}}>Edita la base medular. Los cambios se guardan en Supabase y los ven todas las apps (MacroPro, Cotizador, Hub).</div>
+        {!sb&&<div style={{padding:16,background:B.redL,color:B.red,borderRadius:10,fontSize:13}}>Sin conexión a Supabase — inicia sesión para administrar.</div>}
+        {rows===null&&sb&&<div style={{padding:24,color:B.grey3}}>Cargando desarrollos…</div>}
+        {err&&<div style={{padding:12,background:B.redL,color:B.red,borderRadius:10,fontSize:12,marginBottom:12}}>Error: {err}</div>}
+        {Array.isArray(rows)&&rows.map(r=>(
+          <div key={r.id} style={{background:B.white,border:"1px solid "+B.grey1,borderRadius:12,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,43,73,0.05)"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px"}}>
+              <div style={{width:34,height:34,borderRadius:9,background:r.color_principal||B.grey2,flexShrink:0}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:800,color:B.navy,fontSize:14}}>{r.nombre} {r.activo===false&&<span style={{fontSize:10,color:B.grey3}}>(inactivo)</span>}</div>
+                <div style={{fontSize:11,color:B.grey3}}>{r.desarrollador||"—"} · {r.tipo||"—"} · {r.ciudad||"—"} · <span style={{fontFamily:"monospace"}}>{r.slug}</span></div>
+              </div>
+              <button style={s.btn("sm")} onClick={()=>editId===r.id?cancel():startEdit(r)}>{editId===r.id?"✕ Cerrar":"✏️ Editar"}</button>
+            </div>
+            {editId===r.id&&(
+              <div style={{borderTop:"1px solid "+B.grey1,padding:14,background:B.offW}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                  <div><label style={lbl}>Nombre</label><input style={inp} value={draft.nombre||""} onChange={e=>setF("nombre",e.target.value)}/></div>
+                  <div><label style={lbl}>Desarrollador</label><select style={inp} value={draft.desarrollador||""} onChange={e=>setF("desarrollador",e.target.value)}><option value="">—</option>{DEVS.map(d=><option key={d} value={d}>{d}</option>)}{draft.desarrollador&&!DEVS.includes(draft.desarrollador)&&<option value={draft.desarrollador}>{draft.desarrollador}</option>}</select></div>
+                  <div><label style={lbl}>Tipo</label><select style={inp} value={draft.tipo||"Desarrollo"} onChange={e=>setF("tipo",e.target.value)}><option>Desarrollo</option><option>Corretaje</option></select></div>
+                  <div><label style={lbl}>Ciudad</label><input style={inp} value={draft.ciudad||""} onChange={e=>setF("ciudad",e.target.value)}/></div>
+                  <div><label style={lbl}>Estado</label><input style={inp} value={draft.estado||""} onChange={e=>setF("estado",e.target.value)}/></div>
+                  <div><label style={lbl}>Activo</label><label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,paddingTop:8,color:B.navy}}><input type="checkbox" checked={draft.activo!==false} onChange={e=>setF("activo",e.target.checked)}/> Visible en Hub/matching</label></div>
+                  <div><label style={lbl}>Latitud</label><input style={inp} type="number" step="0.000001" value={draft.lat==null?"":draft.lat} onChange={e=>setF("lat",e.target.value)}/></div>
+                  <div><label style={lbl}>Longitud</label><input style={inp} type="number" step="0.000001" value={draft.lng==null?"":draft.lng} onChange={e=>setF("lng",e.target.value)}/></div>
+                  <div><label style={lbl}>Color principal</label><input style={{...inp,padding:4,height:38}} type="color" value={draft.color_principal||"#6B7280"} onChange={e=>setF("color_principal",e.target.value)}/></div>
+                  <div><label style={lbl}>Color secundario</label><input style={{...inp,padding:4,height:38}} type="color" value={draft.color_secundario||"#6B7280"} onChange={e=>setF("color_secundario",e.target.value)}/></div>
+                  <div style={{gridColumn:"span 2"}}><label style={lbl}>Tagline</label><input style={inp} value={draft.tagline||""} onChange={e=>setF("tagline",e.target.value)}/></div>
+                  <div style={{gridColumn:"span 3"}}><label style={lbl}>Logo URL</label><input style={inp} value={draft.logo_url||""} onChange={e=>setF("logo_url",e.target.value)} placeholder="https://…"/></div>
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:14}}>
+                  <button style={s.btn("primary")} disabled={saving} onClick={guardar}>{saving?"Guardando…":"💾 Guardar"}</button>
+                  <button style={s.btn("ghost")} onClick={cancel}>Cancelar</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     );
   };
@@ -13043,6 +13146,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="quickSearch"&&<ViewQuickSearch/>}
       {view==="clients"&&<ViewClients/>}
       {view==="lots"&&<ViewLots/>}
+      {view==="admin"&&<ViewAdmin/>}
       <ModalApiKey/>
       <ModalMigrate/>
       {ModalAddClient}
