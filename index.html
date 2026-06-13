@@ -2180,6 +2180,27 @@ function MacroProMatcher() {
     })();
   }, [catalogoReady, inventory]);
 
+  // ═══ METAS desde la nube (Fase 2) ═══
+  // Las metas se cargan en el Administrador → Supabase (app_config/clave='metas_v1').
+  // Aquí se bajan y fusionan al abrir (la nube manda por desarrollo). Si no hay, queda lo local.
+  React.useEffect(()=>{
+    let cancel=false;
+    const t=setInterval(async ()=>{
+      if(cancel){ clearInterval(t); return; }
+      if(window.sb){
+        clearInterval(t);
+        try{
+          const r = await window.sb.from('app_config').select('datos').eq('clave','metas_v1');
+          const datos = (!r.error && Array.isArray(r.data) && r.data[0]) ? r.data[0].datos : null;
+          if(!cancel && datos && typeof datos==='object' && Object.keys(datos).length){
+            setMetasData(prev=>{ const merged = { ...(prev||{}), ...datos }; saveMetas(merged); return merged; });
+          }
+        }catch(e){ /* queda lo local */ }
+      }
+    },400);
+    return ()=>{ cancel=true; clearInterval(t); };
+  }, []);
+
   // ═══ DEEP-LINK: abrir MacroPro ya posicionado desde el Hub / cotizador ═══
   // ?vista=admin → modo Administrador · ?desarrollo=slug → Inventario filtrado
   // ?lote=id → Lote→Clientes · ?cliente_id=uuid → Cliente→Lotes. Se resuelve una vez y limpia la URL.
