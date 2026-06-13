@@ -54,6 +54,7 @@
 
 <input type="file" id="invFile" accept=".xlsx,.xls" style="display:none">
 <input type="file" id="cliFile" accept=".xlsx,.xls" style="display:none">
+<input type="file" id="metFile" accept=".xlsx,.xls" style="display:none">
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -172,13 +173,14 @@ async function upsertBatches(table,rows,conflict){ let n=0; for(let i=0;i<rows.l
 
 // ── UI ──
 function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3500); }
-let state={ lotes:0, clientes:0, desarrollos:[], log:[] };
+let state={ lotes:0, clientes:0, desarrollos:[], metas:null, log:[] };
 function addLog(m){ state.log.unshift('• '+m); renderApp(); }
 
 async function refreshCounts(){
   try{ const l=await sb.from('lotes').select('*',{count:'exact',head:true}); state.lotes=l.count||0; }catch(e){}
   try{ const c=await sb.from('clientes').select('*',{count:'exact',head:true}); state.clientes=c.count||0; }catch(e){}
   try{ const d=await sb.from('desarrollos').select('id,slug,nombre,desarrollador,tipo,ciudad,estado,lat,lng,activo,color_principal,color_secundario,tagline,logo_url').order('nombre'); if(!d.error) state.desarrollos=d.data||[]; }catch(e){}
+  try{ const m=await sb.from('app_config').select('datos').eq('clave','metas_v1'); const dm=(!m.error&&m.data&&m.data[0])?m.data[0].datos:null; state.metas=dm?Object.keys(dm).length:0; }catch(e){}
   renderApp();
 }
 
@@ -205,6 +207,46 @@ async function subirClientes(file){
   if(!cli.length){ toast('⚠ No se encontraron clientes con correo'); return; }
   try{ const n=await upsertBatches('clientes',cli,'email'); toast('✅ Clientes subidos: '+n); addLog('✅ Clientes en la nube: '+n); refreshCounts(); }
   catch(e){ toast('❌ '+e.message); addLog('❌ Error: '+e.message); }
+}
+
+// ── Parser de METAS (hoja "Captura Ventas", igual que MacroPro) ──
+function parseMetas(wb){
+  const MES=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  const toN=v=>parseFloat(String(v||"0").replace(/[$,\s]/g,""))||0;
+  const capName=wb.SheetNames.find(s=>{const n=s.toLowerCase();return n.includes("captura")&&n.includes("venta");});
+  if(!capName) return null;  // sin Captura Ventas → no es el archivo de metas
+  const raw=XLSX.utils.sheet_to_json(wb.Sheets[capName],{defval:"",header:1});
+  const res={}; let cur=null,mesCols=null,label=null;
+  for(let i=0;i<raw.length;i++){
+    const row=raw[i]||[]; const c1=String(row[1]||"").trim(); const c2=String(row[2]||"").trim();
+    if(/^inv\b/i.test(c2)||/^inv:/i.test(c2)){
+      mesCols=MES.map(m=>row.findIndex((h,idx)=>idx>=3&&String(h||"").toLowerCase().startsWith(m)));
+      cur=c1||null; if(cur&&!res[cur])res[cur]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
+      label=null; continue;
+    }
+    if(!cur||!mesCols) continue;
+    if(c1){ const l=c1.toLowerCase(); label=l.includes("plan desarr")?"plan":(l.includes("venta re")?"real":null); }
+    if(!label) continue;
+    const isMonto=c2.includes("$"), isUds=!isMonto&&c2.toLowerCase().startsWith("ud");
+    if(!isMonto&&!isUds) continue;
+    mesCols.forEach((col,m)=>{ if(col>=0&&col<row.length){ const v=toN(row[col]); if(isMonto)res[cur][label].monto[m]=v; else res[cur][label].uds[m]=v; } });
+  }
+  if(!Object.keys(res).length) return null;
+  const catNm=wb.SheetNames.find(s=>s.toLowerCase().includes("catálogo")||s.toLowerCase().includes("catalogo"));
+  if(catNm){ const cr=XLSX.utils.sheet_to_json(wb.Sheets[catNm],{defval:"",header:1}); cr.slice(1).forEach(r=>{const dev=String(r[3]||"").trim(),desa=String(r[4]||"").trim();if(dev&&desa&&res[dev])res[dev].desarrollador=desa;}); }
+  return res;
+}
+async function subirMetas(file){
+  addLog('Leyendo metas…');
+  const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+  const metas=parseMetas(wb);
+  if(!metas){ toast('⚠ No encontré la hoja "Captura Ventas" en el Excel de metas'); return; }
+  const n=Object.keys(metas).length;
+  try{
+    const { error }=await sb.from('app_config').upsert({clave:'metas_v1',datos:metas,updated_at:new Date().toISOString()},{onConflict:'clave'});
+    if(error) throw new Error(error.message);
+    state.metas=n; toast('✅ Metas subidas: '+n+' desarrollos'); addLog('✅ Metas en la nube: '+n+' desarrollos'); renderApp();
+  }catch(e){ toast('❌ '+e.message); addLog('❌ Error: '+e.message); }
 }
 
 let editId=null,draft={};
@@ -234,6 +276,9 @@ function renderApp(){
       <div class="card"><div class="ic">🏗️</div><b>Desarrollos</b><div class="n">${state.desarrollos.length} desarrollos</div>
         <div class="feeds">Carga en: ✅ MacroPro · ✅ Cotizador · ✅ Hub<br><span class="soon">⏳ Intelligence · Presentaciones</span></div>
         <div class="row"><button class="btn gold" onclick="openDes()">✏️ Editar</button></div></div>
+      <div class="card"><div class="ic">🎯</div><b>Metas</b><div class="n">${state.metas!=null?state.metas+' desarrollos con meta':'—'}</div>
+        <div class="feeds">Carga en: ✅ MacroPro<br><span class="soon">⏳ Analytics</span></div>
+        <div class="row"><button class="btn navy" onclick="document.getElementById('metFile').click()">📤 Cargar Excel</button></div></div>
     </div>
     ${state.log.length?`<div class="log">${state.log.slice(0,8).join('\n')}</div>`:''}
     <p style="font-size:11px;color:var(--mut);margin-top:18px">💡 Todo lo que cargas aquí se guarda en Supabase. <b>✅ = la app ya lo lee</b> · <b>⏳ = por conectar (Fase 2)</b>. El inventario se sube COMPLETO (todas las columnas).</p>
@@ -263,6 +308,7 @@ function renderApp(){
    </div></div>`;
   document.getElementById('invFile').onchange=e=>{ const f=e.target.files[0]; if(f)subirInventario(f); e.target.value=''; };
   document.getElementById('cliFile').onchange=e=>{ const f=e.target.files[0]; if(f)subirClientes(f); e.target.value=''; };
+  document.getElementById('metFile').onchange=e=>{ const f=e.target.files[0]; if(f)subirMetas(f); e.target.value=''; };
   if(editId) document.getElementById('desmodal')?.classList.add('show');
 }
 window.openDes=()=>document.getElementById('desmodal').classList.add('show');
