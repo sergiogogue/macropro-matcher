@@ -4140,6 +4140,7 @@ function MacroProMatcher() {
   // Lee la tabla, edita un desarrollo a la vez y guarda con UPDATE por id (PK). Nunca
   // inserta/borra. Tras guardar refresca la cache + el mapeo de desarrollador (Fase B).
   const ViewAdmin = () => {
+    const [tab,setTab]=useState('panel');      // 'panel' | 'desarrollos'
     const [rows,setRows]=useState(null);       // null = cargando
     const [err,setErr]=useState(null);
     const [editId,setEditId]=useState(null);
@@ -4189,11 +4190,66 @@ function MacroProMatcher() {
     const inp={width:"100%",padding:"8px 10px",border:"1.5px solid "+B.grey1,borderRadius:8,fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
     const lbl={display:"block",fontSize:11,fontWeight:700,color:B.navy,marginBottom:4};
     const DEVS=["TYA","HITO","Corretaje","Garvi","Favier","GyG"];
+
+    // ── PANEL CENTRAL: una sola pantalla para cargar/administrar TODO lo que alimenta las apps ──
+    if(tab!=='desarrollos'){
+      const nLotes=(inventory||[]).length, nClientes=(clients||[]).length, nDes=Array.isArray(rows)?rows.length:"…";
+      const card={background:B.white,border:"1px solid "+B.grey1,borderRadius:14,padding:18,boxShadow:"0 2px 8px rgba(0,43,73,0.06)",display:"flex",flexDirection:"column",gap:8,minHeight:170};
+      const cTit={fontWeight:800,color:B.navy,fontSize:16}, cNum={fontSize:13,color:B.grey3};
+      return (
+        <div style={s.page}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8,flexWrap:"wrap"}}>
+            <button style={s.btn("ghost")} onClick={()=>setView("home")}>← Inicio</button>
+            <div style={s.sectionTitle}>⚙️ Administrador</div>
+          </div>
+          <div style={{...s.sectionSub,marginBottom:18}}>Carga y administra aquí los datos del negocio. Todo se guarda en la nube y lo leen TODAS las apps (MacroPro, Cotizador, Intelligence, Presentaciones, Hub).</div>
+          {!sb&&<div style={{padding:16,background:B.redL,color:B.red,borderRadius:10,fontSize:13,marginBottom:14}}>Sin conexión a Supabase — inicia sesión para administrar.</div>}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:16}}>
+            <div style={card}>
+              <div style={{fontSize:26}}>📦</div><div style={cTit}>Inventario</div>
+              <div style={cNum}>{nLotes} lotes cargados</div>
+              <div style={{marginTop:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>fileRef.current&&fileRef.current.click()}>📤 Cargar Excel</button>
+                <button style={{...s.btn("ghost"),fontSize:12}} onClick={()=>setView("lots")}>Ver</button>
+              </div>
+            </div>
+            <div style={card}>
+              <div style={{fontSize:26}}>👥</div><div style={cTit}>Clientes</div>
+              <div style={cNum}>{nClientes} clientes</div>
+              <div style={{marginTop:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>clientFileRef.current&&clientFileRef.current.click()}>📤 Cargar Excel</button>
+                <button style={{...s.btn("ghost"),fontSize:12}} onClick={()=>setView("clients")}>Ver</button>
+              </div>
+            </div>
+            <div style={card}>
+              <div style={{fontSize:26}}>🏗️</div><div style={cTit}>Desarrollos</div>
+              <div style={cNum}>{nDes} desarrollos</div>
+              <div style={{marginTop:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button style={{...s.btn("primary"),fontSize:12}} onClick={()=>setTab('desarrollos')}>✏️ Editar</button>
+              </div>
+            </div>
+            <div style={card}>
+              <div style={{fontSize:26}}>🔄</div><div style={cTit}>Sincronización</div>
+              <div style={cNum}>Sube lo cargado → todas las apps</div>
+              <div style={{marginTop:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>setShowMigrateModal(true)}>☁️ Subir a la nube</button>
+                <button style={{...s.btn("ghost"),fontSize:12}} disabled={sincronizando} onClick={()=>sincronizarTodo()}>{sincronizando?"…":"🔄 Sincronizar"}</button>
+              </div>
+            </div>
+          </div>
+          <div style={{...s.sectionSub,marginTop:18,fontSize:12}}>💡 Flujo: <b>Cargar Excel</b> (inventario o clientes) → <b>Subir a la nube</b>. Los desarrollos se editan aquí mismo. Todo queda en Supabase y lo ven las demás apps al instante.</div>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleExcelUpload}/>
+          <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleClientExcelUpload}/>
+        </div>
+      );
+    }
+
+    // ── SUB-VISTA: editor de Desarrollos ──
     return (
       <div style={s.page}>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8,flexWrap:"wrap"}}>
-          <button style={s.btn("ghost")} onClick={()=>setView("home")}>← Inicio</button>
-          <div style={s.sectionTitle}>⚙️ Administrador · Desarrollos</div>
+          <button style={s.btn("ghost")} onClick={()=>setTab('panel')}>← Administrador</button>
+          <div style={s.sectionTitle}>🏗️ Desarrollos</div>
           <div style={{marginLeft:"auto",fontSize:12,color:B.grey3}}>{Array.isArray(rows)?rows.length+" desarrollos":""}</div>
         </div>
         <div style={{...s.sectionSub,marginBottom:16}}>Edita la base medular. Los cambios se guardan en Supabase y los ven todas las apps (MacroPro, Cotizador, Hub).</div>
