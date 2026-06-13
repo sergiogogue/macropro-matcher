@@ -2144,20 +2144,27 @@ function MacroProMatcher() {
   }, [catalogoReady, inventory]);
 
   // ═══ DEEP-LINK: abrir MacroPro ya posicionado desde el Hub / cotizador ═══
-  // ?desarrollo=slug → Inventario filtrado a ese desarrollo · ?lote=id → Lote→Clientes
-  // ?cliente_id=uuid → Cliente→Lotes. Se resuelve una vez (cuando hay datos) y limpia la URL.
+  // ?vista=admin → modo Administrador · ?desarrollo=slug → Inventario filtrado
+  // ?lote=id → Lote→Clientes · ?cliente_id=uuid → Cliente→Lotes. Se resuelve una vez y limpia la URL.
   const deepLinkParams = React.useMemo(()=>{
     try{ const p=new URLSearchParams(window.location.search);
-      return { des:(p.get('desarrollo')||'').trim(), lote:(p.get('lote')||'').trim(), cli:(p.get('cliente_id')||p.get('cliente')||'').trim() };
-    }catch(e){ return { des:'', lote:'', cli:'' }; }
+      return { vista:(p.get('vista')||'').trim(), des:(p.get('desarrollo')||'').trim(), lote:(p.get('lote')||'').trim(), cli:(p.get('cliente_id')||p.get('cliente')||'').trim() };
+    }catch(e){ return { vista:'', des:'', lote:'', cli:'' }; }
   }, []);
   const deepLinkRef = useRef(false);
   React.useEffect(()=>{
     if(deepLinkRef.current) return;
-    const { des, lote, cli } = deepLinkParams;
-    if(!des && !lote && !cli){ deepLinkRef.current = true; return; }
+    const { vista, des, lote, cli } = deepLinkParams;
+    if(!vista && !des && !lote && !cli){ deepLinkRef.current = true; return; }
     const inv = Array.isArray(inventory) ? inventory : [];
     const limpiar = ()=>{ try{ window.history.replaceState(null,"",window.location.pathname); }catch(e){} };
+    // 0) vista directa (?vista=admin, dashboard, clients, lots, crm, metas…)
+    if(vista){
+      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch'];
+      deepLinkRef.current = true;
+      if(VISTAS.includes(vista)) setView(vista);
+      limpiar(); return;
+    }
     // 1) lote concreto → Lote→Clientes
     if(lote){
       if(inv.length===0) return;  // esperar a que cargue el inventario
