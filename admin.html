@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Administrador · Grupo Guía</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{ --navy:#0a2540; --navy2:#0d2e52; --gold:#c9a961; --goldD:#a8893f; --bg:#f3f4f7; --ink:#1f2a37; --mut:#6b7280; --line:#e6e8ee; --red:#dc2626; --green:#16a34a; }
+  *{box-sizing:border-box;margin:0;padding:0} body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  .hbar{max-width:1100px;margin:0 auto;padding:14px 22px;display:flex;align-items:center;justify-content:space-between}
+  .brand{display:flex;align-items:center;gap:12px}.brand .mark{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--navy),var(--navy2));display:grid;place-items:center;color:var(--gold);font-weight:800}
+  .brand b{font-size:16px}.brand span{color:var(--mut);font-size:12px;display:block;margin-top:-2px}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 22px 60px}
+  .hero h1{font-size:23px;font-weight:800}.hero p{color:var(--mut);font-size:13px;margin-top:4px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:8px;min-height:170px}
+  .card .ic{font-size:26px}.card b{font-size:16px;color:var(--navy)}.card .n{font-size:13px;color:var(--mut)}
+  .row{margin-top:auto;display:flex;gap:8px;flex-wrap:wrap}
+  .btn{font-family:inherit;font-size:12px;font-weight:700;padding:9px 14px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer}
+  .btn:hover{border-color:var(--navy)} .btn.navy{background:var(--navy);color:#fff;border-color:var(--navy)} .btn.gold{background:linear-gradient(135deg,var(--gold),var(--goldD));color:var(--navy);border:none}
+  .btn:disabled{opacity:.5;cursor:default}
+  .sect{font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--mut);margin:26px 0 10px;display:flex;gap:10px;align-items:center}.sect::after{content:"";flex:1;height:1px;background:var(--line)}
+  .log{font-size:12px;color:var(--mut);background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:14px;white-space:pre-wrap;max-height:160px;overflow:auto}
+  /* login */
+  .login{max-width:360px;margin:80px auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:28px;box-shadow:0 12px 40px rgba(10,37,64,.12)}
+  .login h2{font-size:20px;color:var(--navy);margin-bottom:4px}.login p{font-size:13px;color:var(--mut);margin-bottom:18px}
+  .inp{width:100%;padding:11px 13px;border:1.5px solid var(--line);border-radius:9px;font-size:14px;font-family:inherit;margin-bottom:10px;outline:none}
+  .inp:focus{border-color:var(--gold)}
+  /* desarrollos editor */
+  .drow{background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden}
+  .dhead{display:flex;align-items:center;gap:12px;padding:12px 14px}
+  .dot{width:32px;height:32px;border-radius:9px;flex-shrink:0}
+  .dform{border-top:1px solid var(--line);padding:14px;background:#fafbfc;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .lbl{display:block;font-size:11px;font-weight:700;color:var(--navy);margin-bottom:4px}
+  .modal-ov{position:fixed;inset:0;background:rgba(10,20,35,.5);display:none;align-items:flex-start;justify-content:center;padding:40px 20px;z-index:50;overflow:auto}.modal-ov.show{display:flex}
+  .modal{background:#fff;border-radius:16px;max-width:900px;width:100%;padding:22px}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:99;opacity:0;transition:.2s;box-shadow:0 8px 30px rgba(0,0,0,.3)}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header><div class="hbar">
+  <div class="brand"><div class="mark">⚙</div><div><b>Grupo Guía · Administrador</b><span>Datos del negocio · una sola fuente</span></div></div>
+  <div id="userbox" style="font-size:12px;color:var(--mut)"></div>
+</div></header>
+
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+
+<input type="file" id="invFile" accept=".xlsx,.xls" style="display:none">
+<input type="file" id="cliFile" accept=".xlsx,.xls" style="display:none">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+const SUPABASE_URL="https://xugrrabebphdelgwqnwc.supabase.co";
+const SUPABASE_KEY="sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
+let sb=null; try{ if(window.supabase) sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY); }catch(e){}
+
+// ── Helpers portados de MacroPro (output idéntico) ──
+function loteKey(lote){
+  const idRaw=(lote.id||lote.id_macrolote||"").toString().trim();
+  const idLimpio=idRaw.replace(/-r\d+$/,'').trim();
+  if(idLimpio) return idLimpio.toLowerCase().replace(/\s+/g,'_');
+  const nombre=(lote.nombre_lote||lote.nombre||"").toString().trim();
+  const desarrollo=(lote.desarrollo||"").toString().trim();
+  return (nombre+"__"+desarrollo).toLowerCase().replace(/\s+/g,'_');
+}
+function slugDesarrollo(n){ return (n||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,""); }
+function loteToSupabase(l){
+  const nombre=(l.nombre_lote||l.nombre||"").toString().trim();
+  const idRaw=(l.id||l.id_macrolote||"").toString().trim(); const idLimpio=idRaw.replace(/-r\d+$/,'').trim();
+  const pT=Number(l.precio_total), pM=Number(l.precio_m2);
+  const precioTotal=(pT>0)?pT:null, precioM2=(pM>0)?pM:null;
+  return { id:loteKey(l), clave_unica:loteKey(l), id_macrolote:idLimpio||null, nombre,
+    desarrollo:(l.desarrollo||"").trim()||null, desarrollador:l.desarrollador||null, ciudad:l.ciudad||null, estado:l.estado||null,
+    superficie_m2:Number(l.sup_m2)||null, precio_m2:precioM2, precio_total:precioTotal, precio_pendiente:(precioTotal===null),
+    uso:l.uso||null, usos_todos:Array.isArray(l.usos_todos)?l.usos_todos:(l.uso?[l.uso]:[]),
+    status_inventario:l.status||l.status_inventario||'Disponible', fecha_ingreso:l.fecha_ingreso||null };
+}
+function clienteToSupabase(c){
+  const email=(c.email||c.correo||"").toString().trim().toLowerCase(); if(!email) return null;
+  return { email, id_cliente:(c.id||c.id_cliente||"").toString().trim()||null, nombre:c.nombre||null, empresa:c.empresa||null,
+    telefono:c.telefono?c.telefono.toString():"", asesor:c.asesor||null, tipo_comprador:c.tipo_comprador||null,
+    ciudad_interes:Array.isArray(c.ciudad_interes)?c.ciudad_interes:[], uso_interes:Array.isArray(c.uso_interes)?c.uso_interes:[],
+    presupuesto_min:Number(c.presupuesto_min)||null, presupuesto_max:Number(c.presupuesto_max)||null,
+    sup_min:Number(c.sup_min)||null, sup_max:Number(c.sup_max)||null, status:c.status||null,
+    plazo_cierre:c.plazo_cierre||null, deal_breakers:Array.isArray(c.deal_breakers)?c.deal_breakers:[], activo:c.activo!==false };
+}
+const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ").trim();
+const cleanNum=v=>{ if(v==null||v==="")return 0; const n=parseFloat(String(v).replace(/[$,\s]/g,"").replace(/[^0-9.\-]/g,"")); return isNaN(n)?0:n; };
+function parseCoord(v){ if(v==null||v==="")return null; const s=String(v).trim();
+  const dms=s.match(/(\d+)[°º]\s*(\d+)['′]\s*([\d.]+)["″]\s*([NSEWnsew]?)/);
+  if(dms){ let d=parseFloat(dms[1])+parseFloat(dms[2])/60+parseFloat(dms[3])/3600; if(/[SWsw]/.test(dms[4]))d=-d; return d; }
+  const n=parseFloat(s.replace(/,/g,".")); return isNaN(n)?null:n;
+}
+
+// ── Parser de INVENTARIO (mismas columnas que MacroPro) ──
+function parseInventario(wb){
+  const sName=wb.SheetNames.find(n=>norm(n).includes('inventario'))
+    || wb.SheetNames.find(n=>{const x=norm(n);return !x.includes('dashboard')&&!x.includes('catalogo')&&!x.includes('guia');})
+    || wb.SheetNames[0];
+  const rows=XLSX.utils.sheet_to_json(wb.Sheets[sName],{header:1,defval:''});
+  let hr=4;
+  for(let i=0;i<Math.min(8,rows.length);i++){ const s=(rows[i]||[]).map(c=>norm(c)).join('|');
+    if(s.includes('id macrolote')||s.includes('id mac')||(s.includes('superficie')&&s.includes('precio')&&s.includes('estado'))){hr=i;break;} }
+  const headers=(rows[hr]||[]).map(h=>norm(h));
+  const col=(...kw)=>{ for(const k of kw){const nk=norm(k);const i=headers.findIndex(h=>h.includes(nk));if(i>=0)return i;} return -1; };
+  const iId=col('* id macrolote','id macrolote','id mac','* id'), iNom=col('* nombre / clave','nombre / clave','nombre','clave');
+  const iTipo=col('* tipo de inventario','tipo de inventario','tipo'), iDor=col('desarrollador','dueno','propietario','empresa desarrolladora');
+  let iDes=col('desarrollo / proyecto','proyecto / desarrollo','proyecto','fraccionamiento','conjunto');
+  if(iDes<0) iDes=headers.findIndex((h,idx)=>idx!==iDor&&h.includes('desarrollo')&&!h.includes('desarrollador')&&!h.includes('dueno'));
+  const iEdo=col('* estado','estado'), iCiu=col('* ciudad / municipio','ciudad / municipio','ciudad','municipio'), iCol=col('colonia / corredor','colonia','corredor');
+  const iSup=col('* superficie (m','superficie (m','superficie'), iPm2=col('* precio por m','precio por m','precio/m'), iPt=col('* precio total','precio total');
+  const usoIdx=(kw)=>{ for(const k of kw){ const i=headers.findIndex(h=>h.includes(norm(k))&&!h.includes('clave')); if(i>=0)return i; } return -1; };
+  const iU1=usoIdx(['uso_1','* uso_1','uso 1','uso de suelo']), iU2=usoIdx(['uso_2','uso 2']), iU3=usoIdx(['uso_3','uso 3']);
+  const iCos=col('* cos','cos'), iCus=col('* cus','cus'), iNiv=col('* niveles','niveles'), iLat=col('latitud'), iLng=col('longitud');
+  const iStatus=col('* status','status','estatus'), iMaps=col('link google maps','google maps'), iAgua=col('agua potable','agua'),
+        iLuz=col('energia electrica','electrica','cfe'), iDren=col('drenaje sanitario','drenaje'), iVial=col('acceso a vialidad','vialidad','acceso'),
+        iFech=col('fecha ingreso','fecha de ingreso'), iEnt=col('fecha entrega','entrega'), iDens=col('densidad','viv/ha'), iViv=col('viviendas max','viviendas');
+  const g=(row,i)=>i>=0&&row[i]!==undefined?row[i]:'';
+  const cu=v=>{ const s=String(v||'').trim(); return (!s||s.toUpperCase()==='N/A'||s==='-')?'':s; };
+  return rows.slice(hr+1)
+    .filter(r=>r[iId>=0?iId:0]&&String(r[iId>=0?iId:0]).trim()!==''&&!String(r[iId>=0?iId:0]).includes('Ej:'))
+    .map((r,idx)=>{
+      const sup=cleanNum(g(r,iSup)), pm2=cleanNum(g(r,iPm2)); let total=cleanNum(g(r,iPt)); if(!total&&sup&&pm2)total=sup*pm2;
+      const u1=cu(g(r,iU1)),u2=cu(g(r,iU2)),u3=cu(g(r,iU3));
+      return {
+        id:String(g(r,iId)||('LOT-'+(idx+1))).trim(), nombre:String(g(r,iNom)||('Lote '+(idx+1))).trim(),
+        desarrollo:String(g(r,iDes)||'').trim(), desarrollador:String(g(r,iDor)||'').trim(), tipo:String(g(r,iTipo)||'').trim(),
+        ciudad:String(g(r,iCiu)||'').trim(), estado:String(g(r,iEdo)||'').trim(), colonia:String(g(r,iCol)||'').trim(),
+        uso:u1, usos_todos:[u1,u2,u3].filter(Boolean), sup_m2:sup, precio_m2:pm2, precio_total:total,
+        status:String(g(r,iStatus)||'Disponible').trim(), cos:parseFloat(g(r,iCos))||0, cus:parseFloat(g(r,iCus))||0,
+        niveles:String(g(r,iNiv)||'').trim(), densidad:String(g(r,iDens)||'').trim(), viviendas_max:String(g(r,iViv)||'').trim(),
+        lat:parseCoord(g(r,iLat)), lng:parseCoord(g(r,iLng)), maps_url:String(g(r,iMaps)||'').trim(),
+        agua:String(g(r,iAgua)||'').trim(), luz:String(g(r,iLuz)||'').trim(), drenaje:String(g(r,iDren)||'').trim(), vialidad:String(g(r,iVial)||'').trim(),
+        fecha_ingreso:String(g(r,iFech)||'').trim()||null, entrega:String(g(r,iEnt)||'').trim(),
+      };
+    }).filter(l=>l.nombre&&l.nombre!=='0'&&l.nombre.length>1);
+}
+
+// ── Parser de CLIENTES ──
+function parseClientes(wb){
+  const sName=wb.SheetNames.find(n=>n.toUpperCase().includes('CLIENTES')||n.includes('BASE')||n.includes('🗂'))||wb.SheetNames[0];
+  const rows=XLSX.utils.sheet_to_json(wb.Sheets[sName],{header:1,defval:''});
+  const kw=['nombre','email','correo','empresa','ciudad','uso','presupuesto','superficie','status','asesor','ppto','sup','telefono'];
+  let hr=0,best=0; for(let i=0;i<Math.min(rows.length,15);i++){ if(!Array.isArray(rows[i]))continue;
+    const sc=rows[i].filter(c=>kw.some(k=>norm(c).includes(k))).length; if(sc>best){best=sc;hr=i;} }
+  const headers=(rows[hr]||[]).map(h=>norm(h));
+  const col=(...k)=>{ for(const x of k){const i=headers.findIndex(h=>h.includes(norm(x)));if(i>=0)return i;} return -1; };
+  const arr=v=>String(v||'').split(/[,;/|]/).map(s=>s.trim()).filter(Boolean);
+  const iNom=col('nombre'),iEm=col('email','correo','e-mail'),iEmp=col('empresa'),iTel=col('telefono','tel','celular','whatsapp'),
+        iCiu=col('ciudad','plaza'),iUso=col('uso'),iPmin=col('presupuesto min','ppto min'),iPmax=col('presupuesto max','ppto max','presupuesto'),
+        iSmin=col('superficie min','sup min'),iSmax=col('superficie max','sup max','superficie'),iSt=col('status','estatus'),iAse=col('asesor'),iId=col('id');
+  const g=(r,i)=>i>=0&&r[i]!==undefined?r[i]:'';
+  return rows.slice(hr+1).filter(r=>String(g(r,iNom)||'').trim().length>1).map(r=>({
+    id:String(g(r,iId)||'').trim(), nombre:String(g(r,iNom)||'').trim(), email:String(g(r,iEm)||'').trim(),
+    empresa:String(g(r,iEmp)||'').trim(), telefono:String(g(r,iTel)||'').trim(), ciudad_interes:arr(g(r,iCiu)),
+    uso_interes:arr(g(r,iUso)), presupuesto_min:cleanNum(g(r,iPmin)), presupuesto_max:cleanNum(g(r,iPmax)),
+    sup_min:cleanNum(g(r,iSmin)), sup_max:cleanNum(g(r,iSmax)), status:String(g(r,iSt)||'').trim(), asesor:String(g(r,iAse)||'').trim(),
+  }));
+}
+
+// ── Subidas a Supabase ──
+async function upsertBatches(table,rows,conflict){ let n=0; for(let i=0;i<rows.length;i+=200){ const b=rows.slice(i,i+200);
+  const {error}=await sb.from(table).upsert(b,{onConflict:conflict}); if(error) throw new Error(error.message); n+=b.length; } return n; }
+
+// ── UI ──
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3500); }
+let state={ lotes:0, clientes:0, desarrollos:[], log:[] };
+function addLog(m){ state.log.unshift('• '+m); renderApp(); }
+
+async function refreshCounts(){
+  try{ const l=await sb.from('lotes').select('*',{count:'exact',head:true}); state.lotes=l.count||0; }catch(e){}
+  try{ const c=await sb.from('clientes').select('*',{count:'exact',head:true}); state.clientes=c.count||0; }catch(e){}
+  try{ const d=await sb.from('desarrollos').select('id,slug,nombre,desarrollador,tipo,ciudad,estado,lat,lng,activo,color_principal,color_secundario,tagline,logo_url').order('nombre'); if(!d.error) state.desarrollos=d.data||[]; }catch(e){}
+  renderApp();
+}
+
+async function subirInventario(file){
+  addLog('Leyendo inventario…');
+  const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+  const lotes=parseInventario(wb);
+  if(!lotes.length){ toast('⚠ No se encontraron lotes'); return; }
+  addLog(lotes.length+' lotes leídos. Subiendo…');
+  const basic=lotes.map(loteToSupabase);
+  const full=lotes.map(l=>({id:loteKey(l),datos:l,updated_at:new Date().toISOString()}));
+  try{
+    await upsertBatches('lotes',basic,'id');
+    await upsertBatches('inventario_full',full,'id');
+    toast('✅ Inventario subido: '+lotes.length+' lotes (completo)');
+    addLog('✅ Inventario en la nube: '+lotes.length+' lotes (básico + completo)');
+    refreshCounts();
+  }catch(e){ toast('❌ '+e.message); addLog('❌ Error: '+e.message); }
+}
+async function subirClientes(file){
+  addLog('Leyendo clientes…');
+  const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+  const cli=parseClientes(wb).map(clienteToSupabase).filter(Boolean);
+  if(!cli.length){ toast('⚠ No se encontraron clientes con correo'); return; }
+  try{ const n=await upsertBatches('clientes',cli,'email'); toast('✅ Clientes subidos: '+n); addLog('✅ Clientes en la nube: '+n); refreshCounts(); }
+  catch(e){ toast('❌ '+e.message); addLog('❌ Error: '+e.message); }
+}
+
+let editId=null,draft={};
+async function guardarDes(){
+  if(!editId) return;
+  const p={ nombre:draft.nombre||null, desarrollador:draft.desarrollador||null, tipo:draft.tipo||null, ciudad:draft.ciudad||null, estado:draft.estado||null,
+    lat:draft.lat===''||draft.lat==null?null:Number(draft.lat), lng:draft.lng===''||draft.lng==null?null:Number(draft.lng), activo:draft.activo!==false,
+    color_principal:draft.color_principal||null, color_secundario:draft.color_secundario||null, tagline:draft.tagline||null, logo_url:draft.logo_url||null };
+  try{ const {error}=await sb.from('desarrollos').update(p).eq('id',editId); if(error)throw new Error(error.message);
+    state.desarrollos=state.desarrollos.map(d=>d.id===editId?{...d,...p}:d); editId=null;draft={}; toast('✅ Guardado'); renderApp(); }
+  catch(e){ toast('❌ '+e.message); }
+}
+
+function renderApp(){
+  const app=document.getElementById('app');
+  const DEVS=['TYA','HITO','Corretaje','Garvi','Favier','GyG'];
+  app.innerHTML=`
+   <div class="wrap">
+    <div class="hero"><h1>Hola 👋</h1><p>Carga el inventario y clientes una vez; se guardan en la nube y los leen todas las apps.</p></div>
+    <div class="grid">
+      <div class="card"><div class="ic">📦</div><b>Inventario</b><div class="n">${state.lotes} lotes en la nube</div>
+        <div class="row"><button class="btn navy" onclick="document.getElementById('invFile').click()">📤 Cargar Excel</button></div></div>
+      <div class="card"><div class="ic">👥</div><b>Clientes</b><div class="n">${state.clientes} clientes en la nube</div>
+        <div class="row"><button class="btn navy" onclick="document.getElementById('cliFile').click()">📤 Cargar Excel</button></div></div>
+      <div class="card"><div class="ic">🏗️</div><b>Desarrollos</b><div class="n">${state.desarrollos.length} desarrollos</div>
+        <div class="row"><button class="btn gold" onclick="openDes()">✏️ Editar</button></div></div>
+    </div>
+    ${state.log.length?`<div class="log">${state.log.slice(0,8).join('\n')}</div>`:''}
+    <p style="font-size:11px;color:var(--mut);margin-top:18px">💡 Cargas aquí → Supabase → lo leen MacroPro, Cotizador, Intelligence, Analytics, Presentaciones, Hub. El inventario se sube COMPLETO (todas las columnas).</p>
+   </div>
+   <div class="modal-ov" id="desmodal"><div class="modal">
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><b style="font-size:18px;color:var(--navy)">🏗️ Desarrollos (${state.desarrollos.length})</b><button class="btn" onclick="closeDes()">✕ Cerrar</button></div>
+     <div>${state.desarrollos.map(d=>{
+       const c1=d.color_principal||'#6B7280';
+       const editing=editId===d.id;
+       return `<div class="drow"><div class="dhead"><div class="dot" style="background:${c1}"></div>
+         <div style="flex:1;min-width:0"><div style="font-weight:800;color:var(--navy)">${d.nombre} ${d.activo===false?'<span style="font-size:10px;color:var(--mut)">(inactivo)</span>':''}</div>
+         <div style="font-size:11px;color:var(--mut)">${d.desarrollador||'—'} · ${d.tipo||'—'} · ${d.ciudad||'—'} · <span style="font-family:monospace">${d.slug}</span></div></div>
+         <button class="btn" onclick="${editing?'cancelDes()':"startDes('"+d.id+"')"}">${editing?'✕':'✏️ Editar'}</button></div>
+         ${editing?`<div class="dform">
+           <div><label class="lbl">Nombre</label><input class="inp" style="margin:0" value="${(draft.nombre||'').replace(/"/g,'&quot;')}" oninput="draft.nombre=this.value"></div>
+           <div><label class="lbl">Desarrollador</label><select class="inp" style="margin:0" onchange="draft.desarrollador=this.value"><option value="">—</option>${DEVS.map(x=>`<option ${draft.desarrollador===x?'selected':''}>${x}</option>`).join('')}${draft.desarrollador&&!DEVS.includes(draft.desarrollador)?`<option selected>${draft.desarrollador}</option>`:''}</select></div>
+           <div><label class="lbl">Tipo</label><select class="inp" style="margin:0" onchange="draft.tipo=this.value"><option ${draft.tipo==='Desarrollo'?'selected':''}>Desarrollo</option><option ${draft.tipo==='Corretaje'?'selected':''}>Corretaje</option></select></div>
+           <div><label class="lbl">Ciudad</label><input class="inp" style="margin:0" value="${(draft.ciudad||'').replace(/"/g,'&quot;')}" oninput="draft.ciudad=this.value"></div>
+           <div><label class="lbl">Estado</label><input class="inp" style="margin:0" value="${(draft.estado||'').replace(/"/g,'&quot;')}" oninput="draft.estado=this.value"></div>
+           <div><label class="lbl">Activo</label><label style="font-size:13px;display:flex;gap:8px;padding-top:8px"><input type="checkbox" ${draft.activo!==false?'checked':''} onchange="draft.activo=this.checked"> Visible</label></div>
+           <div><label class="lbl">Lat</label><input class="inp" style="margin:0" type="number" step="0.000001" value="${draft.lat==null?'':draft.lat}" oninput="draft.lat=this.value"></div>
+           <div><label class="lbl">Lng</label><input class="inp" style="margin:0" type="number" step="0.000001" value="${draft.lng==null?'':draft.lng}" oninput="draft.lng=this.value"></div>
+           <div><label class="lbl">Color</label><input class="inp" style="margin:0;height:40px" type="color" value="${draft.color_principal||'#6B7280'}" oninput="draft.color_principal=this.value"></div>
+           <div style="grid-column:span 3;display:flex;gap:8px"><button class="btn gold" onclick="guardarDes()">💾 Guardar</button><button class="btn" onclick="cancelDes()">Cancelar</button></div>
+         </div>`:''}</div>`;
+     }).join('')}</div>
+   </div></div>`;
+  document.getElementById('invFile').onchange=e=>{ const f=e.target.files[0]; if(f)subirInventario(f); e.target.value=''; };
+  document.getElementById('cliFile').onchange=e=>{ const f=e.target.files[0]; if(f)subirClientes(f); e.target.value=''; };
+  if(editId) document.getElementById('desmodal')?.classList.add('show');
+}
+window.openDes=()=>document.getElementById('desmodal').classList.add('show');
+window.closeDes=()=>document.getElementById('desmodal').classList.remove('show');
+window.startDes=(id)=>{ const d=state.desarrollos.find(x=>x.id===id); editId=id; draft={...d}; renderApp(); openDes(); };
+window.cancelDes=()=>{ editId=null;draft={}; renderApp(); openDes(); };
+window.guardarDes=guardarDes;
+
+// ── Login ──
+function renderLogin(msg){
+  document.getElementById('app').innerHTML=`<div class="login"><h2>⚙️ Administrador</h2><p>Inicia sesión para administrar los datos.</p>
+    <input class="inp" id="em" type="email" placeholder="Correo"><input class="inp" id="pw" type="password" placeholder="Contraseña">
+    <button class="btn navy" style="width:100%;padding:12px" onclick="doLogin()">Entrar</button>
+    ${msg?`<p style="color:var(--red);font-size:12px;margin-top:10px">${msg}</p>`:''}</div>`;
+}
+window.doLogin=async()=>{
+  const email=document.getElementById('em').value.trim(), password=document.getElementById('pw').value;
+  if(!sb){ renderLogin('Sin conexión a Supabase'); return; }
+  const {error}=await sb.auth.signInWithPassword({email,password});
+  if(error) renderLogin('❌ '+error.message); else init();
+};
+async function init(){
+  if(!sb){ renderLogin('Sin conexión a Supabase'); return; }
+  const {data}=await sb.auth.getSession();
+  if(!data || !data.session){ renderLogin(''); return; }
+  document.getElementById('userbox').innerHTML=(data.session.user.email||'')+' · <a href="#" onclick="doLogout()" style="color:var(--goldD)">salir</a>';
+  renderApp(); refreshCounts();
+}
+window.doLogout=async()=>{ await sb.auth.signOut(); location.reload(); };
+init();
+</script>
+</body>
+</html>
