@@ -830,15 +830,67 @@ const DESARROLLADORES_OFICIALES = ["TYA","HITO","Corretaje","Garvi","Favier","Gy
 const MAPEO_DESARROLLADOR_KEY = "macropro_mapeo_desarrolladores_v1";
 
 // Carga el mapeo desde localStorage (enriquecido por imports + auto-aprendizaje)
+// Prioridad (de menor a mayor): BASE → storage/aprendido → CATÁLOGO CANÓNICO (Supabase).
+// El catálogo de la tabla `desarrollos` siempre gana (Fase B) — es la fuente medular.
+const DESARROLLOS_CAT_KEY = "macropro_desarrollos_v1";       // catálogo completo (cache)
+const DESARROLLOS_DEV_KEY = "macropro_desarrollos_dev_v1";   // mapa nombre→desarrollador (canónico)
 function loadMapeoDesarrollador(){
+  let mapeo = { ...MAPEO_DESARROLLADOR_BASE };
   try{
     const stored = localStorage.getItem(MAPEO_DESARROLLADOR_KEY);
-    if(stored){
-      const parsed = JSON.parse(stored);
-      return { ...MAPEO_DESARROLLADOR_BASE, ...parsed };
-    }
+    if(stored) mapeo = { ...mapeo, ...JSON.parse(stored) };
   }catch(e){ console.warn("Error cargando mapeo:",e); }
-  return { ...MAPEO_DESARROLLADOR_BASE };
+  try{
+    const canon = localStorage.getItem(DESARROLLOS_DEV_KEY);
+    if(canon) mapeo = { ...mapeo, ...JSON.parse(canon) };   // canónico = máxima prioridad
+  }catch(e){ console.warn("Error cargando catálogo desarrollos:",e); }
+  return mapeo;
+}
+// Aplica el catálogo canónico de `desarrollos` (Supabase): cachea filas + arma el mapa
+// nombre→desarrollador que loadMapeoDesarrollador layerea con máxima prioridad.
+function aplicarDesarrollosCatalogo(rows){
+  if(!Array.isArray(rows) || !rows.length) return false;
+  const mapaDev = {};
+  rows.forEach(d=>{
+    const nombre = (d && (d.nombre||"")).toString().trim();
+    const dev = (d && (d.desarrollador||"")).toString().trim();
+    if(nombre && dev) mapaDev[nombre] = dev;
+  });
+  try{ localStorage.setItem(DESARROLLOS_CAT_KEY, JSON.stringify(rows)); }catch(e){}
+  try{ if(Object.keys(mapaDev).length) localStorage.setItem(DESARROLLOS_DEV_KEY, JSON.stringify(mapaDev)); }catch(e){}
+  return Object.keys(mapaDev).length > 0;
+}
+// Lee el catálogo cacheado de desarrollos (array de filas) — para tipo/ciudad/coords.
+function getDesarrollosCatalogo(){
+  try{ const c = localStorage.getItem(DESARROLLOS_CAT_KEY); if(c) return JSON.parse(c)||[]; }catch(e){}
+  return [];
+}
+// AUTO-MANTENIMIENTO (Fase B+): dado el inventario VIVO y el catálogo actual de la
+// tabla `desarrollos`, devuelve SOLO las filas a INSERTAR para desarrollos nuevos
+// (presentes en inventario, ausentes en la tabla). NO modifica los existentes:
+// no toca branding (logo/colores) ni el desarrollador curado ni las coords revisadas.
+function desarrollosFaltantes(inventory, catalogoRows, mapeoActivo){
+  if(!Array.isArray(inventory) || !inventory.length) return [];
+  if(!Array.isArray(catalogoRows) || !catalogoRows.length) return []; // sin catálogo conocido → no insertar (seguridad)
+  const med = arr => { if(!arr.length) return null; const s=[...arr].sort((a,b)=>a-b); const m=Math.floor(s.length/2); return s.length%2 ? s[m] : (s[m-1]+s[m])/2; };
+  const existentes = new Set(catalogoRows.map(d=>(d&&d.slug||"").toString().toLowerCase()).filter(Boolean));
+  const agg = {};
+  inventory.forEach(lot=>{
+    const nombre = (lot && lot.desarrollo || "").toString().trim();
+    if(!nombre) return;
+    const s = slugDesarrollo(nombre);
+    if(!s || existentes.has(s)) return;       // ya existe → no tocar
+    if(!agg[s]) agg[s] = { slug:s, nombre, lats:[], lngs:[], tipos:[] };
+    const la=Number(lot.lat), lo=Number(lot.lng);
+    if(isFinite(la)&&isFinite(lo)&&la!==0&&lo!==0){ agg[s].lats.push(la); agg[s].lngs.push(lo); }
+    if(lot.tipo) agg[s].tipos.push(String(lot.tipo));
+  });
+  return Object.values(agg).map(d=>({
+    id: d.slug, slug: d.slug, nombre: d.nombre,
+    desarrollador: inferirDesarrollador(d.nombre, mapeoActivo),
+    tipo: d.tipos.some(t=>/corretaje/i.test(t)) ? 'Corretaje' : 'Desarrollo',
+    lat: med(d.lats), lng: med(d.lngs), activo: true,
+  }));
 }
 function saveMapeoDesarrollador(mapeo){
   try{ localStorage.setItem(MAPEO_DESARROLLADOR_KEY, JSON.stringify(mapeo)); }catch(e){}
@@ -1419,6 +1471,7 @@ function MacroProMatcher() {
   const [selectedMatchIds, setSelectedMatchIds] = useState(new Set());
   const [filterCity, setFilterCity] = useState("Todas");
   const [filterDesarrollo, setFilterDesarrollo] = useState("Todos");
+  const [deepDevFilter, setDeepDevFilter] = useState("");  // desarrollo pedido por deep-link (?desarrollo=slug) → filtro inicial de Inventario
   const [filterUso, setFilterUso] = useState("Todos");
   const [filterAsesor, setFilterAsesor] = useState("Todos");
   const [searchProsp, setSearchProsp] = React.useState("");
@@ -2034,6 +2087,103 @@ function MacroProMatcher() {
       return {success:false, error:err.message};
     }
   };
+
+  // ═══ Catálogo canónico de desarrollos (Fase B) ═══
+  // Alimenta el mapeo de desarrollador (y tipo/coords vía cache) desde la tabla `desarrollos`.
+  // 1) aplica la cache local al instante (offline) · 2) refresca desde Supabase cuando haya sb.
+  // Si falla o no hay nube, la app se comporta igual que antes (fallback total).
+  const catalogoRef = useRef([]);                       // últimas filas de la nube (verdad)
+  const [catalogoReady, setCatalogoReady] = useState(false); // true sólo tras bajar de la nube
+  React.useEffect(()=>{
+    try{
+      const cached = JSON.parse(localStorage.getItem(DESARROLLOS_CAT_KEY)||'null');
+      if(Array.isArray(cached) && cached.length){ aplicarDesarrollosCatalogo(cached); catalogoRef.current = cached; }
+    }catch(e){}
+    let cancel=false;
+    const t=setInterval(async ()=>{
+      if(cancel){ clearInterval(t); return; }
+      if(window.sb){
+        clearInterval(t);
+        try{
+          const D = await window.sb.from('desarrollos')
+            .select('slug,nombre,desarrollador,tipo,ciudad,estado,lat,lng,activo');
+          if(!cancel && D && !D.error && Array.isArray(D.data) && D.data.length){
+            aplicarDesarrollosCatalogo(D.data);
+            catalogoRef.current = D.data;
+            setCatalogoReady(true);                     // ya conocemos la verdad de la nube
+          }
+        }catch(e){ /* no romper: queda la cache / base */ }
+      }
+    },400);
+    return ()=>{ cancel=true; clearInterval(t); };
+  }, []);
+
+  // ═══ AUTO-MANTENIMIENTO de `desarrollos` desde el inventario VIVO (Fase B+) ═══
+  // Cuando el inventario trae un desarrollo que NO está en la tabla, lo CREA solo
+  // (insert por slug). Nunca toca branding, desarrollador curado ni coords revisadas.
+  // Corre una sola vez por sesión y SÓLO tras conocer la verdad de la nube (catalogoReady).
+  const autoMantRef = useRef(false);
+  React.useEffect(()=>{
+    if(autoMantRef.current) return;
+    if(!catalogoReady || !window.sb) return;            // sin verdad de la nube → no insertar
+    if(!Array.isArray(inventory) || !inventory.length) return;
+    const nuevos = desarrollosFaltantes(inventory, catalogoRef.current, loadMapeoDesarrollador());
+    if(!nuevos.length){ autoMantRef.current = true; return; }
+    autoMantRef.current = true;                          // marcar antes de insertar (evita reentradas)
+    (async ()=>{
+      try{
+        const { error } = await window.sb.from('desarrollos').insert(nuevos);
+        if(error){ console.warn('auto-mant desarrollos:', error.message); return; }
+        // actualizar cache local + mapeo (no re-baja: ya sabemos lo nuevo)
+        const merged = [...catalogoRef.current, ...nuevos];
+        catalogoRef.current = merged;
+        aplicarDesarrollosCatalogo(merged);
+        toast(`🆕 ${nuevos.length} desarrollo(s) nuevo(s) agregados a la base: ${nuevos.map(d=>d.nombre).join(', ')}`);
+      }catch(e){ console.warn('auto-mant desarrollos (catch):', e && e.message); }
+    })();
+  }, [catalogoReady, inventory]);
+
+  // ═══ DEEP-LINK: abrir MacroPro ya posicionado desde el Hub / cotizador ═══
+  // ?desarrollo=slug → Inventario filtrado a ese desarrollo · ?lote=id → Lote→Clientes
+  // ?cliente_id=uuid → Cliente→Lotes. Se resuelve una vez (cuando hay datos) y limpia la URL.
+  const deepLinkParams = React.useMemo(()=>{
+    try{ const p=new URLSearchParams(window.location.search);
+      return { des:(p.get('desarrollo')||'').trim(), lote:(p.get('lote')||'').trim(), cli:(p.get('cliente_id')||p.get('cliente')||'').trim() };
+    }catch(e){ return { des:'', lote:'', cli:'' }; }
+  }, []);
+  const deepLinkRef = useRef(false);
+  React.useEffect(()=>{
+    if(deepLinkRef.current) return;
+    const { des, lote, cli } = deepLinkParams;
+    if(!des && !lote && !cli){ deepLinkRef.current = true; return; }
+    const inv = Array.isArray(inventory) ? inventory : [];
+    const limpiar = ()=>{ try{ window.history.replaceState(null,"",window.location.pathname); }catch(e){} };
+    // 1) lote concreto → Lote→Clientes
+    if(lote){
+      if(inv.length===0) return;  // esperar a que cargue el inventario
+      const L = inv.find(l=> loteKey(l)===lote.toLowerCase());
+      deepLinkRef.current = true;
+      if(L){ setSelectedLot(L); setView('matchLot'); toast('🎯 '+(L.nombre||L.id)); }
+      limpiar(); return;
+    }
+    // 2) cliente concreto → Cliente→Lotes
+    if(cli){
+      const C = (clients||[]).find(x=> String(x.sb_id||'')===cli);
+      if(!C && (clients||[]).length===0) return;  // esperar a que carguen clientes
+      deepLinkRef.current = true;
+      if(C){ setSelectedClient(C); setView('matchClient'); toast('👤 '+(C.nombre||'')); }
+      limpiar(); return;
+    }
+    // 3) desarrollo → Inventario filtrado
+    if(des){
+      const porInv = inv.find(l=> slugDesarrollo(l.desarrollo)===des);
+      const nombre = (porInv && porInv.desarrollo) || (getDesarrollosCatalogo().find(d=> (d.slug||'')===des)||{}).nombre || '';
+      if(!nombre && inv.length===0) return;  // esperar datos para resolver el slug
+      deepLinkRef.current = true;
+      if(nombre){ setDeepDevFilter(nombre); setView('lots'); toast('📍 Filtrado a '+nombre); }
+      limpiar(); return;
+    }
+  }, [deepLinkParams, inventory, clients]);
 
   // Auto-llenado SOLO en equipos vacíos (Inc. 2): si no hay inventario local, traer de la nube.
   // No toca equipos que ya tienen datos. Corre una sola vez tras montar (con sesión iniciada).
@@ -2818,6 +2968,7 @@ function MacroProMatcher() {
         <button style={s.btn("ghost")} onClick={()=>fileRef.current?.click()}>📤 Cargar Inventario Excel</button>
         <button style={s.btn("ghost")} onClick={()=>setView("clients")}>👥 Gestionar Clientes</button>
         <button style={s.btn("ghost")} onClick={()=>setView("lots")}>📦 Ver Inventario</button>
+        <button style={{...s.btn("ghost"),borderColor:B.gold,color:B.goldD}} onClick={()=>setView("admin")}>⚙️ Administrador</button>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleExcelUpload}/>
       </div>
       {(inventory.length===0||clients.length===0)&&(
@@ -3974,6 +4125,108 @@ function MacroProMatcher() {
     );
   };
 
+  // ─── ⚙️ ADMINISTRADOR: edita la tabla canónica `desarrollos` (escribe a Supabase) ───
+  // Lee la tabla, edita un desarrollo a la vez y guarda con UPDATE por id (PK). Nunca
+  // inserta/borra. Tras guardar refresca la cache + el mapeo de desarrollador (Fase B).
+  const ViewAdmin = () => {
+    const [rows,setRows]=useState(null);       // null = cargando
+    const [err,setErr]=useState(null);
+    const [editId,setEditId]=useState(null);
+    const [draft,setDraft]=useState({});
+    const [saving,setSaving]=useState(false);
+    React.useEffect(()=>{
+      let alive=true;
+      (async()=>{
+        if(!sb){ setRows([]); setErr("Sin conexión a Supabase"); return; }
+        try{
+          const { data, error } = await sb.from('desarrollos')
+            .select('id,slug,nombre,desarrollador,tipo,ciudad,estado,lat,lng,activo,color_principal,color_secundario,tagline,logo_url')
+            .order('nombre',{ascending:true});
+          if(!alive) return;
+          if(error){ setErr(error.message); setRows([]); }
+          else setRows(Array.isArray(data)?data:[]);
+        }catch(e){ if(alive){ setErr(String((e&&e.message)||e)); setRows([]); } }
+      })();
+      return ()=>{ alive=false; };
+    },[]);
+    const startEdit=(r)=>{ setEditId(r.id); setDraft({...r}); };
+    const cancel=()=>{ setEditId(null); setDraft({}); };
+    const setF=(k,v)=>setDraft(d=>({...d,[k]:v}));
+    const guardar=async()=>{
+      if(!sb||!editId) return;
+      setSaving(true);
+      const payload={
+        nombre:draft.nombre||null, desarrollador:draft.desarrollador||null, tipo:draft.tipo||null,
+        ciudad:draft.ciudad||null, estado:draft.estado||null,
+        lat:(draft.lat===""||draft.lat==null)?null:Number(draft.lat),
+        lng:(draft.lng===""||draft.lng==null)?null:Number(draft.lng),
+        activo:draft.activo!==false,
+        color_principal:draft.color_principal||null, color_secundario:draft.color_secundario||null,
+        tagline:draft.tagline||null, logo_url:draft.logo_url||null,
+      };
+      try{
+        const { error } = await sb.from('desarrollos').update(payload).eq('id',editId);
+        if(error){ toast("❌ Error al guardar: "+error.message); setSaving(false); return; }
+        const next=(rows||[]).map(r=> r.id===editId ? {...r,...payload} : r);
+        setRows(next);
+        aplicarDesarrollosCatalogo(next);   // refresca cache + mapeo de desarrollador
+        toast("✅ "+(payload.nombre||"Desarrollo")+" guardado");
+        cancel();
+      }catch(e){ toast("❌ "+((e&&e.message)||e)); }
+      setSaving(false);
+    };
+    const inp={width:"100%",padding:"8px 10px",border:"1.5px solid "+B.grey1,borderRadius:8,fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box"};
+    const lbl={display:"block",fontSize:11,fontWeight:700,color:B.navy,marginBottom:4};
+    const DEVS=["TYA","HITO","Corretaje","Garvi","Favier","GyG"];
+    return (
+      <div style={s.page}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8,flexWrap:"wrap"}}>
+          <button style={s.btn("ghost")} onClick={()=>setView("home")}>← Inicio</button>
+          <div style={s.sectionTitle}>⚙️ Administrador · Desarrollos</div>
+          <div style={{marginLeft:"auto",fontSize:12,color:B.grey3}}>{Array.isArray(rows)?rows.length+" desarrollos":""}</div>
+        </div>
+        <div style={{...s.sectionSub,marginBottom:16}}>Edita la base medular. Los cambios se guardan en Supabase y los ven todas las apps (MacroPro, Cotizador, Hub).</div>
+        {!sb&&<div style={{padding:16,background:B.redL,color:B.red,borderRadius:10,fontSize:13}}>Sin conexión a Supabase — inicia sesión para administrar.</div>}
+        {rows===null&&sb&&<div style={{padding:24,color:B.grey3}}>Cargando desarrollos…</div>}
+        {err&&<div style={{padding:12,background:B.redL,color:B.red,borderRadius:10,fontSize:12,marginBottom:12}}>Error: {err}</div>}
+        {Array.isArray(rows)&&rows.map(r=>(
+          <div key={r.id} style={{background:B.white,border:"1px solid "+B.grey1,borderRadius:12,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,43,73,0.05)"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px"}}>
+              <div style={{width:34,height:34,borderRadius:9,background:r.color_principal||B.grey2,flexShrink:0}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:800,color:B.navy,fontSize:14}}>{r.nombre} {r.activo===false&&<span style={{fontSize:10,color:B.grey3}}>(inactivo)</span>}</div>
+                <div style={{fontSize:11,color:B.grey3}}>{r.desarrollador||"—"} · {r.tipo||"—"} · {r.ciudad||"—"} · <span style={{fontFamily:"monospace"}}>{r.slug}</span></div>
+              </div>
+              <button style={s.btn("sm")} onClick={()=>editId===r.id?cancel():startEdit(r)}>{editId===r.id?"✕ Cerrar":"✏️ Editar"}</button>
+            </div>
+            {editId===r.id&&(
+              <div style={{borderTop:"1px solid "+B.grey1,padding:14,background:B.offW}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                  <div><label style={lbl}>Nombre</label><input style={inp} value={draft.nombre||""} onChange={e=>setF("nombre",e.target.value)}/></div>
+                  <div><label style={lbl}>Desarrollador</label><select style={inp} value={draft.desarrollador||""} onChange={e=>setF("desarrollador",e.target.value)}><option value="">—</option>{DEVS.map(d=><option key={d} value={d}>{d}</option>)}{draft.desarrollador&&!DEVS.includes(draft.desarrollador)&&<option value={draft.desarrollador}>{draft.desarrollador}</option>}</select></div>
+                  <div><label style={lbl}>Tipo</label><select style={inp} value={draft.tipo||"Desarrollo"} onChange={e=>setF("tipo",e.target.value)}><option>Desarrollo</option><option>Corretaje</option></select></div>
+                  <div><label style={lbl}>Ciudad</label><input style={inp} value={draft.ciudad||""} onChange={e=>setF("ciudad",e.target.value)}/></div>
+                  <div><label style={lbl}>Estado</label><input style={inp} value={draft.estado||""} onChange={e=>setF("estado",e.target.value)}/></div>
+                  <div><label style={lbl}>Activo</label><label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,paddingTop:8,color:B.navy}}><input type="checkbox" checked={draft.activo!==false} onChange={e=>setF("activo",e.target.checked)}/> Visible en Hub/matching</label></div>
+                  <div><label style={lbl}>Latitud</label><input style={inp} type="number" step="0.000001" value={draft.lat==null?"":draft.lat} onChange={e=>setF("lat",e.target.value)}/></div>
+                  <div><label style={lbl}>Longitud</label><input style={inp} type="number" step="0.000001" value={draft.lng==null?"":draft.lng} onChange={e=>setF("lng",e.target.value)}/></div>
+                  <div><label style={lbl}>Color principal</label><input style={{...inp,padding:4,height:38}} type="color" value={draft.color_principal||"#6B7280"} onChange={e=>setF("color_principal",e.target.value)}/></div>
+                  <div><label style={lbl}>Color secundario</label><input style={{...inp,padding:4,height:38}} type="color" value={draft.color_secundario||"#6B7280"} onChange={e=>setF("color_secundario",e.target.value)}/></div>
+                  <div style={{gridColumn:"span 2"}}><label style={lbl}>Tagline</label><input style={inp} value={draft.tagline||""} onChange={e=>setF("tagline",e.target.value)}/></div>
+                  <div style={{gridColumn:"span 3"}}><label style={lbl}>Logo URL</label><input style={inp} value={draft.logo_url||""} onChange={e=>setF("logo_url",e.target.value)} placeholder="https://…"/></div>
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:14}}>
+                  <button style={s.btn("primary")} disabled={saving} onClick={guardar}>{saving?"Guardando…":"💾 Guardar"}</button>
+                  <button style={s.btn("ghost")} onClick={cancel}>Cancelar</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const ViewClients = () => {
     const [fSearch,setFSearch]=useState("");
     const [fStatus,setFStatus]=useState("Todos");
@@ -4029,7 +4282,7 @@ function MacroProMatcher() {
   // ─── VIEW LOTS ────────────────────────────────────────────────────
   const ViewLots = () => {
     const [fCity,setFCity]=useState("Todas");
-    const [fDev,setFDev]=useState("Todos");
+    const [fDev,setFDev]=useState(deepDevFilter||"Todos");
     const [fUso,setFUso]=useState("Todos");
     const [fTipo,setFTipo]=useState("Todos");
     const lotCities=["Todas",...new Set(srcInv.map(l=>l.ciudad))];
@@ -12936,6 +13189,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="quickSearch"&&<ViewQuickSearch/>}
       {view==="clients"&&<ViewClients/>}
       {view==="lots"&&<ViewLots/>}
+      {view==="admin"&&<ViewAdmin/>}
       <ModalApiKey/>
       <ModalMigrate/>
       {ModalAddClient}
