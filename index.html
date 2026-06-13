@@ -2092,8 +2092,31 @@ function MacroProMatcher() {
     }
   };
 
-  // ═══ Catálogo canónico de desarrollos (Fase B) ═══
-  // Alimenta el mapeo de desarrollador (y tipo/coords vía cache) desde la tabla `desarrollos`.
+  // ═══ Subir INVENTARIO COMPLETO a la nube (todas las columnas, como JSON) ═══
+  // Guarda cada lote íntegro en `inventario_full` (id + datos jsonb) para que las
+  // apps de análisis (Intelligence, etc.) lean TODO, no solo los campos básicos de `lotes`.
+  const [subiendoFull, setSubiendoFull] = useState(false);
+  const subirInventarioCompleto = async () => {
+    if(!sb){ toast("⚠ Sin conexión a Supabase"); return; }
+    const inv = Array.isArray(inventory) ? inventory : [];
+    if(!inv.length){ toast("⚠ No hay inventario cargado"); return; }
+    setSubiendoFull(true); toast("☁️ Subiendo inventario completo…");
+    try{
+      const rows = inv.map(l=>({ id: loteKey(l), datos: l, updated_at: new Date().toISOString() }))
+                      .filter(r=>r.id);
+      let subidos = 0;
+      for(let i=0;i<rows.length;i+=200){
+        const batch = rows.slice(i,i+200);
+        const { error } = await sb.from('inventario_full').upsert(batch,{ onConflict:'id' });
+        if(error) throw new Error(error.message);
+        subidos += batch.length;
+      }
+      toast(`✅ Inventario completo en la nube: ${subidos} lotes (todas las columnas)`);
+    }catch(e){ toast("❌ Error al subir inventario completo: "+((e&&e.message)||e)); }
+    finally{ setSubiendoFull(false); }
+  };
+
+
   // 1) aplica la cache local al instante (offline) · 2) refresca desde Supabase cuando haya sb.
   // Si falla o no hay nube, la app se comporta igual que antes (fallback total).
   const catalogoRef = useRef([]);                       // últimas filas de la nube (verdad)
@@ -4234,6 +4257,7 @@ function MacroProMatcher() {
               <div style={{marginTop:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
                 <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>setShowMigrateModal(true)}>☁️ Subir a la nube</button>
                 <button style={{...s.btn("ghost"),fontSize:12}} disabled={sincronizando} onClick={()=>sincronizarTodo()}>{sincronizando?"…":"🔄 Sincronizar"}</button>
+                <button style={{...s.btn("primary"),fontSize:12}} disabled={subiendoFull} onClick={subirInventarioCompleto} title="Sube TODAS las columnas del inventario para las apps de análisis">{subiendoFull?"…":"📦 Inventario completo"}</button>
               </div>
             </div>
           </div>
