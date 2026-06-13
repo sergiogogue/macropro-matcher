@@ -149,9 +149,11 @@ async function cargar(){
 
 function appEl(a){
   const cls = "app"+(a.grupo==="core"?" core":"")+(a.admin?" admin":"")+((!a.integrada||!urlValida(a.url))?" off":"");
-  const badge = a.recibe_desarrollo ? `<span class="badge ctx">🎯 recibe desarrollo</span>`
-              : (!a.integrada ? `<span class="badge soon">⏳ por integrar</span>`
-              : (!urlValida(a.url) ? `<span class="badge soon">⏳ falta URL</span>` : ""));
+  // El estado accionable manda sobre el badge informativo:
+  let badge = "";
+  if(!a.integrada)            badge = `<span class="badge soon">⏳ por integrar</span>`;
+  else if(!urlValida(a.url))  badge = `<span class="badge soon">⏳ falta URL</span>`;
+  else if(a.recibe_desarrollo) badge = `<span class="badge ctx">🎯 recibe desarrollo</span>`;
   const ico = /^https?:/.test(a.icono||"") ? `<img src="${a.icono}" alt="">` : (a.icono||"🔗");
   const onclick = urlValida(a.url) ? `onclick="window.open('${a.url}','_blank')"` : "";
   return `<button class="${cls}" ${onclick}>${badge}<div class="ic" style="background:${a.color||'#0a2540'}">${ico}</div><b>${a.nombre}</b><small>${a.descripcion||""}</small></button>`;
