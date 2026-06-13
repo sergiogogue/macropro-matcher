@@ -873,13 +873,17 @@ function desarrollosFaltantes(inventory, catalogoRows, mapeoActivo){
   if(!Array.isArray(inventory) || !inventory.length) return [];
   if(!Array.isArray(catalogoRows) || !catalogoRows.length) return []; // sin catálogo conocido → no insertar (seguridad)
   const med = arr => { if(!arr.length) return null; const s=[...arr].sort((a,b)=>a-b); const m=Math.floor(s.length/2); return s.length%2 ? s[m] : (s[m-1]+s[m])/2; };
-  const existentes = new Set(catalogoRows.map(d=>(d&&d.slug||"").toString().toLowerCase()).filter(Boolean));
+  const norm = x => (x||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+  // Existencia por slug Y por nombre normalizado → evita duplicar cuando el slug de la
+  // tabla difiere del slug del nombre (p.ej. typos como 'graavalle' vs 'gran-valle').
+  const existSlug = new Set(catalogoRows.map(d=>(d&&d.slug||"").toString().toLowerCase()).filter(Boolean));
+  const existNom  = new Set(catalogoRows.map(d=>norm(d&&d.nombre)).filter(Boolean));
   const agg = {};
   inventory.forEach(lot=>{
     const nombre = (lot && lot.desarrollo || "").toString().trim();
     if(!nombre) return;
     const s = slugDesarrollo(nombre);
-    if(!s || existentes.has(s)) return;       // ya existe → no tocar
+    if(!s || existSlug.has(s) || existNom.has(norm(nombre))) return;   // ya existe (por slug o nombre) → no tocar
     if(!agg[s]) agg[s] = { slug:s, nombre, lats:[], lngs:[], tipos:[] };
     const la=Number(lot.lat), lo=Number(lot.lng);
     if(isFinite(la)&&isFinite(lo)&&la!==0&&lo!==0){ agg[s].lats.push(la); agg[s].lngs.push(lo); }
