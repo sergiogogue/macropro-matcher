@@ -1471,6 +1471,7 @@ function MacroProMatcher() {
   const [selectedMatchIds, setSelectedMatchIds] = useState(new Set());
   const [filterCity, setFilterCity] = useState("Todas");
   const [filterDesarrollo, setFilterDesarrollo] = useState("Todos");
+  const [deepDevFilter, setDeepDevFilter] = useState("");  // desarrollo pedido por deep-link (?desarrollo=slug) → filtro inicial de Inventario
   const [filterUso, setFilterUso] = useState("Todos");
   const [filterAsesor, setFilterAsesor] = useState("Todos");
   const [searchProsp, setSearchProsp] = React.useState("");
@@ -2141,6 +2142,48 @@ function MacroProMatcher() {
       }catch(e){ console.warn('auto-mant desarrollos (catch):', e && e.message); }
     })();
   }, [catalogoReady, inventory]);
+
+  // ═══ DEEP-LINK: abrir MacroPro ya posicionado desde el Hub / cotizador ═══
+  // ?desarrollo=slug → Inventario filtrado a ese desarrollo · ?lote=id → Lote→Clientes
+  // ?cliente_id=uuid → Cliente→Lotes. Se resuelve una vez (cuando hay datos) y limpia la URL.
+  const deepLinkParams = React.useMemo(()=>{
+    try{ const p=new URLSearchParams(window.location.search);
+      return { des:(p.get('desarrollo')||'').trim(), lote:(p.get('lote')||'').trim(), cli:(p.get('cliente_id')||p.get('cliente')||'').trim() };
+    }catch(e){ return { des:'', lote:'', cli:'' }; }
+  }, []);
+  const deepLinkRef = useRef(false);
+  React.useEffect(()=>{
+    if(deepLinkRef.current) return;
+    const { des, lote, cli } = deepLinkParams;
+    if(!des && !lote && !cli){ deepLinkRef.current = true; return; }
+    const inv = Array.isArray(inventory) ? inventory : [];
+    const limpiar = ()=>{ try{ window.history.replaceState(null,"",window.location.pathname); }catch(e){} };
+    // 1) lote concreto → Lote→Clientes
+    if(lote){
+      if(inv.length===0) return;  // esperar a que cargue el inventario
+      const L = inv.find(l=> loteKey(l)===lote.toLowerCase());
+      deepLinkRef.current = true;
+      if(L){ setSelectedLot(L); setView('matchLot'); toast('🎯 '+(L.nombre||L.id)); }
+      limpiar(); return;
+    }
+    // 2) cliente concreto → Cliente→Lotes
+    if(cli){
+      const C = (clients||[]).find(x=> String(x.sb_id||'')===cli);
+      if(!C && (clients||[]).length===0) return;  // esperar a que carguen clientes
+      deepLinkRef.current = true;
+      if(C){ setSelectedClient(C); setView('matchClient'); toast('👤 '+(C.nombre||'')); }
+      limpiar(); return;
+    }
+    // 3) desarrollo → Inventario filtrado
+    if(des){
+      const porInv = inv.find(l=> slugDesarrollo(l.desarrollo)===des);
+      const nombre = (porInv && porInv.desarrollo) || (getDesarrollosCatalogo().find(d=> (d.slug||'')===des)||{}).nombre || '';
+      if(!nombre && inv.length===0) return;  // esperar datos para resolver el slug
+      deepLinkRef.current = true;
+      if(nombre){ setDeepDevFilter(nombre); setView('lots'); toast('📍 Filtrado a '+nombre); }
+      limpiar(); return;
+    }
+  }, [deepLinkParams, inventory, clients]);
 
   // Auto-llenado SOLO en equipos vacíos (Inc. 2): si no hay inventario local, traer de la nube.
   // No toca equipos que ya tienen datos. Corre una sola vez tras montar (con sesión iniciada).
@@ -4239,7 +4282,7 @@ function MacroProMatcher() {
   // ─── VIEW LOTS ────────────────────────────────────────────────────
   const ViewLots = () => {
     const [fCity,setFCity]=useState("Todas");
-    const [fDev,setFDev]=useState("Todos");
+    const [fDev,setFDev]=useState(deepDevFilter||"Todos");
     const [fUso,setFUso]=useState("Todos");
     const [fTipo,setFTipo]=useState("Todos");
     const lotCities=["Todas",...new Set(srcInv.map(l=>l.ciudad))];
