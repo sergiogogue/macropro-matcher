@@ -107,6 +107,7 @@ let activeTab = 'ventas';
 let selDesarrollo = '';      // slug seleccionado
 let selDesarrollador = '';
 let excludeTest = true;      // ocultar cotizaciones/CRM de prueba
+let metaModo = 'uds';        // 'uds' | 'monto' para el comparativo mensual de metas
 let EXPORT = null;           // { name, headers, rows } del tab activo para exportar CSV
 const charts = {};
 
@@ -358,6 +359,55 @@ function renderVentas(){
 // ── TAB: METAS vs REAL ─────────────────────────────────────────────────────────
 // Fuente real de metas: app_config/metas_v1 (plan y real ya incluidos por mes).
 // Si no hay metas_v1, cae a mostrar el real (cotizaciones cerradas / lotes vendidos) por desarrollo.
+function setMetaModo(m){ metaModo = m; renderActive(); }
+
+// Comparativo mensual del año: Plan vs Real (de metas_v1) + Momentum CRM (Apartado/Contrato) + Δ.
+// Respeta los filtros (devNames ya viene filtrado por desarrollo/desarrollador).
+function _metasMensual(devNames){
+  const MES=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const planU=Array(12).fill(0),realU=Array(12).fill(0),planM=Array(12).fill(0),realM=Array(12).fill(0);
+  devNames.forEach(n=>{ const m=METAS_CFG[n]||{};
+    for(let i=0;i<12;i++){
+      planU[i]+=(m.plan&&m.plan.uds&&+m.plan.uds[i])||0;
+      realU[i]+=(m.real&&m.real.uds&&+m.real.uds[i])||0;
+      planM[i]+=(m.plan&&m.plan.monto&&+m.plan.monto[i])||0;
+      realM[i]+=(m.real&&m.real.monto&&+m.real.monto[i])||0;
+    }
+  });
+  // Momentum CRM: lotes hoy en Apartado/Contrato del Kanban (se ubica en el mes actual)
+  const crm = notTest(applyFilters(DB.crm_lotes)).filter(c=>/apart|contrat/.test(low(pick(c,K.pipeline,''))));
+  const momU = crm.length;
+  const momM = crm.reduce((s,c)=> s+num(pick(c._lote||{},K.precioTotal,0)), 0);
+  const cur = new Date().getMonth();
+  const U = metaModo==='uds';
+  const plan = U?planU:planM, real = U?realU:realM, momTot = U?momU:momM;
+  const cell = v => v ? (U? fmtInt(v) : fmtMoney(v)) : '—';
+  const dcell = d => { if(!d) return '<td class="num" style="color:var(--muted)">0</td>'; const c=d>0?'var(--green)':'var(--red)'; return `<td class="num" style="color:${c}">${(d>0?'+':'-')+(U?fmtInt(Math.abs(d)):fmtMoney(Math.abs(d)))}</td>`; };
+  const sumA = a=>a.reduce((s,x)=>s+x,0);
+  const totPlan=sumA(plan), totReal=sumA(real);
+  const th = MES.map((m,i)=>`<th class="num" style="${i===cur?'color:var(--gold2)':''}">${m}${i===cur?'·hoy':''}</th>`).join('');
+  const rPlan = plan.map(v=>`<td class="num">${cell(v)}</td>`).join('');
+  const rReal = real.map(v=>`<td class="num">${cell(v)}</td>`).join('');
+  const rMom  = MES.map((m,i)=>`<td class="num">${(i===cur&&momTot)?cell(momTot):'—'}</td>`).join('');
+  const rDelta= plan.map((v,i)=>dcell(real[i]-v)).join('');
+  return `<div class="card"><h3>Comparativo mensual ${new Date().getFullYear()} · Plan vs Real
+      <span style="float:right;display:inline-flex;gap:6px">
+        <button class="btn ${U?'btn-gold':''}" style="padding:4px 12px;font-size:12px" onclick="setMetaModo('uds')">Unidades</button>
+        <button class="btn ${!U?'btn-gold':''}" style="padding:4px 12px;font-size:12px" onclick="setMetaModo('monto')">Monto</button>
+      </span></h3>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Concepto</th>${th}<th class="num">Total</th></tr></thead>
+      <tbody>
+        <tr><td>🎯 Plan</td>${rPlan}<td class="num">${cell(totPlan)}</td></tr>
+        <tr><td>✅ Real</td>${rReal}<td class="num" style="color:var(--green)">${cell(totReal)}</td></tr>
+        <tr><td>🔥 Momentum CRM</td>${rMom}<td class="num" style="color:var(--yellow)">${momTot?cell(momTot):'—'}</td></tr>
+        <tr><td>⚡ Δ Real vs Plan</td>${rDelta}${dcell(totReal-totPlan)}</tr>
+      </tbody>
+    </table></div>
+    <div class="muted" style="font-size:11px;margin-top:8px">Plan y Real: metas_v1 (mensual). Momentum CRM: lotes en Apartado/Contrato del pipeline, ubicados en el mes en curso.</div>
+  </div>`;
+}
+
 function renderMetas(){
   const sum = a => Array.isArray(a) ? a.reduce((s,x)=>s+(+x||0),0) : (+a||0);
   const S = salesData();
@@ -403,7 +453,8 @@ function renderMetas(){
       </div>
       <div class="card"><h3>Metas vs. ventas reales por desarrollo</h3>
         <table><thead><tr><th>Desarrollo</th><th class="num">Meta (plan)</th><th class="num">Real</th><th class="num">Avance</th><th class="num">Uds R/P</th><th>Estado</th></tr></thead>
-        <tbody>${rowsHtml||'<tr><td colspan="6" class="muted">Sin metas para el filtro seleccionado</td></tr>'}</tbody></table></div>`);
+        <tbody>${rowsHtml||'<tr><td colspan="6" class="muted">Sin metas para el filtro seleccionado</td></tr>'}</tbody></table></div>`
+      + _metasMensual(rows.map(r=>r.nombre)));
   }
 
   // ── Fallback: tabla 'metas' (legacy) con real derivado de ventas ──
