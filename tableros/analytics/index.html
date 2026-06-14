@@ -500,24 +500,70 @@ function renderMetas(){
 }
 
 // ── TAB: PIPELINE / CRM ─────────────────────────────────────────────────────────
+// Probabilidad de cierre por etapa (para forecast ponderado)
+const STAGES=[
+  {re:/vendid|cerrad|escritur|firmad/, prob:1.00},
+  {re:/contrat/,                       prob:0.90},
+  {re:/apart|reserv/,                  prob:0.80},
+  {re:/negocia/,                       prob:0.60},
+  {re:/propuesta|cotiz/,               prob:0.40},
+  {re:/an[aá]lisis|calific/,           prob:0.25},
+  {re:/prospecto|contact|nuevo/,       prob:0.10},
+];
+function stageProb(et){ const e=low(et); for(const s of STAGES){ if(s.re.test(e)) return s.prob; } return 0.15; }
+function arrLen(v){ if(Array.isArray(v)) return v.length; if(typeof v==='string'){ try{ const j=JSON.parse(v); return Array.isArray(j)?j.length:0; }catch(e){ return 0; } } return 0; }
+function crmValor(c){ return num(pick(c._lote||{}, K.precioTotal, 0)); }
+function crmAsesor(c){ return pick(c,['asesor_asignado','asesor','nombre_asesor'],'') || pick(c._lote||{},['asesor'],'') || '—'; }
+
 function renderPipeline(){
   if(!DB.crm_lotes.length){ return sec('pipeline', emptyMsg('crm_lotes')); }
   const rows = notTest(applyFilters(DB.crm_lotes));
-  const byEtapa = groupSum(rows, r=>pick(r,K.pipeline,'Sin etapa'), ()=>1);
-  const vencidas = rows.reduce((n,r)=>n+seguimientosVencidos(r),0);
-  const byAsesor = groupSum(rows, r=>pick(r,K.asesor,'—'), ()=>1).slice(0,10);
-  EXPORT = { name:'pipeline', headers:['Desarrollo','Etapa','Asesor','Seg. vencidos'],
-    rows: rows.map(r=>[pick(r,K.desarrollo,'—'), pick(r,K.pipeline,'Sin etapa'), pick(r,K.asesor,'—'), seguimientosVencidos(r)]) };
+  const daysSince = s => { if(!s) return null; const d=new Date(s); return isNaN(d.getTime())?null:Math.max(0,Math.floor((Date.now()-d.getTime())/86400000)); };
 
-  const pcols = byEtapa.map(e=>`<div class="pcol"><div class="p-h">${e.lbl}</div><div class="p-n">${e.val}</div></div>`).join('');
+  const valorPipe = rows.reduce((s,c)=>s+crmValor(c),0);
+  const forecast  = rows.reduce((s,c)=>s+crmValor(c)*stageProb(pick(c,K.pipeline,'')),0);
+  const vencidas  = rows.reduce((n,r)=>n+seguimientosVencidos(r),0);
+  const prospectosAct = rows.reduce((n,c)=>n+arrLen(c.prospectos),0);
+  const cierreRe = /apart|contrat/;
+  const cierres = rows.filter(c=>cierreRe.test(low(pick(c,K.pipeline,''))));
+  const valorCierre = cierres.reduce((s,c)=>s+crmValor(c),0);
+
+  // Embudo por etapa (conteo + valor + ponderado)
+  const em={};
+  rows.forEach(c=>{ const et=pick(c,K.pipeline,'Sin etapa'); (em[et]=em[et]||{n:0,val:0,prob:stageProb(et)}); em[et].n++; em[et].val+=crmValor(c); });
+  const funnel=Object.entries(em).map(([et,v])=>({et,n:v.n,val:v.val,prob:v.prob,fc:v.val*v.prob})).sort((a,b)=>b.prob-a.prob);
+
+  // Por asesor (valor real)
+  const byAsesor = groupSum(rows, crmAsesor, crmValor).slice(0,10);
+  // Estancados: más días sin actualizar
+  const estancados = rows.map(c=>({c, d:daysSince(pick(c,['updated_at'],''))})).filter(x=>x.d!=null).sort((a,b)=>b.d-a.d).slice(0,10);
+  const nomL = c => pick(c._lote||{},['nombre_terreno','nombre'],pick(c,['lote_id'],'—'))+' · '+pick(c,K.desarrollo,'');
+
+  EXPORT = { name:'pipeline', headers:['Lote','Desarrollo','Etapa','Asesor','Valor','Prob %','Forecast','Prospectos','Interacciones','Días sin actualizar','Seg. vencidos'],
+    rows: rows.map(c=>{ const p=stageProb(pick(c,K.pipeline,'')); const v=crmValor(c);
+      return [pick(c._lote||{},['nombre_terreno','nombre'],pick(c,['lote_id'],'')), pick(c,K.desarrollo,''), pick(c,K.pipeline,''), crmAsesor(c), v, Math.round(p*100), Math.round(v*p), arrLen(c.prospectos), arrLen(c.interacciones), daysSince(pick(c,['updated_at'],''))||'', seguimientosVencidos(c)]; }) };
+
+  const funnelBody = funnel.map(f=>`<tr><td>${f.et}</td><td class="num">${f.n}</td><td class="num">${fmtMoney(f.val)}</td><td class="num">${(f.prob*100).toFixed(0)}%</td><td class="num" style="color:var(--gold2)">${fmtMoney(f.fc)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Sin datos</td></tr>';
+
   sec('pipeline', `
     <div class="kpis">
-      <div class="kpi"><div class="k-lbl">Prospectos en pipeline</div><div class="k-val">${rows.length}</div></div>
+      <div class="kpi"><div class="k-lbl">Lotes en pipeline</div><div class="k-val">${rows.length}</div><div class="k-sub">${prospectosAct} prospectos activos</div></div>
+      <div class="kpi"><div class="k-lbl">Valor en pipeline</div><div class="k-val">${fmtMoney(valorPipe)}</div></div>
+      <div class="kpi"><div class="k-lbl">Forecast ponderado</div><div class="k-val" style="color:var(--green)">${fmtMoney(forecast)}</div><div class="k-sub">esperado por probabilidad</div></div>
+      <div class="kpi"><div class="k-lbl">Próximos cierres</div><div class="k-val" style="color:var(--yellow)">${fmtMoney(valorCierre)}</div><div class="k-sub">${cierres.length} en Apartado/Contrato</div></div>
       <div class="kpi"><div class="k-lbl">Actividades vencidas</div><div class="k-val" style="color:var(--red)">${vencidas}</div><div class="k-sub">requieren seguimiento</div></div>
-      <div class="kpi"><div class="k-lbl">Etapas activas</div><div class="k-val">${byEtapa.length}</div></div>
     </div>
-    <div class="card"><h3>Prospectos por etapa</h3><div class="pipeline">${pcols||'<div class="muted">Sin datos</div>'}</div></div>
-    <div class="card"><h3>Prospectos por asesor</h3>${byAsesor.length?barList(byAsesor):'<div class="muted">Sin datos</div>'}</div>`);
+    <div class="card"><h3>📊 Embudo de conversión · valor y forecast por etapa</h3>
+      <table><thead><tr><th>Etapa</th><th class="num">Lotes</th><th class="num">Valor</th><th class="num">Prob. cierre</th><th class="num">Forecast</th></tr></thead>
+      <tbody>${funnelBody}</tbody></table>
+      <div class="muted" style="font-size:11px;margin-top:8px">Forecast = valor × probabilidad de cierre de la etapa. Suma esperada: <b>${fmtMoney(forecast)}</b>.</div></div>
+    <div class="grid2">
+      <div class="card"><h3>👤 Pipeline por asesor (valor)</h3>${byAsesor.length?barList(byAsesor.map(r=>({lbl:r.lbl,val:r.val,fmt:fmtMoney(r.val)}))):'<div class="muted">Sin datos</div>'}</div>
+      <div class="card"><h3>⚠️ Lotes estancados (días sin actualizar)</h3>${estancados.length?barList(estancados.map(x=>({lbl:nomL(x.c)+' ['+pick(x.c,K.pipeline,'')+']', val:x.d, fmt:x.d+' días'}))):'<div class="muted">Sin fechas</div>'}</div>
+    </div>
+    <div class="card"><h3>🔥 Próximos cierres (Apartado / Contrato) · ${cierres.length} lotes · ${fmtMoney(valorCierre)}</h3>
+      <table><thead><tr><th>Lote</th><th>Desarrollo</th><th>Etapa</th><th>Asesor</th><th class="num">Valor</th></tr></thead>
+      <tbody>${cierres.sort((a,b)=>crmValor(b)-crmValor(a)).map(c=>`<tr><td>${pick(c._lote||{},['nombre_terreno','nombre'],pick(c,['lote_id'],'—'))}</td><td>${pick(c,K.desarrollo,'')}</td><td>${pick(c,K.pipeline,'')}</td><td>${crmAsesor(c)}</td><td class="num">${fmtMoney(crmValor(c))}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Sin cierres próximos</td></tr>'}</tbody></table></div>`);
 }
 
 // ── TAB: INVENTARIO ────────────────────────────────────────────────────────────
