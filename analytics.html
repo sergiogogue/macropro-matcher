@@ -71,6 +71,8 @@
     <span id="conn"><span class="status-dot" style="background:var(--yellow)"></span><span class="muted" style="font-size:12px">conectando…</span></span>
     <select id="f-desarrollador"><option value="">Desarrollador: todos</option></select>
     <select id="f-desarrollo"><option value="">Desarrollo: todos</option></select>
+    <button class="btn" id="btn-test" onclick="toggleTest()">🧪 Ocultar pruebas</button>
+    <button class="btn" onclick="doExport()">⬇ CSV</button>
     <button class="btn" onclick="reloadAll()">↻ Actualizar</button>
   </div>
 </div>
@@ -104,6 +106,8 @@ let METAS_CFG = null;        // metas reales: app_config/metas_v1 (JSON con plan
 let activeTab = 'ventas';
 let selDesarrollo = '';      // slug seleccionado
 let selDesarrollador = '';
+let excludeTest = true;      // ocultar cotizaciones/CRM de prueba
+let EXPORT = null;           // { name, headers, rows } del tab activo para exportar CSV
 const charts = {};
 
 // ── Helpers de acceso defensivo (no conocemos el esquema exacto) ─────────────
@@ -253,9 +257,54 @@ function groupSum(rows, keyFn, valFn){
   return [...m.entries()].map(([k,v])=>({lbl:k,val:v})).sort((a,b)=>b.val-a.val);
 }
 
+// ── Datos de prueba: se ocultan por defecto (toggle en la barra) ──
+const RE_TEST = /prueba|test|demo|xxx|ejemplo|borrar/i;
+function isTest(row){
+  const a = String(pick(row,['nombre_asesor','asesor','asesor_asignado'],''));
+  const c = String(pick(row,['nombre_cliente','cliente'],''));
+  const n = String(pick(row,['nombre_terreno','nombre'],''));
+  return RE_TEST.test(a) || RE_TEST.test(c) || RE_TEST.test(n);
+}
+function notTest(rows){ return excludeTest ? rows.filter(r=>!isTest(r)) : rows; }
+function toggleTest(){
+  excludeTest = !excludeTest;
+  const b=document.getElementById('btn-test');
+  if(b) b.textContent = excludeTest ? '🧪 Ocultar pruebas' : '🧪 Mostrar pruebas';
+  renderActive();
+}
+
+// ── Seguimientos vencidos (crm_lotes.seguimientos_asesor: JSON/array) ──
+function seguimientosVencidos(row){
+  let segs = row.seguimientos_asesor;
+  if(typeof segs==='string'){ try{ segs=JSON.parse(segs); }catch(e){ return 0; } }
+  if(!Array.isArray(segs)) return 0;
+  const hoy=new Date();
+  return segs.filter(s=>{
+    if(!s||typeof s!=='object') return false;
+    const done = s.hecho===true||s.completado===true||s.done===true||/hecho|complet|realiz|cerrad/.test(low(s.status||s.estatus||s.estado||''));
+    if(done) return false;
+    const f=pick(s,['fecha','fecha_proxima','proxima','vence','due','due_date','fecha_seguimiento','fecha_compromiso'],'');
+    if(!f) return false;
+    const d=new Date(f); return !isNaN(d.getTime()) && d<hoy;
+  }).length;
+}
+
+// ── Exportar a CSV el tab activo (EXPORT lo setea cada render) ──
+function exportCSV(name, headers, rows){
+  const esc=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const csv=[headers.map(esc).join(',')].concat(rows.map(r=>r.map(esc).join(','))).join('\r\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=name+'_'+new Date().toISOString().slice(0,10)+'.csv'; document.body.appendChild(a); a.click(); a.remove();
+}
+function doExport(){
+  if(!EXPORT || !EXPORT.rows || !EXPORT.rows.length){ alert('No hay datos para exportar en este tablero.'); return; }
+  exportCSV(EXPORT.name, EXPORT.headers, EXPORT.rows);
+}
+
 // Fuente de ventas: cotizaciones si tiene datos; si no, lotes vendidos (fallback real)
 function salesData(){
-  const cot = applyFilters(DB.cotizaciones);
+  const cot = notTest(applyFilters(DB.cotizaciones));
   if(cot.length){
     return { src:'cotizaciones', all:cot, closed:cot.filter(isCerrada),
       monto:r=>num(pick(r,K.monto,0)), asesor:r=>pick(r,K.asesor,'—'), des:r=>pick(r,K.desarrollo,'—'), fecha:r=>pick(r,K.fecha,'') };
@@ -280,6 +329,9 @@ function renderVentas(){
   const mm=new Map();
   baseRows.forEach(r=>{ const f=S.fecha(r); if(!f) return; const d=new Date(f); if(isNaN(d)) return; const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); mm.set(key,(mm.get(key)||0)+S.monto(r)); });
   const meses=[...mm.entries()].sort((a,b)=>a[0].localeCompare(b[0]));
+
+  EXPORT = { name:'ventas', headers:['Desarrollo','Asesor','Estatus','Monto','Fecha'],
+    rows: rows.map(r=>[S.des(r), S.asesor(r), pick(r,K.status,''), S.monto(r), S.fecha(r)]) };
 
   const banner = S.src==='lotes'
     ? `<div class="card" style="border-color:var(--gold);padding:12px 16px;margin-bottom:16px;"><div style="font-size:12px;color:var(--muted2)">📊 Fuente: <b>lotes vendidos</b> (la tabla <code>cotizaciones</code> está vacía). Cuando MacroPro registre cotizaciones, este tablero las usará automáticamente.</div></div>` : '';
@@ -323,6 +375,9 @@ function renderMetas(){
     if(desSel){ const dn=low(pick(desSel,['nombre'],'')); rows = rows.filter(r=> low(r.nombre)===dn || low(r.nombre).includes(dn) || dn.includes(low(r.nombre))); }
     if(selDesarrollador){ rows = rows.filter(r=> low(r.desarrollador)===low(selDesarrollador)); }
     rows.sort((a,b)=>b.plan-a.plan);
+
+    EXPORT = { name:'metas', headers:['Desarrollo','Desarrollador','Meta','Real','Avance %','Uds real','Uds plan'],
+      rows: rows.map(r=>[r.nombre, r.desarrollador, r.plan, r.real, r.pct.toFixed(0), r.realUds, r.planUds]) };
 
     const rowsHtml = rows.map(r=>{
       const cls = r.pct>=100?'green':r.pct>=70?'yellow':'red';
@@ -394,17 +449,18 @@ function renderMetas(){
 // ── TAB: PIPELINE / CRM ─────────────────────────────────────────────────────────
 function renderPipeline(){
   if(!DB.crm_lotes.length){ return sec('pipeline', emptyMsg('crm_lotes')); }
-  const rows = applyFilters(DB.crm_lotes);
+  const rows = notTest(applyFilters(DB.crm_lotes));
   const byEtapa = groupSum(rows, r=>pick(r,K.pipeline,'Sin etapa'), ()=>1);
-  const hoy = new Date();
-  const vencidas = rows.filter(r=>{ const f=pick(r,K.vencimiento,''); if(!f) return false; const d=new Date(f); return !isNaN(d) && d<hoy; });
+  const vencidas = rows.reduce((n,r)=>n+seguimientosVencidos(r),0);
   const byAsesor = groupSum(rows, r=>pick(r,K.asesor,'—'), ()=>1).slice(0,10);
+  EXPORT = { name:'pipeline', headers:['Desarrollo','Etapa','Asesor','Seg. vencidos'],
+    rows: rows.map(r=>[pick(r,K.desarrollo,'—'), pick(r,K.pipeline,'Sin etapa'), pick(r,K.asesor,'—'), seguimientosVencidos(r)]) };
 
   const pcols = byEtapa.map(e=>`<div class="pcol"><div class="p-h">${e.lbl}</div><div class="p-n">${e.val}</div></div>`).join('');
   sec('pipeline', `
     <div class="kpis">
       <div class="kpi"><div class="k-lbl">Prospectos en pipeline</div><div class="k-val">${rows.length}</div></div>
-      <div class="kpi"><div class="k-lbl">Actividades vencidas</div><div class="k-val" style="color:var(--red)">${vencidas.length}</div><div class="k-sub">requieren seguimiento</div></div>
+      <div class="kpi"><div class="k-lbl">Actividades vencidas</div><div class="k-val" style="color:var(--red)">${vencidas}</div><div class="k-sub">requieren seguimiento</div></div>
       <div class="kpi"><div class="k-lbl">Etapas activas</div><div class="k-val">${byEtapa.length}</div></div>
     </div>
     <div class="card"><h3>Prospectos por etapa</h3><div class="pipeline">${pcols||'<div class="muted">Sin datos</div>'}</div></div>
@@ -422,6 +478,9 @@ function renderInventario(){
   const cnt = re => rows.filter(r=>re.test(low(pick(r,K.statusInv,'')))).length;
   const disp=cnt(/dispon/), apart=cnt(/apart|reserv/), vend=cnt(/vendid|cerrad/);
   const byDes = groupSum(rows, r=>pick(r,K.desarrollo,'—'), r=>num(pick(r,K.precioTotal,0))).slice(0,10);
+
+  EXPORT = { name:'inventario', headers:['Desarrollo','Estatus','Superficie m2','Precio total','Precio m2'],
+    rows: rows.map(r=>[pick(r,K.desarrollo,'—'), pick(r,K.statusInv,''), num(pick(r,K.superficie,0)), num(pick(r,K.precioTotal,0)), num(pick(r,['precio_m2'],0))]) };
 
   sec('inventario', `
     <div class="kpis">
@@ -449,10 +508,17 @@ function renderDiag(){
   const nMetas = METAS_CFG ? Object.keys(METAS_CFG).length : 0;
   const metasBlock = `<div class="card"><h3>app_config / metas_v1 · ${nMetas} desarrollos</h3>
     <div class="diag-cols">${nMetas? Object.keys(METAS_CFG).map(k=>'<code>'+k+'</code>').join(' ') : '<span class="muted">sin metas (cárgalas en el Administrador)</span>'}</div></div>`;
+  // Valores reales de 'estatus' en cotizaciones, con conteo y marca de los que cuentan como cerrada
+  const estCount={};
+  DB.cotizaciones.forEach(r=>{ const e=String(pick(r,K.status,'(vacío)')||'(vacío)'); estCount[e]=(estCount[e]||0)+1; });
+  const estEntries = Object.entries(estCount).sort((a,b)=>b[1]-a[1]);
+  const estatusBlock = `<div class="card"><h3>cotizaciones · valores de estatus (✅ = cuenta como cerrada)</h3>
+    <div class="diag-cols">${estEntries.length? estEntries.map(([e,n])=>'<code>'+e+'</code> '+n+(isCerrada({estatus:e})?' ✅':'')).join(' · ') : '<span class="muted">sin cotizaciones</span>'}</div></div>`;
   sec('diag', `
     <div class="card" style="border-color:var(--gold)"><h3>¿Para qué sirve esto?</h3>
     <div style="font-size:12px;color:var(--muted2);line-height:1.6">Aquí ves las <b>columnas reales</b> de cada tabla y los datos detectados. Si algún tablero sale vacío, compara estos nombres con las claves esperadas. Mapeos verificados: crm_lotes·asesor=<code>asesor_asignado</code>, lotes·valor=<code>precio_total</code>, lotes·estatus=<code>status_inventario</code>, metas=<code>app_config/metas_v1</code>.</div></div>
     ${metasBlock}
+    ${estatusBlock}
     ${blocks}`);
 }
 
