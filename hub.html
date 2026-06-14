@@ -77,7 +77,7 @@
   <div class="apps" id="core"></div>
   <div class="sect">🧰 Herramientas Grupo Guía</div>
   <div class="apps" id="tools"></div>
-  <div class="sect">🏠 Tus desarrollos</div>
+  <div class="sect">🌐 Plataformas Macros 360</div>
   <div class="filters" id="filters"></div>
   <div class="grid" id="grid"></div>
   <p class="note">Las apps y desarrollos se administran desde Supabase (registros <b>apps</b> y <b>desarrollos</b>).</p>
@@ -117,7 +117,7 @@ const DES_FALLBACK = [
   {slug:"valle-imperial",nombre:"Valle Imperial",desarrollador:"GyG",tipo:"Desarrollo",ciudad:"—",color_principal:"#3a6ea5",color_secundario:"#6b7280"},
   {slug:"corretaje",nombre:"Corretaje",desarrollador:"Corretaje",tipo:"Corretaje",ciudad:"Varias plazas",color_principal:"#042058",color_secundario:"#c9a961"},
   {slug:"terrasoles",nombre:"Terrasoles",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"El Marqués",color_principal:"#C9A66B",color_secundario:"#806b4a",plataforma_url:"https://armada.com.mx/sitio/clientes/tya/terrasoles/macros/360/"},
-  {slug:"capital-norte",nombre:"Capital Norte",desarrollador:"Corretaje",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#298e15",color_secundario:"#6b7280"},
+  {slug:"capital-norte",nombre:"Capital Norte",desarrollador:"Corretaje",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#298e15",color_secundario:"#6b7280",plataforma_url:"https://www.armada.com.mx/capitalnorte/index.htm"},
   {slug:"capital-sur",nombre:"Capital Sur",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"Querétaro",color_principal:"#806b6b",color_secundario:"#75f0a4",plataforma_url:"https://armada.com.mx/sitio/clientes/tya/capital-sur/macros/360/"},
   {slug:"cinco-valles",nombre:"Cinco Valles",desarrollador:"Favier",tipo:"Corretaje",ciudad:"ZMGDL",color_principal:"#5b6b4a",color_secundario:"#a8893f"},
   {slug:"altika",nombre:"Altika",desarrollador:"Garvi",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#6B7280",color_secundario:"#9aa3af"},
@@ -179,9 +179,11 @@ function deepLink(appSlug, desSlug){
 }
 let filtro = "Todos";
 function renderDes(){
-  const devs = ["Todos", ...[...new Set(DES.map(d=>d.desarrollador).filter(Boolean))].sort()];
-  document.getElementById("filters").innerHTML = devs.map(x=>`<div class="chip ${x===filtro?'on':''}" onclick="setF('${x.replace(/'/g,"\\'")}')">${x}${x==='Todos'?' ('+DES.length+')':''}</div>`).join("");
-  const list = DES.filter(d=> filtro==="Todos" || d.desarrollador===filtro)
+  // Solo desarrollos CON plataforma externa (los demás no aportan aquí).
+  const PLAT = DES.filter(d=> d.plataforma_url && /^https?:/.test(d.plataforma_url));
+  const devs = ["Todos", ...[...new Set(PLAT.map(d=>d.desarrollador).filter(Boolean))].sort()];
+  document.getElementById("filters").innerHTML = devs.map(x=>`<div class="chip ${x===filtro?'on':''}" onclick="setF('${x.replace(/'/g,"\\'")}')">${x}${x==='Todos'?' ('+PLAT.length+')':''}</div>`).join("");
+  const list = PLAT.filter(d=> filtro==="Todos" || d.desarrollador===filtro)
                   .sort((a,b)=>(COUNT[norm(b.nombre)]||0)-(COUNT[norm(a.nombre)]||0));
   document.getElementById("grid").innerHTML = list.map(d=>{
     const c1=d.color_principal||"#6B7280", c2=d.color_secundario||c1;
