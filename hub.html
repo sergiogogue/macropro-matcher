@@ -40,6 +40,8 @@
   .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:18px; }
   .card{ background:#fff; border:1px solid var(--line); border-radius:16px; overflow:hidden; display:flex; flex-direction:column; transition:.18s; } .card:hover{ box-shadow:0 12px 30px rgba(10,37,64,.12); transform:translateY(-3px); }
   .band{ height:90px; position:relative; display:flex; align-items:center; gap:12px; padding:0 16px; }
+  .hero{ height:150px; position:relative; overflow:hidden; display:grid; place-items:center; }
+  .heroimg{ width:100%; height:100%; object-fit:cover; display:block; }
   .logo{ width:48px; height:48px; border-radius:12px; background:rgba(255,255,255,.92); display:grid; place-items:center; font-weight:800; font-size:16px; box-shadow:0 3px 10px rgba(0,0,0,.18); overflow:hidden; }
   .logo img{ width:100%; height:100%; object-fit:cover; }
   .band h3{ color:#fff; font-size:16px; font-weight:800; text-shadow:0 1px 6px rgba(0,0,0,.35); }
@@ -188,14 +190,17 @@ function renderDes(){
   document.getElementById("grid").innerHTML = list.map(d=>{
     const c1=d.color_principal||"#6B7280", c2=d.color_secundario||c1;
     const n = COUNT[norm(d.nombre)]||0;
-    const logo = d.logo_url && /^https?:/.test(d.logo_url) ? `<img src="${d.logo_url}" alt="">` : `<span style="color:${c1}">${inic(d.nombre)}</span>`;
     const plat = d.plataforma_url && /^https?:/.test(d.plataforma_url);
+    const logoOk = d.logo_url && /^https?:/.test(d.logo_url);
     const um = deepLink('macropro', d.slug);
     const accion = plat
       ? `<button class="btn plat" onclick="window.open('${d.plataforma_url}','_blank')">🌐 Ver Plataforma Macros 360</button>`
       : (um ? `<button class="btn macropro full" onclick="window.open('${um}','_blank')">📊 Abrir en MacroPro</button>` : '');
+    const hero = logoOk
+      ? `<div class="hero" style="background:linear-gradient(135deg,${c1},${c2})"><img class="heroimg" src="${d.logo_url}" alt="${d.nombre}">${plat?'<span class="badge360">360°</span>':''}</div>`
+      : `<div class="band" style="background:linear-gradient(135deg,${c1},${c2})"><div class="logo"><span style="color:${c1}">${inic(d.nombre)}</span></div><h3>${d.nombre}</h3><span class="tipo">${d.tipo||'Desarrollo'}</span>${plat?'<span class="badge360">360°</span>':''}</div>`;
     return `<div class="card">
-      <div class="band" style="background:linear-gradient(135deg,${c1},${c2})"><div class="logo">${logo}</div><h3>${d.nombre}</h3><span class="tipo">${d.tipo||'Desarrollo'}</span>${plat?'<span class="badge360">360°</span>':''}</div>
+      ${hero}
       <div class="body"><div class="rowp"><span class="pill dev">${d.desarrollador||'—'}</span><span class="pill">📍 ${d.ciudad||'—'}</span></div><div class="meta"><span>Lotes</span><b>${n}</b></div></div>
       <div class="acts1">${accion}</div>
     </div>`;
