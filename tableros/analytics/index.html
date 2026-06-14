@@ -82,6 +82,7 @@
   <div class="tab" data-t="metas">🎯 Metas vs Real</div>
   <div class="tab" data-t="pipeline">🗂️ Pipeline / CRM</div>
   <div class="tab" data-t="inventario">📦 Inventario</div>
+  <div class="tab" data-t="oport">🔎 Oportunidades</div>
   <div class="tab" data-t="diag">⚙️ Diagnóstico</div>
 </div>
 
@@ -91,6 +92,7 @@
   <div class="section" id="sec-metas"><div class="loading">Cargando…</div></div>
   <div class="section" id="sec-pipeline"><div class="loading">Cargando…</div></div>
   <div class="section" id="sec-inventario"><div class="loading">Cargando…</div></div>
+  <div class="section" id="sec-oport"><div class="loading">Cargando…</div></div>
   <div class="section" id="sec-diag"><div class="loading">Cargando…</div></div>
 </div>
 
@@ -549,6 +551,95 @@ function renderInventario(){
   if(byStatus.length) drawBar('ch-status', byStatus.map(s=>s.lbl), byStatus.map(s=>s.val), '#60a5fa');
 }
 
+// ── TAB: OPORTUNIDADES (inventario rezagado + matching clientes↔inventario) ─────
+const KC = {
+  presMin:['presupuesto_min','ppto_min'], presMax:['presupuesto_max','ppto_max','presupuesto'],
+  ciudad:['ciudad_interes','ciudades_interes','ciudad'], uso:['uso_interes','usos_interes','uso'],
+  supMin:['sup_min','superficie_min'], supMax:['sup_max','superficie_max'],
+  nombre:['nombre','cliente','nombre_cliente'], asesor:['asesor','nombre_asesor','asesor_asignado'],
+};
+function arrize(v){ if(Array.isArray(v)) return v.filter(Boolean).map(x=>low(x)); if(v==null||v==='') return []; return String(v).split(/[;,/|]/).map(s=>low(s)).filter(Boolean); }
+function loteDisponibles(){ return notTest(applyFilters(DB.lotes)).filter(l=>/dispon/.test(low(pick(l,K.statusInv,'')))); }
+function loteAging(l){ const f=pick(l,['fecha_ingreso','created_at','fecha_entrega'],''); if(!f) return null; const d=new Date(f); if(isNaN(d.getTime())) return null; return Math.max(0, Math.floor((Date.now()-d.getTime())/86400000)); }
+function metaRealUds(devName){ if(!METAS_CFG) return 0; const dn=low(devName);
+  for(const k of Object.keys(METAS_CFG)){ if(low(k)===dn||low(k).includes(dn)||dn.includes(low(k))){ const r=METAS_CFG[k]&&METAS_CFG[k].real; return (r&&Array.isArray(r.uds))?r.uds.reduce((s,x)=>s+(+x||0),0):0; } }
+  return 0; }
+function matchCrit(cli, lote){
+  const precio = num(pick(lote,K.precioTotal,0)) || (num(pick(lote,K.superficie,0))*num(pick(lote,['precio_m2'],0)));
+  const pmin=num(pick(cli,KC.presMin,0)), pmax=num(pick(cli,KC.presMax,0));
+  const pres = pmax>0 ? (precio<=pmax*1.05 && (pmin>0?precio>=pmin*0.9:true)) : false;
+  const ciudades=arrize(pick(cli,KC.ciudad,[])); const lc=low(pick(lote,['ciudad'],''));
+  const ciudad = !!lc && ciudades.some(c=> c===lc || c.includes(lc) || lc.includes(c));
+  const usos=arrize(pick(cli,KC.uso,[])); const lu=low(pick(lote,['uso','uso_suelo'],''));
+  const uso = !!lu && usos.some(u=> u===lu || u.includes(lu) || lu.includes(u));
+  const smin=num(pick(cli,KC.supMin,0)), smax=num(pick(cli,KC.supMax,0)); const ls=num(pick(lote,K.superficie,0));
+  const sup = smax>0 ? (ls<=smax*1.05 && (smin>0?ls>=smin*0.9:true)) : false;
+  const score=(pres?2:0)+(ciudad?1:0)+(uso?1:0)+(sup?1:0);
+  return { precio, pres, ciudad, uso, sup, score, ok: pres && (ciudad||uso) };
+}
+function renderOport(){
+  const disp = loteDisponibles();
+  const clientes = notTest((DB.clientes||[]).filter(c=>c.activo!==false));
+  if(!disp.length && !clientes.length){ return sec('oport', emptyMsg('lotes / clientes')); }
+  const valDisp = disp.reduce((s,l)=>s+num(pick(l,K.precioTotal,0)),0);
+
+  // Aging / absorción por desarrollo
+  const byDes={};
+  disp.forEach(l=>{ const k=pick(l,K.desarrollo,'—'); (byDes[k]=byDes[k]||{n:0,val:0,ages:[]}); byDes[k].n++; byDes[k].val+=num(pick(l,K.precioTotal,0)); const a=loteAging(l); if(a!=null) byDes[k].ages.push(a); });
+  const mesesTrans = new Date().getMonth()+1;
+  const desRows = Object.entries(byDes).map(([k,v])=>{
+    const age = v.ages.length? Math.round(v.ages.reduce((s,x)=>s+x,0)/v.ages.length) : null;
+    const vel = metaRealUds(k)/mesesTrans;
+    const meses = vel>0 ? v.n/vel : Infinity;
+    return { k, n:v.n, val:v.val, age, meses };
+  }).sort((a,b)=> (b.meses===Infinity?1e9:b.meses)-(a.meses===Infinity?1e9:a.meses));
+  const rezagados = desRows.filter(d=>d.meses>12 || (d.age!=null&&d.age>180));
+  const valRezagado = rezagados.reduce((s,d)=>s+d.val,0);
+
+  const lotesAged = disp.map(l=>({ nombre:pick(l,['nombre_terreno','nombre','id'],'—'), des:pick(l,K.desarrollo,'—'), age:loteAging(l) }))
+    .filter(x=>x.age!=null).sort((a,b)=>b.age-a.age).slice(0,10);
+
+  // Matching clientes ↔ lotes disponibles
+  const matchRows=[];
+  clientes.forEach(c=>{
+    const hits = disp.map(l=>({l, m:matchCrit(c,l)})).filter(x=>x.m.ok).sort((a,b)=> b.m.score-a.m.score || a.m.precio-b.m.precio);
+    if(hits.length) matchRows.push({ cli:pick(c,KC.nombre,'(sin nombre)'), empresa:pick(c,['empresa'],''), asesor:pick(c,KC.asesor,'—'), pmax:num(pick(c,KC.presMax,0)), n:hits.length, best:hits[0] });
+  });
+  matchRows.sort((a,b)=> b.n-a.n);
+  const demanda = disp.map(l=>({ l, c: clientes.filter(c=>matchCrit(c,l).ok).length })).filter(x=>x.c>0).sort((a,b)=>b.c-a.c).slice(0,10);
+
+  EXPORT = { name:'oportunidades', headers:['Cliente','Empresa','Asesor','Presupuesto','Lotes que encajan','Mejor lote','Desarrollo','Precio'],
+    rows: matchRows.map(r=>[r.cli, r.empresa, r.asesor, r.pmax, r.n, pick(r.best.l,['nombre_terreno','nombre','id'],''), pick(r.best.l,K.desarrollo,''), r.best.m.precio]) };
+
+  const desBody = desRows.map(d=>{ const lento=d.meses>12||(d.age!=null&&d.age>180); const cls=lento?'red':d.meses>6?'yellow':'green';
+    return `<tr><td>${d.k}</td><td class="num">${d.n}</td><td class="num">${d.age!=null?d.age+' d':'—'}</td><td class="num">${d.meses===Infinity?'∞':d.meses.toFixed(1)}</td><td class="num">${fmtMoney(d.val)}</td><td><span class="chip ${cls}">${lento?'rezagado':d.meses>6?'lento':'sano'}</span></td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="muted">Sin inventario disponible</td></tr>';
+
+  const matchBody = matchRows.slice(0,30).map(r=>`<tr><td>${r.cli}${r.empresa?'<div class="muted" style="font-size:10px">'+r.empresa+'</div>':''}</td><td>${r.asesor}</td><td class="num">${r.pmax?fmtMoney(r.pmax):'—'}</td><td class="num">${r.n}</td><td>${pick(r.best.l,['nombre_terreno','nombre','id'],'—')} · <span class="muted">${pick(r.best.l,K.desarrollo,'')}</span> · ${fmtMoney(r.best.m.precio)}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="muted">Sin matches. Verifica que la tabla clientes tenga presupuesto/ciudad/uso (tab Diagnóstico).</td></tr>';
+
+  sec('oport', `
+    <div class="kpis">
+      <div class="kpi"><div class="k-lbl">Inventario disponible</div><div class="k-val">${fmtMoney(valDisp)}</div><div class="k-sub">${disp.length} lotes</div></div>
+      <div class="kpi"><div class="k-lbl">Valor rezagado</div><div class="k-val" style="color:var(--red)">${fmtMoney(valRezagado)}</div><div class="k-sub">${rezagados.length} desarrollos lentos</div></div>
+      <div class="kpi"><div class="k-lbl">Leads con match</div><div class="k-val" style="color:var(--green)">${matchRows.length}</div><div class="k-sub">clientes con lote ideal disponible</div></div>
+      <div class="kpi"><div class="k-lbl">Clientes activos</div><div class="k-val">${clientes.length}</div></div>
+    </div>
+    <div class="card"><h3>📦 Inventario rezagado · absorción por desarrollo</h3>
+      <table><thead><tr><th>Desarrollo</th><th class="num">Disponibles</th><th class="num">Antigüedad prom.</th><th class="num">Meses de inventario</th><th class="num">Valor</th><th>Estado</th></tr></thead>
+      <tbody>${desBody}</tbody></table>
+      <div class="muted" style="font-size:11px;margin-top:8px">Meses de inventario = lotes disponibles ÷ ritmo de venta mensual (real YTD de metas). &gt;12 meses o &gt;180 días = rezagado.</div></div>
+    <div class="grid2">
+      <div class="card"><h3>🕒 Top lotes más rezagados</h3>${lotesAged.length?barList(lotesAged.map(x=>({lbl:x.nombre+' · '+x.des, val:x.age, fmt:x.age+' días'}))):'<div class="muted">Sin fechas de ingreso en lotes</div>'}</div>
+      <div class="card"><h3>🔥 Lotes con más demanda</h3>${demanda.length?barList(demanda.map(x=>({lbl:pick(x.l,['nombre_terreno','nombre','id'],'—')+' · '+pick(x.l,K.desarrollo,''), val:x.c, fmt:x.c+' clientes'}))):'<div class="muted">Sin coincidencias (revisa columnas de clientes en Diagnóstico)</div>'}</div>
+    </div>
+    <div class="card"><h3>🎯 Qué presentar y a quién · ${matchRows.length} clientes con match</h3>
+      <table><thead><tr><th>Cliente</th><th>Asesor</th><th class="num">Presupuesto</th><th class="num">Lotes</th><th>Mejor opción</th></tr></thead>
+      <tbody>${matchBody}</tbody></table>
+      <div class="muted" style="font-size:11px;margin-top:8px">Match = presupuesto compatible + (ciudad o uso de interés). Ordenado por # de lotes que encajan. Exporta con ⬇ CSV.</div></div>
+  `);
+}
+
 // ── TAB: DIAGNÓSTICO (esquema real) ─────────────────────────────────────────────
 function renderDiag(){
   const blocks = Object.keys(DB).map(n=>{
@@ -577,7 +668,7 @@ function renderDiag(){
 function sec(name, html){ document.getElementById('sec-'+name).innerHTML = html; }
 function emptyMsg(table){ return `<div class="err">No se obtuvieron filas de <b>${table}</b>. Revisa el tab <b>Diagnóstico</b> para ver si la tabla existe y tiene datos (puede ser permisos RLS o nombre de tabla distinto).</div>`; }
 function renderActive(){
-  ({ventas:renderVentas, metas:renderMetas, pipeline:renderPipeline, inventario:renderInventario, diag:renderDiag}[activeTab]||(()=>{}))();
+  ({ventas:renderVentas, metas:renderMetas, pipeline:renderPipeline, inventario:renderInventario, oport:renderOport, diag:renderDiag}[activeTab]||(()=>{}))();
 }
 
 // ── Eventos ─────────────────────────────────────────────────────────────────
