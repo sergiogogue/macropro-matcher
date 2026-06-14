@@ -523,17 +523,42 @@ function renderPipeline(){
 // ── TAB: INVENTARIO ────────────────────────────────────────────────────────────
 function renderInventario(){
   if(!DB.lotes.length){ return sec('inventario', emptyMsg('lotes')); }
-  const rows = applyFilters(DB.lotes);
+  const rows = notTest(applyFilters(DB.lotes));
   const valor = rows.reduce((s,r)=>s+num(pick(r,K.precioTotal,0)),0);
   const m2 = rows.reduce((s,r)=>s+num(pick(r,K.superficie,0)),0);
   const byStatus = groupSum(rows, r=>pick(r,K.statusInv,'—'), ()=>1);
-  // disponibles/apartados/vendidos
   const cnt = re => rows.filter(r=>re.test(low(pick(r,K.statusInv,'')))).length;
   const disp=cnt(/dispon/), apart=cnt(/apart|reserv/), vend=cnt(/vendid|cerrad/);
   const byDes = groupSum(rows, r=>pick(r,K.desarrollo,'—'), r=>num(pick(r,K.precioTotal,0))).slice(0,10);
 
-  EXPORT = { name:'inventario', headers:['Desarrollo','Estatus','Superficie m2','Precio total','Precio m2'],
-    rows: rows.map(r=>[pick(r,K.desarrollo,'—'), pick(r,K.statusInv,''), num(pick(r,K.superficie,0)), num(pick(r,K.precioTotal,0)), num(pick(r,['precio_m2'],0))]) };
+  // Potencial: m² vendibles = superficie × CUS
+  const vendible = l => { const s=num(pick(l,K.superficie,0)), c=num(pick(l,['cus'],0)); return c>0? s*c : 0; };
+  const m2Vend = rows.reduce((s,l)=>s+vendible(l),0);
+  const cusVals = rows.map(l=>num(pick(l,['cus'],0))).filter(x=>x>0);
+  const cusProm = cusVals.length? cusVals.reduce((s,x)=>s+x,0)/cusVals.length : 0;
+
+  // Última cotización por lote (cruce con cotizaciones.lote_id)
+  const daysSince = s => { if(!s) return null; const d=new Date(s); return isNaN(d.getTime())?null:Math.max(0,Math.floor((Date.now()-d.getTime())/86400000)); };
+  const lastQuote=new Map();
+  DB.cotizaciones.forEach(c=>{ const id=String(pick(c,['lote_id','id_lote','lote'],'')); const f=pick(c,K.fecha,''); if(!id||!f) return; const t=new Date(f).getTime(); if(isNaN(t)) return; if(!lastQuote.has(id)||t>lastQuote.get(id)) lastQuote.set(id,t); });
+  const sinOfrecerDias = l => { const t=lastQuote.get(String(pick(l,['id'],''))); return t? Math.floor((Date.now()-t)/86400000) : Infinity; };
+
+  const dispRows = rows.filter(r=>/dispon/.test(low(pick(r,K.statusInv,''))));
+  const nombreL = l => pick(l,['nombre_terreno','nombre','id'],'—')+' · '+pick(l,K.desarrollo,'');
+  const nuncaOfrecidos = dispRows.filter(l=>!lastQuote.has(String(pick(l,['id'],'')))).length;
+
+  const sinMover = dispRows.map(l=>({l, d:daysSince(pick(l,['updated_at','fecha_ingreso','created_at'],''))})).filter(x=>x.d!=null).sort((a,b)=>b.d-a.d).slice(0,10);
+  const sinOfrecer = dispRows.map(l=>({l, d:sinOfrecerDias(l)})).sort((a,b)=>b.d-a.d).slice(0,12);
+  const negocio = dispRows.map(l=>{ const v=vendible(l), p=num(pick(l,K.precioTotal,0)); return {l, ppm: v>0&&p>0? p/v : Infinity}; }).filter(x=>x.ppm!==Infinity).sort((a,b)=>a.ppm-b.ppm).slice(0,10);
+
+  // Aprovechamiento por desarrollo
+  const apro={};
+  rows.forEach(l=>{ const k=pick(l,K.desarrollo,'—'); (apro[k]=apro[k]||{n:0,vend:0,viv:0,cus:[]}); apro[k].n++; apro[k].vend+=vendible(l); apro[k].viv+=num(pick(l,['viv_max','viviendas_max'],0)); const c=num(pick(l,['cus'],0)); if(c>0)apro[k].cus.push(c); });
+  const aproRows = Object.entries(apro).map(([k,v])=>({k,n:v.n,vend:v.vend,viv:v.viv,cus:v.cus.length?v.cus.reduce((s,x)=>s+x,0)/v.cus.length:0})).sort((a,b)=>b.vend-a.vend).slice(0,12);
+
+  EXPORT = { name:'inventario', headers:['Lote','Desarrollo','Estatus','m2','Precio total','Precio m2','CUS','m2 vendible','$/m2 vendible','Dias sin mover','Dias sin ofrecer'],
+    rows: rows.map(r=>{ const v=vendible(r), p=num(pick(r,K.precioTotal,0)), so=sinOfrecerDias(r);
+      return [pick(r,['nombre_terreno','nombre','id'],''), pick(r,K.desarrollo,''), pick(r,K.statusInv,''), num(pick(r,K.superficie,0)), p, num(pick(r,['precio_m2'],0)), num(pick(r,['cus'],0)), Math.round(v), v>0&&p>0?Math.round(p/v):'', daysSince(pick(r,['updated_at','fecha_ingreso'],''))||'', so===Infinity?'nunca':so]; }) };
 
   sec('inventario', `
     <div class="kpis">
@@ -543,11 +568,26 @@ function renderInventario(){
       <div class="kpi"><div class="k-lbl">Vendidos</div><div class="k-val" style="color:var(--blue)">${vend}</div></div>
       <div class="kpi"><div class="k-lbl">Valor de portafolio</div><div class="k-val">${fmtMoney(valor)}</div></div>
       <div class="kpi"><div class="k-lbl">m² totales</div><div class="k-val">${fmtInt(m2)}</div></div>
+      <div class="kpi"><div class="k-lbl">m² vendibles (CUS)</div><div class="k-val">${fmtInt(m2Vend)}</div><div class="k-sub">CUS prom ${cusProm?cusProm.toFixed(2):'—'}</div></div>
+      <div class="kpi"><div class="k-lbl">Sin ofrecer nunca</div><div class="k-val" style="color:var(--red)">${nuncaOfrecidos}</div><div class="k-sub">disponibles jamás cotizados</div></div>
     </div>
     <div class="grid2">
       <div class="card"><h3>Lotes por estatus</h3><canvas id="ch-status"></canvas></div>
       <div class="card"><h3>Valor por desarrollo</h3>${byDes.length?barList(byDes.map(r=>({lbl:r.lbl,val:r.val,fmt:fmtMoney(r.val)}))):'<div class="muted">Sin datos</div>'}</div>
-    </div>`);
+    </div>
+    <div class="card"><h3>🏗 Aprovechamiento por desarrollo (CUS · m² vendibles · viviendas potenciales)</h3>
+      <table><thead><tr><th>Desarrollo</th><th class="num">Lotes</th><th class="num">CUS prom</th><th class="num">m² vendibles</th><th class="num">Viv. potenciales</th></tr></thead>
+      <tbody>${aproRows.map(a=>`<tr><td>${a.k}</td><td class="num">${a.n}</td><td class="num">${a.cus?a.cus.toFixed(2):'—'}</td><td class="num">${fmtInt(a.vend)}</td><td class="num">${a.viv?fmtInt(a.viv):'—'}</td></tr>`).join('')||'<tr><td colspan="5" class="muted">Sin datos de CUS</td></tr>'}</tbody></table>
+      <div class="muted" style="font-size:11px;margin-top:8px">m² vendibles = superficie × CUS. Más m² vendibles por peso = más negocio para desarrollar.</div></div>
+    <div class="grid2">
+      <div class="card"><h3>💰 Mejor negocio · menor $/m² vendible (disponibles)</h3>${negocio.length?barList(negocio.map(x=>({lbl:nombreL(x.l), val:1/x.ppm, fmt:'$'+fmtInt(x.ppm)+'/m² vend'}))):'<div class="muted">Falta CUS o precio en los lotes</div>'}</div>
+      <div class="card"><h3>🕒 Más tiempo sin moverse (disponibles)</h3>${sinMover.length?barList(sinMover.map(x=>({lbl:nombreL(x.l), val:x.d, fmt:x.d+' días'}))):'<div class="muted">Sin fechas de movimiento</div>'}</div>
+    </div>
+    <div class="card"><h3>📵 Disponibles sin ofrecer (poca o nula cotización)</h3>
+      <table><thead><tr><th>Lote</th><th>Desarrollo</th><th class="num">Precio</th><th class="num">Sin ofrecer</th></tr></thead>
+      <tbody>${sinOfrecer.map(x=>`<tr><td>${pick(x.l,['nombre_terreno','nombre','id'],'—')}</td><td>${pick(x.l,K.desarrollo,'')}</td><td class="num">${fmtMoney(num(pick(x.l,K.precioTotal,0)))}</td><td class="num" style="color:${x.d===Infinity?'var(--red)':x.d>90?'var(--yellow)':'var(--muted2)'}">${x.d===Infinity?'nunca':x.d+' d'}</td></tr>`).join('')||'<tr><td colspan="4" class="muted">Sin datos</td></tr>'}</tbody></table>
+      <div class="muted" style="font-size:11px;margin-top:8px">Cruce con cotizaciones (lote_id). "nunca" = lote disponible que jamás se ha cotizado a un cliente.</div></div>
+  `);
   if(byStatus.length) drawBar('ch-status', byStatus.map(s=>s.lbl), byStatus.map(s=>s.val), '#60a5fa');
 }
 
