@@ -48,8 +48,13 @@
   .pill{ font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; background:#f1f3f8; color:var(--navy); } .pill.dev{ background:rgba(201,169,97,.16); color:var(--goldD); }
   .meta{ display:flex; justify-content:space-between; font-size:12px; color:var(--mut); border-top:1px dashed var(--line); padding-top:9px; } .meta b{ color:var(--ink); }
   .acts{ display:grid; grid-template-columns:1fr 1fr; gap:7px; padding:0 16px 16px; }
+  .acts1{ padding:0 16px 16px; }
   .btn{ font-size:11px; font-weight:700; padding:9px 8px; border-radius:9px; border:1px solid var(--line); background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; color:inherit; font-family:inherit; } .btn:hover{ border-color:var(--navy); }
-  .btn.macropro{ background:var(--navy); color:#fff; border-color:var(--navy); } .btn.cot{ background:linear-gradient(135deg,var(--gold),var(--goldD)); color:var(--navy); border:none; }
+  .btn.full{ width:100%; }
+  .btn.macropro{ background:var(--navy); color:#fff; border-color:var(--navy); width:100%; } .btn.cot{ background:linear-gradient(135deg,var(--gold),var(--goldD)); color:var(--navy); border:none; }
+  .btn.plat{ width:100%; background:linear-gradient(135deg,var(--gold),var(--goldD)); color:var(--navy); border:none; font-size:12px; padding:11px 8px; box-shadow:0 3px 12px rgba(201,169,97,.45); }
+  .btn.plat:hover{ filter:brightness(1.05); }
+  .badge360{ position:absolute; top:10px; left:10px; font-size:10px; font-weight:800; background:#fff; color:var(--navy); padding:3px 8px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,.25); }
   .ov{ position:fixed; inset:0; background:rgba(10,20,35,.55); display:none; align-items:center; justify-content:center; padding:20px; z-index:50; } .ov.show{ display:flex; }
   .modal{ background:#fff; border-radius:18px; max-width:560px; width:100%; overflow:hidden; box-shadow:0 30px 80px rgba(0,0,0,.4); }
   .mhead{ height:120px; display:flex; align-items:flex-end; padding:16px; } .mhead h2{ color:#fff; font-size:22px; font-weight:800; text-shadow:0 2px 8px rgba(0,0,0,.4); }
@@ -91,7 +96,7 @@ const SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
 
 // Fallback (si la tabla `apps` aún no existe o no hay red) — el Hub nunca queda vacío.
 const APPS_FALLBACK = [
-  {slug:"macropro",nombre:"MacroPro",descripcion:"Inventario y matching",icono:"📊",color:"#0a2540",url:"",grupo:"core",recibe_desarrollo:true,integrada:true,orden:10},
+  {slug:"macropro",nombre:"MacroPro",descripcion:"Inventario y matching",icono:"📊",color:"#0a2540",url:"https://sergiogogue.github.io/macropro-matcher/",grupo:"core",recibe_desarrollo:true,integrada:true,orden:10},
   {slug:"macrocotizador",nombre:"MacroCotizador",descripcion:"Cotizaciones",icono:"🧮",color:"#a8893f",url:"https://macrocotizador.vercel.app",grupo:"core",recibe_desarrollo:true,integrada:true,orden:20},
   {slug:"guia-intelligence",nombre:"Guia-Intelligence",descripcion:"Analítica y metas",icono:"🧠",color:"#1f5f3f",url:"",grupo:"core",recibe_desarrollo:true,integrada:false,orden:30},
   {slug:"administrador",nombre:"Administrador",descripcion:"Datos: Excel, desarrollos, clientes",icono:"⚙️",color:"#c9a961",url:"",grupo:"core",recibe_desarrollo:false,integrada:true,orden:40,admin:true},
@@ -107,13 +112,13 @@ const APPS_FALLBACK = [
 ];
 
 const DES_FALLBACK = [
-  {slug:"kulkana",nombre:"Kulkana",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"Cancún",color_principal:"#1f5f3f",color_secundario:"#c9a961"},
+  {slug:"kulkana",nombre:"Kulkana",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"Cancún",color_principal:"#1f5f3f",color_secundario:"#c9a961",plataforma_url:"https://armada.com.mx/sitio/clientes/tya/kulkana/macros/360/"},
   {slug:"graavalle",nombre:"Gran Valle",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#7d6654",color_secundario:"#b9a489"},
   {slug:"valle-imperial",nombre:"Valle Imperial",desarrollador:"GyG",tipo:"Desarrollo",ciudad:"—",color_principal:"#3a6ea5",color_secundario:"#6b7280"},
   {slug:"corretaje",nombre:"Corretaje",desarrollador:"Corretaje",tipo:"Corretaje",ciudad:"Varias plazas",color_principal:"#042058",color_secundario:"#c9a961"},
-  {slug:"terrasoles",nombre:"Terrasoles",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"El Marqués",color_principal:"#C9A66B",color_secundario:"#806b4a"},
+  {slug:"terrasoles",nombre:"Terrasoles",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"El Marqués",color_principal:"#C9A66B",color_secundario:"#806b4a",plataforma_url:"https://armada.com.mx/sitio/clientes/tya/terrasoles/macros/360/"},
   {slug:"capital-norte",nombre:"Capital Norte",desarrollador:"Corretaje",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#298e15",color_secundario:"#6b7280"},
-  {slug:"capital-sur",nombre:"Capital Sur",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"Querétaro",color_principal:"#806b6b",color_secundario:"#75f0a4"},
+  {slug:"capital-sur",nombre:"Capital Sur",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"Querétaro",color_principal:"#806b6b",color_secundario:"#75f0a4",plataforma_url:"https://armada.com.mx/sitio/clientes/tya/capital-sur/macros/360/"},
   {slug:"cinco-valles",nombre:"Cinco Valles",desarrollador:"Favier",tipo:"Corretaje",ciudad:"ZMGDL",color_principal:"#5b6b4a",color_secundario:"#a8893f"},
   {slug:"altika",nombre:"Altika",desarrollador:"Garvi",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#6B7280",color_secundario:"#9aa3af"},
   {slug:"alva",nombre:"Alva",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#80704d",color_secundario:"#c9a961"},
@@ -137,7 +142,7 @@ async function cargar(){
     try{ const a = await sb.from('apps').select('*').eq('activo',true).order('orden',{ascending:true});
       if(!a.error && Array.isArray(a.data) && a.data.length){ APPS = a.data; online = true; } }catch(e){}
     try{ const d = await sb.from('desarrollos')
-        .select('slug,nombre,desarrollador,tipo,ciudad,color_principal,color_secundario,logo_url,activo');
+        .select('slug,nombre,desarrollador,tipo,ciudad,color_principal,color_secundario,logo_url,activo,plataforma_url');
       if(!d.error && Array.isArray(d.data)){ DES = d.data.filter(x=>x.activo!==false); online = true; } }catch(e){}
     try{ const l = await sb.from('lotes').select('desarrollo');
       if(!l.error && Array.isArray(l.data)) l.data.forEach(r=>{ const k=norm(r.desarrollo); if(k) COUNT[k]=(COUNT[k]||0)+1; }); }catch(e){}
@@ -182,11 +187,15 @@ function renderDes(){
     const c1=d.color_principal||"#6B7280", c2=d.color_secundario||c1;
     const n = COUNT[norm(d.nombre)]||0;
     const logo = d.logo_url && /^https?:/.test(d.logo_url) ? `<img src="${d.logo_url}" alt="">` : `<span style="color:${c1}">${inic(d.nombre)}</span>`;
-    const mk = (slug,cls,txt)=>{ const u=deepLink(slug,d.slug); return `<button class="btn ${cls}" ${u?`onclick="window.open('${u}','_blank')"`:'disabled title="Falta URL/integración"'}>${txt}</button>`; };
+    const plat = d.plataforma_url && /^https?:/.test(d.plataforma_url);
+    const um = deepLink('macropro', d.slug);
+    const accion = plat
+      ? `<button class="btn plat" onclick="window.open('${d.plataforma_url}','_blank')">🌐 Ver Plataforma Macros 360</button>`
+      : (um ? `<button class="btn macropro full" onclick="window.open('${um}','_blank')">📊 Abrir en MacroPro</button>` : '');
     return `<div class="card">
-      <div class="band" style="background:linear-gradient(135deg,${c1},${c2})"><div class="logo">${logo}</div><h3>${d.nombre}</h3><span class="tipo">${d.tipo||'Desarrollo'}</span></div>
+      <div class="band" style="background:linear-gradient(135deg,${c1},${c2})"><div class="logo">${logo}</div><h3>${d.nombre}</h3><span class="tipo">${d.tipo||'Desarrollo'}</span>${plat?'<span class="badge360">360°</span>':''}</div>
       <div class="body"><div class="rowp"><span class="pill dev">${d.desarrollador||'—'}</span><span class="pill">📍 ${d.ciudad||'—'}</span></div><div class="meta"><span>Lotes</span><b>${n}</b></div></div>
-      <div class="acts">${mk('macropro','macropro','📊 MacroPro')}${mk('macrocotizador','cot','🧮 Cotizador')}${mk('guia-intelligence','','🧠 Intelligence')}<button class="btn" onclick='abrir(${JSON.stringify(d).replace(/'/g,"&#39;")})'>📄 Ficha</button></div>
+      <div class="acts1">${accion}</div>
     </div>`;
   }).join("");
 }
