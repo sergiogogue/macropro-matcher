@@ -627,6 +627,28 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
 .metas-sem.r { background:var(--red); } .metas-bar.r > span { background:var(--red); }
 .metas-empty { text-align:center; color:var(--muted2); font-size:13px; padding:48px 16px; }
 .metas-empty b { color:var(--text); display:block; font-size:15px; margin-bottom:8px; }
+/* ── Centro de Análisis (Analytics) ── */
+.ana-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:18px; }
+.ana-tab { background:var(--surface2); border:1px solid var(--border2); border-radius:8px; padding:8px 14px; color:var(--muted2); font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; }
+.ana-tab:hover { color:var(--text); }
+.ana-tab.active { background:linear-gradient(135deg,var(--gold),#d08b10); color:#000; border-color:var(--gold3); }
+.ana-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:8px; }
+.ana-kpi { background:var(--surface2); border:1px solid var(--border2); border-radius:12px; padding:14px 16px; }
+.ana-kpi .k-label { font-size:10px; text-transform:uppercase; letter-spacing:1px; color:var(--muted2); margin-bottom:6px; }
+.ana-kpi .k-val { font-size:22px; font-weight:700; color:var(--text); font-family:'DM Mono',monospace; line-height:1.1; }
+.ana-kpi .k-val.v { color:var(--green); } .ana-kpi .k-val.a { color:var(--yellow); } .ana-kpi .k-val.r { color:var(--red); }
+.ana-kpi .k-sub { font-size:11px; color:var(--muted2); margin-top:4px; }
+.ana-sec { margin-top:28px; }
+.ana-sec-title { font-size:11px; color:var(--gold3); text-transform:uppercase; letter-spacing:1.5px; font-weight:700; margin:0 0 14px; padding-bottom:8px; border-bottom:1px solid var(--border2); }
+.ana-distrow { display:flex; align-items:center; gap:12px; margin-bottom:8px; font-size:12px; }
+.ana-distrow .d-lbl { width:170px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }
+.ana-distrow .d-bar { flex:1; height:16px; background:var(--surface3); border-radius:6px; overflow:hidden; }
+.ana-distrow .d-bar > span { display:block; height:100%; background:linear-gradient(90deg,var(--gold),#d08b10); border-radius:6px; }
+.ana-distrow .d-val { width:150px; text-align:right; color:var(--muted2); font-family:'DM Mono',monospace; flex-shrink:0; }
+.ana-insights { background:var(--surface2); border:1px solid var(--border2); border-radius:12px; padding:8px 22px; list-style:none; }
+.ana-insights li { font-size:13px; color:var(--text); margin:10px 0; line-height:1.5; padding-left:24px; position:relative; }
+.ana-insights li::before { content:'▸'; position:absolute; left:0; color:var(--gold); }
+.ana-loading { color:var(--muted2); font-size:13px; padding:12px 0; }
 .crm-badge { background:var(--red); color:#fff; border-radius:50%; width:18px; height:18px; font-size:10px; display:flex; align-items:center; justify-content:center; font-weight:700; }
 
 .crm-panel { position:fixed; inset:0; z-index:300; background:rgba(0,0,0,.7); backdrop-filter:blur(8px); display:none; }
@@ -809,7 +831,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
     </div>
   </div>
   <div class="header-right">
-    <span class="v-badge">v59</span>
+    <span class="v-badge">v60</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -5727,103 +5749,252 @@ window.addEventListener('load', function() {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// METAS — avance de ventas por desarrollo (real vs. plan)
-// Fuente: Supabase app_config/clave='metas_v1' (lo sube el Administrador).
-// Forma del dato: { [nombre]: { desarrollador, plan:{uds:[12],monto:[12]}, real:{...} } }
+// CENTRO DE ANÁLISIS (Analytics) — metas vs. ventas reales + inventario
+// Fuentes (Supabase, las sube el Administrador):
+//   · app_config/clave='metas_v1'  → { [nombre]: { desarrollador, plan:{uds[12],monto[12]}, real:{...} } }
+//   · inventario_full              → [{ id, datos:{ desarrollo, ciudad, estado, uso, sup_m2, precio_m2, precio_total, status, ... } }]
+// Si no hay nube, el inventario cae al Excel cargado en la app (inventarioData).
 // ═══════════════════════════════════════════════════════════════════════
-const METAS_SUPABASE_URL = "https://xugrrabebphdelgwqnwc.supabase.co";
-const METAS_SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
-let metasSb = null;
-try { if (window.supabase) metasSb = window.supabase.createClient(METAS_SUPABASE_URL, METAS_SUPABASE_KEY); } catch(e) {}
+const ANA_SUPABASE_URL = "https://xugrrabebphdelgwqnwc.supabase.co";
+const ANA_SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
+let anaSb = null;
+try { if (window.supabase) anaSb = window.supabase.createClient(ANA_SUPABASE_URL, ANA_SUPABASE_KEY); } catch(e) {}
 window.DATOS = window.DATOS || {};
+let anaTabActiva = 'resumen';
 
-function _metasEsc(s) {
+// ── Helpers de formato ──
+function _anaEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
     ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
-function _metasMoney(n) {
-  n = +n || 0;
-  if (n >= 1e6) return '$' + (n/1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
-  if (n >= 1e3) return '$' + Math.round(n/1e3) + 'K';
-  return '$' + Math.round(n);
+function _anaMoney(n) {
+  n = +n || 0; const sg = n < 0 ? '-' : ''; n = Math.abs(n);
+  if (n >= 1e6) return sg + '$' + (n/1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+  if (n >= 1e3) return sg + '$' + Math.round(n/1e3) + 'K';
+  return sg + '$' + Math.round(n);
+}
+function _anaNum(n) { return (Math.round(+n||0)).toLocaleString('es-MX'); }
+function _anaSem(pct) { return pct >= 100 ? 'v' : (pct >= 70 ? 'a' : 'r'); }
+
+// ── Normaliza los lotes a un esquema común para el análisis ──
+function _anaLotes() {
+  const D = window.DATOS || {};
+  if (Array.isArray(D.inventario) && D.inventario.length) {
+    return D.inventario.map(l => ({
+      desarrollo: (l.desarrollo || l.desarrollador || '—').trim() || '—',
+      ciudad: (l.ciudad || '').trim(), estado: (l.estado || '').trim(),
+      uso: (l.uso || (Array.isArray(l.usos_todos) ? l.usos_todos[0] : '') || '—').trim() || '—',
+      status: (l.status || 'Disponible').trim() || 'Disponible',
+      sup: +l.sup_m2 || 0, pm2: +l.precio_m2 || 0,
+      total: (+l.precio_total) || ((+l.sup_m2||0) * (+l.precio_m2||0))
+    }));
+  }
+  if (typeof inventarioData !== 'undefined' && Array.isArray(inventarioData) && inventarioData.length) {
+    return inventarioData.map(l => ({
+      desarrollo: (l.desarrollo || '—').trim() || '—',
+      ciudad: (l.ciudad || '').trim(), estado: (l.estado || '').trim(),
+      uso: (l.uso_suelo || '—').trim() || '—',
+      status: (l.status || 'Disponible').trim() || 'Disponible',
+      sup: +l.sup_m2 || 0, pm2: +l.precio_m2_num || 0,
+      total: (+l.precio_num) || ((+l.sup_m2||0) * (+l.precio_m2_num||0))
+    }));
+  }
+  return [];
 }
 
+// ── Resúmenes de metas y de inventario ──
+function _anaResumenMetas() {
+  const M = (window.DATOS && window.DATOS.metas) || {};
+  const sum = a => Array.isArray(a) ? a.reduce((s,x)=>s+(+x||0),0) : (+a||0);
+  const rows = Object.keys(M).map(nombre => {
+    const m = M[nombre] || {};
+    const plan = sum(m.plan && m.plan.monto), real = sum(m.real && m.real.monto);
+    return { nombre, desarrollador: m.desarrollador || '—', plan, real,
+             pct: plan > 0 ? real/plan*100 : 0,
+             planUds: sum(m.plan && m.plan.uds), realUds: sum(m.real && m.real.uds) };
+  }).sort((a,b) => b.plan - a.plan);
+  const t = rows.reduce((t,r)=>{ t.plan+=r.plan; t.real+=r.real; t.planUds+=r.planUds; t.realUds+=r.realUds; return t; },
+                        { plan:0, real:0, planUds:0, realUds:0 });
+  t.pct = t.plan > 0 ? t.real/t.plan*100 : 0;
+  return { rows, t };
+}
+function _anaResumenInv() {
+  const L = _anaLotes();
+  const valor = L.reduce((s,l)=>s+l.total, 0);
+  const sup   = L.reduce((s,l)=>s+l.sup, 0);
+  // agrupador genérico
+  const grupo = key => {
+    const g = {};
+    L.forEach(l => { const k = l[key] || '—'; (g[k] = g[k] || { n:0, sup:0, valor:0 }); g[k].n++; g[k].sup+=l.sup; g[k].valor+=l.total; });
+    return Object.entries(g).map(([k,v]) => ({ k, ...v, pm2: v.sup>0 ? v.valor/v.sup : 0 }))
+                            .sort((a,b)=>b.valor-a.valor);
+  };
+  return { L, n:L.length, valor, sup, pm2: sup>0 ? valor/sup : 0,
+           porDesarrollo:grupo('desarrollo'), porCiudad:grupo('ciudad'), porUso:grupo('uso'), porStatus:grupo('status') };
+}
+
+// ── Render de barras de distribución ──
+function _anaBarras(items, total, fmt) {
+  if (!items.length) return '<p class="ana-loading">Sin datos.</p>';
+  const max = Math.max(...items.map(i=>i.valor)) || 1;
+  return items.slice(0, 12).map(i => {
+    const w = Math.max(2, i.valor/max*100);
+    return '<div class="ana-distrow"><div class="d-lbl">' + _anaEsc(i.k) + '</div>'
+      + '<div class="d-bar"><span style="width:' + w + '%"></span></div>'
+      + '<div class="d-val">' + fmt(i) + '</div></div>';
+  }).join('');
+}
+
+// ── Tabla Metas vs. ventas reales ──
+function _anaMetasHTML() {
+  const { rows, t } = _anaResumenMetas();
+  if (!rows.length) return '<div class="metas-empty"><b>Sin metas cargadas</b>Carga el Excel de metas desde el Administrador para ver el avance por desarrollo.</div>';
+  const fila = r => {
+    const cls = _anaSem(r.pct), w = Math.max(0, Math.min(100, r.pct));
+    return '<tr>'
+      + '<td><div class="metas-nombre">' + _anaEsc(r.nombre) + '</div><div class="metas-dev">' + _anaEsc(r.desarrollador) + '</div></td>'
+      + '<td class="metas-money">' + _anaMoney(r.plan) + '</td>'
+      + '<td class="metas-money">' + _anaMoney(r.real) + '</td>'
+      + '<td><span class="metas-bar ' + cls + '"><span style="width:' + w + '%"></span></span><span class="metas-sem ' + cls + '"></span>' + r.pct.toFixed(0) + '%</td>'
+      + '<td>' + r.realUds + ' / ' + r.planUds + '</td></tr>';
+  };
+  return '<table class="metas-table">'
+    + '<thead><tr><th>Desarrollo</th><th>Meta (plan)</th><th>Real</th><th>% Avance</th><th>Uds R / P</th></tr></thead>'
+    + '<tbody>' + rows.map(fila).join('') + '</tbody>'
+    + '<tfoot><tr><td>TOTAL (' + rows.length + ')</td>'
+    + '<td class="metas-money">' + _anaMoney(t.plan) + '</td><td class="metas-money">' + _anaMoney(t.real) + '</td>'
+    + '<td><span class="metas-sem ' + _anaSem(t.pct) + '"></span>' + t.pct.toFixed(0) + '%</td>'
+    + '<td>' + t.realUds + ' / ' + t.planUds + '</td></tr></tfoot></table>';
+}
+
+// ── Tabla de inventario por desarrollo ──
+function _anaInvTablaHTML() {
+  const I = _anaResumenInv();
+  if (!I.n) return '<div class="metas-empty"><b>Sin inventario</b>Sube el inventario desde el Administrador (nube) o carga el Excel de lotes en esta app.</div>';
+  const fila = d =>
+    '<tr><td class="metas-nombre">' + _anaEsc(d.k) + '</td>'
+    + '<td>' + d.n + '</td>'
+    + '<td>' + _anaNum(d.sup) + ' m²</td>'
+    + '<td class="metas-money">' + _anaMoney(d.valor) + '</td>'
+    + '<td class="metas-money">$' + _anaNum(d.pm2) + '</td></tr>';
+  return '<table class="metas-table">'
+    + '<thead><tr><th>Desarrollo</th><th>Lotes</th><th>Superficie</th><th>Valor</th><th>$/m² prom</th></tr></thead>'
+    + '<tbody>' + I.porDesarrollo.map(fila).join('') + '</tbody>'
+    + '<tfoot><tr><td>TOTAL (' + I.porDesarrollo.length + ')</td><td>' + I.n + '</td>'
+    + '<td>' + _anaNum(I.sup) + ' m²</td><td class="metas-money">' + _anaMoney(I.valor) + '</td>'
+    + '<td class="metas-money">$' + _anaNum(I.pm2) + '</td></tr></tfoot></table>';
+}
+
+// ── KPIs + insights del resumen ejecutivo ──
+function _anaResumenHTML() {
+  const { rows, t } = _anaResumenMetas();
+  const I = _anaResumenInv();
+  const hayMetas = rows.length > 0, hayInv = I.n > 0;
+  if (!hayMetas && !hayInv) return '<p class="ana-loading">Aún no hay datos en la nube. Sube metas e inventario desde el Administrador, o carga el Excel de lotes aquí.</p>';
+
+  let kpis = '<div class="ana-kpis">';
+  if (hayMetas) {
+    const cls = _anaSem(t.pct), brecha = t.real - t.plan;
+    kpis += '<div class="ana-kpi"><div class="k-label">Meta del año</div><div class="k-val">' + _anaMoney(t.plan) + '</div><div class="k-sub">' + t.planUds + ' unidades</div></div>'
+      + '<div class="ana-kpi"><div class="k-label">Ventas reales</div><div class="k-val">' + _anaMoney(t.real) + '</div><div class="k-sub">' + t.realUds + ' unidades</div></div>'
+      + '<div class="ana-kpi"><div class="k-label">% Avance global</div><div class="k-val ' + cls + '">' + t.pct.toFixed(0) + '%</div><div class="k-sub">' + (brecha>=0 ? 'meta superada' : 'faltan ' + _anaMoney(-brecha)) + '</div></div>';
+  }
+  if (hayInv) {
+    kpis += '<div class="ana-kpi"><div class="k-label">Valor inventario</div><div class="k-val">' + _anaMoney(I.valor) + '</div><div class="k-sub">' + I.n + ' lotes</div></div>'
+      + '<div class="ana-kpi"><div class="k-label">Superficie total</div><div class="k-val">' + _anaNum(I.sup) + '</div><div class="k-sub">m² en inventario</div></div>'
+      + '<div class="ana-kpi"><div class="k-label">$/m² promedio</div><div class="k-val">$' + _anaNum(I.pm2) + '</div><div class="k-sub">ponderado por superficie</div></div>';
+  }
+  kpis += '</div>';
+
+  // Insights automáticos
+  const ins = [];
+  if (hayMetas) {
+    const conPlan = rows.filter(r=>r.plan>0);
+    const mejor = conPlan.slice().sort((a,b)=>b.pct-a.pct)[0];
+    const peor  = conPlan.slice().sort((a,b)=>a.pct-b.pct)[0];
+    if (mejor) ins.push('<b>' + _anaEsc(mejor.nombre) + '</b> lidera el avance con <b>' + mejor.pct.toFixed(0) + '%</b> de su meta (' + _anaMoney(mejor.real) + ' de ' + _anaMoney(mejor.plan) + ').');
+    if (peor && peor !== mejor) ins.push('<b>' + _anaEsc(peor.nombre) + '</b> es el más rezagado: <b>' + peor.pct.toFixed(0) + '%</b> de avance.');
+    if (t.real < t.plan) ins.push('Faltan <b>' + _anaMoney(t.plan - t.real) + '</b> (' + (t.planUds - t.realUds) + ' uds) para alcanzar la meta global del año.');
+    else ins.push('La meta global del año ya está <b>cubierta</b> (' + t.pct.toFixed(0) + '%).');
+  }
+  if (hayInv) {
+    const topD = I.porDesarrollo[0];
+    if (topD) ins.push('<b>' + _anaEsc(topD.k) + '</b> concentra el mayor inventario en valor: <b>' + _anaMoney(topD.valor) + '</b> (' + topD.n + ' lotes).');
+    const disp = I.porStatus.find(s=>/dispon/i.test(s.k));
+    if (disp) ins.push('Inventario disponible: <b>' + _anaMoney(disp.valor) + '</b> en ' + disp.n + ' lotes.');
+  }
+
+  return '<div class="ana-sec"><div class="ana-sec-title">Indicadores clave</div>' + kpis + '</div>'
+    + (ins.length ? '<div class="ana-sec"><div class="ana-sec-title">Hallazgos</div><ul class="ana-insights">' + ins.map(i=>'<li>'+i+'</li>').join('') + '</ul></div>' : '');
+}
+
+// ── Pestaña Inventario (tabla + distribuciones) ──
+function _anaInventarioTabHTML() {
+  const I = _anaResumenInv();
+  if (!I.n) return '<div class="metas-empty"><b>Sin inventario</b>Sube el inventario desde el Administrador (nube) o carga el Excel de lotes en esta app.</div>';
+  return '<div class="ana-sec"><div class="ana-sec-title">Inventario por desarrollo</div>' + _anaInvTablaHTML() + '</div>'
+    + '<div class="ana-sec"><div class="ana-sec-title">Valor por estatus</div>' + _anaBarras(I.porStatus, I.valor, i=>i.n+' lotes · '+_anaMoney(i.valor)) + '</div>'
+    + '<div class="ana-sec"><div class="ana-sec-title">Valor por uso de suelo</div>' + _anaBarras(I.porUso, I.valor, i=>i.n+' lotes · '+_anaMoney(i.valor)) + '</div>'
+    + '<div class="ana-sec"><div class="ana-sec-title">Valor por ciudad</div>' + _anaBarras(I.porCiudad.filter(c=>c.k!=='—'), I.valor, i=>i.n+' lotes · '+_anaMoney(i.valor)) + '</div>';
+}
+
+// ── Orquestador ──
+function renderAnalytics() {
+  const cont = document.getElementById('analytics-body');
+  if (!cont) return;
+  if (anaTabActiva === 'metas') cont.innerHTML = _anaMetasHTML();
+  else if (anaTabActiva === 'inventario') cont.innerHTML = _anaInventarioTabHTML();
+  else cont.innerHTML = _anaResumenHTML();
+}
+function anaTab(t) {
+  anaTabActiva = t;
+  document.querySelectorAll('#ana-tabs .ana-tab').forEach(el =>
+    el.classList.toggle('active', el.getAttribute('data-tab') === t));
+  renderAnalytics();
+}
+
+// ── Carga de datos desde Supabase ──
 async function cargarMetas() {
-  if (!metasSb) return;
+  if (!anaSb) return;
   try {
-    const r = await metasSb.from('app_config').select('datos').eq('clave','metas_v1');
+    const r = await anaSb.from('app_config').select('datos').eq('clave','metas_v1');
     const datos = (!r.error && Array.isArray(r.data) && r.data[0]) ? r.data[0].datos : null;
     if (datos && typeof datos === 'object' && Object.keys(datos).length) {
       window.DATOS.metas = datos;
-      const p = document.getElementById('metas-panel');
-      if (p && p.classList.contains('open')) renderMetas();
+      const p = document.getElementById('analytics-panel');
+      if (p && p.classList.contains('open')) renderAnalytics();
     }
-  } catch(e) { /* sin conexión: queda el estado vacío */ }
+  } catch(e) { /* sin conexión */ }
+}
+async function cargarInventario() {
+  if (!anaSb) return;
+  try {
+    const r = await anaSb.from('inventario_full').select('datos');
+    if (!r.error && Array.isArray(r.data) && r.data.length) {
+      window.DATOS.inventario = r.data.map(x => x.datos).filter(Boolean);
+      const p = document.getElementById('analytics-panel');
+      if (p && p.classList.contains('open')) renderAnalytics();
+    }
+  } catch(e) { /* sin conexión */ }
 }
 
-function openMetas() {
-  document.getElementById('metas-panel').classList.add('open');
-  renderMetas();
+function openAnalytics() {
+  document.getElementById('analytics-panel').classList.add('open');
+  renderAnalytics();
   if (!(window.DATOS && window.DATOS.metas)) cargarMetas();
+  if (!(window.DATOS && window.DATOS.inventario)) cargarInventario();
 }
-function closeMetas() {
-  document.getElementById('metas-panel').classList.remove('open');
+function closeAnalytics() {
+  document.getElementById('analytics-panel').classList.remove('open');
 }
-
-function renderMetas() {
-  const cont = document.getElementById('metas-body');
-  if (!cont) return;
-  const M = (window.DATOS && window.DATOS.metas) || {};
-  const keys = Object.keys(M);
-  if (!keys.length) {
-    cont.innerHTML = '<div class="metas-empty"><b>Sin metas cargadas</b>'
-      + 'Carga el Excel de metas desde el Administrador para ver el avance por desarrollo.</div>';
-    return;
-  }
-  const sum = a => Array.isArray(a) ? a.reduce((s,x)=>s+(+x||0),0) : (+a||0);
-  const rows = keys.map(nombre => {
-    const m = M[nombre] || {};
-    const plan = sum(m.plan && m.plan.monto), real = sum(m.real && m.real.monto);
-    return { nombre, desarrollador: m.desarrollador || '—',
-             plan, real, pct: plan > 0 ? real/plan*100 : 0,
-             planUds: sum(m.plan && m.plan.uds), realUds: sum(m.real && m.real.uds) };
-  }).sort((a,b) => b.plan - a.plan);
-
-  // semáforo: ≥100 verde · ≥70 amarillo · <70 rojo
-  const sem = pct => pct >= 100 ? 'v' : (pct >= 70 ? 'a' : 'r');
-  const tot = rows.reduce((t,r) => { t.plan+=r.plan; t.real+=r.real; t.planUds+=r.planUds; t.realUds+=r.realUds; return t; },
-                          { plan:0, real:0, planUds:0, realUds:0 });
-  tot.pct = tot.plan > 0 ? tot.real/tot.plan*100 : 0;
-
-  const fila = r => {
-    const cls = sem(r.pct), w = Math.max(0, Math.min(100, r.pct));
-    return '<tr>'
-      + '<td><div class="metas-nombre">' + _metasEsc(r.nombre) + '</div>'
-        + '<div class="metas-dev">' + _metasEsc(r.desarrollador) + '</div></td>'
-      + '<td class="metas-money">' + _metasMoney(r.plan) + '</td>'
-      + '<td class="metas-money">' + _metasMoney(r.real) + '</td>'
-      + '<td><span class="metas-bar ' + cls + '"><span style="width:' + w + '%"></span></span>'
-        + '<span class="metas-sem ' + cls + '"></span>' + r.pct.toFixed(0) + '%</td>'
-      + '<td>' + r.realUds + ' / ' + r.planUds + '</td>'
-      + '</tr>';
-  };
-
-  cont.innerHTML = '<table class="metas-table">'
-    + '<thead><tr><th>Desarrollo</th><th>Meta (plan)</th><th>Real</th>'
-      + '<th>% Avance</th><th>Uds R / P</th></tr></thead>'
-    + '<tbody>' + rows.map(fila).join('') + '</tbody>'
-    + '<tfoot><tr>'
-      + '<td>TOTAL (' + rows.length + ')</td>'
-      + '<td class="metas-money">' + _metasMoney(tot.plan) + '</td>'
-      + '<td class="metas-money">' + _metasMoney(tot.real) + '</td>'
-      + '<td><span class="metas-sem ' + sem(tot.pct) + '"></span>' + tot.pct.toFixed(0) + '%</td>'
-      + '<td>' + tot.realUds + ' / ' + tot.planUds + '</td>'
-    + '</tr></tfoot>'
-    + '</table>';
+function recargarAnalytics() {
+  const cont = document.getElementById('analytics-body');
+  if (cont) cont.innerHTML = '<p class="ana-loading">Recargando datos…</p>';
+  Promise.all([cargarMetas(), cargarInventario()]).then(renderAnalytics);
 }
 
-// Precargar metas al abrir la app (no bloquea; el panel se llena solo)
-window.addEventListener('load', function() { setTimeout(cargarMetas, 700); });
+// Precargar datos al abrir la app (no bloquea; el panel se llena solo)
+window.addEventListener('load', function() { setTimeout(function(){ cargarMetas(); cargarInventario(); }, 700); });
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────
 function showToast(msg, type='') {
@@ -5833,25 +6004,31 @@ function showToast(msg, type='') {
 }
 </script>
 
-<!-- ── METAS FLOATING BUTTON ── -->
-<button class="metas-fab" id="metas-fab" onclick="openMetas()">
-  🎯 Metas
+<!-- ── ANALYTICS FLOATING BUTTON ── -->
+<button class="metas-fab" id="analytics-fab" onclick="openAnalytics()">
+  📊 Analytics
 </button>
 
-<!-- ── METAS PANEL ── -->
-<div class="crm-panel" id="metas-panel">
+<!-- ── ANALYTICS PANEL (Centro de Análisis) ── -->
+<div class="crm-panel" id="analytics-panel">
   <div class="crm-drawer">
     <div class="crm-header">
       <div class="crm-header-left">
-        <h2>🎯 Metas por desarrollo</h2>
-        <p>Avance de ventas del año: real vs. plan · Grupo Guía</p>
+        <h2>📊 Centro de Análisis</h2>
+        <p>Metas vs. ventas reales · análisis de inventario · Grupo Guía</p>
       </div>
       <div class="crm-header-actions">
-        <button class="crm-close" onclick="closeMetas()">Cerrar ✕</button>
+        <button class="crm-close" onclick="recargarAnalytics()" style="margin-right:8px;">↻ Recargar</button>
+        <button class="crm-close" onclick="closeAnalytics()">Cerrar ✕</button>
       </div>
     </div>
     <div class="crm-body">
-      <div id="metas-body"><p style="color:var(--muted2);font-size:13px;">Cargando metas…</p></div>
+      <div class="ana-tabs" id="ana-tabs">
+        <div class="ana-tab active" data-tab="resumen" onclick="anaTab('resumen')">Resumen</div>
+        <div class="ana-tab" data-tab="metas" onclick="anaTab('metas')">Metas vs. ventas</div>
+        <div class="ana-tab" data-tab="inventario" onclick="anaTab('inventario')">Inventario</div>
+      </div>
+      <div id="analytics-body"><p class="ana-loading">Cargando datos…</p></div>
     </div>
   </div>
 </div>
