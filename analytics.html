@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA Intelligence · Tableros</title>
+<title>GUÍA Analytics · Tableros</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -65,7 +65,7 @@
 <div class="topbar">
   <div class="brand">
     <div class="logo" id="brand-logo">🧠</div>
-    <div><div class="t" id="brand-title">GUÍA Intelligence</div><div class="s">Tableros · Grupo Guía Macrolotes</div></div>
+    <div><div class="t" id="brand-title">GUÍA Analytics</div><div class="s">Tableros · Grupo Guía Macrolotes</div></div>
   </div>
   <div class="filters">
     <span id="conn"><span class="status-dot" style="background:var(--yellow)"></span><span class="muted" style="font-size:12px">conectando…</span></span>
@@ -100,6 +100,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ── Estado ──────────────────────────────────────────────────────────────────
 const DB = { desarrollos:[], cotizaciones:[], lotes:[], metas:[], crm_lotes:[], clientes:[], asesores:[] };
+let METAS_CFG = null;        // metas reales: app_config/metas_v1 (JSON con plan y real)
 let activeTab = 'ventas';
 let selDesarrollo = '';      // slug seleccionado
 let selDesarrollador = '';
@@ -119,55 +120,31 @@ function fmtInt(n){ return Math.round(n||0).toLocaleString('es-MX'); }
 
 // claves candidatas por campo (a prueba de variaciones del esquema)
 const K = {
-  monto:    ['total','monto','importe','monto_total','total_cotizado','precio_total','valor','total_mxn'],
+  monto:    ['precio_final','precio_lista','total','monto','importe','monto_total','total_cotizado','precio_total','valor','total_mxn'],
   status:   ['status','estatus','estado','etapa','status_cotizacion'],
-  asesor:   ['asesor_asignado','nombre_asesor','asesor','vendedor','asesor_nombre','nombre_vendedor'],
+  asesor:   ['nombre_asesor','asesor','asesor_asignado','vendedor','asesor_nombre','nombre_vendedor'],
   fecha:    ['created_at','fecha','fecha_creacion','fecha_cotizacion','inserted_at'],
-  desarrollo:['desarrollo','desarrollo_slug','slug_desarrollo','desarrollo_nombre','nombre_desarrollo','desarrollo_id','proyecto'],
-  desarrollador:['desarrollador','desarrollador_nombre','grupo','dueno','propietario'],
+  desarrollo:['_desarrollo','desarrollo','desarrollo_slug','slug_desarrollo','desarrollo_nombre','nombre_desarrollo','proyecto'],
+  desarrollador:['_desarrollador','desarrollador','desarrollador_nombre','grupo','dueno','propietario'],
   pipeline: ['pipeline','etapa','etapa_pipeline','fase','status'],
   statusInv:['status_inventario','status','estatus','estado_inventario','disponibilidad'],
   precioTotal:['precio_total','precio','valor_total','monto_total'],
   superficie:['superficie_m2','superficie','sup_m2','m2','metros','area'],
   vencimiento:['fecha_vencimiento','vence','proxima_actividad','fecha_seguimiento','due_date','fecha_proxima'],
-  loteId:   ['lote_id','id_lote','clave_unica','id'],
 };
 
-// Índice lote_id → {desarrollo, desarrollador} para tablas que se unen por lote (crm_lotes)
-let LOTE_IDX = new Map();
-function buildLoteIdx(){
-  LOTE_IDX = new Map();
-  DB.lotes.forEach(l=>{
-    const info = { desarrollo: pick(l,K.desarrollo,'') , desarrollador: pick(l,K.desarrollador,'') };
-    ['id','clave_unica','id_macrolote'].forEach(k=>{ if(l[k]) LOTE_IDX.set(low(l[k]), info); });
-  });
-}
-// desarrollo/desarrollador resueltos (directo o vía lote_id)
-function rowDesarrollo(row){
-  const v = pick(row, K.desarrollo, '');
-  if(v) return v;
-  const lid = pick(row, K.loteId, '');
-  const hit = lid ? LOTE_IDX.get(low(lid)) : null;
-  return hit ? hit.desarrollo : '';
-}
-function rowDesarrollador(row){
-  const v = pick(row, K.desarrollador, '');
-  if(v) return v;
-  const lid = pick(row, K.loteId, '');
-  const hit = lid ? LOTE_IDX.get(low(lid)) : null;
-  return hit ? hit.desarrollador : '';
-}
-
-// ¿esta fila pertenece al desarrollo seleccionado? (match por slug o nombre)
+// ¿esta fila pertenece al desarrollo seleccionado? (match por id, slug o nombre)
 function rowMatchesDesarrollo(row, des){
   if(!des) return true;
-  const v = low(rowDesarrollo(row));
+  const id = pick(row, ['desarrollo_id','_desarrollo_id'], '');
+  if(id && String(id)===String(des.id)) return true;
+  const v = low(pick(row, K.desarrollo, ''));
   if(!v) return false;
   return v===low(des.slug) || v===low(des.nombre) || v.includes(low(des.slug)) || v.includes(low(des.nombre));
 }
 function rowMatchesDesarrollador(row, name){
   if(!name) return true;
-  return low(rowDesarrollador(row)) === low(name);
+  return low(pick(row, K.desarrollador, '')) === low(name);
 }
 function applyFilters(rows){
   const des = selDesarrollo ? DB.desarrollos.find(d=>low(pick(d,['slug'],''))===low(selDesarrollo)) : null;
@@ -175,7 +152,7 @@ function applyFilters(rows){
 }
 function isCerrada(row){
   const s = low(pick(row, K.status, ''));
-  return /cerrad|ganad|vendid|cierre|won|exitos|aprobad/.test(s);
+  return /cerrad|ganad|vendid|cierre|won|exitos|aprobad|aceptad|firmad|pagad|formaliz|escritur/.test(s);
 }
 
 // ── Carga de datos ────────────────────────────────────────────────────────────
@@ -186,9 +163,7 @@ async function fetchTable(name){
     return data||[];
   }catch(e){ console.warn('['+name+']', e.message); return []; }
 }
-// Metas reales: viven en app_config/clave='metas_v1' como JSON
-// { [nombre]: { desarrollador, plan:{uds:[12],monto:[12]}, real:{uds:[12],monto:[12]} } }
-let METAS_CFG = null;
+// Metas reales: app_config/clave='metas_v1' → { [nombre]: { desarrollador, plan:{uds[12],monto[12]}, real:{...} } }
 async function fetchMetasCfg(){
   try{
     const { data, error } = await sb.from('app_config').select('datos').eq('clave','metas_v1');
@@ -202,7 +177,18 @@ async function reloadAll(){
   const [results, metasCfg] = await Promise.all([ Promise.all(names.map(fetchTable)), fetchMetasCfg() ]);
   names.forEach((n,i)=> DB[n]=results[i]);
   METAS_CFG = metasCfg;
-  buildLoteIdx();
+  // Enriquecer crm_lotes con datos del lote ligado (crm_lotes solo trae lote_id)
+  const loteById = new Map(DB.lotes.map(l=>[String(l.id), l]));
+  DB.crm_lotes.forEach(c=>{
+    const l = loteById.get(String(pick(c,['lote_id','id_lote','lote'],'')));
+    if(l){ c._desarrollo = pick(l,['desarrollo','nombre_terreno','nombre'],''); c._desarrollador = pick(l,['desarrollador'],''); c._desarrollo_id = pick(l,['desarrollo_id'],''); c._lote = l; }
+  });
+  // Enriquecer cotizaciones con el NOMBRE del desarrollo via desarrollo_id (solo trae el id)
+  const desById = new Map(DB.desarrollos.map(d=>[String(d.id), d]));
+  DB.cotizaciones.forEach(c=>{
+    const d = desById.get(String(pick(c,['desarrollo_id'],'')));
+    if(d){ c._desarrollo = pick(d,['nombre'],''); c._desarrollador = pick(d,['desarrollador'],''); }
+  });
   const ok = Object.values(DB).some(a=>a.length>0) || (METAS_CFG && Object.keys(METAS_CFG).length>0);
   setConn(ok?'green':'red', ok?('datos OK · '+DB.desarrollos.length+' desarrollos'):'sin datos / revisa conexión');
   populateFilters();
@@ -234,7 +220,7 @@ function populateFilters(){
 }
 function applyBranding(){
   const des = selDesarrollo ? DB.desarrollos.find(d=>low(pick(d,['slug'],''))===low(selDesarrollo)) : null;
-  const title = des ? (pick(des,['nombre'],'GUÍA Intelligence')) : 'GUÍA Intelligence';
+  const title = des ? (pick(des,['nombre'],'GUÍA Analytics')) : 'GUÍA Analytics';
   document.getElementById('brand-title').textContent = title;
   const color = des ? pick(des,['color_principal','color_primario','color','color_primary','brand_color'],'') : '';
   const logo = des ? pick(des,['logo','logo_url','imagen','icono'],'') : '';
@@ -267,83 +253,142 @@ function groupSum(rows, keyFn, valFn){
   return [...m.entries()].map(([k,v])=>({lbl:k,val:v})).sort((a,b)=>b.val-a.val);
 }
 
+// Fuente de ventas: cotizaciones si tiene datos; si no, lotes vendidos (fallback real)
+function salesData(){
+  const cot = applyFilters(DB.cotizaciones);
+  if(cot.length){
+    return { src:'cotizaciones', all:cot, closed:cot.filter(isCerrada),
+      monto:r=>num(pick(r,K.monto,0)), asesor:r=>pick(r,K.asesor,'—'), des:r=>pick(r,K.desarrollo,'—'), fecha:r=>pick(r,K.fecha,'') };
+  }
+  const vend = applyFilters(DB.lotes).filter(l=>/vendid|cerrad/.test(low(pick(l,K.statusInv,''))));
+  return { src:'lotes', all:vend, closed:vend,
+    monto:r=>num(pick(r,K.precioTotal,0)), asesor:r=>pick(r,K.asesor,'—'), des:r=>pick(r,K.desarrollo,'—'), fecha:r=>pick(r,['created_at','fecha_ingreso','fecha_entrega'],'') };
+}
+
 // ── TAB: VENTAS ───────────────────────────────────────────────────────────────
 function renderVentas(){
-  const rows = applyFilters(DB.cotizaciones);
-  if(!DB.cotizaciones.length){ return sec('ventas', emptyMsg('cotizaciones')); }
-  const totalCot = rows.reduce((s,r)=>s+num(pick(r,K.monto,0)),0);
-  const cerradas = rows.filter(isCerrada);
-  const totalCerr = cerradas.reduce((s,r)=>s+num(pick(r,K.monto,0)),0);
-  const tasa = rows.length ? (cerradas.length/rows.length*100) : 0;
+  if(!DB.cotizaciones.length && !DB.lotes.length){ return sec('ventas', emptyMsg('cotizaciones')); }
+  const S = salesData();
+  const rows = S.all, cerradas = S.closed;
+  const totalCot = rows.reduce((s,r)=>s+S.monto(r),0);
+  const totalCerr = cerradas.reduce((s,r)=>s+S.monto(r),0);
+  const tasa = (S.src==='cotizaciones' && rows.length) ? (cerradas.length/rows.length*100) : 100;
 
-  const porDes = groupSum(rows, r=>pick(r,K.desarrollo,'—'), r=>num(pick(r,K.monto,0))).slice(0,10);
-  const porAsesor = groupSum(rows, r=>pick(r,K.asesor,'—'), r=>num(pick(r,K.monto,0))).slice(0,10);
-
-  // tendencia por mes
+  const baseRows = S.src==='cotizaciones' ? rows : cerradas; // cotizado (todas) vs ventas cerradas
+  const porDes = groupSum(baseRows, r=>S.des(r), r=>S.monto(r)).slice(0,10);
+  const porAsesor = groupSum(baseRows, r=>S.asesor(r), r=>S.monto(r)).slice(0,10);
   const mm=new Map();
-  rows.forEach(r=>{ const f=pick(r,K.fecha,''); if(!f) return; const d=new Date(f); if(isNaN(d)) return; const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); mm.set(key,(mm.get(key)||0)+num(pick(r,K.monto,0))); });
+  baseRows.forEach(r=>{ const f=S.fecha(r); if(!f) return; const d=new Date(f); if(isNaN(d)) return; const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); mm.set(key,(mm.get(key)||0)+S.monto(r)); });
   const meses=[...mm.entries()].sort((a,b)=>a[0].localeCompare(b[0]));
 
-  sec('ventas', `
-    <div class="kpis">
+  const banner = S.src==='lotes'
+    ? `<div class="card" style="border-color:var(--gold);padding:12px 16px;margin-bottom:16px;"><div style="font-size:12px;color:var(--muted2)">📊 Fuente: <b>lotes vendidos</b> (la tabla <code>cotizaciones</code> está vacía). Cuando MacroPro registre cotizaciones, este tablero las usará automáticamente.</div></div>` : '';
+
+  const kpis = S.src==='cotizaciones' ? `
       <div class="kpi"><div class="k-lbl">Total cotizado</div><div class="k-val">${fmtMoney(totalCot)}</div><div class="k-sub">${rows.length} cotizaciones</div></div>
       <div class="kpi"><div class="k-lbl">Total cerrado</div><div class="k-val" style="color:var(--green)">${fmtMoney(totalCerr)}</div><div class="k-sub">${cerradas.length} cerradas</div></div>
-      <div class="kpi"><div class="k-lbl">Tasa de cierre</div><div class="k-val">${tasa.toFixed(1)}%</div><div class="k-sub">cerradas / total</div></div>
-      <div class="kpi"><div class="k-lbl">Ticket promedio</div><div class="k-val">${fmtMoney(rows.length?totalCot/rows.length:0)}</div><div class="k-sub">por cotización</div></div>
-    </div>
-    <div class="card"><h3>Tendencia mensual (monto cotizado)</h3><canvas id="ch-trend"></canvas></div>
+      <div class="kpi"><div class="k-lbl">Tasa de cierre</div><div class="k-val">${tasa.toFixed(1)}%</div></div>
+      <div class="kpi"><div class="k-lbl">Ticket promedio</div><div class="k-val">${fmtMoney(rows.length?totalCot/rows.length:0)}</div></div>` : `
+      <div class="kpi"><div class="k-lbl">Ventas (cerrado)</div><div class="k-val" style="color:var(--green)">${fmtMoney(totalCerr)}</div><div class="k-sub">${cerradas.length} lotes vendidos</div></div>
+      <div class="kpi"><div class="k-lbl">Lotes vendidos</div><div class="k-val">${cerradas.length}</div></div>
+      <div class="kpi"><div class="k-lbl">Ticket promedio</div><div class="k-val">${fmtMoney(cerradas.length?totalCerr/cerradas.length:0)}</div><div class="k-sub">por lote</div></div>`;
+
+  sec('ventas', banner + `
+    <div class="kpis">${kpis}</div>
+    <div class="card"><h3>Tendencia mensual (monto ${S.src==='lotes'?'vendido':'cotizado'})</h3>${meses.length?'<canvas id="ch-trend"></canvas>':'<div class="muted">Sin fechas para graficar</div>'}</div>
     <div class="grid2">
-      <div class="card"><h3>Por desarrollo</h3>${porDes.length?barList(porDes.map(r=>({lbl:r.lbl,val:r.val,fmt:fmtMoney(r.val)}))):'<div class="muted">Sin datos</div>'}</div>
-      <div class="card"><h3>Por asesor</h3>${porAsesor.length?barList(porAsesor.map(r=>({lbl:r.lbl,val:r.val,fmt:fmtMoney(r.val)}))):'<div class="muted">Sin datos</div>'}</div>
+      <div class="card"><h3>${S.src==='lotes'?'Ventas por desarrollo':'Cotizado por desarrollo'}</h3>${porDes.length?barList(porDes.map(r=>({lbl:r.lbl,val:r.val,fmt:fmtMoney(r.val)}))):'<div class="muted">Sin datos</div>'}</div>
+      <div class="card"><h3>${S.src==='lotes'?'Ventas por asesor':'Cotizado por asesor'}</h3>${porAsesor.length?barList(porAsesor.map(r=>({lbl:r.lbl,val:r.val,fmt:fmtMoney(r.val)}))):'<div class="muted">Sin datos</div>'}</div>
     </div>`);
   if(meses.length) drawLine('ch-trend', meses.map(m=>m[0]), meses.map(m=>Math.round(m[1])));
 }
 
 // ── TAB: METAS vs REAL ─────────────────────────────────────────────────────────
+// Fuente real de metas: app_config/metas_v1 (plan y real ya incluidos por mes).
+// Si no hay metas_v1, cae a mostrar el real (cotizaciones cerradas / lotes vendidos) por desarrollo.
 function renderMetas(){
-  // Fuente real: app_config/metas_v1 (plan y real ya vienen en el JSON).
-  if(!METAS_CFG || !Object.keys(METAS_CFG).length){
-    return sec('metas', `<div class="err">No se encontraron metas en <b>app_config / metas_v1</b>. Cárgalas desde el Administrador (Excel de metas). El tab <b>Diagnóstico</b> ayuda a verificar la conexión.</div>`);
-  }
   const sum = a => Array.isArray(a) ? a.reduce((s,x)=>s+(+x||0),0) : (+a||0);
-  // Construye filas y respeta los filtros globales (por nombre de desarrollo y por desarrollador)
-  const desSel = selDesarrollo ? DB.desarrollos.find(d=>low(pick(d,['slug'],''))===low(selDesarrollo)) : null;
-  let rows = Object.keys(METAS_CFG).map(nombre=>{
-    const m = METAS_CFG[nombre] || {};
-    const plan = sum(m.plan && m.plan.monto), real = sum(m.real && m.real.monto);
-    return { nombre, desarrollador: m.desarrollador || '—', plan, real,
-             pct: plan>0 ? real/plan*100 : 0,
-             planUds: sum(m.plan && m.plan.uds), realUds: sum(m.real && m.real.uds) };
-  });
-  if(desSel){ const dn=low(pick(desSel,['nombre'],'')); rows = rows.filter(r=> low(r.nombre)===dn || low(r.nombre).includes(dn) || dn.includes(low(r.nombre))); }
-  if(selDesarrollador){ rows = rows.filter(r=> low(r.desarrollador)===low(selDesarrollador)); }
-  rows.sort((a,b)=>b.plan-a.plan);
+  const S = salesData();
 
-  const rowsHtml = rows.map(r=>{
-    const cls = r.pct>=100?'green':r.pct>=70?'yellow':'red';
+  // ── Caso principal: hay metas_v1 ──
+  if(METAS_CFG && Object.keys(METAS_CFG).length){
+    const desSel = selDesarrollo ? DB.desarrollos.find(d=>low(pick(d,['slug'],''))===low(selDesarrollo)) : null;
+    let rows = Object.keys(METAS_CFG).map(nombre=>{
+      const m = METAS_CFG[nombre] || {};
+      const plan = sum(m.plan && m.plan.monto), real = sum(m.real && m.real.monto);
+      return { nombre, desarrollador: m.desarrollador || '—', plan, real,
+               pct: plan>0 ? real/plan*100 : 0,
+               planUds: sum(m.plan && m.plan.uds), realUds: sum(m.real && m.real.uds) };
+    });
+    if(desSel){ const dn=low(pick(desSel,['nombre'],'')); rows = rows.filter(r=> low(r.nombre)===dn || low(r.nombre).includes(dn) || dn.includes(low(r.nombre))); }
+    if(selDesarrollador){ rows = rows.filter(r=> low(r.desarrollador)===low(selDesarrollador)); }
+    rows.sort((a,b)=>b.plan-a.plan);
+
+    const rowsHtml = rows.map(r=>{
+      const cls = r.pct>=100?'green':r.pct>=70?'yellow':'red';
+      return `<tr>
+        <td>${r.nombre}<div class="muted" style="font-size:10px">${r.desarrollador}</div></td>
+        <td class="num">${fmtFull(r.plan)}</td>
+        <td class="num">${fmtFull(r.real)}</td>
+        <td class="num">${r.pct.toFixed(0)}%</td>
+        <td class="num">${r.realUds} / ${r.planUds}</td>
+        <td><span class="chip ${cls}">${r.pct>=100?'cumplida':r.pct>=70?'en camino':'atrasada'}</span></td>
+      </tr>`;
+    }).join('');
+    const totMeta = rows.reduce((s,r)=>s+r.plan,0);
+    const totReal = rows.reduce((s,r)=>s+r.real,0);
+    const totPlanUds = rows.reduce((s,r)=>s+r.planUds,0);
+    const totRealUds = rows.reduce((s,r)=>s+r.realUds,0);
+    const totPct = totMeta>0?(totReal/totMeta*100):0;
+    return sec('metas', `
+      <div class="kpis">
+        <div class="kpi"><div class="k-lbl">Meta del año</div><div class="k-val">${fmtMoney(totMeta)}</div><div class="k-sub">${totPlanUds} unidades</div></div>
+        <div class="kpi"><div class="k-lbl">Ventas reales</div><div class="k-val" style="color:var(--green)">${fmtMoney(totReal)}</div><div class="k-sub">${totRealUds} unidades</div></div>
+        <div class="kpi"><div class="k-lbl">Avance global</div><div class="k-val" style="color:${totPct>=100?'var(--green)':totPct>=70?'var(--yellow)':'var(--red)'}">${totPct.toFixed(0)}%</div><div class="k-sub">${totReal>=totMeta?'meta superada':'faltan '+fmtMoney(totMeta-totReal)}</div></div>
+      </div>
+      <div class="card"><h3>Metas vs. ventas reales por desarrollo</h3>
+        <table><thead><tr><th>Desarrollo</th><th class="num">Meta (plan)</th><th class="num">Real</th><th class="num">Avance</th><th class="num">Uds R/P</th><th>Estado</th></tr></thead>
+        <tbody>${rowsHtml||'<tr><td colspan="6" class="muted">Sin metas para el filtro seleccionado</td></tr>'}</tbody></table></div>`);
+  }
+
+  // ── Fallback: tabla 'metas' (legacy) con real derivado de ventas ──
+  const realByDes = new Map();
+  S.closed.forEach(r=>{ const k=low(S.des(r)); realByDes.set(k,(realByDes.get(k)||0)+S.monto(r)); });
+
+  if(!DB.metas.length){
+    const real = [...realByDes.entries()].map(([k,v])=>({lbl:k,val:v})).sort((a,b)=>b.val-a.val);
+    return sec('metas', `
+      <div class="card" style="border-color:var(--gold)"><h3>Sin metas cargadas</h3>
+      <div style="font-size:12px;color:var(--muted2)">No hay metas en <code>app_config/metas_v1</code> ni en la tabla <code>metas</code>. Cárgalas desde el Administrador. Mientras tanto, aquí está el <b>real ${S.src==='lotes'?'vendido':'cerrado'} por desarrollo</b>.</div></div>
+      <div class="card"><h3>Real por desarrollo</h3>${real.length?barList(real.map(r=>({lbl:r.lbl,val:r.val,fmt:fmtMoney(r.val)}))):'<div class="muted">Sin ventas registradas</div>'}</div>`);
+  }
+  const metas = applyFilters(DB.metas);
+  const rowsHtml = metas.map(m=>{
+    const desName = pick(m, ['desarrollo','desarrollo_nombre','nombre_desarrollo','desarrollador','proyecto'], '—');
+    const meta = num(pick(m, ['meta','meta_monto','objetivo','target','meta_ventas','monto_meta'],0));
+    const real = realByDes.get(low(desName)) || 0;
+    const pct = meta>0 ? (real/meta*100) : 0;
+    const cls = pct>=100?'green':pct>=70?'yellow':'red';
     return `<tr>
-      <td>${r.nombre}<div class="muted" style="font-size:10px">${r.desarrollador}</div></td>
-      <td class="num">${fmtFull(r.plan)}</td>
-      <td class="num">${fmtFull(r.real)}</td>
-      <td class="num">${r.pct.toFixed(0)}%</td>
-      <td class="num">${r.realUds} / ${r.planUds}</td>
-      <td><span class="chip ${cls}">${r.pct>=100?'cumplida':r.pct>=70?'en camino':'atrasada'}</span></td>
+      <td>${desName}</td>
+      <td class="num">${fmtFull(meta)}</td>
+      <td class="num">${fmtFull(real)}</td>
+      <td class="num">${pct.toFixed(0)}%</td>
+      <td><span class="chip ${cls}">${pct>=100?'cumplida':pct>=70?'en camino':'atrasada'}</span></td>
     </tr>`;
   }).join('');
-  const totMeta = rows.reduce((s,r)=>s+r.plan,0);
-  const totReal = rows.reduce((s,r)=>s+r.real,0);
-  const totPlanUds = rows.reduce((s,r)=>s+r.planUds,0);
-  const totRealUds = rows.reduce((s,r)=>s+r.realUds,0);
+  const totMeta = metas.reduce((s,m)=>s+num(pick(m,['meta','meta_monto','objetivo','target','meta_ventas','monto_meta'],0)),0);
+  const totReal = metas.reduce((s,m)=>{ const dn=low(pick(m,['desarrollo','desarrollo_nombre','nombre_desarrollo','desarrollador','proyecto'],'')); return s+(realByDes.get(dn)||0); },0);
   const totPct = totMeta>0?(totReal/totMeta*100):0;
   sec('metas', `
     <div class="kpis">
-      <div class="kpi"><div class="k-lbl">Meta del año</div><div class="k-val">${fmtMoney(totMeta)}</div><div class="k-sub">${totPlanUds} unidades</div></div>
-      <div class="kpi"><div class="k-lbl">Ventas reales</div><div class="k-val" style="color:var(--green)">${fmtMoney(totReal)}</div><div class="k-sub">${totRealUds} unidades</div></div>
-      <div class="kpi"><div class="k-lbl">Avance global</div><div class="k-val" style="color:${totPct>=100?'var(--green)':totPct>=70?'var(--yellow)':'var(--red)'}">${totPct.toFixed(0)}%</div><div class="k-sub">${totReal>=totMeta?'meta superada':'faltan '+fmtMoney(totMeta-totReal)}</div></div>
+      <div class="kpi"><div class="k-lbl">Meta total</div><div class="k-val">${fmtMoney(totMeta)}</div></div>
+      <div class="kpi"><div class="k-lbl">Real (cerrado)</div><div class="k-val" style="color:var(--green)">${fmtMoney(totReal)}</div></div>
+      <div class="kpi"><div class="k-lbl">Avance global</div><div class="k-val" style="color:${totPct>=100?'var(--green)':totPct>=70?'var(--yellow)':'var(--red)'}">${totPct.toFixed(0)}%</div></div>
     </div>
-    <div class="card"><h3>Metas vs. ventas reales por desarrollo</h3>
-      <table><thead><tr><th>Desarrollo</th><th class="num">Meta (plan)</th><th class="num">Real</th><th class="num">Avance</th><th class="num">Uds R/P</th><th>Estado</th></tr></thead>
-      <tbody>${rowsHtml||'<tr><td colspan="6" class="muted">Sin metas para el filtro seleccionado</td></tr>'}</tbody></table></div>`);
+    <div class="card"><h3>Metas vs real por desarrollo / desarrollador</h3>
+      <table><thead><tr><th>Desarrollo</th><th class="num">Meta</th><th class="num">Real</th><th class="num">Avance</th><th>Estado</th></tr></thead>
+      <tbody>${rowsHtml||'<tr><td colspan="5" class="muted">Sin metas</td></tr>'}</tbody></table></div>`);
 }
 
 // ── TAB: PIPELINE / CRM ─────────────────────────────────────────────────────────
@@ -406,7 +451,7 @@ function renderDiag(){
     <div class="diag-cols">${nMetas? Object.keys(METAS_CFG).map(k=>'<code>'+k+'</code>').join(' ') : '<span class="muted">sin metas (cárgalas en el Administrador)</span>'}</div></div>`;
   sec('diag', `
     <div class="card" style="border-color:var(--gold)"><h3>¿Para qué sirve esto?</h3>
-    <div style="font-size:12px;color:var(--muted2);line-height:1.6">Aquí ves las <b>columnas reales</b> de cada tabla y los datos detectados. Si algún tablero sale vacío, compara estos nombres con las claves esperadas. Mapeos verificados: cotizaciones·monto=<code>total/monto…</code>, crm_lotes·asesor=<code>asesor_asignado</code>, lotes·valor=<code>precio_total</code>, lotes·estatus=<code>status_inventario</code>, metas=<code>app_config/metas_v1</code>.</div></div>
+    <div style="font-size:12px;color:var(--muted2);line-height:1.6">Aquí ves las <b>columnas reales</b> de cada tabla y los datos detectados. Si algún tablero sale vacío, compara estos nombres con las claves esperadas. Mapeos verificados: crm_lotes·asesor=<code>asesor_asignado</code>, lotes·valor=<code>precio_total</code>, lotes·estatus=<code>status_inventario</code>, metas=<code>app_config/metas_v1</code>.</div></div>
     ${metasBlock}
     ${blocks}`);
 }
