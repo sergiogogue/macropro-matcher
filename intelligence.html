@@ -6,6 +6,7 @@
 <title>GUÍA LOTES™ Intelligence v58</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>/* PptxGenJS 4.0.1 @ 2025-06-25T23:35:35.101Z */
@@ -605,6 +606,27 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
 /* ── CRM EXPEDIENTE DE LOTES ──────────────────────────────────────────────── */
 .crm-tab-btn { position:fixed; bottom:24px; right:24px; z-index:200; background:linear-gradient(135deg,var(--navy),#003d6b); border:1px solid var(--gold3); border-radius:50px; padding:10px 20px; color:var(--gold); font-size:13px; font-weight:600; cursor:pointer; box-shadow:0 4px 20px rgba(0,0,0,.4); display:flex; align-items:center; gap:8px; transition:all .2s; }
 .crm-tab-btn:hover { transform:translateY(-2px); box-shadow:0 8px 30px rgba(245,205,0,.2); }
+/* ── Metas (objetivos por desarrollo) ── */
+.metas-fab { position:fixed; bottom:80px; right:24px; z-index:200; background:linear-gradient(135deg,var(--gold),#d08b10); border:1px solid var(--gold3); border-radius:50px; padding:10px 20px; color:#000; font-size:13px; font-weight:700; cursor:pointer; box-shadow:0 4px 20px rgba(0,0,0,.4); display:flex; align-items:center; gap:8px; transition:all .2s; }
+.metas-fab:hover { transform:translateY(-2px); box-shadow:0 8px 30px rgba(245,205,0,.2); }
+.metas-table { width:100%; border-collapse:collapse; }
+.metas-table th { font-size:10px; color:var(--muted2); text-transform:uppercase; letter-spacing:1px; padding:8px 12px; border-bottom:1px solid var(--border2); text-align:right; font-weight:500; white-space:nowrap; }
+.metas-table th:first-child { text-align:left; }
+.metas-table td { padding:11px 12px; border-bottom:1px solid var(--border); font-size:13px; color:var(--text); text-align:right; white-space:nowrap; }
+.metas-table td:first-child { text-align:left; }
+.metas-table tr:hover td { background:var(--surface2); }
+.metas-table tfoot td { font-weight:700; border-top:2px solid var(--border2); border-bottom:none; color:var(--gold); }
+.metas-nombre { font-weight:600; }
+.metas-dev { font-size:11px; color:var(--muted2); }
+.metas-money { font-family:'DM Mono',monospace; }
+.metas-bar { position:relative; width:120px; height:8px; background:var(--surface3); border-radius:6px; overflow:hidden; display:inline-block; vertical-align:middle; margin-right:8px; }
+.metas-bar > span { position:absolute; left:0; top:0; height:100%; border-radius:6px; }
+.metas-sem { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+.metas-sem.v { background:var(--green); } .metas-bar.v > span { background:var(--green); }
+.metas-sem.a { background:var(--yellow); } .metas-bar.a > span { background:var(--yellow); }
+.metas-sem.r { background:var(--red); } .metas-bar.r > span { background:var(--red); }
+.metas-empty { text-align:center; color:var(--muted2); font-size:13px; padding:48px 16px; }
+.metas-empty b { color:var(--text); display:block; font-size:15px; margin-bottom:8px; }
 .crm-badge { background:var(--red); color:#fff; border-radius:50%; width:18px; height:18px; font-size:10px; display:flex; align-items:center; justify-content:center; font-weight:700; }
 
 .crm-panel { position:fixed; inset:0; z-index:300; background:rgba(0,0,0,.7); backdrop-filter:blur(8px); display:none; }
@@ -787,7 +809,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
     </div>
   </div>
   <div class="header-right">
-    <span class="v-badge">v58</span>
+    <span class="v-badge">v59</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -5704,6 +5726,105 @@ window.addEventListener('load', function() {
   setTimeout(crmLotesLoad, 500);
 });
 
+// ═══════════════════════════════════════════════════════════════════════
+// METAS — avance de ventas por desarrollo (real vs. plan)
+// Fuente: Supabase app_config/clave='metas_v1' (lo sube el Administrador).
+// Forma del dato: { [nombre]: { desarrollador, plan:{uds:[12],monto:[12]}, real:{...} } }
+// ═══════════════════════════════════════════════════════════════════════
+const METAS_SUPABASE_URL = "https://xugrrabebphdelgwqnwc.supabase.co";
+const METAS_SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
+let metasSb = null;
+try { if (window.supabase) metasSb = window.supabase.createClient(METAS_SUPABASE_URL, METAS_SUPABASE_KEY); } catch(e) {}
+window.DATOS = window.DATOS || {};
+
+function _metasEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function _metasMoney(n) {
+  n = +n || 0;
+  if (n >= 1e6) return '$' + (n/1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+  if (n >= 1e3) return '$' + Math.round(n/1e3) + 'K';
+  return '$' + Math.round(n);
+}
+
+async function cargarMetas() {
+  if (!metasSb) return;
+  try {
+    const r = await metasSb.from('app_config').select('datos').eq('clave','metas_v1');
+    const datos = (!r.error && Array.isArray(r.data) && r.data[0]) ? r.data[0].datos : null;
+    if (datos && typeof datos === 'object' && Object.keys(datos).length) {
+      window.DATOS.metas = datos;
+      const p = document.getElementById('metas-panel');
+      if (p && p.classList.contains('open')) renderMetas();
+    }
+  } catch(e) { /* sin conexión: queda el estado vacío */ }
+}
+
+function openMetas() {
+  document.getElementById('metas-panel').classList.add('open');
+  renderMetas();
+  if (!(window.DATOS && window.DATOS.metas)) cargarMetas();
+}
+function closeMetas() {
+  document.getElementById('metas-panel').classList.remove('open');
+}
+
+function renderMetas() {
+  const cont = document.getElementById('metas-body');
+  if (!cont) return;
+  const M = (window.DATOS && window.DATOS.metas) || {};
+  const keys = Object.keys(M);
+  if (!keys.length) {
+    cont.innerHTML = '<div class="metas-empty"><b>Sin metas cargadas</b>'
+      + 'Carga el Excel de metas desde el Administrador para ver el avance por desarrollo.</div>';
+    return;
+  }
+  const sum = a => Array.isArray(a) ? a.reduce((s,x)=>s+(+x||0),0) : (+a||0);
+  const rows = keys.map(nombre => {
+    const m = M[nombre] || {};
+    const plan = sum(m.plan && m.plan.monto), real = sum(m.real && m.real.monto);
+    return { nombre, desarrollador: m.desarrollador || '—',
+             plan, real, pct: plan > 0 ? real/plan*100 : 0,
+             planUds: sum(m.plan && m.plan.uds), realUds: sum(m.real && m.real.uds) };
+  }).sort((a,b) => b.plan - a.plan);
+
+  // semáforo: ≥100 verde · ≥70 amarillo · <70 rojo
+  const sem = pct => pct >= 100 ? 'v' : (pct >= 70 ? 'a' : 'r');
+  const tot = rows.reduce((t,r) => { t.plan+=r.plan; t.real+=r.real; t.planUds+=r.planUds; t.realUds+=r.realUds; return t; },
+                          { plan:0, real:0, planUds:0, realUds:0 });
+  tot.pct = tot.plan > 0 ? tot.real/tot.plan*100 : 0;
+
+  const fila = r => {
+    const cls = sem(r.pct), w = Math.max(0, Math.min(100, r.pct));
+    return '<tr>'
+      + '<td><div class="metas-nombre">' + _metasEsc(r.nombre) + '</div>'
+        + '<div class="metas-dev">' + _metasEsc(r.desarrollador) + '</div></td>'
+      + '<td class="metas-money">' + _metasMoney(r.plan) + '</td>'
+      + '<td class="metas-money">' + _metasMoney(r.real) + '</td>'
+      + '<td><span class="metas-bar ' + cls + '"><span style="width:' + w + '%"></span></span>'
+        + '<span class="metas-sem ' + cls + '"></span>' + r.pct.toFixed(0) + '%</td>'
+      + '<td>' + r.realUds + ' / ' + r.planUds + '</td>'
+      + '</tr>';
+  };
+
+  cont.innerHTML = '<table class="metas-table">'
+    + '<thead><tr><th>Desarrollo</th><th>Meta (plan)</th><th>Real</th>'
+      + '<th>% Avance</th><th>Uds R / P</th></tr></thead>'
+    + '<tbody>' + rows.map(fila).join('') + '</tbody>'
+    + '<tfoot><tr>'
+      + '<td>TOTAL (' + rows.length + ')</td>'
+      + '<td class="metas-money">' + _metasMoney(tot.plan) + '</td>'
+      + '<td class="metas-money">' + _metasMoney(tot.real) + '</td>'
+      + '<td><span class="metas-sem ' + sem(tot.pct) + '"></span>' + tot.pct.toFixed(0) + '%</td>'
+      + '<td>' + tot.realUds + ' / ' + tot.planUds + '</td>'
+    + '</tr></tfoot>'
+    + '</table>';
+}
+
+// Precargar metas al abrir la app (no bloquea; el panel se llena solo)
+window.addEventListener('load', function() { setTimeout(cargarMetas, 700); });
+
 // ── TOAST ─────────────────────────────────────────────────────────────────────
 function showToast(msg, type='') {
   const t = document.getElementById('toast');
@@ -5711,6 +5832,29 @@ function showToast(msg, type='') {
   setTimeout(()=>{ t.className='toast'; }, 3500);
 }
 </script>
+
+<!-- ── METAS FLOATING BUTTON ── -->
+<button class="metas-fab" id="metas-fab" onclick="openMetas()">
+  🎯 Metas
+</button>
+
+<!-- ── METAS PANEL ── -->
+<div class="crm-panel" id="metas-panel">
+  <div class="crm-drawer">
+    <div class="crm-header">
+      <div class="crm-header-left">
+        <h2>🎯 Metas por desarrollo</h2>
+        <p>Avance de ventas del año: real vs. plan · Grupo Guía</p>
+      </div>
+      <div class="crm-header-actions">
+        <button class="crm-close" onclick="closeMetas()">Cerrar ✕</button>
+      </div>
+    </div>
+    <div class="crm-body">
+      <div id="metas-body"><p style="color:var(--muted2);font-size:13px;">Cargando metas…</p></div>
+    </div>
+  </div>
+</div>
 
 <!-- ── CRM FLOATING BUTTON ── -->
 <button class="crm-tab-btn" id="crm-fab" onclick="openCRM()">
