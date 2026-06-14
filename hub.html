@@ -11,12 +11,13 @@
   :root{ --navy:#0a2540; --navy2:#0d2e52; --gold:#c9a961; --goldD:#a8893f; --bg:#f3f4f7; --ink:#1f2a37; --mut:#6b7280; --line:#e6e8ee; }
   *{ box-sizing:border-box; margin:0; padding:0; }
   body{ font-family:'DM Sans',system-ui,sans-serif; background:var(--bg); color:var(--ink); }
-  header{ background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:20; }
-  .hbar{ max-width:1240px; margin:0 auto; padding:14px 22px; display:flex; align-items:center; justify-content:space-between; }
+  header{ background:var(--navy); border-bottom:1px solid var(--navy2); position:sticky; top:0; z-index:20; }
+  .hbar{ max-width:1240px; margin:0 auto; padding:12px 22px; display:flex; align-items:center; justify-content:space-between; }
   .brand{ display:flex; align-items:center; gap:12px; }
+  .hublogo{ height:52px; width:auto; display:block; }
   .brand .mark{ width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,var(--navy),var(--navy2)); display:grid; place-items:center; color:var(--gold); font-weight:800; }
   .brand b{ font-size:16px; } .brand span{ color:var(--mut); font-size:12px; display:block; margin-top:-2px; }
-  .who{ text-align:right; } .who b{ font-size:13px; } .who span{ display:block; font-size:11px; color:var(--mut); }
+  .who{ text-align:right; } .who b{ font-size:13px; color:#fff; } .who span{ display:block; font-size:11px; color:#aebfd6; }
   .wrap{ max-width:1240px; margin:0 auto; padding:24px 22px 60px; }
   .hero h1{ font-size:24px; font-weight:800; } .hero p{ color:var(--mut); font-size:13px; margin-top:4px; }
   .sect{ font-size:12px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; color:var(--mut); margin:26px 0 12px; display:flex; align-items:center; gap:10px; }
@@ -69,7 +70,7 @@
 </head>
 <body>
 <header><div class="hbar">
-  <div class="brand"><div class="mark">G</div><div><b>Grupo Guía · Hub</b><span>Tus apps y desarrollos en un lugar</span></div></div>
+  <div class="brand"><img class="hublogo" src="https://xugrrabebphdelgwqnwc.supabase.co/storage/v1/object/public/logos-desarrollos/03ad3f32-7322-4e98-b653-8bdb970b68d5-1779665862554.png" alt="Guía Macrolotes"></div>
   <div class="who"><b id="userName">Grupo Guía</b><span>Macrolotes</span></div>
 </div></header>
 
