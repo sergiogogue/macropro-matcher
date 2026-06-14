@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GUÍA Intelligence · Tableros</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --navy:#0a2540; --navy2:#0e2f52; --gold:#c9a961; --gold2:#e0c585;
+    --bg:#07182b; --surface:#0e2540; --surface2:#13314f; --border:#1d3a5c; --border2:#274a70;
+    --text:#eaf1f8; --muted:#8fa6c0; --muted2:#aebfd4;
+    --green:#34d399; --yellow:#fbbf24; --red:#f87171; --blue:#60a5fa;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+  a{color:var(--gold2);}
+  .topbar{background:linear-gradient(180deg,var(--navy),var(--navy2));border-bottom:1px solid var(--border2);padding:14px 24px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;position:sticky;top:0;z-index:50;}
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand .logo{width:34px;height:34px;border-radius:8px;background:var(--gold);color:var(--navy);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px;}
+  .brand .t{font-weight:700;font-size:16px;letter-spacing:.3px;} .brand .s{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;}
+  .filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-left:auto;}
+  select,button.btn{background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:13px;padding:8px 12px;font-family:inherit;cursor:pointer;}
+  select:focus{outline:none;border-color:var(--gold);}
+  .btn-gold{background:var(--gold);color:var(--navy);border:none;font-weight:700;}
+  .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;}
+  .tabs{display:flex;gap:4px;padding:0 24px;background:var(--navy2);border-bottom:1px solid var(--border2);overflow-x:auto;position:sticky;top:63px;z-index:40;}
+  .tab{padding:12px 18px;font-size:13px;font-weight:600;color:var(--muted2);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;}
+  .tab.active{color:var(--gold2);border-bottom-color:var(--gold);}
+  .wrap{padding:22px 24px;max-width:1400px;margin:0 auto;}
+  .section{display:none;} .section.active{display:block;}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px;}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+  .kpi .k-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;}
+  .kpi .k-val{font-size:26px;font-weight:700;color:var(--gold2);font-family:'DM Mono',monospace;margin-top:4px;}
+  .kpi .k-sub{font-size:11px;color:var(--muted2);margin-top:3px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;} @media(max-width:900px){.grid2{grid-template-columns:1fr;}}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px;}
+  .card h3{font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px;letter-spacing:.3px;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);}
+  th{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;}
+  td.num,th.num{text-align:right;font-family:'DM Mono',monospace;}
+  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+  .bar-row .lbl{width:160px;font-size:12px;color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .bar-track{flex:1;height:18px;background:var(--surface2);border-radius:6px;overflow:hidden;}
+  .bar-fill{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));border-radius:6px;}
+  .bar-val{width:110px;text-align:right;font-size:12px;font-family:'DM Mono',monospace;color:var(--text);}
+  .chip{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;}
+  .chip.green{background:rgba(52,211,153,.15);color:var(--green);} .chip.yellow{background:rgba(251,191,36,.15);color:var(--yellow);} .chip.red{background:rgba(248,113,113,.15);color:var(--red);}
+  .pipeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
+  .pcol{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;}
+  .pcol .p-h{font-size:11px;font-weight:700;color:var(--gold2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;}
+  .pcol .p-n{font-size:24px;font-weight:700;font-family:'DM Mono',monospace;}
+  .muted{color:var(--muted);} .loading{padding:40px;text-align:center;color:var(--muted);}
+  .err{background:rgba(248,113,113,.1);border:1px solid var(--red);color:#fecaca;border-radius:10px;padding:14px 16px;font-size:13px;margin-bottom:16px;}
+  canvas{max-height:300px;}
+  code{background:var(--surface2);padding:1px 6px;border-radius:5px;font-family:'DM Mono',monospace;font-size:11px;color:var(--gold2);}
+  .diag-cols{font-size:11px;color:var(--muted2);font-family:'DM Mono',monospace;line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">
+    <div class="logo" id="brand-logo">🧠</div>
+    <div><div class="t" id="brand-title">GUÍA Intelligence</div><div class="s">Tableros · Grupo Guía Macrolotes</div></div>
+  </div>
+  <div class="filters">
+    <span id="conn"><span class="status-dot" style="background:var(--yellow)"></span><span class="muted" style="font-size:12px">conectando…</span></span>
+    <select id="f-desarrollador"><option value="">Desarrollador: todos</option></select>
+    <select id="f-desarrollo"><option value="">Desarrollo: todos</option></select>
+    <button class="btn" onclick="reloadAll()">↻ Actualizar</button>
+  </div>
+</div>
+
+<div class="tabs" id="tabs">
+  <div class="tab active" data-t="ventas">📈 Ventas / Cotizaciones</div>
+  <div class="tab" data-t="metas">🎯 Metas vs Real</div>
+  <div class="tab" data-t="pipeline">🗂️ Pipeline / CRM</div>
+  <div class="tab" data-t="inventario">📦 Inventario</div>
+  <div class="tab" data-t="diag">⚙️ Diagnóstico</div>
+</div>
+
+<div class="wrap">
+  <div id="global-err"></div>
+  <div class="section active" id="sec-ventas"><div class="loading">Cargando…</div></div>
+  <div class="section" id="sec-metas"><div class="loading">Cargando…</div></div>
+  <div class="section" id="sec-pipeline"><div class="loading">Cargando…</div></div>
+  <div class="section" id="sec-inventario"><div class="loading">Cargando…</div></div>
+  <div class="section" id="sec-diag"><div class="loading">Cargando…</div></div>
+</div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://xugrrabebphdelgwqnwc.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── Estado ──────────────────────────────────────────────────────────────────
+const DB = { desarrollos:[], cotizaciones:[], lotes:[], metas:[], crm_lotes:[], clientes:[], asesores:[] };
+let activeTab = 'ventas';
+let selDesarrollo = '';      // slug seleccionado
+let selDesarrollador = '';
+const charts = {};
+
+// ── Helpers de acceso defensivo (no conocemos el esquema exacto) ─────────────
+function pick(obj, keys, def=undefined){
+  if(!obj) return def;
+  for(const k of keys){ if(obj[k]!==undefined && obj[k]!==null && obj[k]!=='') return obj[k]; }
+  return def;
+}
+function num(v){ if(v==null) return 0; const n=parseFloat(String(v).replace(/[^0-9.\-]/g,'')); return isNaN(n)?0:n; }
+function low(v){ return String(v==null?'':v).toLowerCase().trim(); }
+function fmtMoney(n){ if(!n) return '$0'; if(Math.abs(n)>=1e6) return '$'+(n/1e6).toFixed(1)+'M'; if(Math.abs(n)>=1e3) return '$'+Math.round(n/1e3)+'k'; return '$'+Math.round(n).toLocaleString('es-MX'); }
+function fmtFull(n){ return '$'+Math.round(n||0).toLocaleString('es-MX'); }
+function fmtInt(n){ return Math.round(n||0).toLocaleString('es-MX'); }
+
+// claves candidatas por campo (a prueba de variaciones del esquema)
+const K = {
+  monto:    ['total','monto','importe','monto_total','total_cotizado','precio_total','valor','total_mxn'],
+  status:   ['status','estatus','estado','etapa','status_cotizacion'],
+  asesor:   ['asesor_asignado','nombre_asesor','asesor','vendedor','asesor_nombre','nombre_vendedor'],
+  fecha:    ['created_at','fecha','fecha_creacion','fecha_cotizacion','inserted_at'],
+  desarrollo:['desarrollo','desarrollo_slug','slug_desarrollo','desarrollo_nombre','nombre_desarrollo','desarrollo_id','proyecto'],
+  desarrollador:['desarrollador','desarrollador_nombre','grupo','dueno','propietario'],
+  pipeline: ['pipeline','etapa','etapa_pipeline','fase','status'],
+  statusInv:['status_inventario','status','estatus','estado_inventario','disponibilidad'],
+  precioTotal:['precio_total','precio','valor_total','monto_total'],
+  superficie:['superficie_m2','superficie','sup_m2','m2','metros','area'],
+  vencimiento:['fecha_vencimiento','vence','proxima_actividad','fecha_seguimiento','due_date','fecha_proxima'],
+  loteId:   ['lote_id','id_lote','clave_unica','id'],
+};
+
+// Índice lote_id → {desarrollo, desarrollador} para tablas que se unen por lote (crm_lotes)
+let LOTE_IDX = new Map();
+function buildLoteIdx(){
+  LOTE_IDX = new Map();
+  DB.lotes.forEach(l=>{
+    const info = { desarrollo: pick(l,K.desarrollo,'') , desarrollador: pick(l,K.desarrollador,'') };
+    ['id','clave_unica','id_macrolote'].forEach(k=>{ if(l[k]) LOTE_IDX.set(low(l[k]), info); });
+  });
+}
+// desarrollo/desarrollador resueltos (directo o vía lote_id)
+function rowDesarrollo(row){
+  const v = pick(row, K.desarrollo, '');
+  if(v) return v;
+  const lid = pick(row, K.loteId, '');
+  const hit = lid ? LOTE_IDX.get(low(lid)) : null;
+  return hit ? hit.desarrollo : '';
+}
+function rowDesarrollador(row){
+  const v = pick(row, K.desarrollador, '');
+  if(v) return v;
+  const lid = pick(row, K.loteId, '');
+  const hit = lid ? LOTE_IDX.get(low(lid)) : null;
+  return hit ? hit.desarrollador : '';
+}
+
+// ¿esta fila pertenece al desarrollo seleccionado? (match por slug o nombre)
+function rowMatchesDesarrollo(row, des){
+  if(!des) return true;
+  const v = low(rowDesarrollo(row));
+  if(!v) return false;
+  return v===low(des.slug) || v===low(des.nombre) || v.includes(low(des.slug)) || v.includes(low(des.nombre));
+}
+function rowMatchesDesarrollador(row, name){
+  if(!name) return true;
+  return low(rowDesarrollador(row)) === low(name);
+}
+function applyFilters(rows){
+  const des = selDesarrollo ? DB.desarrollos.find(d=>low(pick(d,['slug'],''))===low(selDesarrollo)) : null;
+  return rows.filter(r => rowMatchesDesarrollo(r,des) && rowMatchesDesarrollador(r,selDesarrollador));
+}
+function isCerrada(row){
+  const s = low(pick(row, K.status, ''));
+  return /cerrad|ganad|vendid|cierre|won|exitos|aprobad/.test(s);
+}
+
+// ── Carga de datos ────────────────────────────────────────────────────────────
+async function fetchTable(name){
+  try{
+    const { data, error } = await sb.from(name).select('*').limit(5000);
+    if(error){ console.warn('['+name+']', error.message); return []; }
+    return data||[];
+  }catch(e){ console.warn('['+name+']', e.message); return []; }
+}
+// Metas reales: viven en app_config/clave='metas_v1' como JSON
+// { [nombre]: { desarrollador, plan:{uds:[12],monto:[12]}, real:{uds:[12],monto:[12]} } }
+let METAS_CFG = null;
+async function fetchMetasCfg(){
+  try{
+    const { data, error } = await sb.from('app_config').select('datos').eq('clave','metas_v1');
+    if(error){ console.warn('[metas_v1]', error.message); return null; }
+    return (data && data[0]) ? data[0].datos : null;
+  }catch(e){ console.warn('[metas_v1]', e.message); return null; }
+}
+async function reloadAll(){
+  setConn('yellow','cargando…');
+  const names = Object.keys(DB);
+  const [results, metasCfg] = await Promise.all([ Promise.all(names.map(fetchTable)), fetchMetasCfg() ]);
+  names.forEach((n,i)=> DB[n]=results[i]);
+  METAS_CFG = metasCfg;
+  buildLoteIdx();
+  const ok = Object.values(DB).some(a=>a.length>0) || (METAS_CFG && Object.keys(METAS_CFG).length>0);
+  setConn(ok?'green':'red', ok?('datos OK · '+DB.desarrollos.length+' desarrollos'):'sin datos / revisa conexión');
+  populateFilters();
+  renderActive();
+}
+function setConn(color,txt){
+  const c = color==='green'?'var(--green)':color==='red'?'var(--red)':'var(--yellow)';
+  document.getElementById('conn').innerHTML='<span class="status-dot" style="background:'+c+'"></span><span class="muted" style="font-size:12px">'+txt+'</span>';
+}
+
+// ── Filtros globales ──────────────────────────────────────────────────────────
+function populateFilters(){
+  // desarrollos
+  const fd = document.getElementById('f-desarrollo');
+  const des = [...DB.desarrollos].sort((a,b)=> low(pick(a,['nombre'],'')).localeCompare(low(pick(b,['nombre'],''))));
+  fd.innerHTML = '<option value="">Desarrollo: todos</option>' + des.map(d=>{
+    const slug=pick(d,['slug'],''); const nom=pick(d,['nombre'],slug);
+    return '<option value="'+String(slug).replace(/"/g,'&quot;')+'">'+nom+'</option>';
+  }).join('');
+  if(selDesarrollo) fd.value = selDesarrollo;
+  // desarrolladores (de desarrollos o de cotizaciones)
+  const set = new Set();
+  DB.desarrollos.forEach(d=>{ const v=pick(d,K.desarrollador,''); if(v) set.add(v); });
+  DB.cotizaciones.forEach(d=>{ const v=pick(d,K.desarrollador,''); if(v) set.add(v); });
+  const fdr = document.getElementById('f-desarrollador');
+  fdr.innerHTML = '<option value="">Desarrollador: todos</option>' + [...set].sort().map(v=>'<option value="'+String(v).replace(/"/g,'&quot;')+'">'+v+'</option>').join('');
+  if(selDesarrollador) fdr.value = selDesarrollador;
+  applyBranding();
+}
+function applyBranding(){
+  const des = selDesarrollo ? DB.desarrollos.find(d=>low(pick(d,['slug'],''))===low(selDesarrollo)) : null;
+  const title = des ? (pick(des,['nombre'],'GUÍA Intelligence')) : 'GUÍA Intelligence';
+  document.getElementById('brand-title').textContent = title;
+  const color = des ? pick(des,['color_principal','color_primario','color','color_primary','brand_color'],'') : '';
+  const logo = des ? pick(des,['logo','logo_url','imagen','icono'],'') : '';
+  const le = document.getElementById('brand-logo');
+  if(logo){ le.innerHTML='<img src="'+logo+'" style="width:100%;height:100%;object-fit:cover;border-radius:8px">'; }
+  else { le.innerHTML='🧠'; }
+  if(color){ le.style.background=color; }
+}
+
+// ── Charts util ─────────────────────────────────────────────────────────────
+function drawBar(id, labels, data, color){
+  if(charts[id]) charts[id].destroy();
+  const ctx=document.getElementById(id); if(!ctx) return;
+  charts[id]=new Chart(ctx,{type:'bar',data:{labels,datasets:[{data,backgroundColor:color||'#c9a961',borderRadius:6}]},
+    options:{plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#aebfd4',font:{size:10}},grid:{display:false}},y:{ticks:{color:'#8fa6c0'},grid:{color:'#1d3a5c'}}}}});
+}
+function drawLine(id, labels, data){
+  if(charts[id]) charts[id].destroy();
+  const ctx=document.getElementById(id); if(!ctx) return;
+  charts[id]=new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:'#c9a961',backgroundColor:'rgba(201,169,97,.15)',fill:true,tension:.3,pointRadius:3,pointBackgroundColor:'#e0c585'}]},
+    options:{plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#aebfd4',font:{size:10}},grid:{display:false}},y:{ticks:{color:'#8fa6c0'},grid:{color:'#1d3a5c'}}}}});
+}
+function barList(rows){ // rows: [{lbl, val}], devuelve HTML de barras
+  const max = Math.max(1, ...rows.map(r=>r.val));
+  return rows.map(r=>`<div class="bar-row"><div class="lbl" title="${r.lbl}">${r.lbl}</div><div class="bar-track"><div class="bar-fill" style="width:${(r.val/max*100).toFixed(1)}%"></div></div><div class="bar-val">${r.fmt||fmtInt(r.val)}</div></div>`).join('');
+}
+function groupSum(rows, keyFn, valFn){
+  const m=new Map();
+  rows.forEach(r=>{ const k=keyFn(r)||'—'; m.set(k,(m.get(k)||0)+valFn(r)); });
+  return [...m.entries()].map(([k,v])=>({lbl:k,val:v})).sort((a,b)=>b.val-a.val);
+}
+
+// ── TAB: VENTAS ───────────────────────────────────────────────────────────────
+function renderVentas(){
+  const rows = applyFilters(DB.cotizaciones);
+  if(!DB.cotizaciones.length){ return sec('ventas', emptyMsg('cotizaciones')); }
+  const totalCot = rows.reduce((s,r)=>s+num(pick(r,K.monto,0)),0);
+  const cerradas = rows.filter(isCerrada);
+  const totalCerr = cerradas.reduce((s,r)=>s+num(pick(r,K.monto,0)),0);
+  const tasa = rows.length ? (cerradas.length/rows.length*100) : 0;
+
+  const porDes = groupSum(rows, r=>pick(r,K.desarrollo,'—'), r=>num(pick(r,K.monto,0))).slice(0,10);
+  const porAsesor = groupSum(rows, r=>pick(r,K.asesor,'—'), r=>num(pick(r,K.monto,0))).slice(0,10);
+
+  // tendencia por mes
+  const mm=new Map();
+  rows.forEach(r=>{ const f=pick(r,K.fecha,''); if(!f) return; const d=new Date(f); if(isNaN(d)) return; const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); mm.set(key,(mm.get(key)||0)+num(pick(r,K.monto,0))); });
+  const meses=[...mm.entries()].sort((a,b)=>a[0].localeCompare(b[0]));
+
+  sec('ventas', `
+    <div class="kpis">
+      <div class="kpi"><div class="k-lbl">Total cotizado</div><div class="k-val">${fmtMoney(totalCot)}</div><div class="k-sub">${rows.length} cotizaciones</div></div>
+      <div class="kpi"><div class="k-lbl">Total cerrado</div><div class="k-val" style="color:var(--green)">${fmtMoney(totalCerr)}</div><div class="k-sub">${cerradas.length} cerradas</div></div>
+      <div class="kpi"><div class="k-lbl">Tasa de cierre</div><div class="k-val">${tasa.toFixed(1)}%</div><div class="k-sub">cerradas / total</div></div>
+      <div class="kpi"><div class="k-lbl">Ticket promedio</div><div class="k-val">${fmtMoney(rows.length?totalCot/rows.length:0)}</div><div class="k-sub">por cotización</div></div>
+    </div>
+    <div class="card"><h3>Tendencia mensual (monto cotizado)</h3><canvas id="ch-trend"></canvas></div>
+    <div class="grid2">
+      <div class="card"><h3>Por desarrollo</h3>${porDes.length?barList(porDes.map(r=>({lbl:r.lbl,val:r.val,fmt:fmtMoney(r.val)}))):'<div class="muted">Sin datos</div>'}</div>
+      <div class="card"><h3>Por asesor</h3>${porAsesor.length?barList(porAsesor.map(r=>({lbl:r.lbl,val:r.val,fmt:fmtMoney(r.val)}))):'<div class="muted">Sin datos</div>'}</div>
+    </div>`);
+  if(meses.length) drawLine('ch-trend', meses.map(m=>m[0]), meses.map(m=>Math.round(m[1])));
+}
+
+// ── TAB: METAS vs REAL ─────────────────────────────────────────────────────────
+function renderMetas(){
+  // Fuente real: app_config/metas_v1 (plan y real ya vienen en el JSON).
+  if(!METAS_CFG || !Object.keys(METAS_CFG).length){
+    return sec('metas', `<div class="err">No se encontraron metas en <b>app_config / metas_v1</b>. Cárgalas desde el Administrador (Excel de metas). El tab <b>Diagnóstico</b> ayuda a verificar la conexión.</div>`);
+  }
+  const sum = a => Array.isArray(a) ? a.reduce((s,x)=>s+(+x||0),0) : (+a||0);
+  // Construye filas y respeta los filtros globales (por nombre de desarrollo y por desarrollador)
+  const desSel = selDesarrollo ? DB.desarrollos.find(d=>low(pick(d,['slug'],''))===low(selDesarrollo)) : null;
+  let rows = Object.keys(METAS_CFG).map(nombre=>{
+    const m = METAS_CFG[nombre] || {};
+    const plan = sum(m.plan && m.plan.monto), real = sum(m.real && m.real.monto);
+    return { nombre, desarrollador: m.desarrollador || '—', plan, real,
+             pct: plan>0 ? real/plan*100 : 0,
+             planUds: sum(m.plan && m.plan.uds), realUds: sum(m.real && m.real.uds) };
+  });
+  if(desSel){ const dn=low(pick(desSel,['nombre'],'')); rows = rows.filter(r=> low(r.nombre)===dn || low(r.nombre).includes(dn) || dn.includes(low(r.nombre))); }
+  if(selDesarrollador){ rows = rows.filter(r=> low(r.desarrollador)===low(selDesarrollador)); }
+  rows.sort((a,b)=>b.plan-a.plan);
+
+  const rowsHtml = rows.map(r=>{
+    const cls = r.pct>=100?'green':r.pct>=70?'yellow':'red';
+    return `<tr>
+      <td>${r.nombre}<div class="muted" style="font-size:10px">${r.desarrollador}</div></td>
+      <td class="num">${fmtFull(r.plan)}</td>
+      <td class="num">${fmtFull(r.real)}</td>
+      <td class="num">${r.pct.toFixed(0)}%</td>
+      <td class="num">${r.realUds} / ${r.planUds}</td>
+      <td><span class="chip ${cls}">${r.pct>=100?'cumplida':r.pct>=70?'en camino':'atrasada'}</span></td>
+    </tr>`;
+  }).join('');
+  const totMeta = rows.reduce((s,r)=>s+r.plan,0);
+  const totReal = rows.reduce((s,r)=>s+r.real,0);
+  const totPlanUds = rows.reduce((s,r)=>s+r.planUds,0);
+  const totRealUds = rows.reduce((s,r)=>s+r.realUds,0);
+  const totPct = totMeta>0?(totReal/totMeta*100):0;
+  sec('metas', `
+    <div class="kpis">
+      <div class="kpi"><div class="k-lbl">Meta del año</div><div class="k-val">${fmtMoney(totMeta)}</div><div class="k-sub">${totPlanUds} unidades</div></div>
+      <div class="kpi"><div class="k-lbl">Ventas reales</div><div class="k-val" style="color:var(--green)">${fmtMoney(totReal)}</div><div class="k-sub">${totRealUds} unidades</div></div>
+      <div class="kpi"><div class="k-lbl">Avance global</div><div class="k-val" style="color:${totPct>=100?'var(--green)':totPct>=70?'var(--yellow)':'var(--red)'}">${totPct.toFixed(0)}%</div><div class="k-sub">${totReal>=totMeta?'meta superada':'faltan '+fmtMoney(totMeta-totReal)}</div></div>
+    </div>
+    <div class="card"><h3>Metas vs. ventas reales por desarrollo</h3>
+      <table><thead><tr><th>Desarrollo</th><th class="num">Meta (plan)</th><th class="num">Real</th><th class="num">Avance</th><th class="num">Uds R/P</th><th>Estado</th></tr></thead>
+      <tbody>${rowsHtml||'<tr><td colspan="6" class="muted">Sin metas para el filtro seleccionado</td></tr>'}</tbody></table></div>`);
+}
+
+// ── TAB: PIPELINE / CRM ─────────────────────────────────────────────────────────
+function renderPipeline(){
+  if(!DB.crm_lotes.length){ return sec('pipeline', emptyMsg('crm_lotes')); }
+  const rows = applyFilters(DB.crm_lotes);
+  const byEtapa = groupSum(rows, r=>pick(r,K.pipeline,'Sin etapa'), ()=>1);
+  const hoy = new Date();
+  const vencidas = rows.filter(r=>{ const f=pick(r,K.vencimiento,''); if(!f) return false; const d=new Date(f); return !isNaN(d) && d<hoy; });
+  const byAsesor = groupSum(rows, r=>pick(r,K.asesor,'—'), ()=>1).slice(0,10);
+
+  const pcols = byEtapa.map(e=>`<div class="pcol"><div class="p-h">${e.lbl}</div><div class="p-n">${e.val}</div></div>`).join('');
+  sec('pipeline', `
+    <div class="kpis">
+      <div class="kpi"><div class="k-lbl">Prospectos en pipeline</div><div class="k-val">${rows.length}</div></div>
+      <div class="kpi"><div class="k-lbl">Actividades vencidas</div><div class="k-val" style="color:var(--red)">${vencidas.length}</div><div class="k-sub">requieren seguimiento</div></div>
+      <div class="kpi"><div class="k-lbl">Etapas activas</div><div class="k-val">${byEtapa.length}</div></div>
+    </div>
+    <div class="card"><h3>Prospectos por etapa</h3><div class="pipeline">${pcols||'<div class="muted">Sin datos</div>'}</div></div>
+    <div class="card"><h3>Prospectos por asesor</h3>${byAsesor.length?barList(byAsesor):'<div class="muted">Sin datos</div>'}</div>`);
+}
+
+// ── TAB: INVENTARIO ────────────────────────────────────────────────────────────
+function renderInventario(){
+  if(!DB.lotes.length){ return sec('inventario', emptyMsg('lotes')); }
+  const rows = applyFilters(DB.lotes);
+  const valor = rows.reduce((s,r)=>s+num(pick(r,K.precioTotal,0)),0);
+  const m2 = rows.reduce((s,r)=>s+num(pick(r,K.superficie,0)),0);
+  const byStatus = groupSum(rows, r=>pick(r,K.statusInv,'—'), ()=>1);
+  // disponibles/apartados/vendidos
+  const cnt = re => rows.filter(r=>re.test(low(pick(r,K.statusInv,'')))).length;
+  const disp=cnt(/dispon/), apart=cnt(/apart|reserv/), vend=cnt(/vendid|cerrad/);
+  const byDes = groupSum(rows, r=>pick(r,K.desarrollo,'—'), r=>num(pick(r,K.precioTotal,0))).slice(0,10);
+
+  sec('inventario', `
+    <div class="kpis">
+      <div class="kpi"><div class="k-lbl">Lotes totales</div><div class="k-val">${rows.length}</div></div>
+      <div class="kpi"><div class="k-lbl">Disponibles</div><div class="k-val" style="color:var(--green)">${disp}</div></div>
+      <div class="kpi"><div class="k-lbl">Apartados</div><div class="k-val" style="color:var(--yellow)">${apart}</div></div>
+      <div class="kpi"><div class="k-lbl">Vendidos</div><div class="k-val" style="color:var(--blue)">${vend}</div></div>
+      <div class="kpi"><div class="k-lbl">Valor de portafolio</div><div class="k-val">${fmtMoney(valor)}</div></div>
+      <div class="kpi"><div class="k-lbl">m² totales</div><div class="k-val">${fmtInt(m2)}</div></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Lotes por estatus</h3><canvas id="ch-status"></canvas></div>
+      <div class="card"><h3>Valor por desarrollo</h3>${byDes.length?barList(byDes.map(r=>({lbl:r.lbl,val:r.val,fmt:fmtMoney(r.val)}))):'<div class="muted">Sin datos</div>'}</div>
+    </div>`);
+  if(byStatus.length) drawBar('ch-status', byStatus.map(s=>s.lbl), byStatus.map(s=>s.val), '#60a5fa');
+}
+
+// ── TAB: DIAGNÓSTICO (esquema real) ─────────────────────────────────────────────
+function renderDiag(){
+  const blocks = Object.keys(DB).map(n=>{
+    const arr=DB[n]; const cols = arr.length ? Object.keys(arr[0]) : [];
+    return `<div class="card"><h3>${n} · ${arr.length} filas</h3>
+      <div class="diag-cols">${cols.length? cols.map(c=>'<code>'+c+'</code>').join(' ') : '<span class="muted">sin filas o sin acceso</span>'}</div></div>`;
+  }).join('');
+  const nMetas = METAS_CFG ? Object.keys(METAS_CFG).length : 0;
+  const metasBlock = `<div class="card"><h3>app_config / metas_v1 · ${nMetas} desarrollos</h3>
+    <div class="diag-cols">${nMetas? Object.keys(METAS_CFG).map(k=>'<code>'+k+'</code>').join(' ') : '<span class="muted">sin metas (cárgalas en el Administrador)</span>'}</div></div>`;
+  sec('diag', `
+    <div class="card" style="border-color:var(--gold)"><h3>¿Para qué sirve esto?</h3>
+    <div style="font-size:12px;color:var(--muted2);line-height:1.6">Aquí ves las <b>columnas reales</b> de cada tabla y los datos detectados. Si algún tablero sale vacío, compara estos nombres con las claves esperadas. Mapeos verificados: cotizaciones·monto=<code>total/monto…</code>, crm_lotes·asesor=<code>asesor_asignado</code>, lotes·valor=<code>precio_total</code>, lotes·estatus=<code>status_inventario</code>, metas=<code>app_config/metas_v1</code>.</div></div>
+    ${metasBlock}
+    ${blocks}`);
+}
+
+// ── Render helpers ──────────────────────────────────────────────────────────
+function sec(name, html){ document.getElementById('sec-'+name).innerHTML = html; }
+function emptyMsg(table){ return `<div class="err">No se obtuvieron filas de <b>${table}</b>. Revisa el tab <b>Diagnóstico</b> para ver si la tabla existe y tiene datos (puede ser permisos RLS o nombre de tabla distinto).</div>`; }
+function renderActive(){
+  ({ventas:renderVentas, metas:renderMetas, pipeline:renderPipeline, inventario:renderInventario, diag:renderDiag}[activeTab]||(()=>{}))();
+}
+
+// ── Eventos ─────────────────────────────────────────────────────────────────
+document.getElementById('tabs').addEventListener('click', e=>{
+  const t=e.target.closest('.tab'); if(!t) return;
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); activeTab=t.dataset.t;
+  document.getElementById('sec-'+activeTab).classList.add('active');
+  renderActive();
+});
+document.getElementById('f-desarrollo').addEventListener('change', e=>{ selDesarrollo=e.target.value; const u=new URL(location); if(selDesarrollo)u.searchParams.set('desarrollo',selDesarrollo); else u.searchParams.delete('desarrollo'); history.replaceState({},'',u); applyBranding(); renderActive(); });
+document.getElementById('f-desarrollador').addEventListener('change', e=>{ selDesarrollador=e.target.value; renderActive(); });
+
+// deep-link ?desarrollo=slug
+const params = new URLSearchParams(location.search);
+if(params.get('desarrollo')) selDesarrollo = params.get('desarrollo');
+
+reloadAll();
+</script>
+</body>
+</html>
