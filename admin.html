@@ -197,24 +197,38 @@ async function subirInventario(file){
   const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
   const lotes=parseInventario(wb);
   if(!lotes.length){ toast('⚠ No se encontraron lotes'); return; }
-  addLog(lotes.length+' lotes leídos. Subiendo…');
   const basic=lotes.map(loteToSupabase);
   const full=lotes.map(l=>({id:loteKey(l),datos:l,updated_at:new Date().toISOString()}));
   try{
     await upsertBatches('lotes',basic,'id');
     await upsertBatches('inventario_full',full,'id');
-    toast('✅ Inventario subido: '+lotes.length+' lotes (completo)');
-    addLog('✅ Inventario en la nube: '+lotes.length+' lotes (básico + completo)');
-    refreshCounts();
+    await refreshCounts();
+    addLog(`📦 INVENTARIO — 📥 leídos del Excel: ${lotes.length} · ☁️ subidos (básico + completo): ${lotes.length} · ✅ total en la nube AHORA: ${state.lotes}`);
+    if(state.lotes>lotes.length) addLog(`   ⚠ La nube tiene ${state.lotes-lotes.length} de más (lotes viejos que ya no están en tu Excel).`);
+    toast(`✅ ${lotes.length} lotes subidos · ${state.lotes} en la nube`);
   }catch(e){ toast('❌ '+e.message); addLog('❌ Error: '+e.message); }
 }
 async function subirClientes(file){
   addLog('Leyendo clientes…');
   const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
-  const cli=parseClientes(wb).map(clienteToSupabase).filter(Boolean);
-  if(!cli.length){ toast('⚠ No se encontraron clientes con correo'); return; }
-  try{ const n=await upsertBatches('clientes',cli,'email'); toast('✅ Clientes subidos: '+n); addLog('✅ Clientes en la nube: '+n); refreshCounts(); }
-  catch(e){ toast('❌ '+e.message); addLog('❌ Error: '+e.message); }
+  const parsed=parseClientes(wb);
+  const cli=parsed.map(clienteToSupabase).filter(Boolean);
+  if(!cli.length){ toast('⚠ No se encontraron clientes'); return; }
+  const conCorreo=cli.filter(c=>!c.email.endsWith('@sin-correo.guia')).length;
+  const sinCorreo=cli.length-conCorreo;
+  const dups=parsed.length-cli.length;
+  try{
+    await upsertBatches('clientes',cli,'email');
+    await refreshCounts();
+    addLog(`👥 CLIENTES — 📥 leídos del Excel: ${parsed.length} · ☁️ subidos: ${cli.length} (${conCorreo} con correo · ${sinCorreo} sin correo) · ✅ total en la nube AHORA: ${state.clientes}`);
+    if(state.clientes>cli.length) addLog(`   ⚠ La nube tiene ${state.clientes-cli.length} de más (clientes viejos que ya no están en tu Excel).`);
+    toast(`✅ ${cli.length} clientes subidos · ${state.clientes} en la nube`);
+  }catch(e){ toast('❌ '+e.message); addLog('❌ Error: '+e.message); }
+}
+async function verificarNube(){
+  if(!sb){ toast('⚠ Sin conexión'); return; }
+  toast('🔎 Verificando…'); await refreshCounts();
+  addLog(`🔎 EN LA NUBE AHORA → ${state.lotes} lotes · ${state.clientes} clientes · ${state.desarrollos.length} desarrollos · ${state.metas} metas con plan`);
 }
 
 // ── Parser de METAS (hoja "Captura Ventas", igual que MacroPro) ──
@@ -273,7 +287,7 @@ function renderApp(){
   const DEVS=['TYA','HITO','Corretaje','Garvi','Favier','GyG'];
   app.innerHTML=`
    <div class="wrap">
-    <div class="hero"><h1>Hola 👋</h1><p>Carga el inventario y clientes una vez; se guardan en la nube y los leen todas las apps.</p></div>
+    <div class="hero"><h1>Hola 👋</h1><p>Carga el inventario y clientes una vez; se guardan en la nube y los leen todas las apps. <button class="btn" style="margin-left:8px" onclick="verificarNube()">🔎 Verificar nube</button></p></div>
     <div class="grid">
       <div class="card"><div class="ic">📦</div><b>Inventario</b><div class="n">${state.lotes} lotes en la nube</div>
         <div class="feeds">Carga en: ✅ MacroPro · ✅ Cotizador · ✅ Hub<br><span class="soon">⏳ Intelligence · Analytics · Presentaciones</span></div>
