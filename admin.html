@@ -85,8 +85,16 @@ function loteToSupabase(l){
     status_inventario:l.status||l.status_inventario||'Disponible', fecha_ingreso:l.fecha_ingreso||null };
 }
 function clienteToSupabase(c){
-  const email=(c.email||c.correo||"").toString().trim().toLowerCase(); if(!email) return null;
-  return { email, id_cliente:(c.id||c.id_cliente||"").toString().trim()||null, nombre:c.nombre||null, empresa:c.empresa||null,
+  let email=(c.email||c.correo||"").toString().trim().toLowerCase();
+  const idc=(c.id||c.id_cliente||"").toString().trim();
+  // Sin correo: generamos una llave ÚNICA y NO NULA a partir del ID (o nombre) → carga TODOS
+  // sin riesgo de duplicación masiva (CLAUDE.md). Dominio @sin-correo.guia = marca "sin correo real".
+  if(!email){
+    // ID + nombre → único aunque dos personas compartan ID (error de datos común)
+    const base = (idc||'cli')+'-'+(c.nombre||'sin-nombre');
+    email = base.toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"") + "@sin-correo.guia";
+  }
+  return { email, id_cliente:idc||null, nombre:c.nombre||null, empresa:c.empresa||null,
     telefono:c.telefono?c.telefono.toString():"", asesor:c.asesor||null, tipo_comprador:c.tipo_comprador||null,
     ciudad_interes:Array.isArray(c.ciudad_interes)?c.ciudad_interes:[], uso_interes:Array.isArray(c.uso_interes)?c.uso_interes:[],
     presupuesto_min:Number(c.presupuesto_min)||null, presupuesto_max:Number(c.presupuesto_max)||null,
