@@ -102,6 +102,7 @@ function clienteToSupabase(c){
     plazo_cierre:c.plazo_cierre||null, deal_breakers:Array.isArray(c.deal_breakers)?c.deal_breakers:[], activo:c.activo!==false };
 }
 const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ").trim();
+const ev=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 const cleanNum=v=>{ if(v==null||v==="")return 0; const n=parseFloat(String(v).replace(/[$,\s]/g,"").replace(/[^0-9.\-]/g,"")); return isNaN(n)?0:n; };
 function parseCoord(v){ if(v==null||v==="")return null; const s=String(v).trim();
   const dms=s.match(/(\d+)[°º]\s*(\d+)['′]\s*([\d.]+)["″]\s*([NSEWnsew]?)/);
@@ -187,7 +188,7 @@ function addLog(m){ state.log.unshift('• '+m); renderApp(); }
 async function refreshCounts(){
   try{ const l=await sb.from('lotes').select('*',{count:'exact',head:true}); state.lotes=l.count||0; }catch(e){}
   try{ const c=await sb.from('clientes').select('*',{count:'exact',head:true}); state.clientes=c.count||0; }catch(e){}
-  try{ const d=await sb.from('desarrollos').select('id,slug,nombre,desarrollador,tipo,ciudad,estado,lat,lng,activo,color_principal,color_secundario,tagline,logo_url').order('nombre'); if(!d.error) state.desarrollos=d.data||[]; }catch(e){}
+  try{ const d=await sb.from('desarrollos').select('*').order('nombre'); if(!d.error) state.desarrollos=d.data||[]; }catch(e){}
   try{ const m=await sb.from('app_config').select('datos').eq('clave','metas_v1'); const dm=(!m.error&&m.data&&m.data[0])?m.data[0].datos:null; state.metas=dm?Object.keys(dm).length:0; }catch(e){}
   renderApp();
 }
@@ -274,9 +275,16 @@ async function subirMetas(file){
 let editId=null,draft={};
 async function guardarDes(){
   if(!editId) return;
+  const num=v=>(v===''||v==null)?null:Number(v);
   const p={ nombre:draft.nombre||null, desarrollador:draft.desarrollador||null, tipo:draft.tipo||null, ciudad:draft.ciudad||null, estado:draft.estado||null,
-    lat:draft.lat===''||draft.lat==null?null:Number(draft.lat), lng:draft.lng===''||draft.lng==null?null:Number(draft.lng), activo:draft.activo!==false,
-    color_principal:draft.color_principal||null, color_secundario:draft.color_secundario||null, tagline:draft.tagline||null, logo_url:draft.logo_url||null };
+    lat:num(draft.lat), lng:num(draft.lng), activo:draft.activo!==false,
+    color_principal:draft.color_principal||null, color_secundario:draft.color_secundario||null, tagline:draft.tagline||null, logo_url:draft.logo_url||null,
+    // Presentación
+    descripcion:draft.descripcion||null, amenidades:draft.amenidades||null, ubicacion:draft.ubicacion||null,
+    puntos_venta:draft.puntos_venta||null, galeria:draft.galeria||null, video_url:draft.video_url||null,
+    // Precios / políticas
+    precio_m2_base:num(draft.precio_m2_base), enganche_pct:num(draft.enganche_pct), mensualidades:num(draft.mensualidades),
+    plazo_meses:num(draft.plazo_meses), descuento_contado_pct:num(draft.descuento_contado_pct), politicas_notas:draft.politicas_notas||null };
   try{ const {error}=await sb.from('desarrollos').update(p).eq('id',editId); if(error)throw new Error(error.message);
     state.desarrollos=state.desarrollos.map(d=>d.id===editId?{...d,...p}:d); editId=null;draft={}; toast('✅ Guardado'); renderApp(); }
   catch(e){ toast('❌ '+e.message); }
@@ -315,16 +323,37 @@ function renderApp(){
          <div style="font-size:11px;color:var(--mut)">${d.desarrollador||'—'} · ${d.tipo||'—'} · ${d.ciudad||'—'} · <span style="font-family:monospace">${d.slug}</span></div></div>
          <button class="btn" onclick="${editing?'cancelDes()':"startDes('"+d.id+"')"}">${editing?'✕':'✏️ Editar'}</button></div>
          ${editing?`<div class="dform">
-           <div><label class="lbl">Nombre</label><input class="inp" style="margin:0" value="${(draft.nombre||'').replace(/"/g,'&quot;')}" oninput="draft.nombre=this.value"></div>
+           <div style="grid-column:span 3;font-weight:800;color:var(--navy);font-size:12px;text-transform:uppercase;letter-spacing:.5px">🏷️ Identidad</div>
+           <div><label class="lbl">Nombre</label><input class="inp" style="margin:0" value="${ev(draft.nombre)}" oninput="draft.nombre=this.value"></div>
            <div><label class="lbl">Desarrollador</label><select class="inp" style="margin:0" onchange="draft.desarrollador=this.value"><option value="">—</option>${DEVS.map(x=>`<option ${draft.desarrollador===x?'selected':''}>${x}</option>`).join('')}${draft.desarrollador&&!DEVS.includes(draft.desarrollador)?`<option selected>${draft.desarrollador}</option>`:''}</select></div>
            <div><label class="lbl">Tipo</label><select class="inp" style="margin:0" onchange="draft.tipo=this.value"><option ${draft.tipo==='Desarrollo'?'selected':''}>Desarrollo</option><option ${draft.tipo==='Corretaje'?'selected':''}>Corretaje</option></select></div>
-           <div><label class="lbl">Ciudad</label><input class="inp" style="margin:0" value="${(draft.ciudad||'').replace(/"/g,'&quot;')}" oninput="draft.ciudad=this.value"></div>
-           <div><label class="lbl">Estado</label><input class="inp" style="margin:0" value="${(draft.estado||'').replace(/"/g,'&quot;')}" oninput="draft.estado=this.value"></div>
+           <div><label class="lbl">Ciudad</label><input class="inp" style="margin:0" value="${ev(draft.ciudad)}" oninput="draft.ciudad=this.value"></div>
+           <div><label class="lbl">Estado</label><input class="inp" style="margin:0" value="${ev(draft.estado)}" oninput="draft.estado=this.value"></div>
            <div><label class="lbl">Activo</label><label style="font-size:13px;display:flex;gap:8px;padding-top:8px"><input type="checkbox" ${draft.activo!==false?'checked':''} onchange="draft.activo=this.checked"> Visible</label></div>
            <div><label class="lbl">Lat</label><input class="inp" style="margin:0" type="number" step="0.000001" value="${draft.lat==null?'':draft.lat}" oninput="draft.lat=this.value"></div>
            <div><label class="lbl">Lng</label><input class="inp" style="margin:0" type="number" step="0.000001" value="${draft.lng==null?'':draft.lng}" oninput="draft.lng=this.value"></div>
            <div><label class="lbl">Color</label><input class="inp" style="margin:0;height:40px" type="color" value="${draft.color_principal||'#6B7280'}" oninput="draft.color_principal=this.value"></div>
-           <div style="grid-column:span 3;display:flex;gap:8px"><button class="btn gold" onclick="guardarDes()">💾 Guardar</button><button class="btn" onclick="cancelDes()">Cancelar</button></div>
+           <div style="grid-column:span 2"><label class="lbl">Tagline / eslogan</label><input class="inp" style="margin:0" value="${ev(draft.tagline)}" oninput="draft.tagline=this.value"></div>
+           <div><label class="lbl">Logo URL</label><input class="inp" style="margin:0" value="${ev(draft.logo_url)}" oninput="draft.logo_url=this.value"></div>
+
+           <div style="grid-column:span 3;font-weight:800;color:var(--navy);font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-top:8px">🖼️ Presentación <span style="font-weight:600;color:var(--mut);text-transform:none">(para propuestas / Presentaciones)</span></div>
+           <div style="grid-column:span 3"><label class="lbl">Descripción</label><textarea class="inp" style="margin:0;min-height:60px" oninput="draft.descripcion=this.value">${ev(draft.descripcion)}</textarea></div>
+           <div style="grid-column:span 3"><label class="lbl">Amenidades (separadas por coma)</label><input class="inp" style="margin:0" value="${ev(draft.amenidades)}" oninput="draft.amenidades=this.value"></div>
+           <div style="grid-column:span 2"><label class="lbl">Ubicación / dirección</label><input class="inp" style="margin:0" value="${ev(draft.ubicacion)}" oninput="draft.ubicacion=this.value"></div>
+           <div><label class="lbl">Video / Tour URL</label><input class="inp" style="margin:0" value="${ev(draft.video_url)}" oninput="draft.video_url=this.value"></div>
+           <div style="grid-column:span 3"><label class="lbl">Puntos de venta (argumentos)</label><textarea class="inp" style="margin:0;min-height:48px" oninput="draft.puntos_venta=this.value">${ev(draft.puntos_venta)}</textarea></div>
+           <div style="grid-column:span 3"><label class="lbl">Galería (URLs de fotos, separadas por coma)</label><textarea class="inp" style="margin:0;min-height:48px" oninput="draft.galeria=this.value">${ev(draft.galeria)}</textarea></div>
+
+           <div style="grid-column:span 3;font-weight:800;color:var(--navy);font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-top:8px">💰 Precios / políticas <span style="font-weight:600;color:var(--mut);text-transform:none">(para Cotizador · el precio por lote va en el Inventario)</span></div>
+           <div><label class="lbl">Precio base $/m²</label><input class="inp" style="margin:0" type="number" value="${draft.precio_m2_base==null?'':draft.precio_m2_base}" oninput="draft.precio_m2_base=this.value"></div>
+           <div><label class="lbl">Enganche %</label><input class="inp" style="margin:0" type="number" value="${draft.enganche_pct==null?'':draft.enganche_pct}" oninput="draft.enganche_pct=this.value"></div>
+           <div><label class="lbl">Descuento contado %</label><input class="inp" style="margin:0" type="number" value="${draft.descuento_contado_pct==null?'':draft.descuento_contado_pct}" oninput="draft.descuento_contado_pct=this.value"></div>
+           <div><label class="lbl">Mensualidades</label><input class="inp" style="margin:0" type="number" value="${draft.mensualidades==null?'':draft.mensualidades}" oninput="draft.mensualidades=this.value"></div>
+           <div><label class="lbl">Plazo (meses)</label><input class="inp" style="margin:0" type="number" value="${draft.plazo_meses==null?'':draft.plazo_meses}" oninput="draft.plazo_meses=this.value"></div>
+           <div></div>
+           <div style="grid-column:span 3"><label class="lbl">Notas de políticas</label><textarea class="inp" style="margin:0;min-height:48px" oninput="draft.politicas_notas=this.value">${ev(draft.politicas_notas)}</textarea></div>
+
+           <div style="grid-column:span 3;display:flex;gap:8px;margin-top:6px"><button class="btn gold" onclick="guardarDes()">💾 Guardar</button><button class="btn" onclick="cancelDes()">Cancelar</button></div>
          </div>`:''}</div>`;
      }).join('')}</div>
    </div></div>`;
