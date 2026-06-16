@@ -12385,7 +12385,8 @@ Respuesta: [respuesta exacta, conversacional]
                       </tr>
                       {/* Filas de la etapa */}
                       {gRows.map((f,ri)=>(
-                        <tr key={ri} style={{borderBottom:"1px solid #f1f5f9",background:ri%2===0?"#fff":"#fafbfc",cursor:"pointer",transition:"background 0.1s"}}
+                        <tr key={ri} title="Abrir prospecto · ver y agregar comentarios" style={{borderBottom:"1px solid #f1f5f9",background:ri%2===0?"#fff":"#fafbfc",cursor:"pointer",transition:"background 0.1s"}}
+                          onClick={()=>setSemaforoDrawer({f})}
                           onMouseEnter={e=>e.currentTarget.style.background="#f0f7ff"}
                           onMouseLeave={e=>e.currentTarget.style.background=ri%2===0?"#fff":"#fafbfc"}>
                           {/* Semáforo */}
