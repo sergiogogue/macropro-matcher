@@ -11783,6 +11783,15 @@ Respuesta: [respuesta exacta, conversacional]
                     </div>
                   </div>
 
+                  {/* Agregar comentario — disponible directo desde Información */}
+                  <div>
+                    <div style={{fontSize:9,fontWeight:700,color:eCol,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>✍️ Agregar comentario</div>
+                    <textarea value={nuevoComentario} onChange={e=>setNuevoComentario(e.target.value)} placeholder="Seguimiento, acuerdo o nota importante..." rows={3} style={{width:"100%",borderRadius:9,border:"1.5px solid #e5e7eb",padding:"11px 13px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",resize:"none",boxSizing:"border-box",lineHeight:1.5}}/>
+                    <button onClick={guardarComentario} disabled={!nuevoComentario.trim()||guardando} style={{width:"100%",marginTop:6,padding:"11px",background:nuevoComentario.trim()?"#002B49":"#e5e7eb",color:nuevoComentario.trim()?"#fff":"#9ca3af",border:"none",borderRadius:9,fontSize:12,fontWeight:700,cursor:nuevoComentario.trim()?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif"}}>
+                      {guardando?"Guardando...":"💾 Guardar comentario"}
+                    </button>
+                  </div>
+
                   {/* Accesos rápidos */}
                   <div style={{display:"flex",flexDirection:"column",gap:8}}>
                     <button onClick={abrirModalCompleto}
