@@ -1398,6 +1398,7 @@ function MacroProMatcher() {
   const setFilterDevCompania=(v)=>{setFilterDevCompaniaRaw(v);savePersisted(STORAGE_KEYS.filterDevCompania,v);setSelectedLotCRM(null);setFilterDesarrolloCRM("Todos");};
   const [filterSemaforo, setFilterSemaforo] = React.useState("Todos");
   const [filterCanal, setFilterCanal] = React.useState("Todos");
+  const [kanbanSearch, setKanbanSearch] = React.useState(""); // buscador de clientes en el Kanban
   const [vistaKanban, setVistaKanban] = React.useState("board"); // "board" | "canales"
   const [tabEjecutivoGlobal, setTabEjecutivoGlobal] = React.useState("ejecutivo");
   const [semaforoDrawer, setSemaforoDrawer] = React.useState(null);
@@ -1484,6 +1485,10 @@ function MacroProMatcher() {
   const [invFDev,setInvFDev]=useState("Todos");
   const [invFUso,setInvFUso]=useState("Todos");
   const [invFTipo,setInvFTipo]=useState("Todos");
+  // Filtros del reporte Ejecutivo (ReporteSemaforo) lifteados por la misma razón:
+  // el componente se remonta al actualizar una ficha/comentario y perdía el desarrollo.
+  const [repFiltDev,setRepFiltDev]=useState("Todos");
+  const [repFiltTipo,setRepFiltTipo]=useState("Todos");
   const [filterAsesor, setFilterAsesor] = useState("Todos");
   const [searchProsp, setSearchProsp] = React.useState("");
   const [filterSupMin, setFilterSupMin] = useState("");
@@ -6702,6 +6707,12 @@ function MacroProMatcher() {
           const canal=(x.prospecto&&x.prospecto.canal)||(x.cli&&x.cli.canal)||"";
           if(canal!==filterCanal) return false;
         }
+        if(kanbanSearch.trim()){
+          const q=kanbanSearch.toLowerCase().trim();
+          const nom=((x.prospecto&&x.prospecto.nombre)||(x.cli&&x.cli.nombre)||"").toLowerCase();
+          const emp=((x.prospecto&&(x.prospecto.empresa||x.prospecto.giro))||(x.cli&&(x.cli.empresa||x.cli.giro))||"").toLowerCase();
+          if(!nom.includes(q)&&!emp.includes(q)) return false;
+        }
         return true;
       });
       // Agregar lotes con seguimientoAsesor (sin cliente) como tarjetas especiales
@@ -6709,6 +6720,11 @@ function MacroProMatcher() {
       srcInvFiltrado.forEach(lot=>{
         if(filterDesarrolloCRM!=="Todos"&&lot.desarrollo!==filterDesarrolloCRM) return;
         const crm=crmData[lot.id];
+        if(kanbanSearch.trim()){
+          const q=kanbanSearch.toLowerCase().trim();
+          const txt=((lot.nombre||"")+" "+((crm&&crm.seguimientoAsesor&&crm.seguimientoAsesor.asesor)||"")).toLowerCase();
+          if(!txt.includes(q)) return;
+        }
         if(crm&&crm.seguimientoAsesor){
           lotesConSeguimiento.push({
             lotId:lot.id,
@@ -8268,6 +8284,8 @@ Respuesta: [respuesta exacta, conversacional]
               <button onClick={()=>setVistaKanban("board")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaKanban==="board"?B.navy:"transparent",color:vistaKanban==="board"?"#fff":"#64748b",transition:"all 0.15s"}}>📋 Kanban</button>
               <button onClick={()=>setVistaKanban("canales")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaKanban==="canales"?B.navy:"transparent",color:vistaKanban==="canales"?"#fff":"#64748b",transition:"all 0.15s"}}>🏷 Canales</button>
             </div>
+            <input value={kanbanSearch} onChange={e=>setKanbanSearch(e.target.value)} placeholder="🔍 Buscar cliente…"
+              style={{padding:"7px 12px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif",minWidth:180}}/>
             {[["filterDesarrolloCRM",filterDesarrolloCRM,setFilterDesarrolloCRM,["Todos los desarrollos",...desarrollosCRM]],
               ["filterPipeline",filterPipeline,setFilterPipeline,["Todos",...PIPELINE_STAGES]]].map(([key,val,setter,opts])=>(
               <select key={key} value={val} onChange={e=>setter(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
@@ -8298,8 +8316,8 @@ Respuesta: [respuesta exacta, conversacional]
               {canalesActivos.map(c=><option key={c} value={c}>{c}</option>)}
             </select>
             <span style={{fontSize:11,color:B.grey3}}>{lotsFiltered.length} lotes</span>
-            {(filterPipeline!=="Todos"||filterDesarrolloCRM!=="Todos"||filterSemaforo!=="Todos"||filterAsesor!=="Todos"||filterCanal!=="Todos")&&
-              <button onClick={()=>{setFilterPipeline("Todos");setFilterDesarrolloCRM("Todos");setFilterSemaforo("Todos");setFilterAsesor("Todos");setFilterCanal("Todos");}} style={{padding:"5px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>✕ Limpiar</button>}
+            {(filterPipeline!=="Todos"||filterDesarrolloCRM!=="Todos"||filterSemaforo!=="Todos"||filterAsesor!=="Todos"||filterCanal!=="Todos"||kanbanSearch.trim())&&
+              <button onClick={()=>{setFilterPipeline("Todos");setFilterDesarrolloCRM("Todos");setFilterSemaforo("Todos");setFilterAsesor("Todos");setFilterCanal("Todos");setKanbanSearch("");}} style={{padding:"5px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>✕ Limpiar</button>}
           </div>
         )}
 
@@ -12023,8 +12041,8 @@ Respuesta: [respuesta exacta, conversacional]
   const ReporteSemaforo = () => {
     const ORDEN_ETAPAS=["Vendido","Contrato","Apartado","Propuesta","En negociación","En análisis","Visita","Cita","Contactado"];
     const COLORES_ETAPA={"Vendido":"#16a34a","Contrato":"#06b6d4","Apartado":"#f97316","Propuesta":"#8b5cf6","En negociación":"#d97706","En análisis":"#6366f1","Visita":"#0d9488","Cita":"#0891b2","Contactado":"#3b82f6","Por Contactar":"#f59e0b"};
-    const [filtDev,setFiltDev]=React.useState("Todos");
-    const [filtTipo,setFiltTipo]=React.useState("Todos");
+    const filtDev=repFiltDev,setFiltDev=setRepFiltDev;
+    const filtTipo=repFiltTipo,setFiltTipo=setRepFiltTipo;
 
     // Construir filas directamente desde crmData e inventory (scope del componente principal)
     const filas=React.useMemo(()=>{
