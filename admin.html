@@ -281,10 +281,7 @@ async function guardarDes(){
     color_principal:draft.color_principal||null, color_secundario:draft.color_secundario||null, tagline:draft.tagline||null, logo_url:draft.logo_url||null,
     // Presentación
     descripcion:draft.descripcion||null, amenidades:draft.amenidades||null, ubicacion:draft.ubicacion||null,
-    puntos_venta:draft.puntos_venta||null, galeria:draft.galeria||null, video_url:draft.video_url||null,
-    // Precios / políticas
-    precio_m2_base:num(draft.precio_m2_base), enganche_pct:num(draft.enganche_pct), mensualidades:num(draft.mensualidades),
-    plazo_meses:num(draft.plazo_meses), descuento_contado_pct:num(draft.descuento_contado_pct), politicas_notas:draft.politicas_notas||null };
+    puntos_venta:draft.puntos_venta||null, galeria:draft.galeria||null, video_url:draft.video_url||null };
   try{ const {error}=await sb.from('desarrollos').update(p).eq('id',editId); if(error)throw new Error(error.message);
     state.desarrollos=state.desarrollos.map(d=>d.id===editId?{...d,...p}:d); editId=null;draft={}; toast('✅ Guardado'); renderApp(); }
   catch(e){ toast('❌ '+e.message); }
@@ -343,15 +340,6 @@ function renderApp(){
            <div><label class="lbl">Video / Tour URL</label><input class="inp" style="margin:0" value="${ev(draft.video_url)}" oninput="draft.video_url=this.value"></div>
            <div style="grid-column:span 3"><label class="lbl">Puntos de venta (argumentos)</label><textarea class="inp" style="margin:0;min-height:48px" oninput="draft.puntos_venta=this.value">${ev(draft.puntos_venta)}</textarea></div>
            <div style="grid-column:span 3"><label class="lbl">Galería (URLs de fotos, separadas por coma)</label><textarea class="inp" style="margin:0;min-height:48px" oninput="draft.galeria=this.value">${ev(draft.galeria)}</textarea></div>
-
-           <div style="grid-column:span 3;font-weight:800;color:var(--navy);font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-top:8px">💰 Precios / políticas <span style="font-weight:600;color:var(--mut);text-transform:none">(para Cotizador · el precio por lote va en el Inventario)</span></div>
-           <div><label class="lbl">Precio base $/m²</label><input class="inp" style="margin:0" type="number" value="${draft.precio_m2_base==null?'':draft.precio_m2_base}" oninput="draft.precio_m2_base=this.value"></div>
-           <div><label class="lbl">Enganche %</label><input class="inp" style="margin:0" type="number" value="${draft.enganche_pct==null?'':draft.enganche_pct}" oninput="draft.enganche_pct=this.value"></div>
-           <div><label class="lbl">Descuento contado %</label><input class="inp" style="margin:0" type="number" value="${draft.descuento_contado_pct==null?'':draft.descuento_contado_pct}" oninput="draft.descuento_contado_pct=this.value"></div>
-           <div><label class="lbl">Mensualidades</label><input class="inp" style="margin:0" type="number" value="${draft.mensualidades==null?'':draft.mensualidades}" oninput="draft.mensualidades=this.value"></div>
-           <div><label class="lbl">Plazo (meses)</label><input class="inp" style="margin:0" type="number" value="${draft.plazo_meses==null?'':draft.plazo_meses}" oninput="draft.plazo_meses=this.value"></div>
-           <div></div>
-           <div style="grid-column:span 3"><label class="lbl">Notas de políticas</label><textarea class="inp" style="margin:0;min-height:48px" oninput="draft.politicas_notas=this.value">${ev(draft.politicas_notas)}</textarea></div>
 
            <div style="grid-column:span 3;display:flex;gap:8px;margin-top:6px"><button class="btn gold" onclick="guardarDes()">💾 Guardar</button><button class="btn" onclick="cancelDes()">Cancelar</button></div>
          </div>`:''}</div>`;
