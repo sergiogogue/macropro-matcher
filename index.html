@@ -157,7 +157,7 @@ function initSupabase() {
   const lib = window.supabase;
   if (lib && typeof lib.createClient === 'function') {
     try {
-      sb = lib.createClient(SUPABASE_URL, SUPABASE_KEY);
+      sb = lib.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
       window.sb = sb;           // Accesible globalmente para debug
       window.__supabase = sb;   // Alias compatibilidad
       console.log("✅ Supabase conectado:", SUPABASE_URL);
@@ -13758,7 +13758,18 @@ function AuthGate() {
         .then(({ data }) => { if (!cancelled) setSession((data && data.session) || null); })
         .catch(() => { if (!cancelled) setSession(null); });
       try {
-        const res = c.auth.onAuthStateChange((_evt, s) => { if (!cancelled) setSession(s || null); });
+        const res = c.auth.onAuthStateChange((evt, s) => {
+          if (cancelled) return;
+          if (s) { setSession(s); return; }            // login o token refrescado → entrar/seguir
+          if (evt === "SIGNED_OUT") {
+            // Reverificar antes de cerrar: evita logout por evento transitorio
+            // (p.ej. rotación de token entre varias pestañas del mismo sistema).
+            c.auth.getSession()
+              .then(({ data }) => { if (!cancelled) setSession((data && data.session) || null); })
+              .catch(() => { if (!cancelled) setSession(null); });
+          }
+          // Otros eventos con sesión nula se ignoran (no se cierra sesión).
+        });
         unsub = res && res.data && res.data.subscription ? res.data.subscription : null;
       } catch (e) { /* noop */ }
     }
@@ -13826,7 +13837,7 @@ function AuthGate() {
   return (
     <React.Fragment>
       <MacroProMatcher />
-      <button onClick={handleLogout} title="Cerrar sesión"
+      <button onClick={()=>{ if(window.confirm("¿Cerrar sesión?")) handleLogout(); }} title="Cerrar sesión"
         style={{ position:"fixed", bottom:12, right:12, zIndex:9999, padding:"7px 12px", borderRadius:20, border:"1px solid rgba(255,255,255,.25)", background:"#002B49", color:"#fff", fontSize:12, fontWeight:600, cursor:"pointer", boxShadow:"0 4px 14px rgba(0,0,0,.25)", opacity:.9 }}>
         Salir
       </button>
