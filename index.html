@@ -1477,6 +1477,13 @@ function MacroProMatcher() {
   const [filterDesarrollo, setFilterDesarrollo] = useState("Todos");
   const [deepDevFilter, setDeepDevFilter] = useState("");  // desarrollo pedido por deep-link (?desarrollo=slug) → filtro inicial de Inventario
   const [filterUso, setFilterUso] = useState("Todos");
+  // Filtros del Inventario (ViewLots) lifteados al padre: ViewLots se define dentro de
+  // MacroProMatcher y se remonta en cada re-render (p.ej. al actualizar una ficha → updateCRM),
+  // lo que perdía el desarrollo seleccionado. Al vivir aquí, la selección sobrevive.
+  const [invFCity,setInvFCity]=useState("Todas");
+  const [invFDev,setInvFDev]=useState("Todos");
+  const [invFUso,setInvFUso]=useState("Todos");
+  const [invFTipo,setInvFTipo]=useState("Todos");
   const [filterAsesor, setFilterAsesor] = useState("Todos");
   const [searchProsp, setSearchProsp] = React.useState("");
   const [filterSupMin, setFilterSupMin] = useState("");
@@ -2245,7 +2252,7 @@ function MacroProMatcher() {
       const nombre = (porInv && porInv.desarrollo) || (getDesarrollosCatalogo().find(d=> (d.slug||'')===des)||{}).nombre || '';
       if(!nombre && inv.length===0) return;  // esperar datos para resolver el slug
       deepLinkRef.current = true;
-      if(nombre){ setDeepDevFilter(nombre); setView('lots'); toast('📍 Filtrado a '+nombre); }
+      if(nombre){ setDeepDevFilter(nombre); setInvFCity("Todas"); setInvFDev(nombre); setView('lots'); toast('📍 Filtrado a '+nombre); }
       limpiar(); return;
     }
   }, [deepLinkParams, inventory, clients]);
@@ -4402,10 +4409,10 @@ function MacroProMatcher() {
 
   // ─── VIEW LOTS ────────────────────────────────────────────────────
   const ViewLots = () => {
-    const [fCity,setFCity]=useState("Todas");
-    const [fDev,setFDev]=useState(deepDevFilter||"Todos");
-    const [fUso,setFUso]=useState("Todos");
-    const [fTipo,setFTipo]=useState("Todos");
+    const fCity=invFCity,setFCity=setInvFCity;
+    const fDev=invFDev,setFDev=setInvFDev;
+    const fUso=invFUso,setFUso=setInvFUso;
+    const fTipo=invFTipo,setFTipo=setInvFTipo;
     const lotCities=["Todas",...new Set(srcInv.map(l=>l.ciudad))];
     const lotUsos=["Todos",...new Set(srcInv.flatMap(l=>l.usos_todos&&l.usos_todos.length>0?l.usos_todos:[l.uso||""]).filter(Boolean))].sort();
     const lotTipos=["Todos",...new Set(srcInv.map(l=>l.tipo).filter(Boolean))].sort();
