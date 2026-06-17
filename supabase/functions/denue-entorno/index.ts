@@ -165,30 +165,47 @@ Deno.serve(async (req: Request) => {
   const host = "www.inegi.org.mx";
   const path = `/app/api/denue/v1/consulta/buscar/todos/${lat},${lng}/${metros}/${token}`;
 
-  let arr: any[];
-  try {
-    const res = await getTlsRaw(host, path);
-    // Modo diagnóstico: {"...","debug":true} devuelve qué mandó realmente el INEGI.
-    if (body.debug) {
-      return json({
-        debug: true,
-        inegi_status: res.status,
-        raw_len: res.rawLen,
-        raw_completo: res.raw,          // respuesta entera (cabeceras + cuerpo) escapada
-        json_extraido: extraerJSON(res.raw),
-      });
+  // El F5 del INEGI reparte cada conexión a un backend distinto y algunos
+  // devuelven "000"/cuerpo vacío. Reintentamos con conexiones frescas hasta
+  // obtener un JSON válido (o agotar intentos).
+  const MAX = body.debug ? 1 : 5;
+  let arr: any[] = [];
+  let lastDiag: { status: number; rawLen: number; raw: string } | null = null;
+  let lastErr = "";
+  for (let intento = 1; intento <= MAX; intento++) {
+    try {
+      const res = await getTlsRaw(host, path);
+      lastDiag = { status: res.status, rawLen: res.rawLen, raw: res.raw };
+      if (body.debug) {
+        return json({
+          debug: true,
+          inegi_status: res.status,
+          raw_len: res.rawLen,
+          raw_completo: res.raw,
+          json_extraido: extraerJSON(res.raw),
+        });
+      }
+      // El INEGI manda status "000" (IIS/F5) aunque la respuesta sea válida;
+      // nos guiamos por el cuerpo JSON, extraído de TODA la respuesta.
+      const data = extraerJSON(res.body) ?? extraerJSON(res.raw);
+      if (Array.isArray(data)) { arr = data; break; }      // ¡éxito!
+      // Cuerpo vacío/000 → reintento con backend fresco.
+    } catch (e) {
+      lastErr = (e && (e as Error).message) ? (e as Error).message : String(e);
+      console.error(`DENUE intento ${intento}:`, lastErr);
     }
-    // Nota: el INEGI manda status "000" (IIS/F5) aunque la respuesta sea válida,
-    // por eso NO bloqueamos por status; nos guiamos por el cuerpo JSON.
-    // Extraemos de TODA la respuesta (las cabeceras no traen { ni [).
-    const data = extraerJSON(res.body) ?? extraerJSON(res.raw);
-    // El API devuelve [] (array) o, sin resultados, a veces objeto/cadena vacía.
-    arr = Array.isArray(data) ? data : [];
-  } catch (e) {
-    // El detalle va DENTRO del mensaje para que se vea en el panel de prueba.
-    const msg = (e && (e as Error).message) ? (e as Error).message : String(e);
-    console.error("DENUE error:", msg);
-    return json({ error: "No se pudo contactar al INEGI — " + msg }, 502);
+    if (intento < MAX) await new Promise((r) => setTimeout(r, 500 * intento));
+  }
+  // Si tras los reintentos no hubo datos y la respuesta venía vacía/000, avisamos.
+  if (arr.length === 0 && lastDiag && lastDiag.rawLen <= 700 && !extraerJSON(lastDiag.raw)) {
+    return json({
+      error: "El servidor del INEGI no devolvió datos (respuesta vacía / status " + (lastDiag.status || "000") +
+             "). Suele ser intermitencia del API del DENUE; intenta de nuevo en unos minutos.",
+      inegi_status: lastDiag.status, intentos: MAX,
+    }, 503);
+  }
+  if (arr.length === 0 && lastErr) {
+    return json({ error: "No se pudo contactar al INEGI — " + lastErr }, 502);
   }
 
   // Conteo por categoría + top establecimientos por cercanía.
