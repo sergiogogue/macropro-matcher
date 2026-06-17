@@ -75,21 +75,38 @@ Deno.serve(async (req: Request) => {
   // DENUE limita el radio a 5000 m. Aceptamos metros; default 1000.
   const metros = Math.min(Math.max(Math.round(Number(body.radio) || 1000), 100), 5000);
 
-  // Endpoint "Buscar": condición "todos" = todas las actividades en el radio.
-  const url = `https://www.inegi.org.mx/app/api/denue/v1/consulta/Buscar/todos/${lat},${lng}/${metros}/${token}`;
+  // Endpoint "buscar" (minúsculas): condición "todos" = todas las actividades.
+  const url = `https://www.inegi.org.mx/app/api/denue/v1/consulta/buscar/todos/${lat},${lng}/${metros}/${token}`;
 
+  // Algunos servidores de gobierno rechazan clientes no-navegador → User-Agent.
+  // AbortController para no colgarnos si INEGI no responde.
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
   let arr: any[];
   try {
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    const r = await fetch(url, {
+      signal: ctrl.signal,
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+      },
+    });
     if (!r.ok) {
       const detail = await r.text().catch(() => "");
-      return json({ error: `INEGI respondió ${r.status}`, detail: detail.slice(0, 300) }, 502);
+      return json({ error: `INEGI respondió ${r.status}`, url, detail: detail.slice(0, 400) }, 502);
     }
-    const data = await r.json().catch(() => null);
-    // El API devuelve [] (array) o, sin resultados, a veces un objeto/cadena vacía.
+    const txt = await r.text();
+    let data: unknown = null;
+    try { data = JSON.parse(txt); } catch { /* respuesta no-JSON */ }
+    // El API devuelve [] (array) o, sin resultados, a veces objeto/cadena vacía.
     arr = Array.isArray(data) ? data : [];
   } catch (e) {
-    return json({ error: "No se pudo contactar al INEGI", detail: String(e) }, 502);
+    // El detalle va DENTRO del mensaje para que se vea en el panel de prueba.
+    const msg = (e && (e as Error).message) ? (e as Error).message : String(e);
+    console.error("DENUE fetch error:", msg, "url:", url);
+    return json({ error: "No se pudo contactar al INEGI — " + msg, url }, 502);
+  } finally {
+    clearTimeout(t);
   }
 
   // Conteo por categoría + top establecimientos por cercanía.
