@@ -1465,6 +1465,10 @@ function MacroProMatcher() {
   const [benchSortDir, setBenchSortDir] = useState("asc");
   const [benchFiltroDesarrollador, setBenchFiltroDesarrollador] = useState("Todos");
   const [benchFiltroNombre, setBenchFiltroNombre] = useState("");
+  // ── ENTORNO (DENUE / INEGI) — establecimientos cercanos al ancla ──
+  const [denueData, setDenueData] = useState(null);
+  const [denueLoading, setDenueLoading] = useState(false);
+  const [denueError, setDenueError] = useState("");
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedLot, setSelectedLot] = useState(null);
   const [matchResults, setMatchResults] = useState(null);
@@ -7626,6 +7630,26 @@ function MacroProMatcher() {
     };
 
     // ══════════════════════════════════════════════════════════════
+    // ── ENTORNO DENUE: consulta establecimientos del INEGI vía Edge Function ──
+    // No se llama a INEGI directo (CORS + token); el proxy es la función
+    // Supabase 'denue-entorno'. Radio en km → metros (DENUE tope 5000 m).
+    const cargarEntornoDENUE = async (lat, lng, radioKm) => {
+      if(!(lat && lng)){ setDenueError("El ancla no tiene coordenadas para consultar el entorno."); return; }
+      if(!window.sb || !window.sb.functions){ setDenueError("Supabase no está disponible en este dispositivo."); return; }
+      setDenueLoading(true); setDenueError(""); setDenueData(null);
+      try {
+        const radio = Math.min(Math.round((Number(radioKm)||1)*1000), 5000); // metros, tope INEGI
+        const { data, error } = await window.sb.functions.invoke("denue-entorno", { body:{ lat, lng, radio } });
+        if(error) throw new Error(error.message||String(error));
+        if(data && data.error) throw new Error(data.error);
+        setDenueData(data);
+      } catch(e) {
+        setDenueError(e?.message || String(e));
+      } finally {
+        setDenueLoading(false);
+      }
+    };
+
     // VISTA "📊 BENCHMARK" — Inteligencia competitiva por radio
     // ══════════════════════════════════════════════════════════════
     const VistaBenchmark = () => {
@@ -7966,6 +7990,66 @@ function MacroProMatcher() {
               />
             ) : (
               <div style={{textAlign:"center",color:B.grey3,padding:32,fontSize:13}}>Selecciona un desarrollo ancla con coordenadas para ver el mapa.</div>
+            )}
+          </div>
+          {/* ── ENTORNO (DENUE · INEGI) ── */}
+          <div style={{background:B.white,borderRadius:14,padding:"16px 18px",marginTop:18,boxShadow:"0 2px 8px rgba(0,43,73,0.06)",border:`1px solid ${B.grey1}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:14,paddingBottom:10,borderBottom:`2px solid ${B.grey1}`}}>
+              <span style={{fontSize:13,fontWeight:700,color:B.navy}}>🏘 Entorno del lote (DENUE · INEGI)</span>
+              <span style={{fontSize:11,color:B.grey3}}>Establecimientos cercanos a {anclaCalc?.nombre||"el ancla"} · radio {Math.min(benchRadio,5)} km (tope INEGI 5 km)</span>
+              <button
+                onClick={()=>anclaCalc&&cargarEntornoDENUE(anclaCalc.lat,anclaCalc.lng,benchRadio)}
+                disabled={!anclaCalc||denueLoading}
+                style={{marginLeft:"auto",padding:"8px 16px",borderRadius:9,border:"none",cursor:anclaCalc&&!denueLoading?"pointer":"not-allowed",fontWeight:700,fontSize:12,fontFamily:"'DM Sans',sans-serif",background:anclaCalc&&!denueLoading?B.gold:B.grey1,color:anclaCalc&&!denueLoading?B.navy:B.grey3}}>
+                {denueLoading?"⏳ Consultando INEGI…":denueData?"↻ Volver a analizar":"🔍 Analizar entorno"}
+              </button>
+            </div>
+            {denueError && (
+              <div style={{background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#991b1b"}}>⚠️ {denueError}</div>
+            )}
+            {!denueError && !denueData && !denueLoading && (
+              <div style={{color:B.grey3,fontSize:12,padding:"8px 0"}}>Pulsa “Analizar entorno” para ver escuelas, salud, comercio, bancos y restaurantes alrededor del ancla, según el Directorio Estadístico Nacional (DENUE) del INEGI.</div>
+            )}
+            {denueData && (
+              <div>
+                <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:12}}>
+                  <span style={{fontSize:24,fontWeight:800,color:B.gold,fontFamily:"'Playfair Display',serif"}}>{denueData.total}</span>
+                  <span style={{fontSize:12,color:B.grey3}}>establecimientos en {Math.round((denueData.radio_m||0)/100)/10} km</span>
+                </div>
+                {denueData.total===0 ? (
+                  <div style={{color:B.grey3,fontSize:12}}>Sin establecimientos registrados en este radio.</div>
+                ) : (
+                  <>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:10,marginBottom:16}}>
+                      {(denueData.categorias||[]).map(cat=>(
+                        <div key={cat.key} style={{background:B.offW,borderRadius:10,padding:"10px 12px",border:`1px solid ${B.grey1}`,display:"flex",alignItems:"center",gap:10}}>
+                          <span style={{fontSize:20}}>{cat.icon}</span>
+                          <div style={{lineHeight:1.2}}>
+                            <div style={{fontSize:18,fontWeight:800,color:B.navy}}>{cat.count}</div>
+                            <div style={{fontSize:11,color:B.grey3}}>{cat.label}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {(denueData.top||[]).length>0 && (
+                      <div>
+                        <div style={{fontSize:11,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Más cercanos</div>
+                        <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:240,overflowY:"auto"}}>
+                          {denueData.top.map((e,i)=>(
+                            <div key={i} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"5px 8px",borderRadius:7,background:i%2?B.offW:B.white,border:`1px solid ${B.grey1}`}}>
+                              <span>{e.icon}</span>
+                              <span style={{fontWeight:600,color:B.navy,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.nombre}</span>
+                              <span style={{color:B.grey3,fontSize:10,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.clase}</span>
+                              {e.dist_m!=null && <span style={{color:B.gold,fontWeight:700,fontSize:11,whiteSpace:"nowrap"}}>{e.dist_m<1000?`${e.dist_m} m`:`${(e.dist_m/1000).toFixed(1)} km`}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div style={{marginTop:12,fontSize:10,color:B.grey3}}>Fuente: {denueData.fuente} · {denueData.total} unidades económicas</div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </div>
