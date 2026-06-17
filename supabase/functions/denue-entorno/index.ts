@@ -78,7 +78,7 @@ function dechunk(body: string): string {
   return out;
 }
 
-async function getTlsRaw(host: string, path: string, timeoutMs = 20000): Promise<{ status: number; head: string; body: string; rawLen: number }> {
+async function getTlsRaw(host: string, path: string, timeoutMs = 20000): Promise<{ status: number; head: string; body: string; rawLen: number; raw: string }> {
   const conn = await Deno.connectTls({ hostname: host, port: 443 });
   const killer = setTimeout(() => { try { conn.close(); } catch { /* ya cerrado */ } }, timeoutMs);
   try {
@@ -114,7 +114,7 @@ async function getTlsRaw(host: string, path: string, timeoutMs = 20000): Promise
     let bodyStr = sep >= 0 ? raw.slice(sep + sepLen) : "";
     if (/transfer-encoding:\s*chunked/i.test(head)) bodyStr = dechunk(bodyStr);
     const m = head.match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})/i);
-    return { status: m ? Number(m[1]) : 0, head, body: bodyStr, rawLen: total };
+    return { status: m ? Number(m[1]) : 0, head, body: bodyStr, rawLen: total, raw };
   } finally {
     clearTimeout(killer);
     try { conn.close(); } catch { /* puede estar ya cerrado */ }
@@ -174,14 +174,14 @@ Deno.serve(async (req: Request) => {
         debug: true,
         inegi_status: res.status,
         raw_len: res.rawLen,
-        head: res.head.slice(0, 600),
-        body_len: res.body.length,
-        body_sample: res.body.slice(0, 600),
+        raw_completo: res.raw,          // respuesta entera (cabeceras + cuerpo) escapada
+        json_extraido: extraerJSON(res.raw),
       });
     }
     // Nota: el INEGI manda status "000" (IIS/F5) aunque la respuesta sea válida,
     // por eso NO bloqueamos por status; nos guiamos por el cuerpo JSON.
-    const data = extraerJSON(res.body);
+    // Extraemos de TODA la respuesta (las cabeceras no traen { ni [).
+    const data = extraerJSON(res.body) ?? extraerJSON(res.raw);
     // El API devuelve [] (array) o, sin resultados, a veces objeto/cadena vacía.
     arr = Array.isArray(data) ? data : [];
   } catch (e) {
