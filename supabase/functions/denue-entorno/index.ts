@@ -58,6 +58,49 @@ function haversineM(la1: number, lo1: number, la2: number, lo2: number): number 
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// GET sobre un socket TLS crudo. El servidor del INEGI devuelve HTTP no
+// estándar que el cliente `fetch` de Deno (hyper, estricto) rechaza con
+// "invalid HTTP status-code parsed". Aquí leemos los bytes a mano y
+// extraemos el cuerpo después del separador de cabeceras → tolerante.
+async function getTlsRaw(host: string, path: string, timeoutMs = 20000): Promise<{ status: number; body: string }> {
+  const conn = await Deno.connectTls({ hostname: host, port: 443 });
+  const killer = setTimeout(() => { try { conn.close(); } catch { /* ya cerrado */ } }, timeoutMs);
+  try {
+    const reqLines = [
+      `GET ${path} HTTP/1.0`,                 // 1.0 + Connection: close → respuesta sin "chunked", termina en EOF
+      `Host: ${host}`,
+      `User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36`,
+      `Accept: application/json, text/plain, */*`,
+      `Connection: close`,
+      ``, ``,
+    ].join("\r\n");
+    await conn.write(new TextEncoder().encode(reqLines));
+
+    const chunks: Uint8Array[] = [];
+    const buf = new Uint8Array(65536);
+    let total = 0;
+    while (true) {
+      const n = await conn.read(buf);
+      if (n === null) break;
+      chunks.push(buf.slice(0, n));
+      total += n;
+    }
+    const all = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { all.set(c, off); off += c.length; }
+    const raw = new TextDecoder("utf-8").decode(all);
+
+    const sep = raw.indexOf("\r\n\r\n");
+    const head = sep >= 0 ? raw.slice(0, sep) : raw;
+    const bodyStr = sep >= 0 ? raw.slice(sep + 4) : "";
+    const m = head.match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})/i);
+    return { status: m ? Number(m[1]) : 0, body: bodyStr };
+  } finally {
+    clearTimeout(killer);
+    try { conn.close(); } catch { /* puede estar ya cerrado */ }
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Método no permitido" }, 405);
@@ -76,37 +119,30 @@ Deno.serve(async (req: Request) => {
   const metros = Math.min(Math.max(Math.round(Number(body.radio) || 1000), 100), 5000);
 
   // Endpoint "buscar" (minúsculas): condición "todos" = todas las actividades.
-  const url = `https://www.inegi.org.mx/app/api/denue/v1/consulta/buscar/todos/${lat},${lng}/${metros}/${token}`;
+  const host = "www.inegi.org.mx";
+  const path = `/app/api/denue/v1/consulta/buscar/todos/${lat},${lng}/${metros}/${token}`;
 
-  // Algunos servidores de gobierno rechazan clientes no-navegador → User-Agent.
-  // AbortController para no colgarnos si INEGI no responde.
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 20000);
   let arr: any[];
   try {
-    const r = await fetch(url, {
-      signal: ctrl.signal,
-      headers: {
-        Accept: "application/json, text/plain, */*",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-      },
-    });
-    if (!r.ok) {
-      const detail = await r.text().catch(() => "");
-      return json({ error: `INEGI respondió ${r.status}`, url, detail: detail.slice(0, 400) }, 502);
+    const res = await getTlsRaw(host, path);
+    if (res.status && (res.status < 200 || res.status >= 300)) {
+      return json({ error: `INEGI respondió ${res.status}`, detail: res.body.slice(0, 400) }, 502);
     }
-    const txt = await r.text();
+    // Extraer el array JSON del cuerpo, aunque venga con texto/espacios alrededor.
     let data: unknown = null;
-    try { data = JSON.parse(txt); } catch { /* respuesta no-JSON */ }
+    const s = res.body.trim();
+    try { data = JSON.parse(s); }
+    catch {
+      const i = s.indexOf("["), j = s.lastIndexOf("]");
+      if (i >= 0 && j > i) { try { data = JSON.parse(s.slice(i, j + 1)); } catch { /* sigue null */ } }
+    }
     // El API devuelve [] (array) o, sin resultados, a veces objeto/cadena vacía.
     arr = Array.isArray(data) ? data : [];
   } catch (e) {
     // El detalle va DENTRO del mensaje para que se vea en el panel de prueba.
     const msg = (e && (e as Error).message) ? (e as Error).message : String(e);
-    console.error("DENUE fetch error:", msg, "url:", url);
-    return json({ error: "No se pudo contactar al INEGI — " + msg, url }, 502);
-  } finally {
-    clearTimeout(t);
+    console.error("DENUE error:", msg);
+    return json({ error: "No se pudo contactar al INEGI — " + msg }, 502);
   }
 
   // Conteo por categoría + top establecimientos por cercanía.
