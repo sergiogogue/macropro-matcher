@@ -213,6 +213,43 @@ function normCoordMX(lat, lng) {
   return { lat: Math.abs(a), lng: -Math.abs(b) }; // lat positiva, lng negativa (oeste)
 }
 
+// ─── ENTORNO DENUE (INEGI) — consulta DIRECTA desde el navegador ───────────
+// El API del INEGI manda Access-Control-Allow-Origin:* (CORS abierto), así que
+// el navegador del usuario (IP mexicana) puede llamarlo sin proxy. El token es
+// gratuito y de datos públicos; vive en el cliente (override por localStorage).
+const INEGI_TOKEN_DEFAULT = "79e8c269-ce55-4d8f-aae0-4a5832183278";
+function getInegiToken(){ try { return localStorage.getItem("macropro_inegi_token") || INEGI_TOKEN_DEFAULT; } catch { return INEGI_TOKEN_DEFAULT; } }
+// Categorías de interés inmobiliario (la primera que coincide gana).
+const DENUE_CATS = [
+  { key:"educacion",    label:"Educación",           icon:"🎓", re:/escuel|educaci|preescolar|primaria|secundaria|bachill|preparatoria|jard[ií]n de ni|universidad|colegi|guarder/i },
+  { key:"salud",        label:"Salud",               icon:"🏥", re:/hospital|cl[ií]nic|consultori|m[eé]dic|farmac|dental|dentist|laboratori|salud|enfermer/i },
+  { key:"alimentos",    label:"Restaurantes y café", icon:"🍽️", re:/restaurant|cafeter|caf[eé]|comida|fonda|taquer|pizzer|antojit|cantina|alimentos preparad/i },
+  { key:"supermercado", label:"Súper y abarrotes",   icon:"🛒", re:/supermercad|abarrot|minis[uú]per|tienda de conveniencia|autoservicio|mercado|frutas y verdur/i },
+  { key:"banca",        label:"Bancos y finanzas",   icon:"🏦", re:/banca|banco|cajero|casa de cambio|financ|cr[eé]dito|seguros|afore/i },
+  { key:"hospedaje",    label:"Hoteles",             icon:"🏨", re:/hotel|motel|hospedaje|alojamiento|posada/i },
+  { key:"gasolina",     label:"Gasolineras",         icon:"⛽", re:/gasolin|combustible|gas l\.?p|estaci[oó]n de servicio/i },
+  { key:"comercio",     label:"Comercio",            icon:"🛍️", re:/comercio al por menor|venta al por menor|tienda|boutique|papeler|ferreter|mueble|ropa|calzado/i },
+  { key:"servicios",    label:"Servicios",           icon:"🏢", re:/servicio|oficina|despacho|notar|inmobiliar|gimnasio|est[eé]tica|sal[oó]n de bell|lavander/i },
+  { key:"industria",    label:"Industria",           icon:"🏭", re:/manufactur|industri|f[aá]bric|taller|construcci|almac[eé]n|bodega/i },
+];
+function clasificarDENUE(clase){ const c=clase||""; for(const cat of DENUE_CATS) if(cat.re.test(c)) return {key:cat.key,label:cat.label,icon:cat.icon}; return {key:"otros",label:"Otros",icon:"📍"}; }
+function haversineMts(la1,lo1,la2,lo2){ const R=6371000,dL=(la2-la1)*Math.PI/180,dN=(lo2-lo1)*Math.PI/180; const a=Math.sin(dL/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dN/2)**2; return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); }
+// Convierte el array crudo del DENUE en {total, radio_m, categorias, top, fuente}.
+function procesarEntornoDENUE(arr, lat, lng, metros){
+  const conteo = {};
+  const items = (Array.isArray(arr)?arr:[]).map(e=>{
+    const cat = clasificarDENUE(e?.Clase_actividad || e?.Clase || "");
+    if(!conteo[cat.key]) conteo[cat.key] = {...cat, count:0};
+    conteo[cat.key].count++;
+    const elat = Number(e?.Latitud), elng = Number(e?.Longitud);
+    const dist = (isFinite(elat)&&isFinite(elng)) ? Math.round(haversineMts(lat,lng,elat,elng)) : null;
+    return { nombre:e?.Nombre||e?.Razon_social||"Sin nombre", clase:e?.Clase_actividad||"", icon:cat.icon, dist_m:dist };
+  });
+  const categorias = Object.values(conteo).sort((a,b)=>b.count-a.count);
+  const top = items.filter(i=>i.dist_m!=null).sort((a,b)=>a.dist_m-b.dist_m).slice(0,30);
+  return { total:items.length, radio_m:metros, categorias, top, fuente:"DENUE · INEGI" };
+}
+
 // Genera clave única para un lote: ID Macrolote limpio (sin sufijo -rN interno)
 function loteKey(lote) {
   // El ID interno tiene formato "ML_001-r5" — quitamos el "-rN"
@@ -7630,21 +7667,29 @@ function MacroProMatcher() {
     };
 
     // ══════════════════════════════════════════════════════════════
-    // ── ENTORNO DENUE: consulta establecimientos del INEGI vía Edge Function ──
-    // No se llama a INEGI directo (CORS + token); el proxy es la función
-    // Supabase 'denue-entorno'. Radio en km → metros (DENUE tope 5000 m).
+    // ── ENTORNO DENUE: consulta DIRECTA al API del INEGI desde el navegador ──
+    // El INEGI manda CORS abierto (Access-Control-Allow-Origin:*) → no hace falta
+    // proxy. GET simple (sin cabeceras extra) para no disparar preflight. Radio
+    // en km → metros (tope DENUE 5000 m). Clasificación de categorías en cliente.
     const cargarEntornoDENUE = async (lat, lng, radioKm) => {
       if(!(lat && lng)){ setDenueError("El ancla no tiene coordenadas para consultar el entorno."); return; }
-      if(!window.sb || !window.sb.functions){ setDenueError("Supabase no está disponible en este dispositivo."); return; }
       setDenueLoading(true); setDenueError(""); setDenueData(null);
       try {
-        const radio = Math.min(Math.round((Number(radioKm)||1)*1000), 5000); // metros, tope INEGI
-        const { data, error } = await window.sb.functions.invoke("denue-entorno", { body:{ lat, lng, radio } });
-        if(error) throw new Error(error.message||String(error));
-        if(data && data.error) throw new Error(data.error);
-        setDenueData(data);
+        const metros = Math.min(Math.round((Number(radioKm)||1)*1000), 5000);
+        const url = `https://www.inegi.org.mx/app/api/denue/v1/consulta/buscar/todos/${lat},${lng}/${metros}/${getInegiToken()}`;
+        const r = await fetch(url); // GET simple → request "simple" CORS, sin preflight
+        let arr = null;
+        try { arr = await r.json(); } catch(_) { arr = null; }
+        if(!Array.isArray(arr)){
+          throw new Error("El INEGI no devolvió datos (su API a veces está intermitente). Intenta de nuevo en unos minutos.");
+        }
+        setDenueData(procesarEntornoDENUE(arr, Number(lat), Number(lng), metros));
       } catch(e) {
-        setDenueError(e?.message || String(e));
+        // Si el API está caído, fetch puede fallar por red o por respuesta inválida.
+        const m = e?.message || String(e);
+        setDenueError(/Failed to fetch|NetworkError|Load failed/i.test(m)
+          ? "No se pudo contactar al INEGI (posible API intermitente o sin conexión). Intenta de nuevo en unos minutos."
+          : m);
       } finally {
         setDenueLoading(false);
       }
