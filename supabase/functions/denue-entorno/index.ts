@@ -78,7 +78,7 @@ function dechunk(body: string): string {
   return out;
 }
 
-async function getTlsRaw(host: string, path: string, timeoutMs = 20000): Promise<{ status: number; head: string; body: string }> {
+async function getTlsRaw(host: string, path: string, timeoutMs = 20000): Promise<{ status: number; head: string; body: string; rawLen: number }> {
   const conn = await Deno.connectTls({ hostname: host, port: 443 });
   const killer = setTimeout(() => { try { conn.close(); } catch { /* ya cerrado */ } }, timeoutMs);
   try {
@@ -107,16 +107,41 @@ async function getTlsRaw(host: string, path: string, timeoutMs = 20000): Promise
     for (const c of chunks) { all.set(c, off); off += c.length; }
     const raw = new TextDecoder("utf-8").decode(all);
 
-    const sep = raw.indexOf("\r\n\r\n");
+    // Separador de cabeceras: tolera \r\n\r\n y \n\n (servidores raros).
+    let sep = raw.indexOf("\r\n\r\n"), sepLen = 4;
+    if (sep < 0) { sep = raw.indexOf("\n\n"); sepLen = 2; }
     const head = sep >= 0 ? raw.slice(0, sep) : raw;
-    let bodyStr = sep >= 0 ? raw.slice(sep + 4) : "";
+    let bodyStr = sep >= 0 ? raw.slice(sep + sepLen) : "";
     if (/transfer-encoding:\s*chunked/i.test(head)) bodyStr = dechunk(bodyStr);
     const m = head.match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})/i);
-    return { status: m ? Number(m[1]) : 0, head, body: bodyStr };
+    return { status: m ? Number(m[1]) : 0, head, body: bodyStr, rawLen: total };
   } finally {
     clearTimeout(killer);
     try { conn.close(); } catch { /* puede estar ya cerrado */ }
   }
+}
+
+// Extrae el primer valor JSON (array u objeto) que aparezca en un texto,
+// balanceando corchetes/llaves. Robusto ante basura alrededor del cuerpo.
+function extraerJSON(s: string): unknown {
+  const open = ((): number => {
+    const a = s.indexOf("["), o = s.indexOf("{");
+    if (a < 0) return o; if (o < 0) return a; return Math.min(a, o);
+  })();
+  if (open < 0) return null;
+  const openCh = s[open], closeCh = openCh === "[" ? "]" : "}";
+  let depth = 0, inStr = false, esc = false;
+  for (let i = open; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === openCh) depth++;
+    else if (c === closeCh) { depth--; if (depth === 0) { try { return JSON.parse(s.slice(open, i + 1)); } catch { return null; } } }
+  }
+  return null;
 }
 
 Deno.serve(async (req: Request) => {
@@ -148,22 +173,15 @@ Deno.serve(async (req: Request) => {
       return json({
         debug: true,
         inegi_status: res.status,
+        raw_len: res.rawLen,
         head: res.head.slice(0, 600),
         body_len: res.body.length,
         body_sample: res.body.slice(0, 600),
       });
     }
-    if (res.status && (res.status < 200 || res.status >= 300)) {
-      return json({ error: `INEGI respondió ${res.status}`, detail: res.body.slice(0, 400) }, 502);
-    }
-    // Extraer el array JSON del cuerpo, aunque venga con texto/espacios alrededor.
-    let data: unknown = null;
-    const s = res.body.trim();
-    try { data = JSON.parse(s); }
-    catch {
-      const i = s.indexOf("["), j = s.lastIndexOf("]");
-      if (i >= 0 && j > i) { try { data = JSON.parse(s.slice(i, j + 1)); } catch { /* sigue null */ } }
-    }
+    // Nota: el INEGI manda status "000" (IIS/F5) aunque la respuesta sea válida,
+    // por eso NO bloqueamos por status; nos guiamos por el cuerpo JSON.
+    const data = extraerJSON(res.body);
     // El API devuelve [] (array) o, sin resultados, a veces objeto/cadena vacía.
     arr = Array.isArray(data) ? data : [];
   } catch (e) {
