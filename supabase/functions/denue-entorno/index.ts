@@ -62,15 +62,32 @@ function haversineM(la1: number, lo1: number, la2: number, lo2: number): number 
 // estándar que el cliente `fetch` de Deno (hyper, estricto) rechaza con
 // "invalid HTTP status-code parsed". Aquí leemos los bytes a mano y
 // extraemos el cuerpo después del separador de cabeceras → tolerante.
-async function getTlsRaw(host: string, path: string, timeoutMs = 20000): Promise<{ status: number; body: string }> {
+// Decodifica un cuerpo "Transfer-Encoding: chunked" (hex\r\n datos\r\n … 0\r\n).
+function dechunk(body: string): string {
+  let out = "", i = 0;
+  while (i < body.length) {
+    const nl = body.indexOf("\r\n", i);
+    if (nl < 0) break;
+    const size = parseInt(body.slice(i, nl).trim().split(";")[0], 16);
+    if (isNaN(size)) return body;   // no parece chunked válido → tal cual
+    if (size === 0) break;          // último chunk
+    const start = nl + 2;
+    out += body.slice(start, start + size);
+    i = start + size + 2;           // saltar el \r\n posterior al chunk
+  }
+  return out;
+}
+
+async function getTlsRaw(host: string, path: string, timeoutMs = 20000): Promise<{ status: number; head: string; body: string }> {
   const conn = await Deno.connectTls({ hostname: host, port: 443 });
   const killer = setTimeout(() => { try { conn.close(); } catch { /* ya cerrado */ } }, timeoutMs);
   try {
     const reqLines = [
-      `GET ${path} HTTP/1.0`,                 // 1.0 + Connection: close → respuesta sin "chunked", termina en EOF
+      `GET ${path} HTTP/1.1`,
       `Host: ${host}`,
       `User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36`,
       `Accept: application/json, text/plain, */*`,
+      `Accept-Encoding: identity`,   // pedir sin comprimir (evita gzip)
       `Connection: close`,
       ``, ``,
     ].join("\r\n");
@@ -92,9 +109,10 @@ async function getTlsRaw(host: string, path: string, timeoutMs = 20000): Promise
 
     const sep = raw.indexOf("\r\n\r\n");
     const head = sep >= 0 ? raw.slice(0, sep) : raw;
-    const bodyStr = sep >= 0 ? raw.slice(sep + 4) : "";
+    let bodyStr = sep >= 0 ? raw.slice(sep + 4) : "";
+    if (/transfer-encoding:\s*chunked/i.test(head)) bodyStr = dechunk(bodyStr);
     const m = head.match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})/i);
-    return { status: m ? Number(m[1]) : 0, body: bodyStr };
+    return { status: m ? Number(m[1]) : 0, head, body: bodyStr };
   } finally {
     clearTimeout(killer);
     try { conn.close(); } catch { /* puede estar ya cerrado */ }
@@ -108,7 +126,7 @@ Deno.serve(async (req: Request) => {
   const token = Deno.env.get("INEGI_TOKEN");
   if (!token) return json({ error: "INEGI_TOKEN no configurado en el servidor (supabase secrets set INEGI_TOKEN=...)" }, 500);
 
-  let body: { lat?: number; lng?: number; radio?: number };
+  let body: { lat?: number; lng?: number; radio?: number; debug?: boolean };
   try { body = await req.json(); } catch { return json({ error: "Body JSON inválido" }, 400); }
 
   const lat = Number(body.lat), lng = Number(body.lng);
@@ -125,6 +143,16 @@ Deno.serve(async (req: Request) => {
   let arr: any[];
   try {
     const res = await getTlsRaw(host, path);
+    // Modo diagnóstico: {"...","debug":true} devuelve qué mandó realmente el INEGI.
+    if (body.debug) {
+      return json({
+        debug: true,
+        inegi_status: res.status,
+        head: res.head.slice(0, 600),
+        body_len: res.body.length,
+        body_sample: res.body.slice(0, 600),
+      });
+    }
     if (res.status && (res.status < 200 || res.status >= 300)) {
       return json({ error: `INEGI respondió ${res.status}`, detail: res.body.slice(0, 400) }, 502);
     }
