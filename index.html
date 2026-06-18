@@ -26,6 +26,11 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <!-- Plugin de clusters para agrupar los pines del entorno (DENUE). Opcional:
+       el mapa funciona aunque no cargue (fallback a pines sueltos). -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.0/jspdf.plugin.autotable.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -253,6 +258,15 @@ function scoreEntornoDENUE(conteo, metros){
 }
 function scoreEntornoLabel(s){ return s>=75?"Excelente":s>=55?"Bueno":s>=35?"Regular":"Limitado"; }
 function scoreEntornoColor(s){ return s>=75?"#16a34a":s>=55?"#65a30d":s>=35?"#d97706":"#dc2626"; }
+// Empleados estimados por establecimiento según el "Estrato" del DENUE (rango de
+// personal ocupado, ej. "6 a 10 personas"). Punto medio del rango; "X y más" → X*1.5.
+function estratoEmpleados(estrato){
+  if(!estrato) return 0;
+  const nums = (String(estrato).match(/\d+/g)||[]).map(Number);
+  if(nums.length>=2) return (nums[0]+nums[1])/2;
+  if(nums.length===1) return /m[aá]s/i.test(String(estrato)) ? nums[0]*1.5 : nums[0];
+  return 0;
+}
 // Convierte el array crudo del DENUE en {total, radio_m, categorias, top, puntos, score, fuente}.
 function procesarEntornoDENUE(arr, lat, lng, metros){
   const conteo = {};
@@ -273,7 +287,11 @@ function procesarEntornoDENUE(arr, lat, lng, metros){
   // Puntos con coordenadas para el mapa (tope 400 para no saturar Leaflet).
   const puntos = items.filter(i=>i.lat!=null && i.lng!=null).slice(0,400);
   const score = scoreEntornoDENUE(conteo, metros);
-  return { total:items.length, radio_m:metros, categorias, top, puntos, score, fuente:"DENUE · INEGI" };
+  // Empleo estimado en el radio (proxy de actividad económica / población flotante):
+  // suma de puntos medios de los estratos de personal del DENUE.
+  const conEstrato = items.filter(i=>i.estrato).length;
+  const empleoEstimado = Math.round(items.reduce((a,i)=>a+estratoEmpleados(i.estrato),0));
+  return { total:items.length, radio_m:metros, categorias, top, puntos, score, empleoEstimado, conEstrato, fuente:"DENUE · INEGI" };
 }
 
 // Genera clave única para un lote: ID Macrolote limpio (sin sufijo -rN interno)
@@ -3052,14 +3070,28 @@ function MacroProMatcher() {
           .bindPopup(`<div style="font-family:sans-serif;min-width:170px;padding:2px 0;"><b style="font-size:12px;color:#002B49;">${c.nombre}</b><br><span style="color:#888;font-size:11px;">${c.desarrollador||"—"}</span><br>${popupPm2}<br>${c.area_lote?`<span style="color:#555;font-size:11px;">${Math.round(c.area_lote)} m² prom</span><br>`:""}<span style="color:#999;font-size:10px;">${c.tipo} · ${c.distancia.toFixed(1)} km</span></div>`);
       });
       // ── PINS DE ENTORNO (DENUE · INEGI): puntos pequeños por categoría ──
-      // Van en circleMarker (overlayPane) → quedan POR DEBAJO de los pines de precio.
-      (denuePoints||[]).forEach(p=>{
-        if(p.lat==null||p.lng==null) return;
-        const col = DENUE_CAT_COLOR[p.catKey]||"#94a3b8";
-        window.L.circleMarker([p.lat,p.lng],{radius:4,color:"#fff",weight:1,fillColor:col,fillOpacity:0.9})
-          .addTo(map)
-          .bindPopup(`<div style="font-family:sans-serif;min-width:140px;"><b style="color:#002B49;font-size:12px;">${p.icon||"📍"} ${p.nombre}</b><br><span style="color:#888;font-size:10px;">${p.clase||""}</span>${p.dist_m!=null?`<br><span style="color:#C49A22;font-size:10px;font-weight:700;">${p.dist_m<1000?p.dist_m+" m":(p.dist_m/1000).toFixed(1)+" km"}</span>`:""}</div>`);
-      });
+      // Con muchos puntos se AGRUPAN en clusters (plugin markercluster). Si el plugin
+      // no cargó, fallback a circleMarker sueltos sobre el mapa (la app no se rompe).
+      const pe = (denuePoints||[]).filter(p=>p.lat!=null&&p.lng!=null);
+      if(pe.length>0){
+        const popupDe = (p)=>`<div style="font-family:sans-serif;min-width:140px;"><b style="color:#002B49;font-size:12px;">${p.icon||"📍"} ${p.nombre}</b><br><span style="color:#888;font-size:10px;">${p.clase||""}</span>${p.dist_m!=null?`<br><span style="color:#C49A22;font-size:10px;font-weight:700;">${p.dist_m<1000?p.dist_m+" m":(p.dist_m/1000).toFixed(1)+" km"}</span>`:""}</div>`;
+        const usarCluster = typeof window.L.markerClusterGroup === "function";
+        const layer = usarCluster
+          ? window.L.markerClusterGroup({maxClusterRadius:45, spiderfyOnMaxZoom:true, showCoverageOnHover:false, chunkedLoading:true})
+          : null;
+        pe.forEach(p=>{
+          const col = DENUE_CAT_COLOR[p.catKey]||"#94a3b8";
+          if(usarCluster){
+            // En cluster se requiere un marker con icono (divIcon) para verse como punto de color
+            const dot = window.L.divIcon({className:"", iconSize:[12,12], iconAnchor:[6,6],
+              html:`<div style="width:10px;height:10px;border-radius:50%;background:${col};border:1.5px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,0.3);"></div>`});
+            layer.addLayer(window.L.marker([p.lat,p.lng],{icon:dot}).bindPopup(popupDe(p)));
+          } else {
+            window.L.circleMarker([p.lat,p.lng],{radius:4,color:"#fff",weight:1,fillColor:col,fillOpacity:0.9}).addTo(map).bindPopup(popupDe(p));
+          }
+        });
+        if(usarCluster) map.addLayer(layer);
+      }
       // Encuadrar a todos los terrenos (modo Corretaje) para que se vean todos
       if(terrenosPins.length>1){
         const pts=terrenosPins.filter(t=>t.lat&&t.lng).map(t=>[t.lat,t.lng]);
@@ -7749,7 +7781,9 @@ function MacroProMatcher() {
         Y += 7;
         doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(80,80,80);
         doc.text(`${data.total} establecimientos en el radio`, 14, Y);
-        Y += 6;
+        Y += 5;
+        if(data.empleoEstimado>0){ doc.text(`Empleo estimado en la zona: ~${data.empleoEstimado.toLocaleString("es-MX")} personas`, 14, Y); Y += 5; }
+        Y += 1;
         doc.autoTable({startY:Y, head:[["Categoría","Establecimientos"]], body:(data.categorias||[]).map(c=>[c.label, String(c.count)]),
           theme:"striped", headStyles:{fillColor:[0,43,73]}, styles:{fontSize:9}, margin:{left:14,right:14}});
         Y = doc.lastAutoTable.finalY + 8;
@@ -8146,6 +8180,15 @@ function MacroProMatcher() {
                       <div style={{lineHeight:1.2}}>
                         <div style={{fontSize:10,color:B.grey3,fontWeight:700}}>SCORE DE ENTORNO /100</div>
                         <div style={{fontSize:13,fontWeight:800,color:scoreEntornoColor(denueData.score)}}>{scoreEntornoLabel(denueData.score)}</div>
+                      </div>
+                    </div>
+                  )}
+                  {denueData.total>0 && denueData.empleoEstimado>0 && (
+                    <div title="Empleo estimado sumando los estratos de personal del DENUE. Proxy de actividad económica / población flotante en el radio." style={{display:"flex",alignItems:"center",gap:10,padding:"6px 14px",borderRadius:12,background:B.navy+"0d",border:`1.5px solid ${B.navy}33`}}>
+                      <span style={{fontSize:22}}>👷</span>
+                      <div style={{lineHeight:1.2}}>
+                        <div style={{fontSize:18,fontWeight:800,color:B.navy}}>≈ {denueData.empleoEstimado.toLocaleString("es-MX")}</div>
+                        <div style={{fontSize:10,color:B.grey3,fontWeight:700}}>EMPLEO ESTIMADO EN LA ZONA</div>
                       </div>
                     </div>
                   )}
