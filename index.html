@@ -1758,16 +1758,82 @@ function MacroProMatcher() {
   const [solicitudFiltroPipeline, setSolicitudFiltroPipeline] = React.useState(()=>localStorage.getItem("macropro_solicitud_filtro_pipeline")||"Todos");
   // ─── SOLICITUDES ASESOR · persistencia (local + Supabase POR REGISTRO) ───
   // Sube/baja por `id` (last-write-wins por registro), nunca reemplaza toda la tabla.
+  // Mapea camelCase (app) ↔ snake_case (columnas reales de la tabla). Borrado SUAVE.
+  const numONull = (v)=>{ if(v===""||v==null) return null; const n=Number(v); return isNaN(n)?null:n; };
+  const filaDeSolicitud = (s)=>({
+    id: s.id,
+    pipeline: s.pipeline||"Nueva solicitud",
+    fecha_creacion: s.fechaCreacion||null,
+    fecha_ultima_actividad: s.fechaUltimaActividad||null,
+    asesor_responsable_gg: s.asesorResponsableGG||null,
+    asesor_nombre: s.asesorNombre||null,
+    asesor_telefono: s.asesorTelefono||null,
+    asesor_empresa: s.asesorEmpresa||null,
+    asesor_email: s.asesorEmail||null,
+    cliente_nombre: s.clienteNombre||null,
+    cliente_giro: s.clienteGiro||null,
+    cliente_tipo: s.clienteTipo||null,
+    superficie_min: numONull(s.superficieMin),
+    superficie_max: numONull(s.superficieMax),
+    frente_minimo: numONull(s.frenteMinimo),
+    altura_libre: numONull(s.alturaLibre),
+    uso_suelo: s.usoSuelo||null,
+    estado: s.estado||null,
+    ciudad: s.ciudad||null,
+    precio_maximo: numONull(s.precioMaximo),
+    forma_pago: s.formaPago||null,
+    plazo_decision: s.plazoDecision||null,
+    notas: s.notas||null,
+    historial: s.historial||[],
+    matches_encontrados: s.matchesEncontrados||[],
+    lotes_enviados: s.lotesEnviados||[],
+    lote_match: s.loteMatch||null,
+    convertido_a_prospecto: !!s.convertidoAProspecto,
+    actividades: s.actividades||[],
+    eliminado: false,
+    updated_at: new Date().toISOString()
+  });
+  const solicitudDeFila = (r)=>({
+    id: r.id,
+    pipeline: r.pipeline||"Nueva solicitud",
+    fechaCreacion: r.fecha_creacion||null,
+    fechaUltimaActividad: r.fecha_ultima_actividad||null,
+    asesorResponsableGG: r.asesor_responsable_gg||"",
+    asesorNombre: r.asesor_nombre||"",
+    asesorTelefono: r.asesor_telefono||"",
+    asesorEmpresa: r.asesor_empresa||"",
+    asesorEmail: r.asesor_email||"",
+    clienteNombre: r.cliente_nombre||"",
+    clienteGiro: r.cliente_giro||"",
+    clienteTipo: r.cliente_tipo||"",
+    superficieMin: r.superficie_min==null?"":r.superficie_min,
+    superficieMax: r.superficie_max==null?"":r.superficie_max,
+    frenteMinimo: r.frente_minimo==null?"":r.frente_minimo,
+    alturaLibre: r.altura_libre==null?"":r.altura_libre,
+    usoSuelo: r.uso_suelo||"",
+    estado: r.estado||"",
+    ciudad: r.ciudad||"",
+    precioMaximo: r.precio_maximo==null?"":r.precio_maximo,
+    formaPago: r.forma_pago||"",
+    plazoDecision: r.plazo_decision||"",
+    notas: r.notas||"",
+    historial: r.historial||[],
+    matchesEncontrados: r.matches_encontrados||[],
+    lotesEnviados: r.lotes_enviados||[],
+    loteMatch: r.lote_match||null,
+    convertidoAProspecto: !!r.convertido_a_prospecto,
+    actividades: r.actividades||[]
+  });
   const subirSolicitudCloud = async (sol)=>{
     if(!window.sb || !sol || !sol.id) return;
-    try{ await window.sb.from('solicitudes_asesor').upsert(
-      { id: sol.id, pipeline: sol.pipeline||"Nueva solicitud", datos: sol, actualizado: new Date().toISOString() },
-      { onConflict:'id' }); }
+    try{ await window.sb.from('solicitudes_asesor').upsert(filaDeSolicitud(sol), { onConflict:'id' }); }
     catch(e){ console.warn('subir solicitud:', e&&e.message); }
   };
   const borrarSolicitudCloud = async (id)=>{
     if(!window.sb || !id) return;
-    try{ await window.sb.from('solicitudes_asesor').delete().eq('id', id); }
+    try{ await window.sb.from('solicitudes_asesor')
+      .update({ eliminado:true, fecha_eliminacion:new Date().toISOString(), updated_at:new Date().toISOString() })
+      .eq('id', id); }
     catch(e){ console.warn('borrar solicitud:', e&&e.message); }
   };
   const upsertSolicitud = (sol)=>{
@@ -1796,14 +1862,13 @@ function MacroProMatcher() {
       if(window.sb){
         clearInterval(t);
         try{
-          const r = await window.sb.from('solicitudes_asesor').select('id,pipeline,datos,actualizado');
+          const r = await window.sb.from('solicitudes_asesor').select('*');
           if(!cancel && r && !r.error && Array.isArray(r.data)){
             setSolicitudesAsesor(prev=>{
               const byId={}; (prev||[]).forEach(s=>{ if(s&&s.id) byId[s.id]=s; });
               r.data.forEach(row=>{
-                const d = (row.datos && typeof row.datos==='object') ? row.datos : null;
-                if(d && d.id){ d.pipeline = d.pipeline || row.pipeline || "Nueva solicitud"; byId[d.id]=d; }
-                else if(row.id){ byId[row.id] = { ...(byId[row.id]||{}), id:row.id, pipeline:row.pipeline||"Nueva solicitud" }; }
+                if(!row || !row.id || row.eliminado===true) return;
+                byId[row.id] = solicitudDeFila(row);
               });
               const arr=Object.values(byId);
               saveSolicitudesAsesor(arr); return arr;
