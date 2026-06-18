@@ -399,6 +399,15 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
 .mi-btn-secondary{background:transparent;border:1px solid var(--gold3);border-radius:10px;padding:11px 22px;font-size:13px;color:var(--gold3);cursor:pointer;transition:all .2s;}
 .mi-btn-secondary:hover{background:rgba(200,169,110,.08);}
 .mi-section-sep{font-size:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:2px;margin:22px 0 12px;font-weight:600;border-bottom:1px solid var(--border2);padding-bottom:8px;}
+.ent-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;}
+.ent-card{background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:12px 10px;text-align:center;}
+.ent-ico{font-size:20px;}
+.ent-n{font-size:22px;font-weight:700;font-family:'DM Mono',monospace;color:var(--gold);margin-top:2px;}
+.ent-l{font-size:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:.5px;margin-top:2px;}
+.den-list{display:flex;flex-direction:column;gap:6px;}
+.den-item{display:flex;flex-direction:column;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;}
+.den-name{font-size:12px;font-weight:600;color:var(--text);}
+.den-meta{font-size:10px;color:var(--muted2);margin-top:1px;}
 .res-lbl{font-size:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
 .res-inp{background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:7px 10px;color:var(--text);font-size:13px;width:150px;font-family:'DM Mono',monospace;}
 .res-inp:focus{outline:none;border-color:var(--gold3);}
@@ -1284,6 +1293,19 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
         <div id="mi-buyers-wrap"><p style="color:var(--muted2);font-size:12px;">Calculando...</p></div>
       </div>
 
+      <!-- Entorno e infraestructura (OpenStreetMap) -->
+      <div class="mi-section-sep">📍 Entorno e infraestructura · servicios alrededor del terreno</div>
+      <div class="mi-block" id="mi-entorno-block">
+        <div id="mi-entorno-wrap"><p style="color:var(--muted2);font-size:12px;">Ingresa coordenadas GPS para analizar el entorno.</p></div>
+        <div id="mi-denue-wrap" style="margin-top:18px;"></div>
+      </div>
+
+      <!-- Demografía (INEGI Censo) -->
+      <div class="mi-section-sep">👥 Demografía del municipio · INEGI Censo</div>
+      <div class="mi-block">
+        <div id="mi-demo-wrap"><p style="color:var(--muted2);font-size:12px;">Ingresa coordenadas GPS para ver la demografía.</p></div>
+      </div>
+
       <!-- Valor residual de la tierra -->
       <div class="mi-section-sep">6 · Valor residual de la tierra · El precio defendible por m²</div>
       <div class="mi-block" id="mi-residual-block">
@@ -1758,6 +1780,7 @@ function renderResidual(loteData){
       <div><div class="res-lbl">Utilidad desarrollador %</div><input class="res-inp" type="text" value="${utilidadVal}" onchange="updateRes('utilidad',this.value)"></div>
       ${isEdif?`<div><div class="res-lbl">CUS</div><input class="res-inp" type="text" value="${cusVal}" onchange="updateRes('cus',this.value)"></div>`:''}
       <div><div class="res-lbl">Horizonte (años)</div><input class="res-inp" type="text" value="${(ov.horizonte>0?ov.horizonte:3)}" onchange="updateRes('horizonte',this.value)"></div>
+      <div><div class="res-lbl">Plusvalía/inflación anual %</div><input class="res-inp" type="text" value="${(ov.inflacion>0?ov.inflacion:3.94)}" onchange="updateRes('inflacion',this.value)"></div>
     </div>`;
 
   if(rl.insufficient){
@@ -1910,6 +1933,8 @@ function renderProforma(loteData){
   const fmt = n => '$'+Math.round(n).toLocaleString('es-MX');
   if(!pf){ wrap.innerHTML=''; return; }
   const tirColor = pf.tirPct>=20?'var(--green)':pf.tirPct>=10?'var(--yellow)':'var(--red)';
+  const infl = (loteData._res && loteData._res.inflacion>0) ? loteData._res.inflacion : 3.94; // INPC anual INEGI por defecto
+  const valorFuturo = rl.valorTierra * Math.pow(1+infl/100, pf.horizonte);
 
   const proformaHtml = `
     <div class="mi-block-title" style="margin-top:6px;">Pro forma · caso de inversión (costo de tierra: ${pf.fuenteTierra})</div>
@@ -1918,7 +1943,9 @@ function renderProforma(loteData){
       <div class="pf-kpi"><div class="pf-k-lbl">ROI total</div><div class="pf-k-val">${pf.roiPct.toFixed(0)}%</div></div>
       <div class="pf-kpi"><div class="pf-k-lbl">Margen sobre ventas</div><div class="pf-k-val">${pf.margenPct.toFixed(0)}%</div></div>
       <div class="pf-kpi"><div class="pf-k-lbl">Utilidad estimada</div><div class="pf-k-val">${fmtM(pf.utilidad)}</div></div>
+      <div class="pf-kpi"><div class="pf-k-lbl">Tierra proyectada (${pf.horizonte} a · +${infl}%/año)</div><div class="pf-k-val" style="color:var(--gold2)">${fmtM(valorFuturo)}</div></div>
     </div>
+    <div style="font-size:10px;color:var(--muted2);margin-bottom:10px;">Plusvalía proyectada con inflación de referencia ${infl}% anual (INPC INEGI). Editable arriba.</div>
     <div class="res-wf">
       <div class="res-row"><span>Costo de la tierra (${pf.fuenteTierra})</span><b>${fmtM(pf.costoTierra)}</b></div>
       <div class="res-row"><span>+ ${rl.costoLabel} + costos blandos</span><b>${fmtM(rl.costoBase+rl.costosBlandos)}</b></div>
@@ -1937,6 +1964,222 @@ function renderProforma(loteData){
     <div style="font-size:11px;color:var(--muted2);margin-top:8px;">Muestra qué tan sensible es el valor de la tierra y la utilidad al precio de venta del producto. Útil para defender el precio y manejar objeciones.</div>`;
   }
   wrap.innerHTML = proformaHtml + sensHtml;
+}
+
+// ── ENTORNO E INFRAESTRUCTURA (OpenStreetMap / Overpass) ───────────────────
+// Servicios reales alrededor del terreno (gratis, sin token, CORS abierto).
+// Alimenta la Opinión de Valor (factor Ubicación / plusvalía).
+const ENTORNO_CATS = {
+  educacion:  {label:'Educación',       icon:'🎓'},
+  salud:      {label:'Salud',           icon:'🏥'},
+  comercio:   {label:'Comercio',        icon:'🛒'},
+  alimentos:  {label:'Restaurantes',    icon:'🍴'},
+  finanzas:   {label:'Bancos',          icon:'🏦'},
+  transporte: {label:'Transporte',      icon:'⛽'},
+  recreacion: {label:'Parques/Deporte', icon:'🌳'},
+};
+function classifyOSM(t){
+  const a=t.amenity||'', s=t.shop||'', l=t.leisure||'';
+  if(/^(school|university|kindergarten|college)$/.test(a)) return 'educacion';
+  if(/^(hospital|clinic|pharmacy|doctors|dentist)$/.test(a)) return 'salud';
+  if(s || a==='marketplace') return 'comercio';
+  if(/^(restaurant|cafe|fast_food|bar)$/.test(a)) return 'alimentos';
+  if(/^(bank|atm)$/.test(a)) return 'finanzas';
+  if(/^(fuel|bus_station)$/.test(a)) return 'transporte';
+  if(/^(park|sports_centre|fitness_centre|stadium|pitch)$/.test(l)) return 'recreacion';
+  return null;
+}
+function entornoNivel(total){ return total>=120?'consolidada y de alta actividad':total>=40?'con buena dotación de servicios':total>=10?'en consolidación':'periférica / poco servicio'; }
+async function overpassFetch(q){
+  const eps=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+  let lastErr;
+  for(const ep of eps){
+    try{
+      const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),22000);
+      const res=await fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),signal:ctrl.signal});
+      clearTimeout(t);
+      if(res.ok) return await res.json();
+      lastErr=new Error('Overpass '+res.status);
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr||new Error('Overpass no disponible');
+}
+async function fetchEntorno(lat, lon, radioKm){
+  const R = Math.min(Math.max(radioKm||2,1),5)*1000; // 1–5 km en metros
+  const q = '[out:json][timeout:25];('
+    + 'nwr["amenity"~"school|university|kindergarten|college|hospital|clinic|pharmacy|doctors|dentist|marketplace|restaurant|cafe|fast_food|bar|bank|atm|fuel|bus_station"](around:'+R+','+lat+','+lon+');'
+    + 'nwr["shop"](around:'+R+','+lat+','+lon+');'
+    + 'nwr["leisure"~"park|sports_centre|fitness_centre|stadium|pitch"](around:'+R+','+lat+','+lon+');'
+    + ');out center 500;';
+  const data = await overpassFetch(q);
+  const counts={educacion:0,salud:0,comercio:0,alimentos:0,finanzas:0,transporte:0,recreacion:0};
+  (data.elements||[]).forEach(el=>{ const c=classifyOSM(el.tags||{}); if(c) counts[c]++; });
+  return { radioKm:R/1000, counts, total:Object.values(counts).reduce((a,b)=>a+b,0) };
+}
+async function loadEntorno(loteData){
+  const lat=parseFloat(loteData.lat||0), lon=parseFloat(loteData.long||0);
+  if(!lat||!lon) return null;
+  const e = await fetchEntorno(lat, lon, loteData._radioKm||2);
+  const resumen = Object.keys(ENTORNO_CATS).map(k=>ENTORNO_CATS[k].label+' '+e.counts[k]).join(', ')+' (total '+e.total+') → zona '+entornoNivel(e.total);
+  loteData._entorno = { radio:Math.round(e.radioKm), resumen, counts:e.counts, total:e.total, nivel:entornoNivel(e.total) };
+  return loteData._entorno;
+}
+async function renderEntorno(loteData){
+  const wrap=document.getElementById('mi-entorno-wrap'); if(!wrap) return;
+  const lat=parseFloat(loteData.lat||0), lon=parseFloat(loteData.long||0);
+  if(!lat||!lon){ wrap.innerHTML='<p style="color:var(--muted2);font-size:12px;">Ingresa coordenadas GPS para analizar el entorno.</p>'; return; }
+  wrap.innerHTML='<p style="color:var(--muted2);font-size:12px;">Consultando entorno en OpenStreetMap…</p>';
+  try{
+    const e = await loadEntorno(loteData);
+    const cards = Object.keys(ENTORNO_CATS).map(k=>`<div class="ent-card"><div class="ent-ico">${ENTORNO_CATS[k].icon}</div><div class="ent-n">${e.counts[k]}</div><div class="ent-l">${ENTORNO_CATS[k].label}</div></div>`).join('');
+    wrap.innerHTML = `<div style="font-size:12px;color:var(--muted2);margin-bottom:12px;"><b style="color:var(--text)">${e.total}</b> servicios en ${e.radio} km · zona <b style="color:var(--gold)">${e.nivel}</b></div>`
+      + `<div class="ent-grid">${cards}</div>`
+      + `<div style="font-size:10px;color:var(--muted2);margin-top:10px;">Fuente: OpenStreetMap · este entorno alimenta la Opinión de Valor (factor Ubicación / plusvalía).</div>`;
+  }catch(err){
+    wrap.innerHTML='<p style="color:var(--muted2);font-size:12px;">No se pudo consultar el entorno ('+err.message+'). Reintenta o verifica tu conexión.</p>';
+  }
+}
+
+// ── INEGI DENUE (negocios formales por giro, vía proxy Cloudflare) ─────────
+const DENUE_PROXY = 'https://denue-proxy.sgonzalez98.workers.dev/';
+const DENUE_CATS = {
+  educacion:'Educación', salud:'Salud', alimentos:'Restaurantes/Alimentos',
+  finanzas:'Finanzas', comercio_menor:'Comercio menor', comercio_mayor:'Comercio mayor',
+  servicios:'Servicios', industria:'Industria', otros:'Otros'
+};
+function classifyDenue(clase){
+  const c=(clase||'').toLowerCase();
+  if(/escuela|educaci|preescolar|primaria|secundaria|universidad|bachillerato|jard[ií]n de ni/.test(c)) return 'educacion';
+  if(/m[eé]dic|salud|hospital|cl[ií]nic|farmac|consultorio|dental|dentista|laboratorio/.test(c)) return 'salud';
+  if(/restaurant|preparaci[oó]n de alimentos|cafeter|comida|bar(\b| )|antoj/.test(c)) return 'alimentos';
+  if(/banca|financ|seguro|cr[eé]dito|empe[ñn]|cambio de divisas/.test(c)) return 'finanzas';
+  if(/comercio al por menor/.test(c)) return 'comercio_menor';
+  if(/comercio al por mayor/.test(c)) return 'comercio_mayor';
+  if(/industri|manufactura|fabricaci|elaboraci/.test(c)) return 'industria';
+  if(/servicio|reparaci|profesional|t[eé]cnic/.test(c)) return 'servicios';
+  return 'otros';
+}
+function estratoRank(s){ s=(s||'').toLowerCase(); if(/251/.test(s))return 7; if(/101 a 250/.test(s))return 6; if(/51 a 100/.test(s))return 5; if(/31 a 50/.test(s))return 4; if(/11 a 30/.test(s))return 3; if(/6 a 10/.test(s))return 2; if(/0 a 5/.test(s))return 1; return 0; }
+function distTxt(km){ if(km==null) return ''; return km<1 ? Math.round(km*1000)+' m' : km.toFixed(1)+' km'; }
+async function fetchDenue(lat, lon, radioKm){
+  const dist = Math.min(Math.max(radioKm||2,1)*1000, 2000); // entorno inmediato, máx 2km
+  const r = await fetch(DENUE_PROXY+'?lat='+lat+'&lon='+lon+'&dist='+dist);
+  if(!r.ok) throw new Error('DENUE '+r.status);
+  const arr = await r.json();
+  if(!Array.isArray(arr)) throw new Error(arr && arr.error ? arr.error : 'respuesta inesperada');
+  const counts={}; Object.keys(DENUE_CATS).forEach(k=>counts[k]=0);
+  const items = arr.map(e=>{
+    counts[classifyDenue(e.Clase_actividad)]++;
+    const elat=parseFloat(e.Latitud), elon=parseFloat(e.Longitud);
+    return {
+      nombre:(e.Nombre||'').trim(), clase:(e.Clase_actividad||'').trim(),
+      estrato:(e.Estrato||'').replace(' personas','').trim(), rank:estratoRank(e.Estrato),
+      colonia:(e.Colonia||'').trim(), dist:(elat&&elon)?miDist(lat,lon,elat,elon):null
+    };
+  });
+  // negocios ancla: por tamaño (personal ocupado) y cercanía
+  const destacados = items.filter(x=>x.nombre && !/sin nombre/i.test(x.nombre))
+    .sort((a,b)=> b.rank-a.rank || ((a.dist==null?9:a.dist)-(b.dist==null?9:b.dist))).slice(0,10);
+  // municipio más frecuente entre los establecimientos (para demografía)
+  const muniTally={};
+  arr.forEach(e=>{ const ub=muniNorm(e.Ubicacion); for(const k in MUNI_MAP){ if(ub.includes(k)) muniTally[k]=(muniTally[k]||0)+1; } });
+  const muniKey = Object.keys(muniTally).sort((a,b)=>muniTally[b]-muniTally[a])[0];
+  const muniClave = muniKey ? MUNI_MAP[muniKey] : null;
+  return { dist:dist/1000, total:arr.length, counts, destacados, muniClave };
+}
+async function loadDenue(loteData){
+  const lat=parseFloat(loteData.lat||0), lon=parseFloat(loteData.long||0);
+  if(!lat||!lon) return null;
+  const d = await fetchDenue(lat, lon, loteData._radioKm||2);
+  if(d.muniClave) loteData._muniClave = d.muniClave;
+  const top = Object.keys(DENUE_CATS).map(k=>({k,n:d.counts[k]})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
+  const anclas = d.destacados.slice(0,6).map(x=>x.nombre+(x.estrato?' ('+x.estrato+' pers.)':'')).join('; ');
+  loteData._denue = { dist:d.dist, total:d.total, counts:d.counts, destacados:d.destacados,
+    resumen: top.map(x=>DENUE_CATS[x.k]+' '+x.n).join(', ')+' (total '+d.total+' negocios formales en '+d.dist+'km)'
+      + (anclas ? '. Negocios ancla cercanos: '+anclas : '') };
+  return loteData._denue;
+}
+async function renderDenue(loteData){
+  const wrap=document.getElementById('mi-denue-wrap'); if(!wrap) return;
+  const lat=parseFloat(loteData.lat||0), lon=parseFloat(loteData.long||0);
+  if(!lat||!lon){ wrap.innerHTML=''; return; }
+  wrap.innerHTML='<div style="font-size:12px;color:var(--muted2)">Consultando INEGI DENUE…</div>';
+  try{
+    const d = await loadDenue(loteData);
+    const cards = Object.keys(DENUE_CATS).filter(k=>d.counts[k]>0)
+      .map(k=>`<div class="ent-card"><div class="ent-n">${d.counts[k]}</div><div class="ent-l">${DENUE_CATS[k]}</div></div>`).join('');
+    const lista = d.destacados.map(x=>`<div class="den-item"><span class="den-name">${x.nombre}</span><span class="den-meta">${x.clase}${x.estrato?' · '+x.estrato+' pers.':''}${x.dist!=null?' · '+distTxt(x.dist):''}</span></div>`).join('');
+    wrap.innerHTML = `<div class="mi-block-title" style="margin-top:4px;">🏢 Actividad económica oficial · INEGI DENUE (${d.dist} km)</div>`
+      + `<div style="font-size:12px;color:var(--muted2);margin-bottom:10px;"><b style="color:var(--text)">${d.total}</b> negocios formales registrados alrededor del terreno</div>`
+      + `<div class="ent-grid">${cards}</div>`
+      + (lista ? `<div class="mi-block-title" style="margin-top:16px;">Negocios ancla cercanos (por tamaño)</div><div class="den-list">${lista}</div>` : '')
+      + `<div style="font-size:10px;color:var(--muted2);margin-top:8px;">Fuente: INEGI DENUE · negocios formales por giro y tamaño. Alimenta la Opinión de Valor.</div>`;
+  }catch(err){ wrap.innerHTML='<div style="font-size:12px;color:var(--muted2)">No se pudo consultar INEGI DENUE ('+err.message+'). El proxy o el token pueden estar saturados; reintenta.</div>'; }
+}
+
+// ── DEMOGRAFÍA (INEGI Banco de Indicadores · Censo 2020) ────────────────────
+// IDs seleccionados en el Constructor de INEGI (verifica etiquetas si algún número no cuadra)
+const DEMO_INDS = [
+  { id:'1002000001', label:'Población total' },
+  { id:'1002000010', label:'Edad mediana' },
+  { id:'1003000001', label:'Viviendas habitadas' },
+  { id:'1003000015', label:'Ocupantes por vivienda' },
+  { id:'1005000038', label:'Escolaridad promedio' },
+];
+const DEMO_IDS = DEMO_INDS.map(x=>x.id).join(',');
+function fmtIndicador(v){ const n=parseFloat(v); if(isNaN(n)) return v; return n>=1000 ? Math.round(n).toLocaleString('es-MX') : (Math.round(n*10)/10).toLocaleString('es-MX'); }
+function muniNorm(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim(); }
+const MUNI_MAP = {
+  'guadalajara':'14039','zapopan':'14120','san pedro tlaquepaque':'14098','tlaquepaque':'14098',
+  'tonala':'14101','tlajomulco de zuniga':'14097','tlajomulco':'14097','el salto':'14070','zapotlanejo':'14124',
+  'chapala':'14030','ajijic':'14030','jocotepec':'14051','poncitlan':'14066',
+  'puerto vallarta':'14067','tepatitlan':'14093',
+  'benito juarez':'23005','cancun':'23005','solidaridad':'23008','playa del carmen':'23008',
+  'queretaro':'22014','el marques':'22011','corregidora':'22006'
+};
+const MUNI_NAME = {'14039':'Guadalajara','14120':'Zapopan','14098':'San Pedro Tlaquepaque','14101':'Tonalá','14097':'Tlajomulco de Zúñiga','14070':'El Salto','14124':'Zapotlanejo','14030':'Chapala','14051':'Jocotepec','14066':'Poncitlán','14067':'Puerto Vallarta','14093':'Tepatitlán','23005':'Benito Juárez (Cancún)','23008':'Solidaridad (Playa del Carmen)','22014':'Querétaro','22011':'El Marqués','22006':'Corregidora'};
+function resolveMuni(loteData){
+  if(loteData._muniClave) return loteData._muniClave;
+  const cands=[loteData.ciudad, loteData.colonia, loteData.desarrollo, loteData.nombre, loteData.estado];
+  for(const c of cands){ const n=muniNorm(c); if(!n) continue; for(const k in MUNI_MAP){ if(n.includes(k)) return MUNI_MAP[k]; } }
+  return null;
+}
+async function fetchDemografia(clave){
+  const r = await fetch(DENUE_PROXY+'?ind='+DEMO_IDS+'&area='+encodeURIComponent(clave));
+  if(!r.ok) throw new Error('Indicadores '+r.status);
+  const j = await r.json();
+  const series = (j && j.Series) || [];
+  const byId={}; let anio='';
+  series.forEach(s=>{ const o=s.OBSERVATIONS&&s.OBSERVATIONS[0]; if(o){ byId[s.INDICADOR]=o.OBS_VALUE; anio=o.TIME_PERIOD||anio; } });
+  return { byId, anio, clave };
+}
+async function loadDemografia(loteData){
+  const clave = resolveMuni(loteData);
+  if(!clave) return null;
+  const d = await fetchDemografia(clave);
+  const items = DEMO_INDS.filter(x=>d.byId[x.id]!=null && d.byId[x.id]!=='').map(x=>({label:x.label, val:fmtIndicador(d.byId[x.id])}));
+  const pob = d.byId['1002000001'] ? Math.round(parseFloat(d.byId['1002000001'])) : null;
+  loteData._demo = { anio:d.anio, clave, municipio: MUNI_NAME[clave]||clave, items, poblacion:pob,
+    resumen: 'Municipio '+(MUNI_NAME[clave]||clave)+' (Censo '+d.anio+'): '+items.map(i=>i.label+' '+i.val).join(', ') };
+  return loteData._demo;
+}
+async function renderDemografia(loteData){
+  const wrap=document.getElementById('mi-demo-wrap'); if(!wrap) return;
+  wrap.innerHTML='<div style="font-size:12px;color:var(--muted2)">Consultando INEGI Censo…</div>';
+  // Asegurar municipio: si no se resuelve por ciudad, DENUE lo infiere del GPS.
+  if(!resolveMuni(loteData)){ try{ if(!loteData._denue) await loadDenue(loteData); }catch(e){ console.warn('[demo] loadDenue fallback:', e.message); } }
+  const clave = resolveMuni(loteData);
+  console.log('[demo] municipio clave =', clave, '| _muniClave=', loteData._muniClave, '| ciudad=', loteData.ciudad);
+  if(!clave){ wrap.innerHTML='<div style="font-size:11px;color:var(--muted2);margin-top:8px;">Demografía: no se identificó el municipio de este lote (ciudad: '+(loteData.ciudad||'—')+').</div>'; return; }
+  try{
+    const d = await loadDemografia(loteData);
+    console.log('[demo] datos INEGI:', d);
+    if(!d || !d.items || !d.items.length){ wrap.innerHTML='<div style="font-size:11px;color:var(--muted2);margin-top:8px;">INEGI no devolvió indicadores para '+(MUNI_NAME[clave]||clave)+'. Revisa la consola.</div>'; return; }
+    const cards = d.items.map(i=>`<div class="ent-card"><div class="ent-n">${i.val}</div><div class="ent-l">${i.label}</div></div>`).join('');
+    wrap.innerHTML = `<div class="mi-block-title" style="margin-top:4px;">👥 ${d.municipio} · Censo ${d.anio}</div>`
+      + `<div class="ent-grid">${cards}</div>`
+      + `<div style="font-size:10px;color:var(--muted2);margin-top:8px;">Fuente: INEGI Banco de Indicadores (Censo ${d.anio}) · datos del municipio del terreno. Alimenta la Opinión de Valor.</div>`;
+  }catch(err){ console.error('[demo] error:', err); wrap.innerHTML='<div style="font-size:12px;color:var(--muted2)">No se pudo consultar la demografía ('+err.message+'). Revisa la consola (F12).</div>'; }
 }
 
 function _renderMIContent(loteData){
@@ -1969,6 +2212,11 @@ function _renderMIContent(loteData){
 
   // Mapa: ubicación del lote + pines de competencia cercana
   try { renderMIMap(lat, lon, comps, precioM2, pf, loteData._radioKm||3); } catch(e){ console.warn('mapa MI:', e.message); }
+  // Entorno e infraestructura (OpenStreetMap) — async
+  try { renderEntorno(loteData); } catch(e){ console.warn('entorno MI:', e.message); }
+  // Actividad económica oficial (INEGI DENUE vía proxy) — async
+  // Demografía DESPUÉS de DENUE: DENUE infiere el municipio desde el GPS y lo deja en _muniClave.
+  try { renderDenue(loteData).then(()=>renderDemografia(loteData)).catch(()=>renderDemografia(loteData)); } catch(e){ console.warn('denue/demo MI:', e.message); }
   // Confiabilidad del análisis (qué tan completo está el dato)
   try { renderConfidence(loteData); } catch(e){ console.warn('confidence MI:', e.message); }
   // Mejor uso (corre los 5 escenarios) — debe ir antes del residual para fijar el escenario
@@ -2229,7 +2477,7 @@ async function generateMIOpinionValor(){
       r=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
         headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-        body:JSON.stringify({model:MODEL,max_tokens:1000,messages:[{role:'user',content:prompt}]}),
+        body:JSON.stringify({model:MODEL,max_tokens:1500,messages:[{role:'user',content:prompt}]}),
         signal:controller.signal
       });
       clearTimeout(tid);
@@ -2238,8 +2486,8 @@ async function generateMIOpinionValor(){
     const d=await r.json();
     if(!d.content||!d.content[0]) throw new Error('Respuesta vacia');
     let ov={};
-    try{ov=JSON.parse(d.content[0].text.replace(/```json|```/g,'').trim());}
-    catch(pe){throw new Error('JSON invalido. Intenta de nuevo.');}
+    try{ ov = parseJSON(d.content[0].text); }
+    catch(pe){ console.warn('OV JSON fail:', d.content[0].text.slice(0,200)); throw new Error('JSON invalido. Intenta de nuevo.'); }
 
     const scoreNivel=(ov.score_nivel||'medio').toLowerCase();
     const veredicto=(ov.veredicto||'negociar').toLowerCase();
@@ -3602,6 +3850,9 @@ async function startAnalysis() {
     await delay(10000);
     setStep('valor','active');
     let opinionValor = null;
+    try { if(!loteData._entorno) await loadEntorno(loteData); } catch(e){ console.warn('entorno OV:',e.message); }
+    try { if(!loteData._denue) await loadDenue(loteData); } catch(e){ console.warn('denue OV:',e.message); }
+    try { if(!loteData._demo) await loadDemografia(loteData); } catch(e){ console.warn('demo OV:',e.message); }
     try { opinionValor = await generateOpinionValor(loteData, textDocs); } catch(e) { console.warn('valor:',e.message); }
     setStep('valor','done');
     setStep('matching','active');
@@ -3890,16 +4141,52 @@ function buildOVPrompt(loteData) {
       const base = rl.mode==='edificable'
         ? 'CUS '+rl.cus+' → '+Math.round(rl.m2Vendible).toLocaleString('es-MX')+'m2 vendibles'
         : Math.round(rl.m2Vendible).toLocaleString('es-MX')+'m2 vendibles tras urbanización';
-      mercadoBlock += '\n\nVALOR RESIDUAL CALCULADO (método del desarrollador, ANCLA PRINCIPAL) — escenario '+rl.escenarioLabel+': superficie '
+      mercadoBlock += '\n\nVALOR RESIDUAL CALCULADO (método del desarrollador) — escenario '+rl.escenarioLabel+': superficie '
         + Math.round(rl.sup).toLocaleString('es-MX')+'m2, '+base+', a precio de venta de mercado $'+Math.round(rl.precioVenta).toLocaleString('es-MX')
         + '/m2 → ingresos $'+(rl.ingresos/1e6).toFixed(1)+'M, menos '+rl.costoLabel.toLowerCase()+' $'+(rl.costoBase/1e6).toFixed(1)
         + 'M, costos blandos $'+(rl.costosBlandos/1e6).toFixed(1)+'M y utilidad del desarrollador '+Math.round(rl.utilidadPct*100)+'% ($'+(rl.utilidad/1e6).toFixed(1)+'M) = '
-        + 'la TIERRA vale ~$'+Math.round(rl.valorTierraM2).toLocaleString('es-MX')+'/m2 ($'+(rl.valorTierra/1e6).toFixed(1)+'M total). '
-        + 'USA ESTE VALOR RESIDUAL como ancla de precio_cierre_m2; ajusta solo ±15% por ubicación, servicios y situación legal. '
-        + 'precio_minimo ~10% abajo, precio_lista ~15% arriba del cierre.';
+        + 'la TIERRA vale HASTA ~$'+Math.round(rl.valorTierraM2).toLocaleString('es-MX')+'/m2 ($'+(rl.valorTierra/1e6).toFixed(1)+'M total) para un desarrollador. '
+        + 'IMPORTANTE: este valor residual es el TECHO/valor máximo de la tierra (define el UPSIDE del comprador), NO el precio de compra.';
+      // Reglas de PRECIO DE ADQUISICIÓN (qué conviene PAGAR), ancladas al precio del vendedor
+      const _pvM2 = parseFloat(loteData._precioVendedor||0);
+      if (_pvM2 > 0) {
+        const _ratio = (rl.valorTierraM2/_pvM2);
+        if (rl.valorTierraM2 > _pvM2) {
+          mercadoBlock += '\n\nPRECIO DE ADQUISICIÓN (lo que conviene PAGAR, NO el valor residual): el vendedor pide $'+Math.round(_pvM2).toLocaleString('es-MX')+'/m2. '
+            + 'Como el valor residual es MUY superior (la tierra vale ~'+_ratio.toFixed(1)+'x lo que se pide) → ES UNA COMPRA. REGLA ESTRICTA: '
+            + 'precio_lista_m2 = el precio del vendedor ('+Math.round(_pvM2).toLocaleString('es-MX')+'); '
+            + 'precio_cierre_m2 = IGUAL o LIGERAMENTE POR DEBAJO del precio del vendedor (NUNCA arriba); '
+            + 'precio_minimo_m2 = piso de negociación ~10-15% abajo del vendedor. '
+            + 'NUNCA recomiendes pagar más de lo que pide el vendedor cuando ya es una ganga. '
+            + 'veredicto: comprar. En veredicto_texto resalta el upside (~'+_ratio.toFixed(1)+'x / plusvalía vs valor residual) y comprar al precio del vendedor o negociar a la baja.';
+        } else {
+          mercadoBlock += '\n\nPRECIO DE ADQUISICIÓN: el vendedor pide $'+Math.round(_pvM2).toLocaleString('es-MX')+'/m2, que está POR ENCIMA del valor residual ($'+Math.round(rl.valorTierraM2).toLocaleString('es-MX')+'/m2) → SOBREPRECIO. '
+            + 'precio_cierre_m2 y precio_minimo_m2 deben quedar POR DEBAJO del precio del vendedor, cerca del valor residual; precio_lista_m2 = precio del vendedor. veredicto: negociar a la baja o descartar.';
+        }
+      } else {
+        mercadoBlock += '\n\nPRECIO DE ADQUISICIÓN: sin precio del vendedor capturado. Calibra precio_minimo/cierre/lista al valor de TIERRA BRUTA de mercado de la zona (NO al valor residual, que es el techo del desarrollador).';
+      }
     } else if (rl && rl.insufficient) {
       mercadoBlock += '\n\nNOTA: '+rl.reason+'. Estima el CUS típico de la zona/uso para aproximar el valor residual de la tierra.';
     }
+    // Entorno real (OpenStreetMap) — servicios alrededor del terreno
+    if (loteData._entorno && loteData._entorno.resumen) {
+      mercadoBlock += '\n\nENTORNO REAL (OpenStreetMap, radio '+loteData._entorno.radio+'km): '+loteData._entorno.resumen
+        + '. Usa este entorno para calibrar el factor Ubicación y la plusvalía esperada (más servicios = zona más consolidada y mayor valor).';
+    }
+    // Actividad económica oficial (INEGI DENUE)
+    if (loteData._denue && loteData._denue.resumen) {
+      mercadoBlock += '\n\nACTIVIDAD ECONÓMICA OFICIAL (INEGI DENUE, '+loteData._denue.dist+'km): '+loteData._denue.resumen
+        + '. Más negocios formales registrados = zona más consolidada comercialmente y con mayor plusvalía; refuerza el factor Ubicación.';
+    }
+    // Demografía oficial (INEGI Censo)
+    if (loteData._demo && loteData._demo.resumen) {
+      mercadoBlock += '\n\nDEMOGRAFÍA OFICIAL (INEGI Censo): '+loteData._demo.resumen
+        + '. Considera el tamaño de mercado, perfil socioeconómico y demanda para el escenario de desarrollo.';
+    }
+    // Inflación / plusvalía de referencia (INPC INEGI)
+    const _infl = (loteData._res && loteData._res.inflacion>0) ? loteData._res.inflacion : 3.94;
+    mercadoBlock += '\n\nMACRO: inflación de referencia '+_infl+'% anual (INPC INEGI) para proyectar plusvalía de la tierra a futuro.';
   } catch(e) { console.warn('mercadoCtx OV:', e.message); }
 
   // Precio solicitado por el vendedor (si se capturo aparte del precio_total)
@@ -4234,6 +4521,9 @@ async function runAnalysisWithData(loteData) {
     await delay(10000);
     setStep('valor','active');
     let opinionValor = null;
+    try { if(!loteData._entorno) await loadEntorno(loteData); } catch(e){ console.warn('entorno OV:',e.message); }
+    try { if(!loteData._denue) await loadDenue(loteData); } catch(e){ console.warn('denue OV:',e.message); }
+    try { if(!loteData._demo) await loadDemografia(loteData); } catch(e){ console.warn('demo OV:',e.message); }
     try { opinionValor = await generateOpinionValor(loteData, textDocs); } catch(e) { console.warn('valor:',e.message); }
     setStep('valor','done');
     setStep('matching','active');
@@ -4333,9 +4623,17 @@ function downloadDocChecklist() {
 // Reporte profesional de Opinión de Valor en PDF (vía impresión del navegador).
 // Reúne: datos del lote, confiabilidad, mejor uso, valor residual, comparables,
 // y la Opinión de Valor generada por IA (si existe).
-function downloadOVReport(){
+async function downloadOVReport(){
   const ld = window._lastLoteData || (window._miCtx && window._miCtx.loteData) || {};
   const ov = (window._miCtx && window._miCtx.opinionValor) || null;
+  try {
+    if (parseFloat(ld.lat) && parseFloat(ld.long)) {
+      showToast('📄 Generando reporte completo…','');
+      if (!ld._entorno) await loadEntorno(ld);
+      if (!ld._denue)   await loadDenue(ld);
+      if (!ld._demo)    await loadDemografia(ld);
+    }
+  } catch(e) { console.warn('OVReport preload:', e.message); }
   const mc = computeMarketCtx(ld);
   const rl = computeResidualLand(ld, mc);
   const bu = computeBestUse(ld);
@@ -4409,6 +4707,10 @@ function downloadOVReport(){
   <div class="sec">CONFIABILIDAD DEL ANÁLISIS</div>
   <div class="conf"><div class="big">${conf.score}% · ${conf.nivel}</div><div class="bar"><div></div></div></div>
   ${conf.items.filter(i=>!i.ok).length?`<div class="d">Para mayor exactitud, agrega: ${conf.items.filter(i=>!i.ok).map(i=>i.label).join(', ')}.</div>`:'<div class="d">Datos completos.</div>'}
+
+  ${ld._entorno&&ld._entorno.resumen?`<div class="sec">ENTORNO · OpenStreetMap (${ld._entorno.radio}km)</div><div class="note">${ld._entorno.resumen}</div>`:''}
+  ${ld._denue&&ld._denue.resumen?`<div class="sec">ACTIVIDAD ECONÓMICA · INEGI DENUE (${ld._denue.dist}km)</div><div class="note">${ld._denue.resumen}</div>`:''}
+  ${(ld._demo&&ld._demo.items&&ld._demo.items.length)?`<div class="sec">DEMOGRAFÍA · INEGI Censo · ${ld._demo.municipio}</div><table>${ld._demo.items.map(i=>`<tr><td>${i.label}</td><td style="text-align:right;font-weight:700">${i.val}</td></tr>`).join('')}</table>`:''}
 
   ${(rl&&!rl.insufficient&&rl.valorTierraM2>0)?`
   <div class="sec gold">VALOR RESIDUAL DE LA TIERRA — ${rl.escenarioLabel}</div>
@@ -4519,11 +4821,58 @@ const GG = {
 };
 
 // ── EXPORT PDF ────────────────────────────────────────────────────────────────
-function exportPDF() {
+async function exportPDF() {
   if (!analysisData) { showToast('⚠️ Primero genera el análisis','error'); return; }
   const d = analysisData;
   const l = d.loteData;
   const ov = d.opinionValor;
+
+  // Precargar datos externos (entorno/DENUE/demografía) si aún no están, para que el PDF salga completo
+  try {
+    if (parseFloat(l.lat) && parseFloat(l.long)) {
+      showToast('📄 Generando reporte completo…','');
+      if (!l._entorno) await loadEntorno(l);
+      if (!l._denue)   await loadDenue(l);
+      if (!l._demo)    await loadDemografia(l);
+    }
+  } catch(e) { console.warn('exportPDF preload:', e.message); }
+
+  // ── Inteligencia de mercado para el reporte completo ──
+  const _mc = computeMarketCtx(l);
+  const _rl = computeResidualLand(l, _mc);
+  const _bu = computeBestUse(l);
+  const _pf = (_rl && !_rl.insufficient && _rl.valorTierra>0) ? computeProforma(l, _rl) : null;
+  const _conf = computeConfidence(l);
+  const _fmtM = n => '$'+(n/1e6).toFixed(1)+'M';
+  const _fmt = n => '$'+Math.round(n).toLocaleString('es-MX');
+  const _infl = (l._res && l._res.inflacion>0) ? l._res.inflacion : 3.94;
+  const _confColor = _conf.nivel==='alta'?'#15803d':_conf.nivel==='media'?'#b45309':'#b91c1c';
+  let miHtml = `<div class="stitle">🎯 CONFIABILIDAD DEL ANÁLISIS</div>
+    <div class="snota">Confiabilidad de la OV: <b style="color:${_confColor}">${_conf.score}% (${_conf.nivel})</b>. ${_conf.items.filter(i=>!i.ok).length?'Para mayor exactitud agrega: '+_conf.items.filter(i=>!i.ok).map(i=>i.label).join(', ')+'.':'Datos completos.'}</div>`;
+  if(l._entorno && l._entorno.resumen){
+    miHtml += `<div class="stitle">📍 ENTORNO · OpenStreetMap (${l._entorno.radio}km)</div><div class="snota">${l._entorno.resumen}</div>`;
+  }
+  if(l._denue && l._denue.resumen){
+    miHtml += `<div class="stitle">🏢 ACTIVIDAD ECONÓMICA · INEGI DENUE (${l._denue.dist}km)</div><div class="snota">${l._denue.resumen}</div>`;
+  }
+  if(l._demo && l._demo.items && l._demo.items.length){
+    const demoCards = l._demo.items.map(i=>`<div class="sbox"><div class="lbl">${i.label}</div><div class="val">${i.val}</div></div>`).join('');
+    miHtml += `<div class="stitle">👥 DEMOGRAFÍA · INEGI Censo · ${l._demo.municipio}</div><div class="sgrid" style="grid-template-columns:repeat(5,1fr)">${demoCards}</div>`;
+  }
+  if(_rl && !_rl.insufficient && _rl.valorTierra>0){
+    miHtml += `<div class="stitle">💰 VALOR RESIDUAL DE LA TIERRA · ${_rl.escenarioLabel}</div>
+      <div style="font-size:14px;font-weight:700;color:#002B49;margin:2px 0 5px">${_fmt(_rl.valorTierraM2)}/m² · ${_fmtM(_rl.valorTierra)} total (${Math.round(_rl.sup).toLocaleString('es-MX')} m²)</div>
+      <div class="snota">Ingresos ${_fmtM(_rl.ingresos)} − ${_rl.costoLabel.toLowerCase()} ${_fmtM(_rl.costoBase)} − costos blandos ${_fmtM(_rl.costosBlandos)} − utilidad ${Math.round(_rl.utilidadPct*100)}% (${_fmtM(_rl.utilidad)}) = ${_fmtM(_rl.valorTierra)}.</div>`;
+  }
+  if(_bu && _bu.ok && _bu.ok.length){
+    const buRows = _bu.ok.map((r,i)=>`<tr><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0;${i===0?'font-weight:700;background:#fffbeb':''}">${i===0?'★ ':''}${r.escenarioLabel}${i===0?' — MEJOR USO':''}</td><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0;text-align:right;${i===0?'font-weight:700;background:#fffbeb':''}">${_fmt(r.valorTierraM2)}/m²</td></tr>`).join('');
+    miHtml += `<div class="stitle">🏆 MEJOR USO DEL TERRENO</div><table style="width:100%;border-collapse:collapse;font-size:9px;margin-bottom:8px">${buRows}</table>`;
+  }
+  if(_pf){
+    const _vf = _rl.valorTierra * Math.pow(1+_infl/100, _pf.horizonte);
+    miHtml += `<div class="stitle">📊 PRO FORMA · CASO DE INVERSIÓN (costo tierra: ${_pf.fuenteTierra})</div>
+      <div class="snota">TIR aprox. <b>${_pf.tirPct.toFixed(1)}%</b> (${_pf.horizonte} años) · ROI ${_pf.roiPct.toFixed(0)}% · Margen ${_pf.margenPct.toFixed(0)}% · Utilidad ${_fmtM(_pf.utilidad)}. Inversión total ${_fmtM(_pf.inversionTotal)}, ingresos ${_fmtM(_pf.ingresos)}. Tierra proyectada a ${_pf.horizonte} años (+${_infl}%/año): <b>${_fmtM(_vf)}</b>.</div>`;
+  }
 
   const scoreColor = ov ? (ov.score >= 70 ? '#15803d' : ov.score >= 40 ? '#b45309' : '#b91c1c') : '#64748b';
   const veredictoColor = ov ? (ov.veredicto === 'comprar' ? '#15803d' : ov.veredicto === 'negociar' ? '#b45309' : '#b91c1c') : '#64748b';
@@ -4674,6 +5023,8 @@ body{font-family:'DM Sans',sans-serif;font-size:10px;color:#0f172a;background:#f
   <div class="sbox"><div class="lbl">Precio por m²</div><div class="val">${l.precio_m2||'—'}</div></div>
   <div class="sbox"><div class="lbl">Uso de Suelo</div><div class="val" style="font-size:10px">${l.uso_suelo||'—'}</div></div>
 </div>
+
+${miHtml}
 
 <div class="stitle">🚦 SEMÁFORO DE USO DE SUELO</div>
 <div class="smgrid">
