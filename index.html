@@ -7783,8 +7783,9 @@ function MacroProMatcher() {
       finally { setDenueBLoading(false); }
     };
 
-    // Exporta el análisis de entorno (DENUE) a PDF para presentaciones a cliente.
-    const exportarEntornoPDF = (data, ancla) => {
+    // Exporta el análisis de entorno (DENUE) a PDF listo para cliente. Incluye el
+    // análisis IA de la zona cuando ya se generó (iaTexto).
+    const exportarEntornoPDF = (data, ancla, iaTexto) => {
       if(!data) return;
       try {
         const doc = new jsPDF("p","mm","a4");
@@ -7804,6 +7805,14 @@ function MacroProMatcher() {
         Y += 5;
         if(data.empleoEstimado>0){ doc.text(`Empleo estimado en la zona: ~${data.empleoEstimado.toLocaleString("es-MX")} personas`, 14, Y); Y += 5; }
         Y += 1;
+        // Análisis IA de la zona (si existe y no es un error)
+        if(iaTexto && !/^⚠/.test(iaTexto)){
+          doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(0,43,73);
+          doc.text("Análisis de la zona", 14, Y); Y += 5;
+          doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.setTextColor(60,60,60);
+          const lineas = doc.splitTextToSize(iaTexto, W-28);
+          doc.text(lineas, 14, Y); Y += lineas.length*4.6 + 4;
+        }
         doc.autoTable({startY:Y, head:[["Categoría","Establecimientos"]], body:(data.categorias||[]).map(c=>[c.label, String(c.count)]),
           theme:"striped", headStyles:{fillColor:[0,43,73]}, styles:{fontSize:9}, margin:{left:14,right:14}});
         Y = doc.lastAutoTable.finalY + 8;
@@ -8233,7 +8242,7 @@ Devuelve SOLO el texto (sin markdown, sin títulos), en 2 o 3 párrafos cortos e
               )}
               {denueData && denueData.total>0 && (
                 <button
-                  onClick={()=>exportarEntornoPDF(denueData, anclaCalc)}
+                  onClick={()=>exportarEntornoPDF(denueData, anclaCalc, denueIA)}
                   style={{padding:"8px 14px",borderRadius:9,border:`1.5px solid ${B.navy}`,cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"'DM Sans',sans-serif",background:B.white,color:B.navy}}>
                   📄 Exportar PDF
                 </button>
