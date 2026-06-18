@@ -1532,6 +1532,7 @@ function MacroProMatcher() {
   const [denueData, setDenueData] = useState(null);
   const [denueLoading, setDenueLoading] = useState(false);
   const [denueError, setDenueError] = useState("");
+  const [denueFiltroCat, setDenueFiltroCat] = useState(null); // categoría activa para filtrar mapa+lista
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedLot, setSelectedLot] = useState(null);
   const [matchResults, setMatchResults] = useState(null);
@@ -7708,7 +7709,7 @@ function MacroProMatcher() {
     // en km → metros (tope DENUE 5000 m). Clasificación de categorías en cliente.
     const cargarEntornoDENUE = async (lat, lng, radioKm) => {
       if(!(lat && lng)){ setDenueError("El ancla no tiene coordenadas para consultar el entorno."); return; }
-      setDenueLoading(true); setDenueError(""); setDenueData(null);
+      setDenueLoading(true); setDenueError(""); setDenueData(null); setDenueFiltroCat(null);
       try {
         const metros = Math.min(Math.round((Number(radioKm)||1)*1000), 5000);
         const url = `https://www.inegi.org.mx/app/api/denue/v1/consulta/buscar/todos/${lat},${lng}/${metros}/${getInegiToken()}`;
@@ -8101,7 +8102,7 @@ function MacroProMatcher() {
                 anclas={esCorretaje?terrenos:undefined}
                 competitors={competidoresEnRadio}
                 radio={benchRadio}
-                denuePoints={denueData?.puntos}
+                denuePoints={(denueData?.puntos||[]).filter(p=>!denueFiltroCat||p.catKey===denueFiltroCat)}
               />
             ) : (
               <div style={{textAlign:"center",color:B.grey3,padding:32,fontSize:13}}>Selecciona un desarrollo ancla con coordenadas para ver el mapa.</div>
@@ -8153,23 +8154,42 @@ function MacroProMatcher() {
                   <div style={{color:B.grey3,fontSize:12}}>Sin establecimientos registrados en este radio.</div>
                 ) : (
                   <>
+                    <div style={{fontSize:11,color:B.grey3,marginBottom:8}}>👆 Toca una categoría para ver <b>solo ese rubro</b> en el mapa y en la lista. Tócala de nuevo (o “Ver todos”) para quitar el filtro.</div>
                     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:10,marginBottom:16}}>
-                      {(denueData.categorias||[]).map(cat=>(
-                        <div key={cat.key} title="El color coincide con los puntos en el mapa" style={{background:B.offW,borderRadius:10,padding:"10px 12px",border:`1px solid ${B.grey1}`,borderLeft:`4px solid ${DENUE_CAT_COLOR[cat.key]||"#94a3b8"}`,display:"flex",alignItems:"center",gap:10}}>
+                      {(denueData.categorias||[]).map(cat=>{
+                        const activo = denueFiltroCat===cat.key;
+                        const atenuado = denueFiltroCat && !activo;
+                        const col = DENUE_CAT_COLOR[cat.key]||"#94a3b8";
+                        return (
+                        <div key={cat.key}
+                          onClick={()=>setDenueFiltroCat(activo?null:cat.key)}
+                          title={activo?"Quitar filtro":"Filtrar el mapa y la lista por "+cat.label}
+                          style={{background:activo?col+"18":B.offW,borderRadius:10,padding:"10px 12px",border:`1px solid ${activo?col:B.grey1}`,borderLeft:`4px solid ${col}`,display:"flex",alignItems:"center",gap:10,cursor:"pointer",opacity:atenuado?0.45:1,boxShadow:activo?`0 2px 8px ${col}44`:"none",transition:"opacity .15s, box-shadow .15s"}}>
                           <span style={{fontSize:20}}>{cat.icon}</span>
                           <div style={{lineHeight:1.2}}>
                             <div style={{fontSize:18,fontWeight:800,color:B.navy}}>{cat.count}</div>
                             <div style={{fontSize:11,color:B.grey3}}>{cat.label}</div>
                           </div>
+                          {activo && <span style={{marginLeft:"auto",fontSize:14,color:col,fontWeight:800}}>✓</span>}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
-                    {(denueData.top||[]).length>0 && (
+                    {(()=>{
+                      // Lista: si hay filtro, los más cercanos DE ESE rubro; si no, el top global.
+                      const cercanos = denueFiltroCat
+                        ? (denueData.puntos||[]).filter(e=>e.catKey===denueFiltroCat).sort((a,b)=>(a.dist_m??1e9)-(b.dist_m??1e9)).slice(0,30)
+                        : (denueData.top||[]);
+                      const catLabel = (denueData.categorias||[]).find(c=>c.key===denueFiltroCat)?.label||"";
+                      return cercanos.length>0 ? (
                       <div>
-                        <div style={{fontSize:11,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Más cercanos</div>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                          <span style={{fontSize:11,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1}}>{denueFiltroCat?`Más cercanos · ${catLabel}`:"Más cercanos"}</span>
+                          {denueFiltroCat && <button onClick={()=>setDenueFiltroCat(null)} style={{marginLeft:"auto",padding:"3px 10px",borderRadius:7,border:`1px solid ${B.grey1}`,background:B.white,color:B.navy,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✕ Ver todos</button>}
+                        </div>
                         <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:240,overflowY:"auto"}}>
-                          {denueData.top.map((e,i)=>(
-                            <div key={i} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"5px 8px",borderRadius:7,background:i%2?B.offW:B.white,border:`1px solid ${B.grey1}`}}>
+                          {cercanos.map((e,i)=>(
+                            <div key={i} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"5px 8px",borderRadius:7,background:i%2?B.offW:B.white,border:`1px solid ${B.grey1}`,borderLeft:`3px solid ${DENUE_CAT_COLOR[e.catKey]||B.grey1}`}}>
                               <span>{e.icon}</span>
                               <span style={{fontWeight:600,color:B.navy,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.nombre}</span>
                               <span style={{color:B.grey3,fontSize:10,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.clase}</span>
@@ -8178,8 +8198,9 @@ function MacroProMatcher() {
                           ))}
                         </div>
                       </div>
-                    )}
-                    <div style={{marginTop:12,fontSize:10,color:B.grey3}}>Fuente: {denueData.fuente} · {denueData.total} unidades económicas</div>
+                      ) : null;
+                    })()}
+                    <div style={{marginTop:12,fontSize:10,color:B.grey3}}>Fuente: {denueData.fuente} · {denueData.total} unidades económicas{denueFiltroCat?` · filtrando: ${(denueData.categorias||[]).find(c=>c.key===denueFiltroCat)?.label||""}`:""}</div>
                   </>
                 )}
               </div>
