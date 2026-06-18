@@ -256,6 +256,8 @@ function scoreEntornoDENUE(conteo, metros){
   }
   return Math.round(Math.min(100, s));
 }
+// "PUERTO MORELOS, QUINTANA ROO" → "Puerto Morelos, Quintana Roo"
+function tituloCase(s){ return String(s||"").toLowerCase().replace(/([^\s,]+)/g, w=>w.charAt(0).toUpperCase()+w.slice(1)); }
 function scoreEntornoLabel(s){ return s>=75?"Excelente":s>=55?"Bueno":s>=35?"Regular":"Limitado"; }
 function scoreEntornoColor(s){ return s>=75?"#16a34a":s>=55?"#65a30d":s>=35?"#d97706":"#dc2626"; }
 // Empleados estimados por establecimiento según el "Estrato" del DENUE (rango de
@@ -291,7 +293,17 @@ function procesarEntornoDENUE(arr, lat, lng, metros){
   // suma de puntos medios de los estratos de personal del DENUE.
   const conEstrato = items.filter(i=>i.estrato).length;
   const empleoEstimado = Math.round(items.reduce((a,i)=>a+estratoEmpleados(i.estrato),0));
-  return { total:items.length, radio_m:metros, categorias, top, puntos, score, empleoEstimado, conEstrato, fuente:"DENUE · INEGI" };
+  // Ubicación administrativa dominante (municipio/estado y CP) desde los propios datos DENUE.
+  const ubicCount = {}, cpCount = {};
+  (Array.isArray(arr)?arr:[]).forEach(e=>{
+    const u = (e?.Ubicacion || [e?.Municipio,e?.Estado].filter(Boolean).join(", ") || "").trim();
+    if(u) ubicCount[u] = (ubicCount[u]||0)+1;
+    const cp = String(e?.CP||"").trim();
+    if(/^\d{5}$/.test(cp)) cpCount[cp] = (cpCount[cp]||0)+1;
+  });
+  const ubicacion = tituloCase(Object.keys(ubicCount).sort((a,b)=>ubicCount[b]-ubicCount[a])[0] || "");
+  const cp = Object.keys(cpCount).sort((a,b)=>cpCount[b]-cpCount[a])[0] || "";
+  return { total:items.length, radio_m:metros, categorias, top, puntos, score, empleoEstimado, conEstrato, ubicacion, cp, fuente:"DENUE · INEGI" };
 }
 
 // Genera clave única para un lote: ID Macrolote limpio (sin sufijo -rN interno)
@@ -7796,6 +7808,7 @@ function MacroProMatcher() {
         doc.setTextColor(255,255,255); doc.setFont("helvetica","normal"); doc.setFontSize(10);
         doc.text(`${ancla?.nombre||"Ancla"}  ·  radio ${Math.round((data.radio_m||0)/100)/10} km  ·  DENUE · INEGI`, 14, 19);
         let Y = 38;
+        if(data.ubicacion){ doc.setTextColor(120,120,120); doc.setFontSize(10); doc.text(`Zona: ${data.ubicacion}${data.cp?` · CP ${data.cp}`:""}`, 14, Y); Y += 6; }
         doc.setTextColor(...(()=>{const c=scoreEntornoColor(data.score); return [parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)];})());
         doc.setFont("helvetica","bold"); doc.setFontSize(14);
         doc.text(`Score de entorno: ${data.score}/100  (${scoreEntornoLabel(data.score)})`, 14, Y);
@@ -8256,6 +8269,11 @@ Devuelve SOLO el texto (sin markdown, sin títulos), en 2 o 3 párrafos cortos e
             )}
             {denueData && (
               <div>
+                {denueData.ubicacion && (
+                  <div style={{display:"inline-flex",alignItems:"center",gap:6,marginBottom:10,padding:"5px 12px",borderRadius:20,background:B.offW,border:`1px solid ${B.grey1}`,fontSize:12,color:B.navy,fontWeight:700}}>
+                    📍 Zona: {denueData.ubicacion}{denueData.cp?<span style={{color:B.grey3,fontWeight:600}}> · CP {denueData.cp}</span>:null}
+                  </div>
+                )}
                 <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:14,flexWrap:"wrap"}}>
                   <div style={{display:"flex",alignItems:"baseline",gap:8}}>
                     <span style={{fontSize:24,fontWeight:800,color:B.gold,fontFamily:"'Playfair Display',serif"}}>{denueData.total}</span>
