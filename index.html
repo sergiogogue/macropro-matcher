@@ -260,9 +260,13 @@ function procesarEntornoDENUE(arr, lat, lng, metros){
     const cat = clasificarDENUE(e?.Clase_actividad || e?.Clase || "");
     if(!conteo[cat.key]) conteo[cat.key] = {...cat, count:0};
     conteo[cat.key].count++;
-    const elat = Number(e?.Latitud), elng = Number(e?.Longitud);
-    const dist = (isFinite(elat)&&isFinite(elng)) ? Math.round(haversineMts(lat,lng,elat,elng)) : null;
-    return { nombre:e?.Nombre||e?.Razon_social||"Sin nombre", clase:e?.Clase_actividad||"", icon:cat.icon, catKey:cat.key, dist_m:dist, lat:isFinite(elat)?elat:null, lng:isFinite(elng)?elng:null, estrato:e?.Estrato||e?.Personal||"" };
+    const rawLat=e?.Latitud, rawLng=e?.Longitud;
+    const elat = Number(rawLat), elng = Number(rawLng);
+    // Coords válidas: no vacías, finitas y no (0,0). Number("")===0 → un establecimiento
+    // sin coordenadas dejaría un pin falso en el Golfo de Guinea (0,0) y distancia errónea.
+    const coordOk = rawLat!=null && rawLat!=="" && rawLng!=null && rawLng!=="" && isFinite(elat) && isFinite(elng) && (elat!==0 || elng!==0);
+    const dist = coordOk ? Math.round(haversineMts(lat,lng,elat,elng)) : null;
+    return { nombre:e?.Nombre||e?.Razon_social||"Sin nombre", clase:e?.Clase_actividad||"", icon:cat.icon, catKey:cat.key, dist_m:dist, lat:coordOk?elat:null, lng:coordOk?elng:null, estrato:e?.Estrato||e?.Personal||"" };
   });
   const categorias = Object.values(conteo).sort((a,b)=>b.count-a.count);
   const top = items.filter(i=>i.dist_m!=null).sort((a,b)=>a.dist_m-b.dist_m).slice(0,30);
