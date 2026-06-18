@@ -3027,7 +3027,7 @@ function MacroProMatcher() {
       const map = window.L.map(mapRef.current,{zoomControl:true}).setView([ancla.lat,ancla.lng],11);
       window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap",maxZoom:18}).addTo(map);
       // Círculo de radio punteado
-      window.L.circle([ancla.lat,ancla.lng],{radius:radio*1000,color:"#C49A22",weight:2,dashArray:"8 5",fillColor:"#C49A22",fillOpacity:0.07}).addTo(map);
+      const radioCircle = window.L.circle([ancla.lat,ancla.lng],{radius:radio*1000,color:"#C49A22",weight:2,dashArray:"8 5",fillColor:"#C49A22",fillOpacity:0.07}).addTo(map);
       // Precio corto legible en pins
       const fmtPin=(v)=>v>=1000000?`$${(v/1000000).toFixed(1)}M`:v>=1000?`$${Math.round(v/1000)}k`:`$${v}`;
       // ── PIN ANCLA (badge dorado con punta) ──
@@ -3109,12 +3109,13 @@ function MacroProMatcher() {
         });
         if(usarCluster) map.addLayer(layer);
       }
-      // Encuadrar a todos los terrenos (modo Corretaje) para que se vean todos
-      if(terrenosPins.length>1){
-        const pts=terrenosPins.filter(t=>t.lat&&t.lng).map(t=>[t.lat,t.lng]);
-        (competitors||[]).forEach(c=>{ if(c.lat&&c.lng) pts.push([c.lat,c.lng]); });
-        if(pts.length>1){ try{ map.fitBounds(window.L.latLngBounds(pts).pad(0.15)); }catch(e){} }
-      }
+      // Enfocar SIEMPRE el terreno seleccionado y su radio de análisis, NO la
+      // cartera dispersa: en Corretaje los terrenos están por todo el país y un
+      // fitBounds sobre todos abría el mapa a toda la república. Encuadramos el
+      // círculo de radio alrededor del terreno (competidores/DENUE caen dentro).
+      try{
+        map.fitBounds(radioCircle.getBounds(), {padding:[20,20]});
+      }catch(e){ map.setView([ancla.lat,ancla.lng], 13); }
       leafRef.current = map;
       // Force Leaflet to recalculate size after render
       setTimeout(()=>{ if(leafRef.current) leafRef.current.invalidateSize(); }, 100);
