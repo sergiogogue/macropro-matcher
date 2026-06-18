@@ -1551,6 +1551,8 @@ function MacroProMatcher() {
   const [denueLoading, setDenueLoading] = useState(false);
   const [denueError, setDenueError] = useState("");
   const [denueFiltroCat, setDenueFiltroCat] = useState(null); // categoría activa para filtrar mapa+lista
+  const [denueIA, setDenueIA] = useState("");                 // texto del análisis IA del entorno
+  const [denueIALoading, setDenueIALoading] = useState(false);
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedLot, setSelectedLot] = useState(null);
   const [matchResults, setMatchResults] = useState(null);
@@ -7741,7 +7743,7 @@ function MacroProMatcher() {
     // en km → metros (tope DENUE 5000 m). Clasificación de categorías en cliente.
     const cargarEntornoDENUE = async (lat, lng, radioKm) => {
       if(!(lat && lng)){ setDenueError("El ancla no tiene coordenadas para consultar el entorno."); return; }
-      setDenueLoading(true); setDenueError(""); setDenueData(null); setDenueFiltroCat(null);
+      setDenueLoading(true); setDenueError(""); setDenueData(null); setDenueFiltroCat(null); setDenueIA("");
       try {
         const metros = Math.min(Math.round((Number(radioKm)||1)*1000), 5000);
         const url = `https://www.inegi.org.mx/app/api/denue/v1/consulta/buscar/todos/${lat},${lng}/${metros}/${getInegiToken()}`;
@@ -7799,6 +7801,40 @@ function MacroProMatcher() {
       } catch(e) { alert("No se pudo exportar el PDF: "+(e?.message||e)); }
     };
 
+    // Genera con IA un análisis de ubicación (perfil de zona) para vender el desarrollo,
+    // a partir del entorno DENUE ya consultado. Reusa la API key de la app.
+    const analizarEntornoIA = async (data, ancla) => {
+      if(!data) return;
+      const _k = localStorage.getItem("macropro_api_key");
+      if(!_k){ setShowApiModal(true); return; }
+      setDenueIALoading(true); setDenueIA("");
+      try {
+        const cats = (data.categorias||[]).map(c=>`${c.label}: ${c.count}`).join(", ");
+        const cercanos = (data.top||[]).slice(0,12).map(e=>`${e.nombre} (${e.clase}${e.dist_m!=null?`, ${e.dist_m<1000?e.dist_m+"m":(e.dist_m/1000).toFixed(1)+"km"}`:""})`).join("; ");
+        const radioKm = Math.round((data.radio_m||0)/100)/10;
+        const prompt = `Eres un asesor inmobiliario experto en México. Con base SOLO en estos datos del entorno (DENUE · INEGI) alrededor del desarrollo "${ancla?.nombre||"el desarrollo"}", redacta un análisis de ubicación PERSUASIVO y profesional para presentar a un comprador. No inventes datos que no estén aquí.
+
+ENTORNO (radio ${radioKm} km):
+- Score de entorno: ${data.score}/100 (${scoreEntornoLabel(data.score)})
+- Total de establecimientos: ${data.total}
+- Empleo estimado en la zona: ${data.empleoEstimado||0} personas
+- Por categoría: ${cats}
+- Algunos establecimientos cercanos: ${cercanos}
+
+Devuelve SOLO el texto (sin markdown, sin títulos), en 2 o 3 párrafos cortos en español:
+1) Qué tipo de zona es y su nivel de servicios/consolidación.
+2) Beneficios concretos para vivir o invertir (plusvalía, comodidad, conveniencia).
+3) Un cierre breve orientado a la venta.`;
+        const response = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":_k,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1200,messages:[{role:"user",content:prompt}]})});
+        if(!response.ok){ const t=await response.text(); if(response.status===401){localStorage.removeItem("macropro_api_key");throw new Error("API Key inválida. Recarga e ingresa tu key.");} if(response.status===429) throw new Error("Demasiadas solicitudes, intenta en un momento."); throw new Error("Error HTTP "+response.status); }
+        const d = await response.json();
+        if(d.error) throw new Error(d.error.message||"Error IA");
+        const txt = (d.content?.find(b=>b.type==="text")?.text||"").trim();
+        setDenueIA(txt||"No se obtuvo análisis.");
+      } catch(e) { setDenueIA("⚠ "+(e?.message||e)); }
+      finally { setDenueIALoading(false); }
+    };
+
     // VISTA "📊 BENCHMARK" — Inteligencia competitiva por radio
     // ══════════════════════════════════════════════════════════════
     const VistaBenchmark = () => {
@@ -7854,16 +7890,32 @@ function MacroProMatcher() {
       const anclaKeyFromFilter = filterDesarrolloGlobal!=="Todos"
         ? desarrollosConCoords.find(d=>d.nombre===filterDesarrolloGlobal)?.nombre||""
         : "";
-      const anclaKey = benchDesarrolloAncla || anclaKeyFromFilter || (desarrollosConCoords[0]?.nombre||"");
+      // Si hay EMPRESA filtrada (ej. Corretaje) y no se fijó un desarrollo, el ancla por
+      // defecto cae en un desarrollo de esa empresa (no en el primero alfabético).
+      const anclaKeyFromCompania = (filterDevCompania && filterDevCompania!=="Todos")
+        ? (desarrollosConCoords.find(d=>inferirDesarrollador(d.nombre)===filterDevCompania)?.nombre||"")
+        : "";
+      const anclaKey = benchDesarrolloAncla || anclaKeyFromFilter || anclaKeyFromCompania || (desarrollosConCoords[0]?.nombre||"");
       const ancla = desarrollosConCoords.find(d=>d.nombre===anclaKey) || desarrollosConCoords[0];
       // ── MODO CORRETAJE: terrenos dispersos (coordenada por terreno) ──
-      // Si el desarrollo ancla es tipo Corretaje, se trabajan sus terrenos individuales.
-      const anclaLots = inventory.filter(l=>(l.desarrollo||"")===anclaKey && l.lat && l.lng);
+      // Cartera por empresa: si NO se fijó un desarrollo concreto y hay empresa filtrada,
+      // se agrupan TODOS los terrenos de esa empresa (toda la cartera de corretaje), no
+      // solo los del desarrollo ancla. Así ves todas tus opciones en el mapa + menú.
+      const usarCarteraEmpresa = !benchDesarrolloAncla && filterDesarrolloGlobal==="Todos" && filterDevCompania && filterDevCompania!=="Todos";
+      const anclaLots = usarCarteraEmpresa
+        ? inventory.filter(l=>l.lat && l.lng && inferirDesarrollador(l.desarrollador||l.desarrollo)===filterDevCompania)
+        : inventory.filter(l=>(l.desarrollo||"")===anclaKey && l.lat && l.lng);
       const esCorretaje = anclaLots.length>0 && anclaLots.filter(l=>(l.tipo||"").toLowerCase()==="corretaje").length*2 >= anclaLots.length;
       const terrenos = esCorretaje ? anclaLots.map(l=>({id:loteKey(l), nombre:l.nombre||l.id, lat:l.lat, lng:l.lng, pm2_ancla:Number(l.precio_m2)||0})) : [];
       const terrenoFoco = esCorretaje ? (terrenos.find(t=>t.id===benchTerrenoFocus)||null) : null;
-      // Punto base para KPIs/mapa: terreno enfocado, o el ancla (mediana) normal
-      const anclaCalc = terrenoFoco ? {nombre:terrenoFoco.nombre, lat:terrenoFoco.lat, lng:terrenoFoco.lng, pm2_ancla:terrenoFoco.pm2_ancla} : ancla;
+      // Punto base para KPIs/mapa: terreno enfocado, o centro de la cartera (mediana de
+      // todos los terrenos) en modo empresa, o el ancla (mediana) normal.
+      const pm2sTerr = terrenos.filter(t=>t.pm2_ancla>0).map(t=>t.pm2_ancla);
+      const anclaCalc = terrenoFoco
+        ? {nombre:terrenoFoco.nombre, lat:terrenoFoco.lat, lng:terrenoFoco.lng, pm2_ancla:terrenoFoco.pm2_ancla}
+        : (usarCarteraEmpresa && terrenos.length>0
+            ? {nombre:filterDevCompania, lat:mediana(terrenos.map(t=>t.lat)), lng:mediana(terrenos.map(t=>t.lng)), pm2_ancla: pm2sTerr.length? pm2sTerr.reduce((a,b)=>a+b,0)/pm2sTerr.length : 0}
+            : ancla);
       // Distancia: al terreno enfocado/ancla; en Corretaje "Todos" = distancia al terreno MÁS cercano
       const distAncla = (c)=> (esCorretaje && !terrenoFoco && terrenos.length>0)
         ? Math.min.apply(null, terrenos.map(t=>haversineKm(t.lat,t.lng,c.lat,c.lng)))
@@ -8155,6 +8207,14 @@ function MacroProMatcher() {
               </button>
               {denueData && denueData.total>0 && (
                 <button
+                  onClick={()=>analizarEntornoIA(denueData, anclaCalc)}
+                  disabled={denueIALoading}
+                  style={{padding:"8px 14px",borderRadius:9,border:"none",cursor:denueIALoading?"wait":"pointer",fontWeight:700,fontSize:12,fontFamily:"'DM Sans',sans-serif",background:B.navy,color:"#fff"}}>
+                  {denueIALoading?"🤖 Analizando…":"🤖 Análisis IA"}
+                </button>
+              )}
+              {denueData && denueData.total>0 && (
+                <button
                   onClick={()=>exportarEntornoPDF(denueData, anclaCalc)}
                   style={{padding:"8px 14px",borderRadius:9,border:`1.5px solid ${B.navy}`,cursor:"pointer",fontWeight:700,fontSize:12,fontFamily:"'DM Sans',sans-serif",background:B.white,color:B.navy}}>
                   📄 Exportar PDF
@@ -8193,6 +8253,17 @@ function MacroProMatcher() {
                     </div>
                   )}
                 </div>
+                {(denueIALoading || denueIA) && (
+                  <div style={{background:`linear-gradient(135deg,${B.navy}08,${B.white})`,border:`1px solid ${B.navy}22`,borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                      <span style={{fontSize:13,fontWeight:800,color:B.navy}}>🤖 Análisis IA de la ubicación</span>
+                      {denueIA && !denueIALoading && <button onClick={()=>{try{navigator.clipboard.writeText(denueIA);toast&&toast("📋 Copiado");}catch(_){}}} style={{marginLeft:"auto",padding:"3px 10px",borderRadius:7,border:`1px solid ${B.grey1}`,background:B.white,color:B.navy,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📋 Copiar</button>}
+                    </div>
+                    {denueIALoading
+                      ? <div style={{color:B.grey3,fontSize:12}}>Generando análisis de la zona con IA…</div>
+                      : <div style={{fontSize:13,color:B.navy,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{denueIA}</div>}
+                  </div>
+                )}
                 {denueData.total===0 ? (
                   <div style={{color:B.grey3,fontSize:12}}>Sin establecimientos registrados en este radio.</div>
                 ) : (
