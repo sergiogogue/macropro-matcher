@@ -1553,6 +1553,9 @@ function MacroProMatcher() {
   const [denueFiltroCat, setDenueFiltroCat] = useState(null); // categoría activa para filtrar mapa+lista
   const [denueIA, setDenueIA] = useState("");                 // texto del análisis IA del entorno
   const [denueIALoading, setDenueIALoading] = useState(false);
+  const [denueB, setDenueB] = useState(null);                 // entorno del 2º desarrollo (comparar)
+  const [denueBNombre, setDenueBNombre] = useState("");
+  const [denueBLoading, setDenueBLoading] = useState(false);
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedLot, setSelectedLot] = useState(null);
   const [matchResults, setMatchResults] = useState(null);
@@ -7741,19 +7744,24 @@ function MacroProMatcher() {
     // El INEGI manda CORS abierto (Access-Control-Allow-Origin:*) → no hace falta
     // proxy. GET simple (sin cabeceras extra) para no disparar preflight. Radio
     // en km → metros (tope DENUE 5000 m). Clasificación de categorías en cliente.
+    // Núcleo reutilizable: consulta el DENUE y devuelve los datos procesados (o lanza).
+    const consultarDENUE = async (lat, lng, radioKm) => {
+      const metros = Math.min(Math.round((Number(radioKm)||1)*1000), 5000);
+      const url = `https://www.inegi.org.mx/app/api/denue/v1/consulta/buscar/todos/${lat},${lng}/${metros}/${getInegiToken()}`;
+      const r = await fetch(url); // GET simple → request "simple" CORS, sin preflight
+      let arr = null;
+      try { arr = await r.json(); } catch(_) { arr = null; }
+      if(!Array.isArray(arr)){
+        throw new Error("El INEGI no devolvió datos (su API a veces está intermitente). Intenta de nuevo en unos minutos.");
+      }
+      return procesarEntornoDENUE(arr, Number(lat), Number(lng), metros);
+    };
+
     const cargarEntornoDENUE = async (lat, lng, radioKm) => {
       if(!(lat && lng)){ setDenueError("El ancla no tiene coordenadas para consultar el entorno."); return; }
-      setDenueLoading(true); setDenueError(""); setDenueData(null); setDenueFiltroCat(null); setDenueIA("");
+      setDenueLoading(true); setDenueError(""); setDenueData(null); setDenueFiltroCat(null); setDenueIA(""); setDenueB(null); setDenueBNombre("");
       try {
-        const metros = Math.min(Math.round((Number(radioKm)||1)*1000), 5000);
-        const url = `https://www.inegi.org.mx/app/api/denue/v1/consulta/buscar/todos/${lat},${lng}/${metros}/${getInegiToken()}`;
-        const r = await fetch(url); // GET simple → request "simple" CORS, sin preflight
-        let arr = null;
-        try { arr = await r.json(); } catch(_) { arr = null; }
-        if(!Array.isArray(arr)){
-          throw new Error("El INEGI no devolvió datos (su API a veces está intermitente). Intenta de nuevo en unos minutos.");
-        }
-        setDenueData(procesarEntornoDENUE(arr, Number(lat), Number(lng), metros));
+        setDenueData(await consultarDENUE(lat, lng, radioKm));
       } catch(e) {
         // Si el API está caído, fetch puede fallar por red o por respuesta inválida.
         const m = e?.message || String(e);
@@ -7763,6 +7771,16 @@ function MacroProMatcher() {
       } finally {
         setDenueLoading(false);
       }
+    };
+
+    // Compara: consulta el entorno de un 2º desarrollo y lo guarda para mostrarlo lado a lado.
+    const compararEntornoDENUE = async (nombre, lat, lng, radioKm) => {
+      if(!nombre){ setDenueB(null); setDenueBNombre(""); return; }
+      if(!(lat && lng)){ alert("Ese desarrollo no tiene coordenadas para comparar."); return; }
+      setDenueBLoading(true); setDenueBNombre(nombre);
+      try { setDenueB(await consultarDENUE(lat, lng, radioKm)); }
+      catch(e){ setDenueB(null); alert("No se pudo comparar el entorno: "+(e?.message||e)); }
+      finally { setDenueBLoading(false); }
     };
 
     // Exporta el análisis de entorno (DENUE) a PDF para presentaciones a cliente.
@@ -8262,6 +8280,38 @@ Devuelve SOLO el texto (sin markdown, sin títulos), en 2 o 3 párrafos cortos e
                     {denueIALoading
                       ? <div style={{color:B.grey3,fontSize:12}}>Generando análisis de la zona con IA…</div>
                       : <div style={{fontSize:13,color:B.navy,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{denueIA}</div>}
+                  </div>
+                )}
+                {denueData.total>0 && (
+                  <div style={{marginBottom:14}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+                      <span style={{fontSize:12,fontWeight:700,color:B.navy}}>🆚 Comparar entorno con:</span>
+                      <select value={denueBNombre} onChange={e=>{const n=e.target.value; if(!n){setDenueB(null);setDenueBNombre("");return;} const co=getCoordDesarrollo(n); compararEntornoDENUE(n, co?.lat, co?.lng, benchRadio);}} style={{...s.select,minWidth:220}}>
+                        <option value="">— Selecciona un 2º desarrollo —</option>
+                        {desarrollosConCoords.filter(d=>d.nombre!==(anclaCalc?.nombre)).map(d=><option key={d.nombre} value={d.nombre}>{d.nombre}</option>)}
+                      </select>
+                      {denueBLoading && <span style={{fontSize:11,color:B.grey3}}>Consultando INEGI…</span>}
+                    </div>
+                    {denueB && (
+                      <>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                          {[{n:anclaCalc?.nombre||"Ancla",d:denueData},{n:denueBNombre,d:denueB}].map((col,i)=>{
+                            const gana = denueData.score!==denueB.score && col.d.score===Math.max(denueData.score,denueB.score);
+                            return (
+                            <div key={i} style={{border:`${gana?2:1}px solid ${gana?scoreEntornoColor(col.d.score):B.grey1}`,borderRadius:10,padding:"10px 12px",background:gana?scoreEntornoColor(col.d.score)+"0d":B.offW}}>
+                              <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{gana?"🏆 ":""}{col.n}</div>
+                              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                                <div><div style={{fontSize:20,fontWeight:800,color:scoreEntornoColor(col.d.score)}}>{col.d.score}</div><div style={{fontSize:9,color:B.grey3,fontWeight:700}}>SCORE</div></div>
+                                <div><div style={{fontSize:20,fontWeight:800,color:B.navy}}>{col.d.total}</div><div style={{fontSize:9,color:B.grey3,fontWeight:700}}>ESTABL.</div></div>
+                                <div><div style={{fontSize:20,fontWeight:800,color:B.navy}}>{(col.d.empleoEstimado||0).toLocaleString("es-MX")}</div><div style={{fontSize:9,color:B.grey3,fontWeight:700}}>EMPLEO EST.</div></div>
+                              </div>
+                            </div>
+                            );
+                          })}
+                        </div>
+                        <div style={{fontSize:10,color:B.grey3,marginTop:6}}>Ambos en radio de {Math.min(benchRadio,5)} km · DENUE · INEGI</div>
+                      </>
+                    )}
                   </div>
                 )}
                 {denueData.total===0 ? (
