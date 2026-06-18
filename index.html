@@ -619,12 +619,12 @@ function buscarMatchesParaSolicitud(solicitud, inventory){
   const norm=(s)=>s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   return inventory.map(lot=>{
     if(!lot) return null;
-    const sup=parseFloat(lot.superficie)||0;
-    const frente=parseFloat(lot.frente)||0;
+    const sup=parseFloat(lot.sup_m2||lot.superficie)||0;
+    const frente=parseFloat(lot.frente||lot.frente_m)||0;
     const precio=parseFloat(lot.precio_total)||0;
     const lotEstado=(lot.estado||"").trim().toLowerCase();
     const lotCiudad=(lot.ciudad||"").trim().toLowerCase();
-    const lotUso=(lot.uso_suelo||"").trim().toLowerCase();
+    const lotUso=(lot.uso||lot.uso_suelo||"").trim().toLowerCase();
     let score=0; let razones=[]; let descalificadores=[];
     if(supMin>0&&sup<supMin) descalificadores.push(`Superficie ${sup}m² < mínimo ${supMin}m²`);
     else if(sup>=supMin){score+=20;razones.push(`Superficie ${sup}m² ✓`);}
@@ -1737,7 +1737,7 @@ function MacroProMatcher() {
   const [ejecFiltroEtapa, setEjecFiltroEtapa] = React.useState(()=>localStorage.getItem("macropro_ejec_filtro_etapa")||"Todos");
   const [showPDFModal, setShowPDFModal] = React.useState(false);
   const [pdfGenerando, setPdfGenerando] = React.useState(false);
-  const [solicitudesAsesor] = React.useState([]);
+  const [solicitudesAsesor, setSolicitudesAsesor] = React.useState(()=>loadSolicitudesAsesor());
   const [metasFiltroDesarrollador, setMetasFiltroDesarrollador] = React.useState(()=>localStorage.getItem("macropro_metas_filtro_dev")||"Todos");
   const [metasFiltroDesarrollo, setMetasFiltroDesarrollo] = React.useState(()=>localStorage.getItem("macropro_metas_filtro_desarrollo")||"Todos");
   const [metasModoVista, setMetasModoVista] = React.useState("uds");
@@ -1756,6 +1756,64 @@ function MacroProMatcher() {
   const [showMatchesModal, setShowMatchesModal] = React.useState(false);
   const [matchesActuales, setMatchesActuales] = React.useState([]);
   const [solicitudFiltroPipeline, setSolicitudFiltroPipeline] = React.useState(()=>localStorage.getItem("macropro_solicitud_filtro_pipeline")||"Todos");
+  // ─── SOLICITUDES ASESOR · persistencia (local + Supabase POR REGISTRO) ───
+  // Sube/baja por `id` (last-write-wins por registro), nunca reemplaza toda la tabla.
+  const subirSolicitudCloud = async (sol)=>{
+    if(!window.sb || !sol || !sol.id) return;
+    try{ await window.sb.from('solicitudes_asesor').upsert(
+      { id: sol.id, pipeline: sol.pipeline||"Nueva solicitud", datos: sol, actualizado: new Date().toISOString() },
+      { onConflict:'id' }); }
+    catch(e){ console.warn('subir solicitud:', e&&e.message); }
+  };
+  const borrarSolicitudCloud = async (id)=>{
+    if(!window.sb || !id) return;
+    try{ await window.sb.from('solicitudes_asesor').delete().eq('id', id); }
+    catch(e){ console.warn('borrar solicitud:', e&&e.message); }
+  };
+  const upsertSolicitud = (sol)=>{
+    if(!sol || !sol.id) return;
+    const s = { ...sol, fechaUltimaActividad: new Date().toISOString() };
+    setSolicitudesAsesor(prev=>{
+      const arr = Array.isArray(prev)?[...prev]:[];
+      const i = arr.findIndex(x=>x.id===s.id);
+      if(i>=0) arr[i]=s; else arr.unshift(s);
+      saveSolicitudesAsesor(arr); return arr;
+    });
+    subirSolicitudCloud(s);
+  };
+  const removeSolicitud = (id)=>{
+    setSolicitudesAsesor(prev=>{
+      const arr = (prev||[]).filter(x=>x.id!==id);
+      saveSolicitudesAsesor(arr); return arr;
+    });
+    borrarSolicitudCloud(id);
+  };
+  // Bajar (fusión por id) desde la nube al abrir; si no hay nube, queda lo local.
+  React.useEffect(()=>{
+    let cancel=false;
+    const t=setInterval(async ()=>{
+      if(cancel){ clearInterval(t); return; }
+      if(window.sb){
+        clearInterval(t);
+        try{
+          const r = await window.sb.from('solicitudes_asesor').select('id,pipeline,datos,actualizado');
+          if(!cancel && r && !r.error && Array.isArray(r.data)){
+            setSolicitudesAsesor(prev=>{
+              const byId={}; (prev||[]).forEach(s=>{ if(s&&s.id) byId[s.id]=s; });
+              r.data.forEach(row=>{
+                const d = (row.datos && typeof row.datos==='object') ? row.datos : null;
+                if(d && d.id){ d.pipeline = d.pipeline || row.pipeline || "Nueva solicitud"; byId[d.id]=d; }
+                else if(row.id){ byId[row.id] = { ...(byId[row.id]||{}), id:row.id, pipeline:row.pipeline||"Nueva solicitud" }; }
+              });
+              const arr=Object.values(byId);
+              saveSolicitudesAsesor(arr); return arr;
+            });
+          }
+        }catch(e){ /* queda lo local */ }
+      }
+    },400);
+    return ()=>{ cancel=true; clearInterval(t); };
+  }, []);
   const [showImportModal, setShowImportModal] = React.useState(false);
   const [showICSExportModal, setShowICSExportModal] = React.useState(false);
   // ── BÚSQUEDA: estado persistente entre re-renders ────────────────
@@ -2332,7 +2390,7 @@ function MacroProMatcher() {
     const limpiar = ()=>{ try{ window.history.replaceState(null,"",window.location.pathname); }catch(e){} };
     // 0) vista directa (?vista=admin, dashboard, clients, lots, crm, metas…)
     if(vista){
-      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch'];
+      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch','asesores'];
       deepLinkRef.current = true;
       if(VISTAS.includes(vista)) setView(vista);
       limpiar(); return;
@@ -11774,7 +11832,7 @@ Respuesta: [respuesta exacta, conversacional]
             <h1 style={{fontSize:34, fontWeight:800, color:B.navy, margin:"4px 0 0 0", fontFamily:"'Playfair Display',serif"}}>Solicitudes de Macrolotes</h1>
             <div style={{fontSize:12, color:B.grey4, marginTop:6}}>Brokers / intermediarios que traen requerimientos de sus clientes finales</div>
           </div>
-          <button onClick={()=>{setEditingSolicitud(null); setShowSolicitudModal(true);}}
+          <button onClick={()=>{setEditingSolicitud(nuevaSolicitudAsesor()); setShowSolicitudModal(true);}}
             style={{padding:"12px 22px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#1e40af,#3b82f6)", color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 14px rgba(30,64,175,0.35)"}}>
             ➕ Nueva solicitud
           </button>
@@ -11891,7 +11949,7 @@ Respuesta: [respuesta exacta, conversacional]
             <div style={{fontSize:48, marginBottom:12}}>🤝</div>
             <div style={{fontSize:16, fontWeight:800, color:B.navy, marginBottom:4}}>Sin solicitudes registradas</div>
             <div style={{fontSize:12, color:B.grey4, marginBottom:16, lineHeight:1.6}}>Cuando un asesor externo te traiga un requerimiento de macrolote,<br/>captúralo aquí para darle seguimiento profesional.</div>
-            <button onClick={()=>{setEditingSolicitud(null); setShowSolicitudModal(true);}}
+            <button onClick={()=>{setEditingSolicitud(nuevaSolicitudAsesor()); setShowSolicitudModal(true);}}
               style={{padding:"10px 22px", borderRadius:8, border:"none", background:B.navy, color:B.gold, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
               ➕ Crear primera solicitud
             </button>
@@ -13730,7 +13788,7 @@ Respuesta: [respuesta exacta, conversacional]
           <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.0-VISOR</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["dashboard","📊 Dashboard"],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["asesores","🤝 Asesores"],["dashboard","📊 Dashboard"],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <button onClick={()=>{setApiKeyInput(localStorage.getItem("macropro_api_key")||"");setShowApiModal(true);}} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:apiKey?"#22c55e":"#ef4444",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title={apiKey?"API Key configurada ✓":"Sin API Key — click para configurar"}>{apiKey?"🔑":"⚠️"}</button>
@@ -13777,9 +13835,137 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="clients"&&<ViewClients/>}
       {view==="lots"&&<ViewLots/>}
       {view==="admin"&&<ViewAdmin/>}
+      {view==="asesores"&&<ViewAsesores/>}
       <ModalApiKey/>
       <ModalMigrate/>
       {ModalAddClient}
+      {/* ─── MODAL: Alta / edición de solicitud de asesor ─── */}
+      {showSolicitudModal && editingSolicitud && (()=>{
+        const f = editingSolicitud;
+        const setF = (patch)=>setEditingSolicitud(prev=>({ ...prev, ...patch }));
+        const inStyle = {width:"100%",padding:"9px 11px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:13,color:B.navy,background:B.offW,fontFamily:"'DM Sans',sans-serif",outline:"none"};
+        const lbStyle = {fontSize:10,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4,display:"block"};
+        const esNueva = !solicitudesAsesor.some(s=>s.id===f.id);
+        return (
+          <div onClick={()=>setShowSolicitudModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2600,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"30px 20px",overflowY:"auto"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:660,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden",margin:"auto"}}>
+              <div style={{padding:"20px 26px",background:"linear-gradient(135deg,#1e40af,#3b82f6)",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",opacity:0.85}}>🤝 {esNueva?"Nueva solicitud":"Editar solicitud"}</div>
+                  <div style={{fontSize:20,fontWeight:800,fontFamily:"'Playfair Display',serif",marginTop:2}}>{f.asesorNombre||f.clienteNombre||"Solicitud de macrolote"}</div>
+                </div>
+                <span onClick={()=>setShowSolicitudModal(false)} style={{cursor:"pointer",fontSize:24,fontWeight:700,lineHeight:1}}>×</span>
+              </div>
+              <div style={{padding:"20px 26px",maxHeight:"60vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:16}}>
+                <div>
+                  <span style={lbStyle}>Etapa del seguimiento</span>
+                  <select value={f.pipeline||"Nueva solicitud"} onChange={e=>setF({pipeline:e.target.value})} style={inStyle}>
+                    {SOLICITUDES_PIPELINE.map(p=><option key={p} value={p}>{(SOLICITUDES_PIPELINE_ICONS[p]||"")+" "+p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>👔 Asesor externo</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                    <div><span style={lbStyle}>Nombre</span><input style={inStyle} value={f.asesorNombre||""} onChange={e=>setF({asesorNombre:e.target.value})} placeholder="Nombre del asesor"/></div>
+                    <div><span style={lbStyle}>Empresa / Broker</span><input style={inStyle} value={f.asesorEmpresa||""} onChange={e=>setF({asesorEmpresa:e.target.value})} placeholder="Independiente"/></div>
+                    <div><span style={lbStyle}>Teléfono</span><input style={inStyle} value={f.asesorTelefono||""} onChange={e=>setF({asesorTelefono:e.target.value})}/></div>
+                    <div><span style={lbStyle}>Email</span><input style={inStyle} value={f.asesorEmail||""} onChange={e=>setF({asesorEmail:e.target.value})}/></div>
+                  </div>
+                </div>
+                <div>
+                  <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>🧑‍💼 Cliente final</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                    <div><span style={lbStyle}>Nombre / empresa</span><input style={inStyle} value={f.clienteNombre||""} onChange={e=>setF({clienteNombre:e.target.value})}/></div>
+                    <div><span style={lbStyle}>Giro</span><input style={inStyle} value={f.clienteGiro||""} onChange={e=>setF({clienteGiro:e.target.value})}/></div>
+                    <div><span style={lbStyle}>Tipo</span>
+                      <select style={inStyle} value={f.clienteTipo||""} onChange={e=>setF({clienteTipo:e.target.value})}>
+                        <option value="">—</option>{TIPOS_CLIENTE_FINAL.map(t=><option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>📐 Qué busca</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                    <div><span style={lbStyle}>Superficie mín (m²)</span><input type="number" style={inStyle} value={f.superficieMin||""} onChange={e=>setF({superficieMin:e.target.value})}/></div>
+                    <div><span style={lbStyle}>Superficie máx (m²)</span><input type="number" style={inStyle} value={f.superficieMax||""} onChange={e=>setF({superficieMax:e.target.value})}/></div>
+                    <div><span style={lbStyle}>Frente mín (m)</span><input type="number" style={inStyle} value={f.frenteMinimo||""} onChange={e=>setF({frenteMinimo:e.target.value})}/></div>
+                    <div><span style={lbStyle}>Uso de suelo</span>
+                      <select style={inStyle} value={f.usoSuelo||""} onChange={e=>setF({usoSuelo:e.target.value})}>
+                        <option value="">—</option>{USOS_SUELO_OPCIONES.map(u=><option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                    <div><span style={lbStyle}>Estado</span><input style={inStyle} value={f.estado||""} onChange={e=>setF({estado:e.target.value})}/></div>
+                    <div><span style={lbStyle}>Ciudad</span><input style={inStyle} value={f.ciudad||""} onChange={e=>setF({ciudad:e.target.value})}/></div>
+                  </div>
+                </div>
+                <div>
+                  <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>💰 Comercial</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                    <div><span style={lbStyle}>Precio máximo ($)</span><input type="number" style={inStyle} value={f.precioMaximo||""} onChange={e=>setF({precioMaximo:e.target.value})}/></div>
+                    <div><span style={lbStyle}>Forma de pago</span>
+                      <select style={inStyle} value={f.formaPago||""} onChange={e=>setF({formaPago:e.target.value})}>
+                        <option value="">—</option>{FORMAS_PAGO.map(x=><option key={x} value={x}>{x}</option>)}
+                      </select>
+                    </div>
+                    <div><span style={lbStyle}>Plazo de decisión</span>
+                      <select style={inStyle} value={f.plazoDecision||""} onChange={e=>setF({plazoDecision:e.target.value})}>
+                        <option value="">—</option>{PLAZOS_DECISION.map(x=><option key={x} value={x}>{x}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <span style={lbStyle}>Notas</span>
+                  <textarea style={{...inStyle,minHeight:62,resize:"vertical"}} value={f.notas||""} onChange={e=>setF({notas:e.target.value})}/>
+                </div>
+              </div>
+              <div style={{padding:"16px 26px",borderTop:"1px solid "+B.grey1,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div style={{display:"flex",gap:8}}>
+                  {!esNueva && <button onClick={()=>{ if(window.confirm("¿Eliminar esta solicitud?")){ removeSolicitud(f.id); setShowSolicitudModal(false);} }} style={{padding:"10px 16px",borderRadius:8,border:"1px solid #fecaca",background:"#fef2f2",color:"#dc2626",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗑 Eliminar</button>}
+                  <button onClick={()=>{ upsertSolicitud(f); buscarMatchesAsesor(f); }} style={{padding:"10px 16px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>⚡ Ver matches</button>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>setShowSolicitudModal(false)} style={{padding:"10px 18px",borderRadius:8,border:"1px solid "+B.grey1,background:"#fff",color:B.grey4,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancelar</button>
+                  <button onClick={()=>{ if(!(f.asesorNombre||f.clienteNombre)){ toast("⚠ Pon al menos el nombre del asesor o del cliente"); return; } upsertSolicitud(f); setShowSolicitudModal(false); toast("✅ Solicitud guardada"); }} style={{padding:"10px 20px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#1e40af,#3b82f6)",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>💾 Guardar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+      {/* ─── MODAL: Resultados de match para una solicitud ─── */}
+      {showMatchesModal && (
+        <div onClick={()=>setShowMatchesModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2700,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"30px 20px",overflowY:"auto"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:680,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden",margin:"auto"}}>
+            <div style={{padding:"20px 26px",background:"linear-gradient(135deg,"+B.navy+",#003a66)",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase"}}>⚡ Matches en tu inventario</div>
+                <div style={{fontSize:18,fontWeight:800,fontFamily:"'Playfair Display',serif",marginTop:2}}>{solicitudActiva?(solicitudActiva.clienteNombre||solicitudActiva.asesorNombre||"Solicitud"):"Solicitud"}</div>
+              </div>
+              <span onClick={()=>setShowMatchesModal(false)} style={{cursor:"pointer",fontSize:24,fontWeight:700,lineHeight:1}}>×</span>
+            </div>
+            <div style={{padding:"18px 26px",maxHeight:"66vh",overflowY:"auto"}}>
+              {(()=>{ const validos=(matchesActuales||[]).filter(m=>!m.descalificado);
+                if(!validos.length) return (<div style={{textAlign:"center",padding:"30px 10px",color:B.grey4}}><div style={{fontSize:40,marginBottom:10}}>🔍</div><div style={{fontSize:14,fontWeight:700,color:B.navy}}>Aún no hay lotes que cumplan</div><div style={{fontSize:12,marginTop:6,lineHeight:1.5}}>Cuando entre al inventario un macrolote que encaje con lo que busca,<br/>aparecerá aquí automáticamente.</div></div>);
+                return validos.slice(0,15).map((m,i)=>{ const l=m.lot||{}; return (
+                  <div key={l.id||i} style={{border:"1px solid "+B.grey1,borderRadius:10,padding:"12px 14px",marginBottom:10,borderLeft:"4px solid "+(m.score>=70?"#16a34a":m.score>=40?"#f59e0b":B.grey2)}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div style={{fontSize:14,fontWeight:800,color:B.navy}}>{l.nombre||l.id||"Lote"} <span style={{fontSize:11,color:B.grey4,fontWeight:600}}>· {l.desarrollo||""}</span></div>
+                      <div style={{background:m.score>=70?"#dcfce7":"#fef3c7",color:m.score>=70?"#15803d":"#92400e",padding:"3px 10px",borderRadius:8,fontSize:12,fontWeight:800}}>{m.score} pts</div>
+                    </div>
+                    <div style={{fontSize:11,color:B.grey4,marginTop:4}}>{l.ciudad||""}{l.estado?", "+l.estado:""} · {l.sup_m2?Math.round(l.sup_m2).toLocaleString("es-MX")+" m²":""} · {l.precio_total?"$"+Math.round(l.precio_total).toLocaleString("es-MX"):"Sin precio"}</div>
+                    {m.razones&&m.razones.length>0&&<div style={{fontSize:10,color:"#15803d",marginTop:6}}>{m.razones.join(" · ")}</div>}
+                  </div>
+                ); });
+              })()}
+            </div>
+            <div style={{padding:"14px 26px",borderTop:"1px solid "+B.grey1,textAlign:"right"}}>
+              <button onClick={()=>setShowMatchesModal(false)} style={{padding:"10px 20px",borderRadius:8,border:"none",background:B.navy,color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showPDFModal&&(
         <div onClick={()=>!pdfGenerando&&setShowPDFModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:540,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden"}}>
