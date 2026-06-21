@@ -12977,7 +12977,7 @@ Respuesta: [respuesta exacta, conversacional]
         });
         y+=18;
         const chartH=34, halfW=(PW-MX*2-8)/2;
-        const baseY=y+5+chartH;   // 5mm para el título arriba
+        const baseY=y+9+chartH;   // headroom para el título y el valor de la barra más alta
         const paletaPDF=["#C49A22","#0a2540","#1f5f3f","#2563AC","#a8893f","#6366f1","#0891b2","#b14f6a","#806b4a","#16a34a"];
         const drawChart=(x0,w,titulo,items,colorFn)=>{
           doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(0,43,73);
@@ -13115,7 +13115,7 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:4}}>
                 {items.map((it,i)=>{
                   const muted=!(it.monto>0);
-                  const h=muted?2:Math.max(8,Math.round((it.monto/max)*H));
+                  const h=muted?2:Math.max(8,Math.round((it.monto/max)*(H-22)));
                   return (
                     <div key={it.nombre} style={{flex:"1 0 58px",maxWidth:100,minWidth:58,display:"flex",flexDirection:"column",alignItems:"center"}}>
                       <div style={{height:H,width:"100%",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
