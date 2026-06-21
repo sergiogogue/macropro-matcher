@@ -13108,19 +13108,28 @@ Respuesta: [respuesta exacta, conversacional]
           const maxE=Math.max(1,...resumen.etapaArr.map(e=>e.monto));
           const H=120;
           const paleta=["#C49A22","#0a2540","#1f5f3f","#2563AC","#a8893f","#6366f1","#0891b2","#b14f6a","#806b4a","#16a34a"];
-          const renderCols=(items,max,colorFn)=>(
-            <div style={{display:"flex",alignItems:"flex-end",gap:8,height:H+52,paddingTop:16}}>
-              {items.map((it,i)=>{
-                const h=Math.max(4,Math.round((it.monto/max)*H));
-                return (
-                  <div key={it.nombre} style={{flex:"1 1 0",minWidth:52,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
-                    <div style={{fontSize:10,fontWeight:800,color:"#002B49"}}>{fmtMx(it.monto)}</div>
-                    <div style={{fontSize:9,color:"#64748b",marginBottom:3}}>{it.count} prosp.</div>
-                    <div title={fmtMx(it.monto)+" · "+it.count+" prospectos"} style={{width:"82%",height:h,background:colorFn(it,i),borderRadius:"6px 6px 0 0",boxShadow:"inset 0 -2px 0 rgba(0,0,0,0.08)"}}/>
-                    <div style={{fontSize:8.5,fontWeight:700,color:"#475569",marginTop:5,textAlign:"center",lineHeight:1.15,height:24,overflow:"hidden"}}>{it.nombre}</div>
-                  </div>
-                );
-              })}
+          const trunc=(s,n)=>s.length>n?s.slice(0,n-1)+"…":s;
+          const Chart=({titulo,items,max,colorFn})=>(
+            <div style={{background:"#fff",border:"1px solid #eef0f4",borderRadius:12,padding:"14px 16px"}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#002B49",marginBottom:14,borderLeft:"4px solid #C49A22",paddingLeft:8,textTransform:"uppercase",letterSpacing:0.5}}>{titulo}</div>
+              <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:4}}>
+                {items.map((it,i)=>{
+                  const muted=!(it.monto>0);
+                  const h=muted?2:Math.max(8,Math.round((it.monto/max)*H));
+                  return (
+                    <div key={it.nombre} style={{flex:"1 0 58px",maxWidth:100,minWidth:58,display:"flex",flexDirection:"column",alignItems:"center"}}>
+                      <div style={{height:H,width:"100%",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+                        <div title={it.nombre+" · "+fmtMx(it.monto)+" · "+it.count+" prosp."} style={{position:"relative",width:34,height:h,background:muted?"#e5e7eb":colorFn(it,i),borderRadius:"5px 5px 0 0"}}>
+                          <div style={{position:"absolute",top:-16,left:"50%",transform:"translateX(-50%)",whiteSpace:"nowrap",fontSize:9.5,fontWeight:800,color:muted?"#b6bdc9":"#002B49"}}>{fmtMx(it.monto)}</div>
+                        </div>
+                      </div>
+                      <div style={{width:"100%",borderTop:"2px solid #e5e7eb"}}/>
+                      <div style={{fontSize:9,fontWeight:700,color:"#334155",textAlign:"center",lineHeight:1.2,marginTop:6,height:24,overflow:"hidden"}}>{trunc(it.nombre,24)}</div>
+                      <div style={{fontSize:8.5,color:"#94a3b8",fontWeight:600}}>{it.count} prosp.</div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           );
           return (
@@ -13142,15 +13151,9 @@ Respuesta: [respuesta exacta, conversacional]
                   </div>
                 ))}
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18,padding:"16px 18px"}}>
-                <div>
-                  <div style={{fontSize:11,fontWeight:800,color:"#002B49",marginBottom:6,borderLeft:"4px solid #C49A22",paddingLeft:8}}>Valor por canal de origen</div>
-                  {renderCols(resumen.canalArr,maxC,(it,i)=>paleta[i%paleta.length])}
-                </div>
-                <div>
-                  <div style={{fontSize:11,fontWeight:800,color:"#002B49",marginBottom:6,borderLeft:"4px solid #C49A22",paddingLeft:8}}>Valor por etapa (pipeline)</div>
-                  {renderCols(resumen.etapaArr,maxE,(it)=>COLORES_ETAPA[it.nombre]||"#475569")}
-                </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(330px,1fr))",gap:16,padding:"16px 18px",background:"#f8fafc"}}>
+                <Chart titulo="Valor por canal de origen" items={resumen.canalArr} max={maxC} colorFn={(it,i)=>paleta[i%paleta.length]}/>
+                <Chart titulo="Valor por etapa (pipeline)" items={resumen.etapaArr} max={maxE} colorFn={(it)=>COLORES_ETAPA[it.nombre]||"#475569"}/>
               </div>
             </div>
           );
