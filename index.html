@@ -12697,14 +12697,8 @@ Respuesta: [respuesta exacta, conversacional]
       const dev=filtDev!=="Todos"?filtDev:"Todos los desarrollos";
       const PW=297,PH=210,MX=10,MY=8;
 
-      // ══════════ SECCIÓN 1: TABLA SEMÁFORO ══════════
-      doc.setFillColor(0,43,73); doc.rect(MX,MY,PW-MX*2,10,"F");
-      doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(255,255,255);
-      doc.text("SEMÁFORO Y SEGUIMIENTO DE CLIENTES — "+dev.toUpperCase(),PW/2,MY+7,{align:"center"});
-      doc.setFontSize(7); doc.setFont("helvetica","normal");
-      doc.text("Generado: "+new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}),PW-MX-2,MY+7,{align:"right"});
+      // ══════════ Cabecera de tabla (reutilizable por cada canal) ══════════
       const cols=[{t:"",w:6},{t:"ETAPA",w:24},{t:"CLIENTE",w:38},{t:"EMPRESA",w:28},{t:"LOTE",w:28},{t:"SUP m²",w:16},{t:"$/m²",w:16},{t:"TOTAL",w:18},{t:"ASESOR",w:30},{t:"ÚLTIMO COMENTARIO",w:73}];
-      let y=MY+13;
       const drawTableHeader=(ty)=>{
         doc.setFillColor(30,58,95); let cx=MX;
         cols.forEach(c=>{doc.rect(cx,ty,c.w,6,"F");cx+=c.w;});
@@ -12712,46 +12706,55 @@ Respuesta: [respuesta exacta, conversacional]
         cx=MX; cols.forEach(c=>{doc.text(c.t,cx+c.w/2,ty+3.8,{align:"center",maxWidth:c.w-1});cx+=c.w;});
         return ty+6;
       };
-      y=drawTableHeader(y); let etapaActual="", canalActual="";
-      const filasPDF=[]; filasPorCanal.forEach(g=>g.grupos.forEach(gr=>gr.filas.forEach(ff=>filasPDF.push(ff))));
-      filasPDF.forEach((f,ri)=>{
-        if(y>195){
-          const tp2=doc.internal.getNumberOfPages();
-          doc.setFont("helvetica","normal");doc.setFontSize(6);doc.setTextColor(160,160,160);
-          doc.text("Pág. "+tp2,PW-MX,PH-3,{align:"right"});doc.text(dev+" · MacroPro CRM",MX,PH-3);
-          doc.addPage();y=MY;
-          doc.setFillColor(0,43,73);doc.rect(MX,y,PW-MX*2,6,"F");
-          doc.setFont("helvetica","bold");doc.setFontSize(7);doc.setTextColor(255,255,255);
-          doc.text("SEMÁFORO Y SEGUIMIENTO (continuación)",PW/2,y+4,{align:"center"});y+=7;
-          y=drawTableHeader(y); etapaActual=""; canalActual="";
-        }
-        const canalF=f.canal||"Sin canal";
-        if(canalF!==canalActual){
-          canalActual=canalF; etapaActual="";
-          doc.setFillColor(196,154,34); doc.rect(MX,y,PW-MX*2,6,"F");
-          doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.setTextColor(0,43,73);
-          doc.text("CANAL DE ORIGEN: "+canalF.toUpperCase(),MX+4,y+4); y+=6.5;
-        }
-        if(f.etapa!==etapaActual){
-          etapaActual=f.etapa;
-          const ec=COLORES_ETAPA[f.etapa]||"#475569";
-          const er=parseInt(ec.slice(1,3),16),eg=parseInt(ec.slice(3,5),16),eb=parseInt(ec.slice(5,7),16);
-          doc.setFillColor(er,eg,eb); doc.rect(MX,y,PW-MX*2,5,"F");
-          doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(255,255,255);
-          doc.text(f.etapa.toUpperCase(),MX+4,y+3.5);y+=5;
-        }
-        const bg=ri%2===0?[255,255,255]:[248,249,252];
-        doc.setFillColor(...bg); let cx=MX; const rowH=5.5;
-        cols.forEach(c=>{doc.rect(cx,y,c.w,rowH,"F");doc.setDrawColor(220,220,225);doc.rect(cx,y,c.w,rowH,"S");cx+=c.w;});
-        const sr=parseInt(f.semColor.slice(1,3),16),sg=parseInt(f.semColor.slice(3,5),16),sb=parseInt(f.semColor.slice(5,7),16);
-        doc.setFillColor(sr,sg,sb); doc.circle(MX+3,y+rowH/2,1.5,"F");
-        cx=MX+cols[0].w;
-        [f.etapa,f.nombre,f.empresa,f.lote,fmtSup(f.supM2),fmtM2(f.precioM2),fmtM(f.precioTotal),f.asesor,(f.ultComentario||"").substring(0,80)].forEach((v,vi)=>{
-          doc.setFont("helvetica",vi===1?"bold":"normal"); doc.setFontSize(5.5); doc.setTextColor(0,43,73);
-          doc.text(String(v||""),cx+1.5,y+3.6,{maxWidth:cols[vi+1].w-2});cx+=cols[vi+1].w;
+      // Dibuja la TABLA de seguimiento de UN canal (con su encabezado de reporte + canal)
+      const dibujarTablaDeCanal=(canal, gruposCanal, primera)=>{
+        const filasCanal=gruposCanal.flatMap(gr=>gr.filas);
+        if(!filasCanal.length) return;
+        if(!primera) doc.addPage();
+        let y=MY;
+        doc.setFillColor(0,43,73); doc.rect(MX,y,PW-MX*2,10,"F");
+        doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(255,255,255);
+        doc.text("SEMÁFORO Y SEGUIMIENTO — "+dev.toUpperCase(),PW/2,y+7,{align:"center"});
+        doc.setFontSize(7); doc.setFont("helvetica","normal");
+        doc.text("Generado: "+new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}),PW-MX-2,y+7,{align:"right"});
+        y+=13;
+        doc.setFillColor(196,154,34); doc.rect(MX,y,PW-MX*2,7,"F");
+        doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,43,73);
+        doc.text("CANAL DE ORIGEN: "+canal.toUpperCase()+"  ("+filasCanal.length+")",MX+4,y+4.8); y+=9;
+        y=drawTableHeader(y);
+        let etapaActual="";
+        filasCanal.forEach((f,ri)=>{
+          if(y>195){
+            const tp2=doc.internal.getNumberOfPages();
+            doc.setFont("helvetica","normal");doc.setFontSize(6);doc.setTextColor(160,160,160);
+            doc.text("Pág. "+tp2,PW-MX,PH-3,{align:"right"});doc.text(dev+" · MacroPro CRM",MX,PH-3);
+            doc.addPage();y=MY;
+            doc.setFillColor(196,154,34);doc.rect(MX,y,PW-MX*2,6,"F");
+            doc.setFont("helvetica","bold");doc.setFontSize(7);doc.setTextColor(0,43,73);
+            doc.text("CANAL: "+canal.toUpperCase()+" (continuación)",PW/2,y+4,{align:"center"});y+=7;
+            y=drawTableHeader(y); etapaActual="";
+          }
+          if(f.etapa!==etapaActual){
+            etapaActual=f.etapa;
+            const ec=COLORES_ETAPA[f.etapa]||"#475569";
+            const er=parseInt(ec.slice(1,3),16),eg=parseInt(ec.slice(3,5),16),eb=parseInt(ec.slice(5,7),16);
+            doc.setFillColor(er,eg,eb); doc.rect(MX,y,PW-MX*2,5,"F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(255,255,255);
+            doc.text(f.etapa.toUpperCase(),MX+4,y+3.5);y+=5;
+          }
+          const bg=ri%2===0?[255,255,255]:[248,249,252];
+          doc.setFillColor(...bg); let cx=MX; const rowH=5.5;
+          cols.forEach(c=>{doc.rect(cx,y,c.w,rowH,"F");doc.setDrawColor(220,220,225);doc.rect(cx,y,c.w,rowH,"S");cx+=c.w;});
+          const sr=parseInt(f.semColor.slice(1,3),16),sg=parseInt(f.semColor.slice(3,5),16),sb=parseInt(f.semColor.slice(5,7),16);
+          doc.setFillColor(sr,sg,sb); doc.circle(MX+3,y+rowH/2,1.5,"F");
+          cx=MX+cols[0].w;
+          [f.etapa,f.nombre,f.empresa,f.lote,fmtSup(f.supM2),fmtM2(f.precioM2),fmtM(f.precioTotal),f.asesor,(f.ultComentario||"").substring(0,80)].forEach((v,vi)=>{
+            doc.setFont("helvetica",vi===1?"bold":"normal"); doc.setFontSize(5.5); doc.setTextColor(0,43,73);
+            doc.text(String(v||""),cx+1.5,y+3.6,{maxWidth:cols[vi+1].w-2});cx+=cols[vi+1].w;
+          });
+          y+=rowH;
         });
-        y+=rowH;
-      });
+      };
 
       // ══════════ SECCIÓN 2: FICHAS DE CLIENTES ══════════
       const fichasFilas=filas.filter(f=>ETAPAS_FICHA.includes(f.etapa));
@@ -12879,9 +12882,10 @@ Respuesta: [respuesta exacta, conversacional]
         }
       };
 
-      fichasPorCanal.forEach((cg)=>{
-        headerSeccion2(cg.canal); cardIdx=0; cy=TOP0;
-        cg.filas.forEach((f,fi)=>{
+      const dibujarFichasDeCanal=(canalNombre, fichasCanalArr)=>{
+        if(!fichasCanalArr.length) return;
+        headerSeccion2(canalNombre); cardIdx=0; cy=TOP0;
+        fichasCanalArr.forEach((f,fi)=>{
         // Nueva página cada 3 fichas
         if(cardIdx>0 && cardIdx%3===0){
           const pn=doc.internal.getNumberOfPages();
@@ -12959,6 +12963,11 @@ Respuesta: [respuesta exacta, conversacional]
 
         cardIdx++;
         });
+      };
+      // ── Reporte consolidado: por cada canal, su tabla y luego sus fichas, en orden ──
+      filasPorCanal.forEach((cg,i)=>{
+        dibujarTablaDeCanal(cg.canal, cg.grupos, i===0);
+        dibujarFichasDeCanal(cg.canal, cg.grupos.flatMap(gr=>gr.filas).filter(f=>ETAPAS_FICHA.includes(f.etapa)));
       });
 
       // Pie de página en todas las páginas
