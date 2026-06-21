@@ -1593,6 +1593,7 @@ function MacroProMatcher() {
   const [repFiltTipo,setRepFiltTipo]=useState("Todos");
   const [repFiltCanal,setRepFiltCanal]=useState("Todos");
   const [repFiltAsesor,setRepFiltAsesor]=useState("Todos");
+  const [repVistaPorCanal,setRepVistaPorCanal]=useState(false);
   const [filterAsesor, setFilterAsesor] = useState("Todos");
   const [searchProsp, setSearchProsp] = React.useState("");
   const [filterSupMin, setFilterSupMin] = useState("");
@@ -12600,6 +12601,7 @@ Respuesta: [respuesta exacta, conversacional]
     const filtTipo=repFiltTipo,setFiltTipo=setRepFiltTipo;
     const filtCanal=repFiltCanal,setFiltCanal=setRepFiltCanal;
     const filtAsesor=repFiltAsesor,setFiltAsesor=setRepFiltAsesor;
+    const vistaPorCanal=repVistaPorCanal,setVistaPorCanal=setRepVistaPorCanal;
 
     // Construir filas directamente desde crmData e inventory (scope del componente principal)
     const filas=React.useMemo(()=>{
@@ -12963,6 +12965,43 @@ Respuesta: [respuesta exacta, conversacional]
       toast("✅ Reporte completo generado");
     };
 
+    // Render reutilizable de las filas (separador de etapa + filas) para un canal
+    const renderEtapas=(gruposCanal)=>gruposCanal.map(({etapa,filas:gRows})=>{
+      const eCol=COLORES_ETAPA[etapa]||"#475569";
+      return (
+        <React.Fragment key={etapa}>
+          <tr>
+            <td colSpan={9} style={{background:eCol,padding:"5px 14px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:10,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:1.5}}>{etapa}</span>
+                <span style={{fontSize:9,background:"rgba(255,255,255,0.25)",color:"#fff",borderRadius:8,padding:"1px 8px",fontWeight:700}}>{gRows.length}</span>
+              </div>
+            </td>
+          </tr>
+          {gRows.map((f,ri)=>(
+            <tr key={ri} title="Abrir prospecto · ver y agregar comentarios" style={{borderBottom:"1px solid #f1f5f9",background:ri%2===0?"#fff":"#fafbfc",cursor:"pointer",transition:"background 0.1s"}}
+              onClick={()=>setSemaforoDrawer({f})}
+              onMouseEnter={e=>e.currentTarget.style.background="#f0f7ff"}
+              onMouseLeave={e=>e.currentTarget.style.background=ri%2===0?"#fff":"#fafbfc"}>
+              <td style={{padding:"10px 8px",textAlign:"center"}}><div style={{width:12,height:12,borderRadius:"50%",background:f.semColor,margin:"0 auto",boxShadow:"0 1px 4px "+f.semColor+"66"}}/></td>
+              <td style={{padding:"10px 12px",fontWeight:700,color:"#002B49"}}>{f.nombre}</td>
+              <td style={{padding:"10px 12px",color:"#64748b",fontSize:11}}>{f.empresa||<span style={{color:"#d1d5db"}}>—</span>}</td>
+              <td style={{padding:"10px 12px",color:"#0369a1",fontWeight:600,fontSize:11}}>{f.lote||<span style={{color:"#d1d5db"}}>—</span>}</td>
+              <td style={{padding:"10px 12px",textAlign:"right",color:"#475569",fontSize:11}}>{f.supM2>0?f.supM2.toLocaleString()+" m²":"—"}</td>
+              <td style={{padding:"10px 12px",textAlign:"right",color:"#475569",fontSize:11}}>{f.precioM2>0?"$"+f.precioM2.toLocaleString():"—"}</td>
+              <td style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:"#065f46",fontSize:11}}>{f.precioTotal>0?"$"+(f.precioTotal/1e6).toFixed(1)+"M":"—"}</td>
+              <td style={{padding:"10px 12px",color:"#475569",fontSize:11}}>{f.asesor||<span style={{color:"#d1d5db"}}>—</span>}</td>
+              <td style={{padding:"10px 14px",color:"#374151",fontSize:10,maxWidth:300}}>
+                {f.ultComentario
+                  ?<div><div style={{lineHeight:1.4}}>{f.ultComentario.substring(0,120)}{f.ultComentario.length>120?"…":""}</div>{f.ultFecha&&<div style={{fontSize:9,color:"#9ca3af",marginTop:2}}>{new Date(f.ultFecha).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"})}</div>}</div>
+                  :<span style={{color:"#d1d5db",fontStyle:"italic"}}>Sin comentarios</span>}
+              </td>
+            </tr>
+          ))}
+        </React.Fragment>
+      );
+    });
+
     return (
       <div style={{padding:"0 0 32px"}}>
         {semaforoDrawer&&<DrawerSemaforo/>}
@@ -12993,6 +13032,11 @@ Respuesta: [respuesta exacta, conversacional]
               <option value="Todos">Todos los asesores</option>
               {opcCanalAsesor.asesores.map(a=><option key={a} value={a}>{a}</option>)}
             </select>
+            <button onClick={()=>setVistaPorCanal(v=>!v)}
+              title="Consolidado: cada canal con su seguimiento y fichas, uno tras otro"
+              style={{padding:"8px 14px",background:vistaPorCanal?"#C49A22":"#fff",color:vistaPorCanal?"#002B49":"#475569",border:"1px solid "+(vistaPorCanal?"#C49A22":B.grey1),borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
+              📑 {vistaPorCanal?"Por canal ✓":"Por canal"}
+            </button>
             <button onClick={exportarPDF}
               style={{padding:"8px 16px",background:"linear-gradient(135deg,#002B49,#003a66)",color:"#fff",border:"none",borderRadius:9,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
               📄 Exportar PDF
@@ -13000,7 +13044,8 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
         </div>
 
-        {/* Tabla */}
+        {/* Tabla — VISTA NORMAL (una tabla con banners de canal) */}
+        {!vistaPorCanal && (
         <div style={{borderRadius:14,overflow:"hidden",border:"1px solid #e5e7eb",boxShadow:"0 4px 20px rgba(0,43,73,0.08)"}}>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:900,fontSize:11,fontFamily:"'DM Sans',sans-serif"}}>
@@ -13089,9 +13134,10 @@ Respuesta: [respuesta exacta, conversacional]
             </table>
           </div>
         </div>
+        )}
 
-        {/* ══════ SECCIÓN 2: FICHAS DE CLIENTES EN PANTALLA ══════ */}
-        {(()=>{
+        {/* ══════ SECCIÓN 2: FICHAS DE CLIENTES — VISTA NORMAL ══════ */}
+        {!vistaPorCanal && (()=>{
           const fichasFilas=filas.filter(f=>ETAPAS_FICHA.includes(f.etapa));
           if(fichasFilas.length===0) return null;
           return (
@@ -13130,6 +13176,45 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
           );
         })()}
+
+        {/* ══════ VISTA POR CANAL: cada canal = su tabla + sus fichas, consecutivo ══════ */}
+        {vistaPorCanal && filasPorCanal.map(({canal,total,grupos:gruposCanal})=>{
+          const fichasCanal=gruposCanal.flatMap(gr=>gr.filas).filter(f=>ETAPAS_FICHA.includes(f.etapa));
+          return (
+            <div key={"sec-"+canal} style={{marginBottom:40,border:"2px solid #C49A22",borderRadius:14,overflow:"hidden",boxShadow:"0 4px 20px rgba(0,43,73,0.08)"}}>
+              <div style={{background:"linear-gradient(90deg,#C49A22,#a8893f)",padding:"12px 18px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <span style={{fontSize:15,fontWeight:800,color:"#002B49",textTransform:"uppercase",letterSpacing:1.5,fontFamily:"'Playfair Display',serif"}}>🎯 Canal: {canal}</span>
+                <span style={{fontSize:11,background:"#002B49",color:"#fff",borderRadius:10,padding:"2px 10px",fontWeight:700}}>{total} prospecto{total===1?"":"s"}</span>
+              </div>
+              <div style={{padding:"14px 16px",background:"#fff"}}>
+                <div style={{overflowX:"auto",border:"1px solid #e5e7eb",borderRadius:10}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:900,fontSize:11,fontFamily:"'DM Sans',sans-serif"}}>
+                    <thead><tr style={{background:"#002B49"}}>
+                      <th style={{width:32,padding:"10px 8px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"center"}}>🚦</th>
+                      <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"left",minWidth:120}}>Cliente</th>
+                      <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"left",minWidth:100}}>Empresa</th>
+                      <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"left",minWidth:100}}>Lote</th>
+                      <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"right",minWidth:80}}>Sup. m²</th>
+                      <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"right",minWidth:80}}>$/m²</th>
+                      <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"right",minWidth:80}}>Total</th>
+                      <th style={{padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"left",minWidth:120}}>Asesor</th>
+                      <th style={{padding:"10px 14px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"left"}}>Último comentario</th>
+                    </tr></thead>
+                    <tbody>{renderEtapas(gruposCanal)}</tbody>
+                  </table>
+                </div>
+                {fichasCanal.length>0 && (
+                  <div style={{marginTop:18}}>
+                    <div style={{fontSize:11,fontWeight:800,color:"#002B49",textTransform:"uppercase",letterSpacing:1,marginBottom:12,borderLeft:"4px solid #C49A22",paddingLeft:8}}>Fichas detalladas · {canal} ({fichasCanal.length})</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+                      {fichasCanal.map((f,fi)=><FichaClienteCard key={canal+"-"+fi} f={f} fi={fi}/>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
   };
