@@ -13109,12 +13109,24 @@ Respuesta: [respuesta exacta, conversacional]
                 Etapas: En análisis · En negociación · Propuesta · Apartado · Contrato · Vendido
               </div>
 
-              {/* Grid de tarjetas */}
-              <div style={{display:"flex",flexDirection:"column",gap:16}}>
-                {fichasFilas.map((f,fi)=>(
-                  <FichaClienteCard key={fi} f={f} fi={fi}/>
-                ))}
-              </div>
+              {/* Fichas agrupadas por CANAL DE ORIGEN (secciones bien identificadas) */}
+              {filasPorCanal.map(({canal,grupos:gruposCanal})=>{
+                const fichasCanal=gruposCanal.flatMap(gr=>gr.filas).filter(f=>ETAPAS_FICHA.includes(f.etapa));
+                if(fichasCanal.length===0) return null;
+                return (
+                  <div key={"fichas-"+canal} style={{marginBottom:26}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,background:"#C49A22",borderRadius:8,padding:"8px 14px",marginBottom:14}}>
+                      <span style={{fontSize:12,fontWeight:800,color:"#002B49",textTransform:"uppercase",letterSpacing:1.5}}>🎯 Canal: {canal}</span>
+                      <span style={{fontSize:9,background:"rgba(0,43,73,0.2)",color:"#002B49",borderRadius:8,padding:"1px 8px",fontWeight:700}}>{fichasCanal.length}</span>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+                      {fichasCanal.map((f,fi)=>(
+                        <FichaClienteCard key={canal+"-"+fi} f={f} fi={fi}/>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           );
         })()}
