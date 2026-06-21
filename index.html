@@ -12658,11 +12658,21 @@ Respuesta: [respuesta exacta, conversacional]
       });
       return { canales:[...canales].sort(), asesores:[...asesores].sort() };
     },[filtDev,filtTipo,crmData,inventory,clients]);
-    // Agrupación por CANAL DE ORIGEN (externo) → ETAPA (interno). "Sin canal" va al final.
+    // Agrupación por CANAL DE ORIGEN (externo) → ETAPA (interno).
+    // Orden fijo solicitado: Clientes Clave, Cartera Guía, Inversionistas, Canadevi,
+    // Retail, Broker. Los no listados van después (alfabético) y "Sin canal" al final.
+    const ORDEN_CANALES=["clientes clave","cartera guia","inversionista","canadevi","retail","broker"];
+    const normCanal=(s)=>(s||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+    const rankCanal=(c)=>{
+      const n=normCanal(c);
+      if(n==="sin canal") return 999;
+      const i=ORDEN_CANALES.findIndex(k=>(n.includes(k)||k.includes(n)));
+      return i<0?500:i;
+    };
     const filasPorCanal=React.useMemo(()=>{
       const byCanal={};
       filas.forEach(f=>{ const k=f.canal||"Sin canal"; (byCanal[k]=byCanal[k]||[]).push(f); });
-      const orden=Object.keys(byCanal).sort((a,b)=> a==="Sin canal"?1:(b==="Sin canal"?-1:a.localeCompare(b)));
+      const orden=Object.keys(byCanal).sort((a,b)=>{ const ra=rankCanal(a),rb=rankCanal(b); return ra!==rb?ra-rb:a.localeCompare(b); });
       return orden.map(canal=>({
         canal,
         total:byCanal[canal].length,
