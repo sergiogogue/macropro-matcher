@@ -218,6 +218,25 @@ function normCoordMX(lat, lng) {
   return { lat: Math.abs(a), lng: -Math.abs(b) }; // lat positiva, lng negativa (oeste)
 }
 
+// ─── USO DE SUELO → categoría + color (para el mapa de Corretaje) ──────────
+// Máx 5 categorías. Mismo uso = mismo color. Se clasifica por palabra clave del campo `uso`.
+function usoCategoria(uso){
+  const u=(uso||"").toString().toLowerCase();
+  if(/mixto|mixed|h\s*\+\s*c|usos?\s*mixtos?/.test(u)) return { cat:"Mixto", color:"#ec4899" };            // rosa
+  if(/industrial|log[íi]stic|nave|bodega/.test(u))      return { cat:"Industrial", color:"#7c3aed" };       // morado
+  if(/comercial|retail|comercio|plaza/.test(u))         return { cat:"Comercial / Retail", color:"#f59e0b" };// ámbar
+  if(/habitac|vivienda|residencial|vertical|h1|h2|h3|h4/.test(u)) return { cat:"Habitacional", color:"#2563eb" }; // azul
+  return { cat:"Otro / Reserva", color:"#16a34a" };                                                          // verde
+}
+const USO_CATEGORIAS=[
+  { cat:"Mixto", color:"#ec4899" },
+  { cat:"Habitacional", color:"#2563eb" },
+  { cat:"Comercial / Retail", color:"#f59e0b" },
+  { cat:"Industrial", color:"#7c3aed" },
+  { cat:"Otro / Reserva", color:"#16a34a" },
+];
+function esCorretaje(lot){ return /corretaje/i.test(lot&&lot.tipo||"")||/corretaje/i.test(lot&&lot.desarrollador||""); }
+
 // ─── ENTORNO DENUE (INEGI) — consulta DIRECTA desde el navegador ───────────
 // El API del INEGI manda Access-Control-Allow-Origin:* (CORS abierto), así que
 // el navegador del usuario (IP mexicana) puede llamarlo sin proxy. El token es
@@ -2458,7 +2477,7 @@ function MacroProMatcher() {
     const limpiar = ()=>{ try{ window.history.replaceState(null,"",window.location.pathname); }catch(e){} };
     // 0) vista directa (?vista=admin, dashboard, clients, lots, crm, metas…)
     if(vista){
-      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch','asesores'];
+      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch','asesores','corretaje'];
       deepLinkRef.current = true;
       if(VISTAS.includes(vista)) setView(vista);
       limpiar(); return;
@@ -3250,6 +3269,128 @@ function MacroProMatcher() {
     if(!window.L) return <div style={{background:"#f1f5f9",borderRadius:12,padding:"32px",textAlign:"center",color:"#64748b",fontSize:13}}>⏳ Cargando mapa…</div>;
     return <div ref={mapRef} style={{height:"calc(100vh - 280px)",minHeight:600,width:"100%",borderRadius:12,overflow:"hidden",border:"1px solid #e2e8f0"}}/>;
   });
+
+  // ── MAPA DE CORRETAJE: pines de macrolotes coloreados por uso de suelo ──
+  const MapaCorretaje = React.memo(({lotes})=>{
+    const mapRef = React.useRef(null);
+    const leafRef = React.useRef(null);
+    React.useEffect(()=>{
+      if(!window.L || !mapRef.current) return;
+      if(leafRef.current){ leafRef.current.remove(); leafRef.current=null; }
+      const conCoord = (lotes||[]).filter(l=>l.lat&&l.lng);
+      const map = window.L.map(mapRef.current,{zoomControl:true}).setView(conCoord.length?[conCoord[0].lat,conCoord[0].lng]:[20.67,-103.40],11);
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap",maxZoom:18}).addTo(map);
+      const pts=[];
+      conCoord.forEach(l=>{
+        const {cat,color}=usoCategoria(l.uso);
+        const nombreCorto=String(l.nombre||l.id||"").slice(0,22);
+        const html=`<div style="display:inline-flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 5px rgba(0,0,0,0.35));">
+          <div style="background:${color};color:#fff;border-radius:9px 9px 9px 2px;padding:4px 9px;font-size:10px;font-weight:800;white-space:nowrap;border:2px solid #fff;line-height:1.3;">★ ${nombreCorto}</div>
+          <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid ${color};"></div>
+        </div>`;
+        window.L.marker([l.lat,l.lng],{icon:window.L.divIcon({html,className:"",iconAnchor:[48,34]})}).addTo(map)
+          .bindPopup(`<div style="font-family:sans-serif;min-width:180px;padding:2px 0;">
+            <b style="font-size:13px;color:#002B49;">${l.nombre||l.id}</b><br>
+            <span style="background:${color};color:#fff;padding:1px 8px;border-radius:6px;font-size:10px;font-weight:700;">${cat}</span>
+            <span style="color:#777;font-size:10px;"> ${l.uso||""}</span><br>
+            <span style="font-size:11px;color:#444;">${l.sup_m2?Math.round(l.sup_m2).toLocaleString("es-MX")+" m²":""}${l.precio_total?" · <b>$"+Math.round(l.precio_total).toLocaleString("es-MX")+"</b>":""}</span><br>
+            <span style="font-size:10px;color:#888;">COS ${l.cos||"—"} · CUS ${l.cus||"—"}${l.ciudad?" · "+l.ciudad:""}</span>
+          </div>`);
+        pts.push([l.lat,l.lng]);
+      });
+      if(pts.length>1){ try{ map.fitBounds(window.L.latLngBounds(pts).pad(0.2)); }catch(e){} }
+      else if(pts.length===1){ map.setView(pts[0],14); }
+      leafRef.current=map;
+      setTimeout(()=>{ if(leafRef.current) leafRef.current.invalidateSize(); },150);
+      return ()=>{ if(leafRef.current){leafRef.current.remove();leafRef.current=null;} };
+    },[lotes]);
+    if(!window.L) return <div style={{background:"#f1f5f9",borderRadius:12,padding:"32px",textAlign:"center",color:"#64748b",fontSize:13}}>⏳ Cargando mapa…</div>;
+    return <div ref={mapRef} style={{height:520,width:"100%",borderRadius:12,overflow:"hidden",border:"1px solid #e2e8f0"}}/>;
+  });
+
+  const ViewCorretaje = () => {
+    const srcInv = inventory.length>0?inventory:SAMPLE_INVENTORY;
+    const corretaje = srcInv.filter(esCorretaje);
+    const [filtroUso,setFiltroUso]=React.useState("Todos");
+    const [busca,setBusca]=React.useState("");
+    // Conteo por categoría
+    const conteo={}; corretaje.forEach(l=>{ const c=usoCategoria(l.uso).cat; conteo[c]=(conteo[c]||0)+1; });
+    const lista = corretaje
+      .filter(l=> filtroUso==="Todos" || usoCategoria(l.uso).cat===filtroUso)
+      .filter(l=> !busca || (String(l.nombre||"")+" "+String(l.uso||"")+" "+String(l.ciudad||"")).toLowerCase().includes(busca.toLowerCase()))
+      .sort((a,b)=>{ const ca=usoCategoria(a.uso).cat, cb=usoCategoria(b.uso).cat; return ca!==cb?ca.localeCompare(cb):String(a.nombre||"").localeCompare(String(b.nombre||"")); });
+    const lotesMapa = lista; // el mapa respeta el filtro/búsqueda
+    const sinCoord = corretaje.filter(l=>!(l.lat&&l.lng)).length;
+    const fmtPrecio=(v)=>v>0?"$"+Math.round(v).toLocaleString("es-MX"):"—";
+    const fmtSupT=(v)=>v>0?Math.round(v).toLocaleString("es-MX")+" m²":"—";
+    const th={padding:"10px 12px",color:"#fff",fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:0.8,textAlign:"left"};
+    return (
+      <div style={{padding:"24px 28px",maxWidth:1500,margin:"0 auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12,marginBottom:18}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase"}}>🗺️ Corretaje</div>
+            <h1 style={{fontSize:30,fontWeight:800,color:B.navy,margin:"4px 0 0",fontFamily:"'Playfair Display',serif"}}>Mapa de Macrolotes · Corretaje</h1>
+            <div style={{fontSize:12,color:B.grey4,marginTop:4}}>{corretaje.length} macrolotes de corretaje · coloreados por uso de suelo{sinCoord>0?` · ${sinCoord} sin ubicación`:""}</div>
+          </div>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar nombre, uso, ciudad…"
+            style={{padding:"9px 14px",borderRadius:9,border:"1px solid "+B.grey1,fontSize:13,minWidth:240,outline:"none",fontFamily:"'DM Sans',sans-serif"}}/>
+        </div>
+        {/* Leyenda / filtros por uso */}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+          <button onClick={()=>setFiltroUso("Todos")} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 13px",borderRadius:999,border:"1px solid "+(filtroUso==="Todos"?B.navy:B.grey1),background:filtroUso==="Todos"?B.navy:"#fff",color:filtroUso==="Todos"?"#fff":B.grey4,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Todos ({corretaje.length})</button>
+          {USO_CATEGORIAS.filter(c=>conteo[c.cat]).map(c=>(
+            <button key={c.cat} onClick={()=>setFiltroUso(c.cat===filtroUso?"Todos":c.cat)}
+              style={{display:"flex",alignItems:"center",gap:7,padding:"7px 13px",borderRadius:999,border:"1px solid "+(filtroUso===c.cat?c.color:B.grey1),background:filtroUso===c.cat?c.color:"#fff",color:filtroUso===c.cat?"#fff":B.grey4,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+              <span style={{width:11,height:11,borderRadius:"50%",background:c.color,border:"1.5px solid #fff",boxShadow:"0 0 0 1px "+c.color}}/>
+              {c.cat} ({conteo[c.cat]})
+            </button>
+          ))}
+        </div>
+        {/* Mapa */}
+        <MapaCorretaje lotes={lotesMapa}/>
+        {/* Tabla */}
+        <div style={{marginTop:22,borderRadius:14,overflow:"hidden",border:"1px solid #e5e7eb",boxShadow:"0 4px 20px rgba(0,43,73,0.06)"}}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:760,fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
+              <thead>
+                <tr style={{background:B.navy}}>
+                  <th style={{...th,minWidth:180}}>Macrolote</th>
+                  <th style={{...th,minWidth:150}}>Uso de suelo</th>
+                  <th style={{...th,textAlign:"center"}}>COS</th>
+                  <th style={{...th,textAlign:"center"}}>CUS</th>
+                  <th style={{...th,textAlign:"right"}}>Superficie</th>
+                  <th style={{...th,textAlign:"right"}}>Precio</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lista.map((l,i)=>{
+                  const {cat,color}=usoCategoria(l.uso);
+                  return (
+                    <tr key={l.id||i} style={{borderBottom:"1px solid #f1f5f9",background:i%2===0?"#fff":"#fafbfc"}}>
+                      <td style={{padding:"9px 12px",fontWeight:700,color:B.navy}}>{l.nombre||l.id}{l.ciudad&&<span style={{fontSize:10,color:"#94a3b8",fontWeight:500}}> · {l.ciudad}</span>}</td>
+                      <td style={{padding:"9px 12px"}}>
+                        <span style={{display:"inline-flex",alignItems:"center",gap:6}}>
+                          <span style={{width:10,height:10,borderRadius:"50%",background:color,flexShrink:0}}/>
+                          <span style={{color:"#334155"}}>{l.uso||cat}</span>
+                        </span>
+                      </td>
+                      <td style={{padding:"9px 12px",textAlign:"center",color:"#475569"}}>{l.cos||"—"}</td>
+                      <td style={{padding:"9px 12px",textAlign:"center",color:"#475569"}}>{l.cus||"—"}</td>
+                      <td style={{padding:"9px 12px",textAlign:"right",color:"#475569"}}>{fmtSupT(l.sup_m2)}</td>
+                      <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:"#065f46"}}>{fmtPrecio(l.precio_total)}</td>
+                    </tr>
+                  );
+                })}
+                {lista.length===0&&(
+                  <tr><td colSpan={6} style={{padding:36,textAlign:"center",color:"#9ca3af",fontStyle:"italic"}}>Sin macrolotes de corretaje para mostrar</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const ViewHome = () => (
     <div style={s.page}>
@@ -14138,7 +14279,7 @@ Respuesta: [respuesta exacta, conversacional]
           <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.0-VISOR</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["asesores","🤝 Asesores"],["dashboard","📊 Dashboard"],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["asesores","🤝 Asesores"],["dashboard","📊 Dashboard"],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["corretaje","🗺️ Corretaje"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <button onClick={()=>{setApiKeyInput(localStorage.getItem("macropro_api_key")||"");setShowApiModal(true);}} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:apiKey?"#22c55e":"#ef4444",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title={apiKey?"API Key configurada ✓":"Sin API Key — click para configurar"}>{apiKey?"🔑":"⚠️"}</button>
@@ -14184,6 +14325,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="quickSearch"&&<ViewQuickSearch/>}
       {view==="clients"&&<ViewClients/>}
       {view==="lots"&&<ViewLots/>}
+      {view==="corretaje"&&<ViewCorretaje/>}
       {view==="admin"&&<ViewAdmin/>}
       {view==="asesores"&&<ViewAsesores/>}
       <ModalApiKey/>
