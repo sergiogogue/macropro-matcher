@@ -836,6 +836,55 @@ function loadSolicitudesAsesor(){
 function saveSolicitudesAsesor(arr){
   try{ localStorage.setItem(SOLICITUDES_ASESOR_KEY, JSON.stringify(arr||[])); }catch(e){ console.warn("Error guardando asesores:",e); }
 }
+// ══════════ CAPTACIÓN DE TERRENOS (opcionamiento) ══════════
+// Seguimiento de terrenos que un propietario nos ofrece para vender/opcionar.
+const CAPTACION_KEY = "macropro_captacion_v1";
+const CAPTACION_PIPELINE = ["Ofrecido","Viabilidad","Contactado / visita","En negociación","Documentación","Contrato","Firmado","Descartado"];
+const CAPTACION_PIPELINE_COLORS = {
+  "Ofrecido":            { bg:"#e0e7ff", color:"#4338ca", border:"#6366f1" },
+  "Viabilidad":          { bg:"#fef9c3", color:"#854d0e", border:"#eab308" },
+  "Contactado / visita": { bg:"#dbeafe", color:"#1e40af", border:"#3b82f6" },
+  "En negociación":      { bg:"#fed7aa", color:"#9a3412", border:"#ea580c" },
+  "Documentación":       { bg:"#fae8ff", color:"#86198f", border:"#c026d3" },
+  "Contrato":            { bg:"#cffafe", color:"#155e75", border:"#06b6d4" },
+  "Firmado":             { bg:"#dcfce7", color:"#15803d", border:"#16a34a" },
+  "Descartado":          { bg:"#f1f5f9", color:"#475569", border:"#94a3b8" }
+};
+const CAPTACION_PIPELINE_ICONS = { "Ofrecido":"📥","Viabilidad":"🚦","Contactado / visita":"📞","En negociación":"🤝","Documentación":"📄","Contrato":"✍️","Firmado":"✅","Descartado":"🗑" };
+const TIPOS_ACUERDO_CAPTACION = ["Exclusiva","Abierto / No exclusiva","Opción de compra","Consignación","Comisión mercantil","Por definir"];
+const VIABILIDAD_CAPTACION = [
+  { v:"🟢 Verde — se acepta", color:"#15803d", bg:"#dcfce7" },
+  { v:"🟡 Amarillo — con reservas", color:"#854d0e", bg:"#fef9c3" },
+  { v:"🔴 Rojo — no se acepta", color:"#b91c1c", bg:"#fee2e2" }
+];
+function loadCaptaciones(){
+  try{ const raw=localStorage.getItem(CAPTACION_KEY); if(!raw) return []; const p=JSON.parse(raw); return Array.isArray(p)?p:[]; }
+  catch(e){ console.warn("Error cargando captaciones:",e); return []; }
+}
+function saveCaptaciones(arr){ try{ localStorage.setItem(CAPTACION_KEY, JSON.stringify(arr||[])); }catch(e){ console.warn("Error guardando captaciones:",e); } }
+function nuevaCaptacion(){
+  return {
+    id: "capta-"+Date.now()+"-"+Math.floor(Math.random()*1000),
+    pipeline: "Ofrecido",
+    fechaCreacion: new Date().toISOString(),
+    fechaUltimaActividad: new Date().toISOString(),
+    asesorResponsableGG: "",
+    // Propietario / contacto
+    propietario:"", contacto:"", telefono:"", email:"",
+    // Ubicación
+    estado:"", ciudad:"", zona:"", ubicacion:"", ligaMaps:"",
+    // Características del terreno
+    usoSuelo:"", poligono:"", superficie:"", frente:"",
+    // Comercial
+    precioDueno:"", precioM2:"", tipoAcuerdo:"", comision:"", vigencia:"",
+    // Viabilidad (semáforo: se acepta o no)
+    viabilidad:"",
+    // Documentación / notas y seguimiento
+    documentos:"", notas:"",
+    // Vínculo al inventario (cuando se pasa a venta)
+    loteInventarioId:""
+  };
+}
 function nuevaSolicitudAsesor(){
   return {
     id: "asesor-"+Date.now()+"-"+Math.floor(Math.random()*1000),
@@ -1783,6 +1832,35 @@ function MacroProMatcher() {
   const [showMatchesModal, setShowMatchesModal] = React.useState(false);
   const [matchesActuales, setMatchesActuales] = React.useState([]);
   const [solicitudFiltroPipeline, setSolicitudFiltroPipeline] = React.useState(()=>localStorage.getItem("macropro_solicitud_filtro_pipeline")||"Todos");
+  // ─── CAPTACIÓN DE TERRENOS · estado y mutadores (persistencia local) ───
+  const [captaciones, setCaptaciones] = React.useState(()=>loadCaptaciones());
+  const [showCaptacionModal, setShowCaptacionModal] = React.useState(false);
+  const [editingCaptacion, setEditingCaptacion] = React.useState(null);
+  const upsertCaptacion = (c)=>{
+    if(!c||!c.id) return;
+    const x = { ...c, fechaUltimaActividad: new Date().toISOString() };
+    setCaptaciones(prev=>{ const arr=Array.isArray(prev)?[...prev]:[]; const i=arr.findIndex(y=>y.id===x.id); if(i>=0) arr[i]=x; else arr.unshift(x); saveCaptaciones(arr); return arr; });
+  };
+  const removeCaptacion = (id)=>{ setCaptaciones(prev=>{ const arr=(prev||[]).filter(y=>y.id!==id); saveCaptaciones(arr); return arr; }); };
+  const pasarCaptacionAInventario = (c)=>{
+    if(!c) return;
+    const nombre = c.zona || c.ubicacion || (c.propietario?("Terreno "+c.propietario):"") || c.ciudad || "Terreno captado";
+    const sup = parseFloat(c.superficie)||0;
+    const pm2 = parseFloat(c.precioM2)||0;
+    const ptot = parseFloat(c.precioDueno)||0;
+    const lote = {
+      id: c.loteInventarioId || ("cap-"+(c.id||Date.now())),
+      nombre, desarrollo:"Corretaje", desarrollador:"Captación", tipo:"Corretaje",
+      ciudad:c.ciudad||"", estado:c.estado||"", uso:c.usoSuelo||"",
+      sup_m2:sup, precio_m2:pm2, precio_total: ptot||(sup&&pm2?sup*pm2:0),
+      status:"Disponible", asesor:c.asesorResponsableGG||"",
+      fortaleza:c.notas||"", atributos:c.poligono||"", maps:c.ligaMaps||"",
+      comprador:"", origenCaptacion:c.id
+    };
+    setInventory(prev=>{ const arr=Array.isArray(prev)?[...prev]:[]; const k=loteKey(lote); const i=arr.findIndex(l=>loteKey(l)===k); if(i>=0) arr[i]={...arr[i],...lote}; else arr.unshift(lote); return arr; });
+    upsertCaptacion({ ...c, pipeline:"Firmado", loteInventarioId:lote.id });
+    toast("✅ Terreno agregado al inventario (Corretaje)");
+  };
   // ─── SOLICITUDES ASESOR · persistencia (local + Supabase POR REGISTRO) ───
   // Sube/baja por `id` (last-write-wins por registro), nunca reemplaza toda la tabla.
   // Mapea camelCase (app) ↔ snake_case (columnas reales de la tabla). Borrado SUAVE.
@@ -2482,7 +2560,7 @@ function MacroProMatcher() {
     const limpiar = ()=>{ try{ window.history.replaceState(null,"",window.location.pathname); }catch(e){} };
     // 0) vista directa (?vista=admin, dashboard, clients, lots, crm, metas…)
     if(vista){
-      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch','asesores','corretaje'];
+      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch','asesores','captacion','corretaje'];
       deepLinkRef.current = true;
       if(VISTAS.includes(vista)) setView(vista);
       limpiar(); return;
@@ -12338,6 +12416,245 @@ Respuesta: [respuesta exacta, conversacional]
     );
   };
 
+  // ══════════════ CAPTACIÓN DE TERRENOS (opcionamiento) ══════════════
+  const ViewCaptacion = () => {
+    const ahoraC = new Date();
+    const fechaRelC = (iso)=>{ if(!iso) return "—"; const d=new Date(iso); const dias=Math.floor((ahoraC-d)/(1000*60*60*24)); if(dias===0) return "Hoy"; if(dias===1) return "Ayer"; if(dias<7) return `Hace ${dias}d`; if(dias<30) return `Hace ${Math.floor(dias/7)}sem`; return `Hace ${Math.floor(dias/30)}m`; };
+    const isStaleC = (c)=>{ if(c.pipeline==="Firmado"||c.pipeline==="Descartado") return false; const ult=new Date(c.fechaUltimaActividad||c.fechaCreacion||0); return (ahoraC-ult)/(1000*60*60*24)>7; };
+    const viabInfo = (v)=> VIABILIDAD_CAPTACION.find(x=>x.v===v) || null;
+    const activosC = captaciones.filter(c=>c.pipeline!=="Firmado"&&c.pipeline!=="Descartado");
+    const totalActivosC = activosC.length;
+    const totalNegoc = captaciones.filter(c=>c.pipeline==="En negociación").length;
+    const totalFirm = captaciones.filter(c=>c.pipeline==="Firmado").length;
+    const totalDesc = captaciones.filter(c=>c.pipeline==="Descartado").length;
+    const totalStaleC = captaciones.filter(isStaleC).length;
+    const valorCaptacion = activosC.reduce((s,c)=>s+(parseFloat(c.precioDueno)||0),0);
+    const porEtapaC = {}; CAPTACION_PIPELINE.forEach(p=>{ porEtapaC[p]=[]; });
+    captaciones.forEach(c=>{ if(porEtapaC[c.pipeline]) porEtapaC[c.pipeline].push(c); else porEtapaC["Ofrecido"].push(c); });
+    const fmtMon=(v)=>{ const n=parseFloat(v)||0; return n>0?("$"+n.toLocaleString("es-MX")):""; };
+    return (
+      <div style={{padding:"24px 28px", maxWidth:1600, margin:"0 auto"}}>
+        {/* Header */}
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24, flexWrap:"wrap", gap:14}}>
+          <div>
+            <div style={{fontSize:11, fontWeight:700, color:B.gold, letterSpacing:2, textTransform:"uppercase"}}>🌱 Captación de terrenos</div>
+            <h1 style={{fontSize:34, fontWeight:800, color:B.navy, margin:"4px 0 0 0", fontFamily:"'Playfair Display',serif"}}>Terrenos en opcionamiento</h1>
+            <div style={{fontSize:12, color:B.grey4, marginTop:6}}>Propietarios que nos ofrecen un terreno a vender · seguimiento hasta firmar el encargo</div>
+          </div>
+          <button onClick={()=>{setEditingCaptacion(nuevaCaptacion()); setShowCaptacionModal(true);}}
+            style={{padding:"12px 22px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#15803d,#22c55e)", color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 14px rgba(21,128,61,0.35)"}}>
+            ➕ Registrar terreno
+          </button>
+        </div>
+
+        {/* KPIs */}
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:12, marginBottom:22}}>
+          <div style={{background:B.navy, padding:"14px 16px", borderRadius:10, color:"#fff"}}>
+            <div style={{fontSize:9, color:B.gold, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase"}}>En proceso</div>
+            <div style={{fontSize:28, fontWeight:800, color:B.gold, fontFamily:"'Playfair Display',serif", marginTop:4}}>{totalActivosC}</div>
+            <div style={{fontSize:10, color:"rgba(255,255,255,0.7)", marginTop:2}}>terrenos activos</div>
+          </div>
+          <div style={{background:"#fed7aa", padding:"14px 16px", borderRadius:10, borderLeft:"3px solid #ea580c"}}>
+            <div style={{fontSize:9, color:"#9a3412", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase"}}>🤝 Negociando</div>
+            <div style={{fontSize:24, fontWeight:800, color:"#7c2d12", fontFamily:"'Playfair Display',serif", marginTop:4}}>{totalNegoc}</div>
+            <div style={{fontSize:10, color:"#9a3412", marginTop:2}}>en negociación</div>
+          </div>
+          <div style={{background:"#dcfce7", padding:"14px 16px", borderRadius:10, borderLeft:"3px solid #16a34a"}}>
+            <div style={{fontSize:9, color:"#15803d", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase"}}>✅ Firmados</div>
+            <div style={{fontSize:24, fontWeight:800, color:"#14532d", fontFamily:"'Playfair Display',serif", marginTop:4}}>{totalFirm}</div>
+            <div style={{fontSize:10, color:"#15803d", marginTop:2}}>encargos cerrados</div>
+          </div>
+          <div style={{background:"#ecfdf5", padding:"14px 16px", borderRadius:10, borderLeft:"3px solid #10b981"}}>
+            <div style={{fontSize:9, color:"#047857", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase"}}>💰 Valor captación</div>
+            <div style={{fontSize:20, fontWeight:800, color:"#065f46", fontFamily:"'Playfair Display',serif", marginTop:4}}>{valorCaptacion>0?("$"+(valorCaptacion/1e6).toFixed(1)+"M"):"—"}</div>
+            <div style={{fontSize:10, color:"#047857", marginTop:2}}>precio de los dueños</div>
+          </div>
+          {totalStaleC>0&&(
+            <div style={{background:"#fee2e2", padding:"14px 16px", borderRadius:10, borderLeft:"3px solid #dc2626"}}>
+              <div style={{fontSize:9, color:"#991b1b", fontWeight:700, letterSpacing:1.5, textTransform:"uppercase"}}>⚠ Sin movimiento</div>
+              <div style={{fontSize:24, fontWeight:800, color:"#7f1d1d", fontFamily:"'Playfair Display',serif", marginTop:4}}>{totalStaleC}</div>
+              <div style={{fontSize:10, color:"#991b1b", marginTop:2}}>+7 días</div>
+            </div>
+          )}
+        </div>
+
+        {/* Kanban */}
+        <div style={{background:B.white, borderRadius:14, padding:18, border:"1px solid "+B.grey1, marginBottom:20, boxShadow:"0 2px 10px rgba(0,43,73,0.04)"}}>
+          <div style={{display:"flex", gap:12, overflowX:"auto", paddingBottom:8}}>
+            {CAPTACION_PIPELINE.map(stage=>{
+              const colors = CAPTACION_PIPELINE_COLORS[stage];
+              const items = porEtapaC[stage]||[];
+              const icon = CAPTACION_PIPELINE_ICONS[stage]||"";
+              return (
+                <div key={stage} style={{minWidth:270, maxWidth:270, flexShrink:0}}>
+                  <div style={{padding:"10px 12px", borderRadius:8, background:colors.bg, borderTop:"3px solid "+colors.border, marginBottom:10}}>
+                    <div style={{fontSize:10, fontWeight:800, color:colors.color, textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
+                      <span>{icon} {stage}</span>
+                      <span style={{background:colors.color, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{items.length}</span>
+                    </div>
+                  </div>
+                  <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:620, overflowY:"auto"}}>
+                    {items.map(c=>{
+                      const stale = isStaleC(c);
+                      const vb = viabInfo(c.viabilidad);
+                      return (
+                        <div key={c.id} onClick={()=>{setEditingCaptacion(c); setShowCaptacionModal(true);}}
+                          style={{padding:"11px 12px", background:B.white, borderRadius:8, border:"1px solid "+(stale?"#dc2626":B.grey1), cursor:"pointer", boxShadow:"0 1px 3px rgba(0,0,0,0.05)", transition:"transform 0.1s, box-shadow 0.1s", borderLeft:stale?"3px solid #dc2626":"3px solid "+colors.border}}
+                          onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-1px)"; e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,0.1)";}}
+                          onMouseLeave={e=>{e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="0 1px 3px rgba(0,0,0,0.05)";}}>
+                          <div style={{fontSize:13, fontWeight:800, color:B.navy, marginBottom:2}}>{c.propietario||"Propietario sin nombre"}</div>
+                          <div style={{fontSize:10, color:B.grey4, marginBottom:6}}>{c.contacto?c.contacto:""}{c.telefono?(c.contacto?" · ":"")+c.telefono:""}</div>
+                          {vb&&<div style={{display:"inline-block", fontSize:9, fontWeight:800, color:vb.color, background:vb.bg, borderRadius:6, padding:"2px 7px", marginBottom:6}}>{c.viabilidad}</div>}
+                          <div style={{fontSize:10, color:B.grey4, lineHeight:1.6}}>
+                            {(c.zona||c.ciudad)&&<div>📍 {c.zona?c.zona+", ":""}{c.ciudad}{c.estado?", "+c.estado:""}</div>}
+                            {(c.usoSuelo||c.superficie)&&<div>🧭 {c.usoSuelo||"sin uso"}{c.superficie?" · "+parseFloat(c.superficie).toLocaleString("es-MX")+" m²":""}</div>}
+                            {parseFloat(c.precioDueno)>0&&<div style={{color:"#15803d", fontWeight:700}}>💰 Pide {fmtMon(c.precioDueno)}</div>}
+                            {c.tipoAcuerdo&&<div>📑 {c.tipoAcuerdo}</div>}
+                          </div>
+                          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, paddingTop:6, borderTop:"1px dashed "+B.grey1}}>
+                            <span style={{fontSize:9, color:stale?"#dc2626":B.grey3, fontWeight:stale?700:500}}>{stale?"⚠ ":""}{fechaRelC(c.fechaUltimaActividad||c.fechaCreacion)}</span>
+                            {c.ligaMaps
+                              ? <a href={c.ligaMaps} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:9, fontWeight:800, color:"#1d4ed8", textDecoration:"none"}}>🗺️ Mapa</a>
+                              : <span/>}
+                          </div>
+                          {stage==="Firmado" && !c.loteInventarioId && (
+                            <button onClick={(e)=>{e.stopPropagation(); pasarCaptacionAInventario(c);}}
+                              style={{width:"100%", marginTop:8, padding:"6px 8px", borderRadius:6, border:"none", background:B.navy, color:B.gold, fontSize:10, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+                              📦 Pasar a inventario
+                            </button>
+                          )}
+                          {c.loteInventarioId && (
+                            <div style={{marginTop:8, fontSize:9, fontWeight:700, color:"#15803d", textAlign:"center"}}>✓ En inventario</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {items.length===0&&(
+                      <div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {captaciones.length===0&&(
+          <div style={{background:B.offW, padding:"40px 30px", borderRadius:12, textAlign:"center", border:"1px dashed "+B.grey1}}>
+            <div style={{fontSize:48, marginBottom:12}}>🌱</div>
+            <div style={{fontSize:16, fontWeight:800, color:B.navy, marginBottom:4}}>Sin terrenos en captación</div>
+            <div style={{fontSize:12, color:B.grey4, marginBottom:16, lineHeight:1.6}}>Cuando un propietario te ofrezca un terreno para venderlo / opcionarlo,<br/>regístralo aquí y dale seguimiento hasta firmar el encargo.</div>
+            <button onClick={()=>{setEditingCaptacion(nuevaCaptacion()); setShowCaptacionModal(true);}}
+              style={{padding:"10px 22px", borderRadius:8, border:"none", background:"#15803d", color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+              ➕ Registrar primer terreno
+            </button>
+          </div>
+        )}
+
+        {/* ══════ MODAL: alta / edición de captación ══════ */}
+        {showCaptacionModal && editingCaptacion && (()=>{
+          const f = editingCaptacion;
+          const setF = (patch)=>setEditingCaptacion(prev=>({ ...prev, ...patch }));
+          const inStyle = {width:"100%",padding:"9px 11px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:13,color:B.navy,background:B.offW,fontFamily:"'DM Sans',sans-serif",outline:"none"};
+          const lbStyle = {fontSize:10,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4,display:"block"};
+          const esNueva = !captaciones.some(c=>c.id===f.id);
+          return (
+            <div onClick={()=>setShowCaptacionModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2600,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"30px 20px",overflowY:"auto"}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:680,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden",margin:"auto"}}>
+                <div style={{padding:"20px 26px",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",opacity:0.9}}>🌱 {esNueva?"Nuevo terreno":"Editar terreno"}</div>
+                    <div style={{fontSize:20,fontWeight:800,fontFamily:"'Playfair Display',serif",marginTop:2}}>{f.propietario||f.zona||"Terreno en captación"}</div>
+                  </div>
+                  <span onClick={()=>setShowCaptacionModal(false)} style={{cursor:"pointer",fontSize:24,fontWeight:700,lineHeight:1}}>×</span>
+                </div>
+                <div style={{padding:"20px 26px",maxHeight:"62vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:16}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                    <div>
+                      <span style={lbStyle}>Etapa del seguimiento</span>
+                      <select value={f.pipeline||"Ofrecido"} onChange={e=>setF({pipeline:e.target.value})} style={inStyle}>
+                        {CAPTACION_PIPELINE.map(p=><option key={p} value={p}>{(CAPTACION_PIPELINE_ICONS[p]||"")+" "+p}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <span style={lbStyle}>🚦 Viabilidad (¿se acepta?)</span>
+                      <select value={f.viabilidad||""} onChange={e=>setF({viabilidad:e.target.value})} style={inStyle}>
+                        <option value="">— Sin evaluar</option>{VIABILIDAD_CAPTACION.map(x=><option key={x.v} value={x.v}>{x.v}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>👤 Propietario / contacto</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                      <div><span style={lbStyle}>Propietario (dueño)</span><input style={inStyle} value={f.propietario||""} onChange={e=>setF({propietario:e.target.value})} placeholder="Nombre del dueño"/></div>
+                      <div><span style={lbStyle}>Contacto</span><input style={inStyle} value={f.contacto||""} onChange={e=>setF({contacto:e.target.value})} placeholder="Quién nos lo presenta"/></div>
+                      <div><span style={lbStyle}>Teléfono</span><input style={inStyle} value={f.telefono||""} onChange={e=>setF({telefono:e.target.value})}/></div>
+                      <div><span style={lbStyle}>Email</span><input style={inStyle} value={f.email||""} onChange={e=>setF({email:e.target.value})}/></div>
+                      <div style={{gridColumn:"1 / -1"}}><span style={lbStyle}>Asesor responsable (Grupo Guía)</span><input style={inStyle} value={f.asesorResponsableGG||""} onChange={e=>setF({asesorResponsableGG:e.target.value})} placeholder="Quién lo atiende"/></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>📍 Ubicación</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                      <div><span style={lbStyle}>Estado</span><input style={inStyle} value={f.estado||""} onChange={e=>setF({estado:e.target.value})}/></div>
+                      <div><span style={lbStyle}>Ciudad</span><input style={inStyle} value={f.ciudad||""} onChange={e=>setF({ciudad:e.target.value})}/></div>
+                      <div><span style={lbStyle}>Zona / colonia</span><input style={inStyle} value={f.zona||""} onChange={e=>setF({zona:e.target.value})}/></div>
+                      <div style={{gridColumn:"1 / -1"}}><span style={lbStyle}>Dirección / referencia</span><input style={inStyle} value={f.ubicacion||""} onChange={e=>setF({ubicacion:e.target.value})}/></div>
+                      <div style={{gridColumn:"1 / -1"}}><span style={lbStyle}>🗺️ Liga de Google Maps</span><input style={inStyle} value={f.ligaMaps||""} onChange={e=>setF({ligaMaps:e.target.value})} placeholder="https://maps.google.com/..."/></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>🧭 Características del terreno</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                      <div><span style={lbStyle}>Uso de suelo</span>
+                        <select style={inStyle} value={f.usoSuelo||""} onChange={e=>setF({usoSuelo:e.target.value})}>
+                          <option value="">—</option>{USOS_SUELO_OPCIONES.map(u=><option key={u} value={u}>{u}</option>)}
+                        </select>
+                      </div>
+                      <div><span style={lbStyle}>Superficie (m²)</span><input type="number" style={inStyle} value={f.superficie||""} onChange={e=>setF({superficie:e.target.value})}/></div>
+                      <div><span style={lbStyle}>Frente (m)</span><input type="number" style={inStyle} value={f.frente||""} onChange={e=>setF({frente:e.target.value})}/></div>
+                      <div style={{gridColumn:"1 / -1"}}><span style={lbStyle}>Polígono (coordenadas / liga / descripción)</span><textarea style={{...inStyle,minHeight:48,resize:"vertical"}} value={f.poligono||""} onChange={e=>setF({poligono:e.target.value})} placeholder="Vértices, KML o descripción del polígono"/></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>💰 Comercial / acuerdo</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                      <div><span style={lbStyle}>Precio que pide el dueño ($)</span><input type="number" style={inStyle} value={f.precioDueno||""} onChange={e=>setF({precioDueno:e.target.value})}/></div>
+                      <div><span style={lbStyle}>Precio por m² ($)</span><input type="number" style={inStyle} value={f.precioM2||""} onChange={e=>setF({precioM2:e.target.value})}/></div>
+                      <div><span style={lbStyle}>Comisión acordada</span><input style={inStyle} value={f.comision||""} onChange={e=>setF({comision:e.target.value})} placeholder="Ej. 5%"/></div>
+                      <div><span style={lbStyle}>Tipo de acuerdo</span>
+                        <select style={inStyle} value={f.tipoAcuerdo||""} onChange={e=>setF({tipoAcuerdo:e.target.value})}>
+                          <option value="">—</option>{TIPOS_ACUERDO_CAPTACION.map(x=><option key={x} value={x}>{x}</option>)}
+                        </select>
+                      </div>
+                      <div><span style={lbStyle}>Vigencia del encargo</span><input style={inStyle} value={f.vigencia||""} onChange={e=>setF({vigencia:e.target.value})} placeholder="Ej. 6 meses"/></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>📄 Documentos y seguimiento</div>
+                    <div><span style={lbStyle}>Documentos (escrituras, predial, etc.)</span><input style={inStyle} value={f.documentos||""} onChange={e=>setF({documentos:e.target.value})} placeholder="Qué tenemos / qué falta"/></div>
+                    <div style={{marginTop:10}}><span style={lbStyle}>Notas y seguimiento</span><textarea style={{...inStyle,minHeight:62,resize:"vertical"}} value={f.notas||""} onChange={e=>setF({notas:e.target.value})}/></div>
+                  </div>
+                  {f.loteInventarioId && <div style={{fontSize:11,fontWeight:700,color:"#15803d",background:"#dcfce7",borderRadius:8,padding:"8px 12px"}}>✓ Este terreno ya está publicado en el Inventario (Corretaje).</div>}
+                </div>
+                <div style={{padding:"16px 26px",borderTop:"1px solid "+B.grey1,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",gap:8}}>
+                    {!esNueva && <button onClick={()=>{ if(window.confirm("¿Eliminar este terreno de captación?")){ removeCaptacion(f.id); setShowCaptacionModal(false);} }} style={{padding:"10px 16px",borderRadius:8,border:"1px solid #fecaca",background:"#fef2f2",color:"#dc2626",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗑 Eliminar</button>}
+                    {!f.loteInventarioId && <button onClick={()=>{ if(!(f.propietario||f.zona)){ toast("⚠ Pon al menos propietario o zona"); return; } pasarCaptacionAInventario(f); setShowCaptacionModal(false); }} style={{padding:"10px 16px",borderRadius:8,border:"none",background:B.navy,color:B.gold,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📦 Pasar a inventario</button>}
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>setShowCaptacionModal(false)} style={{padding:"10px 18px",borderRadius:8,border:"1px solid "+B.grey1,background:"#fff",color:B.grey4,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancelar</button>
+                    <button onClick={()=>{ if(!(f.propietario||f.zona||f.ciudad)){ toast("⚠ Pon al menos propietario, zona o ciudad"); return; } upsertCaptacion(f); setShowCaptacionModal(false); toast("✅ Terreno guardado"); }} style={{padding:"10px 20px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>💾 Guardar</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    );
+  };
+
   const ViewDashboard = () => {
     const cliSrc=clients.length>0?clients:DEMO_CLIENTS;
     const totalLotes=srcInv.length, totalClientes=cliSrc.length;
@@ -14449,7 +14766,7 @@ Respuesta: [respuesta exacta, conversacional]
           <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.0-VISOR</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["asesores","🤝 Asesores"],["dashboard","📊 Dashboard"],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["corretaje","🗺️ Corretaje"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["crm","🎯 CRM"+crmNavCount],["asesores","🤝 Asesores"],["captacion","🌱 Captación"],["dashboard","📊 Dashboard"],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["quickSearch","🔍 Búsqueda"],["corretaje","🗺️ Corretaje"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <button onClick={()=>{setApiKeyInput(localStorage.getItem("macropro_api_key")||"");setShowApiModal(true);}} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:apiKey?"#22c55e":"#ef4444",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title={apiKey?"API Key configurada ✓":"Sin API Key — click para configurar"}>{apiKey?"🔑":"⚠️"}</button>
@@ -14498,6 +14815,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="corretaje"&&<ViewCorretaje/>}
       {view==="admin"&&<ViewAdmin/>}
       {view==="asesores"&&<ViewAsesores/>}
+      {view==="captacion"&&<ViewCaptacion/>}
       <ModalApiKey/>
       <ModalMigrate/>
       {ModalAddClient}
