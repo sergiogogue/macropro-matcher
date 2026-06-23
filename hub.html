@@ -130,6 +130,18 @@ const DES_FALLBACK = [
   {slug:"esenika-boreales",nombre:"Esenika Boreales",desarrollador:"Garvi",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#6B7280",color_secundario:"#9aa3af"},
   {slug:"corretaje-norte",nombre:"Corretaje Norte",desarrollador:"Corretaje",tipo:"Corretaje",ciudad:"ZMGDL",color_principal:"#042058",color_secundario:"#c9a961"},
 ];
+// Plataformas Macros 360 que aún no están capturadas en Supabase (tabla 'desarrollos').
+// Se reflejan aquí hasta que se les ponga 'plataforma_url' en la base; entonces manda Supabase.
+const PLAT_OVERRIDES = [
+  {slug:"las-rosas-square",nombre:"Las Rosas Square",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#b14f6a",color_secundario:"#6B7280",plataforma_url:"https://armada.com.mx/sitio/clientes/tya/las-rosas-square/piloto/360/"},
+];
+function aplicarPlatOverrides(){
+  PLAT_OVERRIDES.forEach(o=>{
+    const i = DES.findIndex(d=> norm(d.slug)===norm(o.slug) || norm(d.nombre)===norm(o.nombre));
+    if(i>=0){ DES[i] = {...o, ...DES[i], plataforma_url: (DES[i].plataforma_url && /^https?:/.test(DES[i].plataforma_url)) ? DES[i].plataforma_url : o.plataforma_url}; }
+    else { DES.push({...o}); }
+  });
+}
 const norm = s => (s||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
 const inic = n => (n||"?").split(/\s+/).slice(0,2).map(w=>w[0]).join("").toUpperCase();
 const urlValida = u => u && !/^PON_LA_URL/i.test(u);
@@ -150,6 +162,7 @@ async function cargar(){
       if(!l.error && Array.isArray(l.data)) l.data.forEach(r=>{ const k=norm(r.desarrollo); if(k) COUNT[k]=(COUNT[k]||0)+1; }); }catch(e){}
   }
   if(!DES.length) DES = DES_FALLBACK;   // nunca queda vacío
+  aplicarPlatOverrides();               // plataformas 360 aún no capturadas en Supabase
   document.getElementById("src").textContent = online ? "✓ datos en vivo desde Supabase" : "⚠ mostrando datos de respaldo (sin conexión a Supabase)";
   renderApps(); renderDes();
 }
