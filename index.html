@@ -2005,7 +2005,8 @@ function MacroProMatcher() {
     if(!quickAssignLot) return;
     if(!quickAssignForm.asesor||!quickAssignForm.asesor.trim()){toast("⚠ Selecciona un asesor");return;}
     setCrmData(prev=>{
-      const entry=prev[quickAssignLot.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
+      const key=(prev[quickAssignLot.id]!==undefined)?quickAssignLot.id:(Object.keys(prev).find(k=>normLoteId(k)===normLoteId(quickAssignLot.id))||quickAssignLot.id);
+      const entry=prev[key]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
       const existing=entry.seguimientoAsesor||{};
       const seguimientoAsesor={
         asesor:quickAssignForm.asesor.trim(),
@@ -2016,7 +2017,7 @@ function MacroProMatcher() {
         actividades:existing.actividades||[],
         interacciones:existing.interacciones||[]
       };
-      const next={...prev,[quickAssignLot.id]:{...entry,seguimientoAsesor}};
+      const next={...prev,[key]:{...entry,seguimientoAsesor}};
       saveCRM(next);
       return next;
     });
@@ -2036,7 +2037,8 @@ function MacroProMatcher() {
   const executeQuickClient=(cliente)=>{
     if(!quickClientLot||!cliente) return;
     setCrmData(prev=>{
-      const entry=prev[quickClientLot.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
+      const key=(prev[quickClientLot.id]!==undefined)?quickClientLot.id:(Object.keys(prev).find(k=>normLoteId(k)===normLoteId(quickClientLot.id))||quickClientLot.id);
+      const entry=prev[key]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
       const existingProspectos=entry.prospectos||[];
       // Evitar duplicados
       const yaExiste=existingProspectos.some(p=>p.nombre&&p.nombre.toLowerCase().trim()===cliente.nombre.toLowerCase().trim());
@@ -2058,7 +2060,7 @@ function MacroProMatcher() {
       const prospectos=[...existingProspectos,nuevoProspecto];
       // Actualizar pipeline del lote si estaba en Disponible
       const lotePipeline=entry.pipeline==="Disponible"?"Prospecto":entry.pipeline;
-      const next={...prev,[quickClientLot.id]:{...entry,prospectos,pipeline:lotePipeline,lastContact:new Date().toISOString().slice(0,10)}};
+      const next={...prev,[key]:{...entry,prospectos,pipeline:lotePipeline,lastContact:new Date().toISOString().slice(0,10)}};
       saveCRM(next);
       return next;
     });
@@ -2667,7 +2669,13 @@ function MacroProMatcher() {
     if(dias===null) return null;
     return INV_SEMAFORO.find(s=>dias<=s.max)||INV_SEMAFORO[INV_SEMAFORO.length-1];
   };
-  const getSemaforo=(id)=>{const e=crmData[id];if(!e||e.pipeline==="Descartado"||e.pipeline==="Vendido")return "grey";if(!e.lastContact)return "yellow";const d=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));if(d<=30)return "green";if(d<=60)return "yellow";return "red";};
+  // Búsqueda de la entrada CRM tolerante a mayúsculas/espacios en el id del lote
+  // (la nube guarda lote_id en minúscula 'cs-001' pero el inventario puede traer 'CS-001').
+  const normLoteId=(s)=>String(s||"").trim().toLowerCase().replace(/\s+/g,"_");
+  const _crmKeyByNorm=(()=>{ const idx={}; Object.keys(crmData||{}).forEach(k=>{ const n=normLoteId(k); if(!(n in idx)) idx[n]=k; }); return idx; })();
+  const crmKeyFor=(id)=> ((crmData&&crmData[id]!==undefined) ? id : (_crmKeyByNorm[normLoteId(id)]||id));
+  const crmOf=(id)=> (crmData&&crmData[crmKeyFor(id)])||{};
+  const getSemaforo=(id)=>{const e=crmOf(id);if(!e||e.pipeline==="Descartado"||e.pipeline==="Vendido")return "grey";if(!e.lastContact)return "yellow";const d=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));if(d<=30)return "green";if(d<=60)return "yellow";return "red";};
   const semaforoColor={green:"#22c55e",yellow:"#f59e0b",red:"#ef4444",grey:"#9ca3af"};
   const semaforoLabel={green:"Activo",yellow:"Tibio",red:"Frío — Acción requerida",grey:"Sin seguimiento"};
   const PIPELINE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
@@ -5030,7 +5038,7 @@ function MacroProMatcher() {
     const allProspectos = React.useMemo(()=>{
       const list=[];
       srcInvFiltrado.forEach(lot=>{
-        const crm=crmData[lot.id]||{};
+        const crm=crmOf(lot.id);
         (crm.prospectos||[]).forEach((p,idx)=>{
           const cli=cliSrcCRM.find(c=>c.nombre&&c.nombre.toLowerCase().trim()===p.nombre.toLowerCase().trim());
           const dias=crm.lastContact?Math.floor((Date.now()-new Date(crm.lastContact).getTime())/864e5):null;
@@ -5051,7 +5059,7 @@ function MacroProMatcher() {
     },[crmData,srcInvFiltrado,cliSrcCRM,filterDesarrolloGlobal]);
 
     const lotsFiltered=srcInvFiltrado.filter(l=>{
-      const crm=crmData[l.id]||{};
+      const crm=crmOf(l.id);
       const pip=crm.pipeline||"Disponible";
       const sem=getSemaforo(l.id);
       return (filterPipeline==="Todos"||pip===filterPipeline)&&(filterDesarrolloCRM==="Todos"||l.desarrollo===filterDesarrolloCRM)&&(filterSemaforo==="Todos"||sem===filterSemaforo);
@@ -7194,7 +7202,7 @@ function MacroProMatcher() {
       const lotesConSeguimiento=[];
       srcInvFiltrado.forEach(lot=>{
         if(filterDesarrolloCRM!=="Todos"&&lot.desarrollo!==filterDesarrolloCRM) return;
-        const crm=crmData[lot.id];
+        const crm=crmOf(lot.id);
         if(kanbanSearch.trim()){
           const q=kanbanSearch.toLowerCase().trim();
           const txt=((lot.nombre||"")+" "+((crm&&crm.seguimientoAsesor&&crm.seguimientoAsesor.asesor)||"")).toLowerCase();
