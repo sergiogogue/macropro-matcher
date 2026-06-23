@@ -223,12 +223,13 @@ function normCoordMX(lat, lng) {
 // Mismo uso = mismo color. Orden importa: lo más específico primero.
 function usoCategoria(uso){
   const u=(uso||"").toString().toLowerCase();
+  if(/industrial|log[íi]stic|nave|bodega/.test(u))                return { cat:"Industrial / Logístico", color:"#6b7280" };// gris
   if(/retail|comercial\s*\/\s*retail|comercial\s+retail/.test(u)) return { cat:"Comercial / Retail", color:"#db2777" };  // rosa fuerte
   if(/comercial|comercio|plaza/.test(u))                          return { cat:"Comercial", color:"#f97316" };           // naranja
   if(/mixto|mixed|h\s*\+\s*c|usos?\s*mixtos?/.test(u))            return { cat:"Mixto", color:"#1d4ed8" };               // azul rey
   if(/vertical/.test(u))                                          return { cat:"Habitacional Vertical", color:"#38bdf8" };// azul cielo
   if(/horizontal/.test(u))                                        return { cat:"Habitacional Horizontal", color:"#eab308" };// amarillo
-  return { cat:"Otro", color:"#94a3b8" };                                                                                 // gris (sin clasificar)
+  return { cat:"Otro", color:"#cbd5e1" };                                                                                 // gris claro (sin clasificar)
 }
 const USO_CATEGORIAS=[
   { cat:"Comercial", color:"#f97316" },
@@ -236,7 +237,8 @@ const USO_CATEGORIAS=[
   { cat:"Mixto", color:"#1d4ed8" },
   { cat:"Habitacional Vertical", color:"#38bdf8" },
   { cat:"Habitacional Horizontal", color:"#eab308" },
-  { cat:"Otro", color:"#94a3b8" },
+  { cat:"Industrial / Logístico", color:"#6b7280" },
+  { cat:"Otro", color:"#cbd5e1" },
 ];
 function esCorretaje(lot){ return /corretaje/i.test(lot&&lot.tipo||"")||/corretaje/i.test(lot&&lot.desarrollador||""); }
 
