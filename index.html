@@ -12699,6 +12699,12 @@ Respuesta: [respuesta exacta, conversacional]
                             {parseFloat(c.precioDueno)>0&&<div style={{color:"#15803d", fontWeight:700}}>💰 Pide {fmtMon(c.precioDueno)}</div>}
                             {c.tipoAcuerdo&&<div>📑 {c.tipoAcuerdo}</div>}
                           </div>
+                          <div style={{marginTop:8}} onClick={e=>e.stopPropagation()}>
+                            <select value={c.pipeline} onChange={e=>{ upsertCaptacion({...c, pipeline:e.target.value}); }}
+                              style={{width:"100%", fontSize:10, fontWeight:700, color:B.navy, border:"1px solid "+B.grey1, borderRadius:6, padding:"5px 6px", background:B.offW, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+                              {CAPTACION_PIPELINE.map(p=><option key={p} value={p}>{(CAPTACION_PIPELINE_ICONS[p]||"")+" "+p}</option>)}
+                            </select>
+                          </div>
                           <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, paddingTop:6, borderTop:"1px dashed "+B.grey1}}>
                             <span style={{fontSize:9, color:stale?"#dc2626":B.grey3, fontWeight:stale?700:500}}>{stale?"⚠ ":""}{fechaRelC(c.fechaUltimaActividad||c.fechaCreacion)}</span>
                             <div style={{display:"flex", gap:10, alignItems:"center"}}>
