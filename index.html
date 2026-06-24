@@ -1875,8 +1875,9 @@ function MacroProMatcher() {
     if(!c||!c.id) return;
     const x = { ...c, fechaUltimaActividad: new Date().toISOString() };
     setCaptaciones(prev=>{ const arr=Array.isArray(prev)?[...prev]:[]; const i=arr.findIndex(y=>y.id===x.id); if(i>=0) arr[i]=x; else arr.unshift(x); saveCaptaciones(arr); return arr; });
+    subirCaptacionCloud(x);
   };
-  const removeCaptacion = (id)=>{ setCaptaciones(prev=>{ const arr=(prev||[]).filter(y=>y.id!==id); saveCaptaciones(arr); return arr; }); };
+  const removeCaptacion = (id)=>{ setCaptaciones(prev=>{ const arr=(prev||[]).filter(y=>y.id!==id); saveCaptaciones(arr); return arr; }); borrarCaptacionCloud(id); };
   const pasarCaptacionAInventario = (c)=>{
     if(!c) return;
     const nombre = c.zona || c.ubicacion || (c.propietario?("Terreno "+c.propietario):"") || c.ciudad || "Terreno captado";
@@ -1896,6 +1897,69 @@ function MacroProMatcher() {
     upsertCaptacion({ ...c, pipeline:"Firmado", loteInventarioId:lote.id });
     toast("✅ Terreno agregado al inventario (Corretaje)");
   };
+  // ─── CAPTACIÓN · sync Supabase POR REGISTRO (upsert por id, fusión al abrir) ───
+  const _numCap = (v)=>{ if(v===""||v==null) return null; const n=Number(v); return isNaN(n)?null:n; };
+  const captacionDeFila = (r)=>({
+    id:r.id, pipeline:r.pipeline||"Ofrecido",
+    fechaCreacion:r.fecha_creacion||null, fechaUltimaActividad:r.fecha_ultima_actividad||null,
+    asesorResponsableGG:r.asesor_responsable_gg||"",
+    propietario:r.propietario||"", contacto:r.contacto||"", telefono:r.telefono||"", email:r.email||"",
+    estado:r.estado||"", ciudad:r.ciudad||"", zona:r.zona||"", ubicacion:r.ubicacion||"", ligaMaps:r.liga_maps||"",
+    usoSuelo:r.uso_suelo||"", poligono:r.poligono||"",
+    superficie:r.superficie==null?"":r.superficie, frente:r.frente==null?"":r.frente,
+    precioDueno:r.precio_dueno==null?"":r.precio_dueno, precioM2:r.precio_m2==null?"":r.precio_m2,
+    tipoAcuerdo:r.tipo_acuerdo||"", comision:r.comision||"", vigencia:r.vigencia||"",
+    viabilidad:r.viabilidad||"", documentos:r.documentos||"", notas:r.notas||"",
+    loteInventarioId:r.lote_inventario_id||""
+  });
+  const filaDeCaptacion = (c)=>({
+    id:c.id, pipeline:c.pipeline||"Ofrecido",
+    fecha_creacion:c.fechaCreacion||null, fecha_ultima_actividad:c.fechaUltimaActividad||null,
+    asesor_responsable_gg:c.asesorResponsableGG||null,
+    propietario:c.propietario||null, contacto:c.contacto||null, telefono:c.telefono||null, email:c.email||null,
+    estado:c.estado||null, ciudad:c.ciudad||null, zona:c.zona||null, ubicacion:c.ubicacion||null, liga_maps:c.ligaMaps||null,
+    uso_suelo:c.usoSuelo||null, poligono:c.poligono||null,
+    superficie:_numCap(c.superficie), frente:_numCap(c.frente),
+    precio_dueno:_numCap(c.precioDueno), precio_m2:_numCap(c.precioM2),
+    tipo_acuerdo:c.tipoAcuerdo||null, comision:c.comision||null, vigencia:c.vigencia||null,
+    viabilidad:c.viabilidad||null, documentos:c.documentos||null, notas:c.notas||null,
+    lote_inventario_id:c.loteInventarioId||null,
+    eliminado:false, updated_at:new Date().toISOString()
+  });
+  const subirCaptacionCloud = async (c)=>{
+    if(!window.sb || !c || !c.id) return;
+    try{ await window.sb.from('captaciones').upsert(filaDeCaptacion(c), { onConflict:'id' }); }
+    catch(e){ console.warn('subir captación:', e&&e.message); }
+  };
+  const borrarCaptacionCloud = async (id)=>{
+    if(!window.sb || !id) return;
+    try{ await window.sb.from('captaciones')
+      .update({ eliminado:true, fecha_eliminacion:new Date().toISOString(), updated_at:new Date().toISOString() })
+      .eq('id', id); }
+    catch(e){ console.warn('borrar captación:', e&&e.message); }
+  };
+  // Bajar (fusión por id) desde la nube al abrir; si no hay nube, queda lo local.
+  React.useEffect(()=>{
+    let cancel=false;
+    const t=setInterval(async ()=>{
+      if(cancel){ clearInterval(t); return; }
+      if(window.sb){
+        clearInterval(t);
+        try{
+          const r = await window.sb.from('captaciones').select('*');
+          if(!cancel && r && !r.error && Array.isArray(r.data)){
+            setCaptaciones(prev=>{
+              const byId={}; (prev||[]).forEach(s=>{ if(s&&s.id) byId[s.id]=s; });
+              r.data.forEach(row=>{ if(!row || !row.id || row.eliminado===true) return; byId[row.id]=captacionDeFila(row); });
+              const arr=Object.values(byId);
+              saveCaptaciones(arr); return arr;
+            });
+          }
+        }catch(e){ /* queda lo local */ }
+      }
+    },400);
+    return ()=>{ cancel=true; clearInterval(t); };
+  }, []);
   // ─── SOLICITUDES ASESOR · persistencia (local + Supabase POR REGISTRO) ───
   // Sube/baja por `id` (last-write-wins por registro), nunca reemplaza toda la tabla.
   // Mapea camelCase (app) ↔ snake_case (columnas reales de la tabla). Borrado SUAVE.
