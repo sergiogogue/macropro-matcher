@@ -8179,10 +8179,12 @@ function MacroProMatcher() {
                   <div style={{fontSize:10,color:"#78350f",marginTop:2}}>Prospectos en Negociación / Propuesta / Contrato deberían tener siempre una acción programada.</div>
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                  {prospSinAct.slice(0,3).map((x,i)=>(
-                    <button key={i} onClick={()=>{setShowActivityModal({mode:"create",lotId:x.lotId,prospectoIdx:x.prospectoIdx});setActivityForm({tipo:"Seguimiento",descripcion:"",fecha:addBusinessDays(new Date(),2),hora:""});}} style={{padding:"5px 10px",background:B.white,border:"1.5px solid #f59e0b",borderRadius:7,cursor:"pointer",fontSize:10,fontWeight:700,color:"#92400e",fontFamily:"'DM Sans',sans-serif"}}>+ {x.prospecto.nombre.split(" ")[0]}</button>
+                  {prospSinAct.slice(0,4).map((x,i)=>(
+                    <button key={i} title={"Agendar actividad para "+x.prospecto.nombre} onClick={()=>{setShowActivityModal({mode:"create",lotId:x.lotId,prospectoIdx:x.prospectoIdx});setActivityForm({tipo:"Seguimiento",descripcion:"",fecha:addBusinessDays(new Date(),2),hora:""});}} style={{padding:"5px 10px",background:B.white,border:"1.5px solid #f59e0b",borderRadius:7,cursor:"pointer",fontSize:10,fontWeight:700,color:"#92400e",fontFamily:"'DM Sans',sans-serif",textAlign:"left"}}>
+                      ＋ {x.prospecto.nombre||"(sin nombre)"}<span style={{color:"#b45309",fontWeight:600}}> · {x.lot.nombre||x.lot.desarrollo||x.lotId}</span>
+                    </button>
                   ))}
-                  {prospSinAct.length>3&&<span style={{fontSize:10,color:"#78350f",fontWeight:600,padding:"5px 4px"}}>+{prospSinAct.length-3}</span>}
+                  {prospSinAct.length>4&&<span style={{fontSize:10,color:"#78350f",fontWeight:600,padding:"5px 4px"}}>+{prospSinAct.length-4} más</span>}
                 </div>
               </div>
             );
@@ -9336,6 +9338,11 @@ Respuesta: [respuesta exacta, conversacional]
           const headerColor=isComplete?"linear-gradient(135deg,#15803d,#22c55e)":"linear-gradient(135deg,"+B.navy+","+B.navyL+")";
           const titleText=isComplete?"Completar actividad":isEdit?"Editar actividad":"Nueva actividad";
           const icon=isComplete?"✅":isEdit?"✏️":"📅";
+          const _crmAM=crmOf(showActivityModal.lotId);
+          const _prospAM=(_crmAM.prospectos||[])[showActivityModal.prospectoIdx]||{};
+          const _lotAM=(inventory||[]).find(l=>l.id===showActivityModal.lotId)||{};
+          const _clienteAM=_prospAM.nombre||(_crmAM.seguimientoAsesor&&("Seguimiento: "+(_crmAM.seguimientoAsesor.asesor||"")))||"(sin nombre)";
+          const _loteAM=_lotAM.nombre||_lotAM.desarrollo||showActivityModal.lotId||"";
           return (
             <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:4600,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={e=>e.target===e.currentTarget&&setShowActivityModal(null)}>
               <div style={{background:B.white,borderRadius:14,width:"100%",maxWidth:500,boxShadow:"0 20px 60px rgba(0,43,73,0.3)",overflow:"hidden",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
@@ -9343,6 +9350,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <div>
                     <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.85)",letterSpacing:2,textTransform:"uppercase",marginBottom:3}}>{icon} Actividad</div>
                     <div style={{fontSize:17,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>{titleText}</div>
+                    <div style={{fontSize:12,fontWeight:700,color:B.gold,marginTop:4}}>👤 {_clienteAM}{_loteAM?<span style={{color:"rgba(255,255,255,0.85)",fontWeight:600}}> · {_loteAM}</span>:null}</div>
                   </div>
                   <button onClick={()=>setShowActivityModal(null)} style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>✕</button>
                 </div>
