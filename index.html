@@ -885,6 +885,40 @@ function nuevaCaptacion(){
     loteInventarioId:""
   };
 }
+// Cruza un terreno en captación contra la DEMANDA (clientes del CRM + solicitudes de asesores).
+// Instantáneo, sin IA. Devuelve coincidencias ordenadas por score.
+function cruzarTerrenoConDemanda(c, clients, solicitudes){
+  if(!c) return [];
+  const norm=s=>String(s||"").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const ZMG=["guadalajara","zapopan","tlajomulco","tonala","tlaquepaque","el salto","san pedro","zmg","gdl"];
+  const ciudadMatch=(a,b)=>{ a=norm(a); b=norm(b); if(!a||!b) return false; if(a===b||a.includes(b)||b.includes(a)) return true; return ZMG.some(z=>a.includes(z))&&ZMG.some(z=>b.includes(z)); };
+  const usoT=norm(c.usoSuelo);
+  const supT=parseFloat(c.superficie)||0;
+  const precioT=parseFloat(c.precioDueno)|| (supT&&parseFloat(c.precioM2)?supT*parseFloat(c.precioM2):0);
+  const out=[];
+  // 1) CLIENTES (CRM): uso/ciudad/superficie/presupuesto
+  (clients||[]).forEach(cl=>{
+    if(!cl||!cl.nombre) return;
+    let score=0; const raz=[]; let descal=false;
+    const usos=(Array.isArray(cl.uso_interes)?cl.uso_interes:[]).map(norm).filter(Boolean);
+    const ciudades=(Array.isArray(cl.ciudad_interes)?cl.ciudad_interes:[]).filter(Boolean);
+    if(usoT && usos.length){ if(usos.some(u=>u.includes(usoT)||usoT.includes(u))){score+=30;raz.push("Uso ✓");} else descal=true; }
+    if((c.ciudad||c.estado||c.zona) && ciudades.length){ if(ciudades.some(cc=>ciudadMatch(cc,c.ciudad)||ciudadMatch(cc,c.estado)||ciudadMatch(cc,c.zona))){score+=25;raz.push("Zona ✓");} }
+    if(supT && (cl.sup_min||cl.sup_max)){ const lo=cl.sup_min?cl.sup_min*0.5:0; const hi=cl.sup_max?cl.sup_max*2:Infinity; if(supT>=lo&&supT<=hi){score+=20;raz.push("Superficie ✓");} }
+    if(precioT && cl.presupuesto_max){ if(cl.presupuesto_max>=precioT*0.5){score+=25;raz.push("Presupuesto ✓");} else descal=true; }
+    if(descal || score<=0) return;
+    out.push({tipo:"cliente", nombre:cl.nombre, sub:cl.empresa||cl.tipo_comprador||"", score, razones:raz, asesor:cl.asesor||"", telefono:cl.telefono||""});
+  });
+  // 2) SOLICITUDES DE ASESORES: reutiliza el scorer (terreno como lote-like)
+  const loteLike={ sup_m2:supT, precio_total:precioT, ciudad:c.ciudad, estado:c.estado, uso:c.usoSuelo };
+  (solicitudes||[]).forEach(s=>{
+    if(!s||s.pipeline==="Cerrado sin match") return;
+    const m=buscarMatchesParaSolicitud(s,[loteLike])[0];
+    if(!m||m.descalificado||m.score<=0) return;
+    out.push({tipo:"solicitud", nombre:s.clienteNombre||s.asesorNombre||"Solicitud", sub:s.asesorEmpresa||s.clienteGiro||"", score:m.score, razones:m.razones, asesor:s.asesorNombre||"", telefono:s.asesorTelefono||""});
+  });
+  return out.sort((a,b)=>b.score-a.score);
+}
 function nuevaSolicitudAsesor(){
   return {
     id: "asesor-"+Date.now()+"-"+Math.floor(Math.random()*1000),
@@ -1836,6 +1870,7 @@ function MacroProMatcher() {
   const [captaciones, setCaptaciones] = React.useState(()=>loadCaptaciones());
   const [showCaptacionModal, setShowCaptacionModal] = React.useState(false);
   const [editingCaptacion, setEditingCaptacion] = React.useState(null);
+  const [cruceCaptacion, setCruceCaptacion] = React.useState(null); // terreno cuyo cruce con demanda se muestra
   const upsertCaptacion = (c)=>{
     if(!c||!c.id) return;
     const x = { ...c, fechaUltimaActividad: new Date().toISOString() };
@@ -12521,9 +12556,10 @@ Respuesta: [respuesta exacta, conversacional]
                           </div>
                           <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, paddingTop:6, borderTop:"1px dashed "+B.grey1}}>
                             <span style={{fontSize:9, color:stale?"#dc2626":B.grey3, fontWeight:stale?700:500}}>{stale?"⚠ ":""}{fechaRelC(c.fechaUltimaActividad||c.fechaCreacion)}</span>
-                            {c.ligaMaps
-                              ? <a href={c.ligaMaps} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:9, fontWeight:800, color:"#1d4ed8", textDecoration:"none"}}>🗺️ Mapa</a>
-                              : <span/>}
+                            <div style={{display:"flex", gap:10, alignItems:"center"}}>
+                              {c.ligaMaps&&<a href={c.ligaMaps} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:9, fontWeight:800, color:"#1d4ed8", textDecoration:"none"}}>🗺️ Mapa</a>}
+                              <button onClick={(e)=>{e.stopPropagation(); setCruceCaptacion(c);}} style={{fontSize:9, fontWeight:800, color:B.navy, background:"#fffaf0", border:"1px solid "+B.gold, borderRadius:6, padding:"2px 7px", cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>⚡ Clientes</button>
+                            </div>
                           </div>
                           {stage==="Firmado" && !c.loteInventarioId && (
                             <button onClick={(e)=>{e.stopPropagation(); pasarCaptacionAInventario(c);}}
@@ -12646,14 +12682,64 @@ Respuesta: [respuesta exacta, conversacional]
                   {f.loteInventarioId && <div style={{fontSize:11,fontWeight:700,color:"#15803d",background:"#dcfce7",borderRadius:8,padding:"8px 12px"}}>✓ Este terreno ya está publicado en el Inventario (Corretaje).</div>}
                 </div>
                 <div style={{padding:"16px 26px",borderTop:"1px solid "+B.grey1,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                  <div style={{display:"flex",gap:8}}>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                     {!esNueva && <button onClick={()=>{ if(window.confirm("¿Eliminar este terreno de captación?")){ removeCaptacion(f.id); setShowCaptacionModal(false);} }} style={{padding:"10px 16px",borderRadius:8,border:"1px solid #fecaca",background:"#fef2f2",color:"#dc2626",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗑 Eliminar</button>}
+                    <button onClick={()=>setCruceCaptacion(f)} style={{padding:"10px 16px",borderRadius:8,border:"1px solid "+B.gold,background:"#fffaf0",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>⚡ Cruzar con clientes</button>
                     {!f.loteInventarioId && <button onClick={()=>{ if(!(f.propietario||f.zona)){ toast("⚠ Pon al menos propietario o zona"); return; } pasarCaptacionAInventario(f); setShowCaptacionModal(false); }} style={{padding:"10px 16px",borderRadius:8,border:"none",background:B.navy,color:B.gold,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📦 Pasar a inventario</button>}
                   </div>
                   <div style={{display:"flex",gap:8}}>
                     <button onClick={()=>setShowCaptacionModal(false)} style={{padding:"10px 18px",borderRadius:8,border:"1px solid "+B.grey1,background:"#fff",color:B.grey4,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancelar</button>
                     <button onClick={()=>{ if(!(f.propietario||f.zona||f.ciudad)){ toast("⚠ Pon al menos propietario, zona o ciudad"); return; } upsertCaptacion(f); setShowCaptacionModal(false); toast("✅ Terreno guardado"); }} style={{padding:"10px 20px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>💾 Guardar</button>
                   </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ══════ MODAL: cruce del terreno con la demanda (clientes + solicitudes) ══════ */}
+        {cruceCaptacion && (()=>{
+          const f=cruceCaptacion;
+          const fuenteCli = clients.length>0?clients:DEMO_CLIENTS;
+          const matches = cruzarTerrenoConDemanda(f, fuenteCli, solicitudesAsesor);
+          const precioRef = parseFloat(f.precioDueno)|| ((parseFloat(f.superficie)||0)*(parseFloat(f.precioM2)||0));
+          const resumen = [f.usoSuelo||"sin uso", (f.zona||f.ciudad||f.estado||"sin ubicación"), (parseFloat(f.superficie)>0?parseFloat(f.superficie).toLocaleString("es-MX")+" m²":""), (precioRef>0?"$"+(precioRef/1e6).toFixed(1)+"M":"")].filter(Boolean).join(" · ");
+          return (
+            <div onClick={()=>setCruceCaptacion(null)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2700,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"30px 20px",overflowY:"auto"}}>
+              <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:680,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden",margin:"auto"}}>
+                <div style={{padding:"20px 26px",background:"linear-gradient(135deg,"+B.navy+",#003a66)",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase"}}>⚡ ¿Para quién es este terreno?</div>
+                    <div style={{fontSize:18,fontWeight:800,fontFamily:"'Playfair Display',serif",marginTop:2}}>{f.propietario||f.zona||"Terreno en captación"}</div>
+                    <div style={{fontSize:11,color:"rgba(255,255,255,0.8)",marginTop:3}}>{resumen}</div>
+                  </div>
+                  <span onClick={()=>setCruceCaptacion(null)} style={{cursor:"pointer",fontSize:24,fontWeight:700,lineHeight:1}}>×</span>
+                </div>
+                <div style={{padding:"18px 26px",maxHeight:"66vh",overflowY:"auto"}}>
+                  {matches.length===0 && (
+                    <div style={{textAlign:"center",padding:"30px 10px",color:B.grey4}}>
+                      <div style={{fontSize:40,marginBottom:10}}>🔍</div>
+                      <div style={{fontSize:14,fontWeight:700,color:B.navy}}>Aún no hay demanda que encaje</div>
+                      <div style={{fontSize:12,marginTop:6,lineHeight:1.5}}>Captura uso de suelo, ubicación, superficie y precio para afinar el cruce,<br/>o registra clientes/solicitudes con esos requerimientos.</div>
+                    </div>
+                  )}
+                  {matches.length>0 && <div style={{fontSize:12,color:B.grey4,marginBottom:12}}><b style={{color:B.navy}}>{matches.length}</b> coincidencia{matches.length!==1?"s":""} en tu cartera (clientes + solicitudes de asesores)</div>}
+                  {matches.slice(0,30).map((m,i)=>(
+                    <div key={i} style={{border:"1px solid "+B.grey1,borderRadius:10,padding:"11px 14px",marginBottom:9,borderLeft:"4px solid "+(m.score>=70?"#16a34a":m.score>=40?"#f59e0b":B.grey2)}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                        <div style={{fontSize:13,fontWeight:800,color:B.navy}}>
+                          <span style={{fontSize:10,fontWeight:800,borderRadius:6,padding:"1px 7px",marginRight:7,background:m.tipo==="cliente"?"#dbeafe":"#fce7f3",color:m.tipo==="cliente"?"#1e40af":"#be185d"}}>{m.tipo==="cliente"?"👤 Cliente":"🤝 Solicitud"}</span>
+                          {m.nombre}{m.sub?<span style={{fontSize:11,color:B.grey4,fontWeight:600}}> · {m.sub}</span>:null}
+                        </div>
+                        <div style={{background:m.score>=70?"#dcfce7":"#fef3c7",color:m.score>=70?"#15803d":"#92400e",padding:"3px 10px",borderRadius:8,fontSize:12,fontWeight:800,whiteSpace:"nowrap"}}>{m.score} pts</div>
+                      </div>
+                      {(m.razones&&m.razones.length>0)&&<div style={{fontSize:10,color:"#15803d",marginTop:6}}>{m.razones.join(" · ")}</div>}
+                      {(m.asesor||m.telefono)&&<div style={{fontSize:10,color:B.grey4,marginTop:4}}>{m.asesor?("Asesor: "+m.asesor):""}{m.telefono?(m.asesor?" · ":"")+"📞 "+m.telefono:""}</div>}
+                    </div>
+                  ))}
+                </div>
+                <div style={{padding:"14px 26px",borderTop:"1px solid "+B.grey1,textAlign:"right"}}>
+                  <button onClick={()=>setCruceCaptacion(null)} style={{padding:"10px 20px",borderRadius:8,border:"none",background:B.navy,color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cerrar</button>
                 </div>
               </div>
             </div>
