@@ -1599,6 +1599,8 @@ function MacroProMatcher() {
   const [filterSemaforo, setFilterSemaforo] = React.useState("Todos");
   const [filterCanal, setFilterCanal] = React.useState("Todos");
   const [vistaKanban, setVistaKanban] = React.useState("board"); // "board" | "canales"
+  const [vistaMiDia, setVistaMiDia] = React.useState("lista"); // "lista" | "calendario"
+  const [miDiaWeekOffset, setMiDiaWeekOffset] = React.useState(0); // semanas respecto a la actual
   const [tabEjecutivoGlobal, setTabEjecutivoGlobal] = React.useState("ejecutivo");
   const [semaforoDrawer, setSemaforoDrawer] = React.useState(null);
   const [canalesActivos, setCanalesActivosRaw] = React.useState(()=>{try{const r=localStorage.getItem("macropro_canales_v1");return r?JSON.parse(r):CANALES_VENTA;}catch(e){return CANALES_VENTA;}});
@@ -1819,12 +1821,12 @@ function MacroProMatcher() {
       (crm.prospectos||[]).forEach(p=>{
         (p.actividades||[]).filter(a=>!a.completada).forEach(a=>{
           const diff=Math.floor((new Date(a.fecha+"T12:00:00")-hoy)/864e5);
-          if(diff<0||diff===1) acts.push({lotId,lotNombre,lotDes,prospecto:p.nombre,actividad:a,diff,tipo:diff<0?"vencida":"mañana"});
+          if(diff<=1) acts.push({lotId,lotNombre,lotDes,prospecto:p.nombre,actividad:a,diff,tipo:diff<0?"vencida":diff===0?"hoy":"mañana"});
         });
       });
       (crm.seguimientoAsesor?.actividades||[]).filter(a=>!a.completada).forEach(a=>{
         const diff=Math.floor((new Date(a.fecha+"T12:00:00")-hoy)/864e5);
-        if(diff<0||diff===1) acts.push({lotId,lotNombre,lotDes,prospecto:crm.seguimientoAsesor?.asesor||"Sin asesor",actividad:a,diff,tipo:diff<0?"vencida":"mañana"});
+        if(diff<=1) acts.push({lotId,lotNombre,lotDes,prospecto:crm.seguimientoAsesor?.asesor||"Sin asesor",actividad:a,diff,tipo:diff<0?"vencida":diff===0?"hoy":"mañana"});
       });
     });
     return acts.sort((a,b)=>a.diff-b.diff);
@@ -8147,6 +8149,71 @@ function MacroProMatcher() {
         </div>
       );
 
+      // ── VISTA CALENDARIO (semana, con horas) ──
+      const isoLocal=(d)=>{ const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),dd=String(d.getDate()).padStart(2,"0"); return `${y}-${m}-${dd}`; };
+      const renderCalendario=()=>{
+        const base=new Date(); base.setHours(0,0,0,0); base.setDate(base.getDate()+miDiaWeekOffset*7);
+        const dow=(base.getDay()+6)%7; // 0=lunes
+        const monday=new Date(base); monday.setDate(base.getDate()-dow);
+        const dias=[...Array(7)].map((_,i)=>{ const d=new Date(monday); d.setDate(monday.getDate()+i); return d; });
+        const hoyISO=isoLocal(new Date());
+        const pendNoComplet=actsFiltrados.filter(a=>a.urgencia.rank!==5); // pendientes (no completadas)
+        const completas=actsFiltrados.filter(a=>a.urgencia.rank===5);
+        const NOMS=["lun","mar","mié","jue","vie","sáb","dom"];
+        const MESES=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+        const rango=`${monday.getDate()} ${MESES[monday.getMonth()]} – ${dias[6].getDate()} ${MESES[dias[6].getMonth()]}`;
+        return (
+          <div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,gap:10,flexWrap:"wrap"}}>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <button onClick={()=>setMiDiaWeekOffset(miDiaWeekOffset-1)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid "+B.grey1,background:B.white,cursor:"pointer",fontSize:13,fontWeight:700,color:B.navy}}>◀</button>
+                <button onClick={()=>setMiDiaWeekOffset(0)} style={{padding:"6px 14px",borderRadius:8,border:"1px solid "+B.grey1,background:miDiaWeekOffset===0?B.navy:B.white,color:miDiaWeekOffset===0?"#fff":B.navy,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>Hoy</button>
+                <button onClick={()=>setMiDiaWeekOffset(miDiaWeekOffset+1)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid "+B.grey1,background:B.white,cursor:"pointer",fontSize:13,fontWeight:700,color:B.navy}}>▶</button>
+              </div>
+              <div style={{fontSize:13,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{rango}</div>
+            </div>
+            <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:8}}>
+              {dias.map((d,di)=>{
+                const dISO=isoLocal(d);
+                const esHoy=dISO===hoyISO;
+                const delDia=pendNoComplet.filter(a=>a.act.fecha===dISO).concat(completas.filter(a=>a.act.fecha===dISO))
+                  .sort((a,b)=>(a.act.hora||"99:99").localeCompare(b.act.hora||"99:99"));
+                return (
+                  <div key={di} style={{flex:"1 0 150px",minWidth:150,maxWidth:240}}>
+                    <div style={{padding:"7px 10px",borderRadius:"8px 8px 0 0",background:esHoy?B.navy:B.offW,color:esHoy?"#fff":B.grey4,textAlign:"center",border:"1px solid "+(esHoy?B.navy:B.grey1)}}>
+                      <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>{NOMS[di]}</div>
+                      <div style={{fontSize:18,fontWeight:800,fontFamily:"'Playfair Display',serif"}}>{d.getDate()}</div>
+                      <div style={{fontSize:9,opacity:0.8}}>{delDia.length>0?delDia.length+" act.":"—"}</div>
+                    </div>
+                    <div style={{border:"1px solid "+B.grey1,borderTop:"none",borderRadius:"0 0 8px 8px",padding:6,minHeight:120,maxHeight:480,overflowY:"auto",background:esHoy?"#f8fbff":B.white}}>
+                      {delDia.length===0&&<div style={{fontSize:9,color:B.grey3,textAlign:"center",padding:"12px 0",fontStyle:"italic"}}>libre</div>}
+                      {delDia.map(a=>{
+                        const tipo=ACTIVITY_TYPES.find(t=>t.id===a.act.tipo)||ACTIVITY_TYPES[ACTIVITY_TYPES.length-1];
+                        const done=a.act.completada;
+                        return (
+                          <div key={a.lotId+"::"+a.prospectoIdx+"::"+a.act.id} title={(a.act.descripcion||a.act.tipo)+" · "+a.prospecto.nombre}
+                            onClick={()=>{ if(done){ setShowActivityModal({mode:"edit",lotId:a.lotId,prospectoIdx:a.prospectoIdx,activity:a.act});setActivityForm({tipo:a.act.tipo,descripcion:a.act.descripcion,fecha:a.act.fecha,hora:a.act.hora||""}); } else { setShowActivityModal({mode:"complete",lotId:a.lotId,prospectoIdx:a.prospectoIdx,activity:a.act});setCompleteForm({resultado:"Positivo",nota:""}); } }}
+                            style={{background:done?"#f1f5f9":a.urgencia.bg,borderLeft:"3px solid "+(done?"#16a34a":a.urgencia.color),borderRadius:6,padding:"6px 7px",marginBottom:6,cursor:"pointer",opacity:done?0.65:1}}>
+                            <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
+                              <span style={{fontSize:10,fontWeight:800,color:done?"#16a34a":a.urgencia.color}}>{done?"✓":(a.act.hora||"—")}</span>
+                              <span style={{fontSize:11}}>{tipo.icon}</span>
+                            </div>
+                            <div style={{fontSize:10,fontWeight:700,color:B.navy,lineHeight:1.25,overflow:"hidden",textOverflow:"ellipsis",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{a.act.descripcion||a.act.tipo}</div>
+                            <div style={{fontSize:9,color:B.grey4,marginTop:2,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>👤 {a.prospecto.nombre}</div>
+                            <div style={{fontSize:9,color:B.grey3,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>🏗 {a.lot.nombre||a.lot.desarrollo}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{fontSize:10,color:B.grey3,marginTop:8,textAlign:"center"}}>Clic en una actividad: pendiente → completar · completada → editar</div>
+          </div>
+        );
+      };
+
       return (
         <div>
           {/* Header + Filtro asesor */}
@@ -8158,13 +8225,19 @@ function MacroProMatcher() {
                 <strong style={{color:"#dc2626"}}>{vencidas.length}</strong> vencidas · <strong style={{color:"#d97706"}}>{hoy.length}</strong> hoy · <strong style={{color:"#1e40af"}}>{semana.length}</strong> esta semana · <strong style={{color:"#4b5563"}}>{futuras.length}</strong> futuras
               </div>
             </div>
-            {asesoresUnicos.length>1&&(
-              <select value={filterAsesor} onChange={e=>setFilterAsesor(e.target.value)}
-                style={{padding:"8px 12px",borderRadius:8,border:"1.5px solid "+B.grey1,fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,color:B.navy,background:B.white,cursor:"pointer",outline:"none"}}>
-                <option value="Todos">Todos los asesores</option>
-                {asesoresUnicos.map(a=><option key={a} value={a}>{a}</option>)}
-              </select>
-            )}
+            <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+              <div style={{display:"flex",gap:4,background:B.offW,borderRadius:9,padding:3,border:"1px solid "+B.grey1}}>
+                <button onClick={()=>setVistaMiDia("lista")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaMiDia==="lista"?B.navy:"transparent",color:vistaMiDia==="lista"?"#fff":B.grey4}}>📋 Lista</button>
+                <button onClick={()=>setVistaMiDia("calendario")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaMiDia==="calendario"?B.navy:"transparent",color:vistaMiDia==="calendario"?"#fff":B.grey4}}>📅 Calendario</button>
+              </div>
+              {asesoresUnicos.length>1&&(
+                <select value={filterAsesor} onChange={e=>setFilterAsesor(e.target.value)}
+                  style={{padding:"8px 12px",borderRadius:8,border:"1.5px solid "+B.grey1,fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,color:B.navy,background:B.white,cursor:"pointer",outline:"none"}}>
+                  <option value="Todos">Todos los asesores</option>
+                  {asesoresUnicos.map(a=><option key={a} value={a}>{a}</option>)}
+                </select>
+              )}
+            </div>
           </div>
 
           {/* Advertencia si hay prospectos activos SIN actividad pendiente */}
@@ -8190,7 +8263,7 @@ function MacroProMatcher() {
             );
           })()}
 
-          {allActs.length===0?(
+          {vistaMiDia==="calendario" ? renderCalendario() : (allActs.length===0?(
             <div style={{textAlign:"center",padding:60,color:B.grey3,background:B.white,borderRadius:12,border:"2px dashed "+B.grey1}}>
               <div style={{fontSize:40,marginBottom:12}}>📅</div>
               <div style={{fontSize:14,fontWeight:700,color:B.navy,marginBottom:6}}>Sin actividades registradas</div>
@@ -8204,7 +8277,7 @@ function MacroProMatcher() {
               {futuras.length>0&&renderSection("Futuras","⚪",futuras,"#6b7280","más allá de 7 días")}
               {completadas.length>0&&renderSection("Completadas recientes","✅",completadas,"#16a34a","últimas 20")}
             </>
-          )}
+          ))}
         </div>
       );
     };
@@ -15212,30 +15285,31 @@ Respuesta: [respuesta exacta, conversacional]
               <div>
                 <div style={{fontSize:10,fontWeight:700,color:"#fca5a5",letterSpacing:2,textTransform:"uppercase",marginBottom:3}}>⚠ Actividades urgentes</div>
                 <div style={{fontSize:17,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>
-                  {notifActs.filter(a=>a.tipo==="vencida").length>0&&`${notifActs.filter(a=>a.tipo==="vencida").length} vencida${notifActs.filter(a=>a.tipo==="vencida").length>1?"s":""}`}
-                  {notifActs.filter(a=>a.tipo==="vencida").length>0&&notifActs.filter(a=>a.tipo==="mañana").length>0&&" · "}
-                  {notifActs.filter(a=>a.tipo==="mañana").length>0&&`${notifActs.filter(a=>a.tipo==="mañana").length} vence${notifActs.filter(a=>a.tipo==="mañana").length>1?"n":""} mañana`}
+                  {(()=>{ const v=notifActs.filter(a=>a.tipo==="vencida").length, h=notifActs.filter(a=>a.tipo==="hoy").length, m=notifActs.filter(a=>a.tipo==="mañana").length;
+                    return [v?`${v} vencida${v>1?"s":""}`:"", h?`${h} hoy`:"", m?`${m} mañana`:""].filter(Boolean).join(" · ")||"Sin pendientes"; })()}
                 </div>
               </div>
               <button onClick={()=>setShowNotifModal(false)} style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:8,padding:"6px 12px",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
             </div>
             {/* Lista */}
             <div style={{padding:"16px 20px"}}>
-              {["vencida","mañana"].map(tipo=>{
+              {["vencida","hoy","mañana"].map(tipo=>{
                 const grupo = notifActs.filter(a=>a.tipo===tipo);
                 if(grupo.length===0) return null;
                 const esVencida = tipo==="vencida";
+                const esHoy = tipo==="hoy";
+                const grpColor = esVencida?"#dc2626":esHoy?"#d97706":"#1e40af";
                 return (
                   <div key={tipo} style={{marginBottom:16}}>
-                    <div style={{fontSize:10,fontWeight:800,color:esVencida?"#dc2626":"#d97706",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>
-                      {esVencida?"🔴 Vencidas":"🟡 Vence mañana"}
+                    <div style={{fontSize:10,fontWeight:800,color:grpColor,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>
+                      {esVencida?"🔴 Vencidas":esHoy?"🟡 Hoy":"🔵 Vence mañana"}
                     </div>
                     {grupo.map((item,i)=>{
                       const tiposAct=[{id:"Llamada",icon:"📞"},{id:"WhatsApp",icon:"📱"},{id:"Email",icon:"✉️"},{id:"Visita al terreno",icon:"🚗"},{id:"Reunión",icon:"🤝"},{id:"Propuesta",icon:"📋"},{id:"Seguimiento",icon:"🔄"},{id:"Otro",icon:"📌"}];
                       const tipoIcon=tiposAct.find(t=>t.id===item.actividad.tipo)?.icon||"📌";
-                      const diasLabel=item.diff<0?`${Math.abs(item.diff)}d vencida`:"mañana";
+                      const diasLabel=item.diff<0?`${Math.abs(item.diff)}d vencida`:item.diff===0?(item.actividad.hora?("hoy "+item.actividad.hora):"hoy"):"mañana";
                       return (
-                        <div key={i} onClick={()=>{setShowNotifModal(false);setView("crm");setActiveTab("kanban");}} style={{background:esVencida?"#fff5f5":"#fffbeb",border:`1px solid ${esVencida?"#fecaca":"#fde68a"}`,borderRadius:10,padding:"10px 13px",marginBottom:7,cursor:"pointer",transition:"all 0.15s"}}
+                        <div key={i} onClick={()=>{setShowNotifModal(false);setView("crm");setActiveTab("midia");}} style={{background:esVencida?"#fff5f5":"#fffbeb",border:`1px solid ${esVencida?"#fecaca":"#fde68a"}`,borderRadius:10,padding:"10px 13px",marginBottom:7,cursor:"pointer",transition:"all 0.15s"}}
                           onMouseEnter={e=>e.currentTarget.style.transform="translateX(3px)"}
                           onMouseLeave={e=>e.currentTarget.style.transform="translateX(0)"}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
