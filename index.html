@@ -839,9 +839,9 @@ function saveSolicitudesAsesor(arr){
 // ══════════ CAPTACIÓN DE TERRENOS (opcionamiento) ══════════
 // Seguimiento de terrenos que un propietario nos ofrece para vender/opcionar.
 const CAPTACION_KEY = "macropro_captacion_v1";
-const CAPTACION_PIPELINE = ["Ofrecido","Viabilidad","Contactado / visita","En negociación","Documentación","Contrato","Firmado","Descartado"];
+const CAPTACION_PIPELINE = ["Nueva opción","Viabilidad","Contactado / visita","En negociación","Documentación","Contrato","Firmado","Descartado"];
 const CAPTACION_PIPELINE_COLORS = {
-  "Ofrecido":            { bg:"#e0e7ff", color:"#4338ca", border:"#6366f1" },
+  "Nueva opción":            { bg:"#e0e7ff", color:"#4338ca", border:"#6366f1" },
   "Viabilidad":          { bg:"#fef9c3", color:"#854d0e", border:"#eab308" },
   "Contactado / visita": { bg:"#dbeafe", color:"#1e40af", border:"#3b82f6" },
   "En negociación":      { bg:"#fed7aa", color:"#9a3412", border:"#ea580c" },
@@ -850,7 +850,7 @@ const CAPTACION_PIPELINE_COLORS = {
   "Firmado":             { bg:"#dcfce7", color:"#15803d", border:"#16a34a" },
   "Descartado":          { bg:"#f1f5f9", color:"#475569", border:"#94a3b8" }
 };
-const CAPTACION_PIPELINE_ICONS = { "Ofrecido":"📥","Viabilidad":"🚦","Contactado / visita":"📞","En negociación":"🤝","Documentación":"📄","Contrato":"✍️","Firmado":"✅","Descartado":"🗑" };
+const CAPTACION_PIPELINE_ICONS = { "Nueva opción":"📥","Viabilidad":"🚦","Contactado / visita":"📞","En negociación":"🤝","Documentación":"📄","Contrato":"✍️","Firmado":"✅","Descartado":"🗑" };
 const TIPOS_ACUERDO_CAPTACION = ["Exclusiva","Abierto / No exclusiva","Opción de compra","Consignación","Comisión mercantil","Por definir"];
 const VIABILIDAD_CAPTACION = [
   { v:"🟢 Verde — se acepta", color:"#15803d", bg:"#dcfce7" },
@@ -858,14 +858,14 @@ const VIABILIDAD_CAPTACION = [
   { v:"🔴 Rojo — no se acepta", color:"#b91c1c", bg:"#fee2e2" }
 ];
 function loadCaptaciones(){
-  try{ const raw=localStorage.getItem(CAPTACION_KEY); if(!raw) return []; const p=JSON.parse(raw); return Array.isArray(p)?p:[]; }
+  try{ const raw=localStorage.getItem(CAPTACION_KEY); if(!raw) return []; const p=JSON.parse(raw); const OLD="Ofre"+"cido"; return Array.isArray(p)?p.map(c=>c&&c.pipeline===OLD?{...c,pipeline:"Nueva opción"}:c):[]; }
   catch(e){ console.warn("Error cargando captaciones:",e); return []; }
 }
 function saveCaptaciones(arr){ try{ localStorage.setItem(CAPTACION_KEY, JSON.stringify(arr||[])); }catch(e){ console.warn("Error guardando captaciones:",e); } }
 function nuevaCaptacion(){
   return {
     id: "capta-"+Date.now()+"-"+Math.floor(Math.random()*1000),
-    pipeline: "Ofrecido",
+    pipeline: "Nueva opción",
     fechaCreacion: new Date().toISOString(),
     fechaUltimaActividad: new Date().toISOString(),
     asesorResponsableGG: "",
@@ -1939,7 +1939,7 @@ function MacroProMatcher() {
   // ─── CAPTACIÓN · sync Supabase POR REGISTRO (upsert por id, fusión al abrir) ───
   const _numCap = (v)=>{ if(v===""||v==null) return null; const n=Number(v); return isNaN(n)?null:n; };
   const captacionDeFila = (r)=>({
-    id:r.id, pipeline:r.pipeline||"Ofrecido",
+    id:r.id, pipeline:(r.pipeline==="Ofrecido"?"Nueva opción":(r.pipeline||"Nueva opción")),
     fechaCreacion:r.fecha_creacion||null, fechaUltimaActividad:r.fecha_ultima_actividad||null,
     asesorResponsableGG:r.asesor_responsable_gg||"",
     propietario:r.propietario||"", contacto:r.contacto||"", telefono:r.telefono||"", email:r.email||"",
@@ -1952,7 +1952,7 @@ function MacroProMatcher() {
     loteInventarioId:r.lote_inventario_id||""
   });
   const filaDeCaptacion = (c)=>({
-    id:c.id, pipeline:c.pipeline||"Ofrecido",
+    id:c.id, pipeline:c.pipeline||"Nueva opción",
     fecha_creacion:c.fechaCreacion||null, fecha_ultima_actividad:c.fechaUltimaActividad||null,
     asesor_responsable_gg:c.asesorResponsableGG||null,
     propietario:c.propietario||null, contacto:c.contacto||null, telefono:c.telefono||null, email:c.email||null,
@@ -12655,7 +12655,7 @@ Respuesta: [respuesta exacta, conversacional]
     const totalStaleC = captaciones.filter(isStaleC).length;
     const valorCaptacion = activosC.reduce((s,c)=>s+(parseFloat(c.precioDueno)||0),0);
     const porEtapaC = {}; CAPTACION_PIPELINE.forEach(p=>{ porEtapaC[p]=[]; });
-    captaciones.forEach(c=>{ if(porEtapaC[c.pipeline]) porEtapaC[c.pipeline].push(c); else porEtapaC["Ofrecido"].push(c); });
+    captaciones.forEach(c=>{ if(porEtapaC[c.pipeline]) porEtapaC[c.pipeline].push(c); else porEtapaC["Nueva opción"].push(c); });
     const fmtMon=(v)=>{ const n=parseFloat(v)||0; return n>0?("$"+n.toLocaleString("es-MX")):""; };
     return (
       <div style={{padding:"24px 28px", maxWidth:1600, margin:"0 auto"}}>
@@ -14972,7 +14972,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                     <div>
                       <span style={lbStyle}>Etapa del seguimiento</span>
-                      <select value={f.pipeline||"Ofrecido"} onChange={e=>setF({pipeline:e.target.value})} style={inStyle}>
+                      <select value={f.pipeline||"Nueva opción"} onChange={e=>setF({pipeline:e.target.value})} style={inStyle}>
                         {CAPTACION_PIPELINE.map(p=><option key={p} value={p}>{(CAPTACION_PIPELINE_ICONS[p]||"")+" "+p}</option>)}
                       </select>
                     </div>
