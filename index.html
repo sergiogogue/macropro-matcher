@@ -1871,6 +1871,36 @@ function MacroProMatcher() {
     setShowMatchesModal(true);
     return { inv: matches.filter(m=>!m.descalificado).length, cap: matchesCap.length };
   };
+  // 1 clic desde un match → dar seguimiento: prospecto en CRM (inventario) o interés (captación) + mover solicitud a "Opciones enviadas"
+  const darSeguimientoMatch=(m, esCap)=>{
+    const sol=solicitudActiva; if(!sol||!m) return;
+    const nombreCli=(sol.clienteNombre||sol.asesorNombre||"Cliente").trim();
+    const hoyISO=new Date().toISOString().slice(0,10);
+    if(esCap){
+      const c=m.lot&&m.lot._cap; if(!c) return;
+      const interesados=Array.isArray(c.interesados)?c.interesados.slice():[];
+      if(!interesados.some(x=>x.nombre&&x.nombre.toLowerCase()===nombreCli.toLowerCase())) interesados.push({nombre:nombreCli, telefono:sol.asesorTelefono||"", fecha:hoyISO, solicitudId:sol.id});
+      const nota=`Interés: ${nombreCli}${sol.asesorNombre?(" (vía "+sol.asesorNombre+")"):""} — solicitud de macrolote`;
+      upsertCaptacion({...c, interesados, notas:(c.notas?c.notas+"\n":"")+nota});
+      upsertSolicitud({...sol, pipeline:"Opciones enviadas"});
+      toast("✅ Interés registrado en "+(m.lot.nombre||"captación")+" · solicitud → Opciones enviadas");
+    } else {
+      const lot=m.lot||{}; const lotId=lot.id; if(!lotId) return;
+      const nrm=(s)=>String(s||"").toLowerCase().replace(/\s+/g,"_");
+      setCrmData(prev=>{
+        const key=(prev[lotId]!==undefined)?lotId:(Object.keys(prev).find(k=>nrm(k)===nrm(lotId))||lotId);
+        const entry=prev[key]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
+        const existing=(entry.prospectos||[]).slice();
+        if(!existing.some(p=>p.nombre&&p.nombre.toLowerCase().trim()===nombreCli.toLowerCase())){
+          existing.push({nombre:nombreCli, empresa:sol.asesorEmpresa||sol.clienteGiro||"", telefono:sol.asesorTelefono||"", email:sol.asesorEmail||"", asesor:sol.asesorResponsableGG||sol.asesorNombre||"", pipeline:"Prospecto", nota:"Generado desde solicitud de asesor"+(sol.asesorNombre?(" ("+sol.asesorNombre+")"):""), fechaInicio:hoyISO, actividades:[]});
+        }
+        const next={...prev,[key]:{...entry,prospectos:existing,pipeline:entry.pipeline==="Disponible"?"Prospecto":entry.pipeline,lastContact:hoyISO}};
+        saveCRM(next); return next;
+      });
+      upsertSolicitud({...sol, pipeline:"Opciones enviadas", lotesEnviados:[...(sol.lotesEnviados||[]),lotId].filter((v,i,a)=>a.indexOf(v)===i)});
+      toast("✅ "+nombreCli+" en seguimiento sobre "+(lot.nombre||lotId)+" · solicitud → Opciones enviadas");
+    }
+  };
   const [showMatchesModal, setShowMatchesModal] = React.useState(false);
   const [matchesActuales, setMatchesActuales] = React.useState([]);
   const [matchesCaptacion, setMatchesCaptacion] = React.useState([]);
@@ -15190,6 +15220,9 @@ Respuesta: [respuesta exacta, conversacional]
                     <div style={{fontSize:11,color:B.grey4,marginTop:4}}>{l.ciudad||""}{l.estado?", "+l.estado:""} · {l.sup_m2?Math.round(l.sup_m2).toLocaleString("es-MX")+" m²":""} · {l.precio_total?"$"+Math.round(l.precio_total).toLocaleString("es-MX"):"Sin precio"}</div>
                     {esCap&&m.lot._cap&&<div style={{fontSize:10,color:"#15803d",marginTop:3,fontWeight:600}}>Etapa: {m.lot._cap.pipeline}{m.lot._cap.propietario?" · Dueño: "+m.lot._cap.propietario:""}{m.lot._cap.viabilidad?" · "+m.lot._cap.viabilidad:""}</div>}
                     {m.razones&&m.razones.length>0&&<div style={{fontSize:10,color:"#15803d",marginTop:6}}>{m.razones.join(" · ")}</div>}
+                    <div style={{marginTop:8,textAlign:"right"}}>
+                      <button onClick={()=>darSeguimientoMatch(m,esCap)} style={{padding:"6px 12px",borderRadius:7,border:"none",background:esCap?"#15803d":B.navy,color:"#fff",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{esCap?"🌱 Registrar interés":"📋 Dar seguimiento"}</button>
+                    </div>
                   </div>
                 ); };
                 return (<>
