@@ -657,8 +657,12 @@ function buscarMatchesParaSolicitud(solicitud, inventory){
     else if(frenteMin>0&&frente>=frenteMin){score+=15;razones.push(`Frente ${frente}m ✓`);}
     if(precioMax<Infinity&&precio>precioMax) descalificadores.push(`Precio > máximo`);
     else if(precio>0&&precio<=precioMax){score+=20;razones.push(`Precio en rango ✓`);}
-    if(estado&&lotEstado&&(norm(lotEstado).includes(norm(estado))||norm(estado).includes(norm(lotEstado)))){score+=15;razones.push(`Estado ✓`);}
-    if(ciudad&&lotCiudad&&(norm(lotCiudad).includes(norm(ciudad))||norm(ciudad).includes(norm(lotCiudad)))){score+=15;razones.push(`Ciudad ✓`);}
+    // Estado/Ciudad: si la solicitud los especifica, son FILTRO (descalifican lo de otra zona). ZMGDL = zona metro GDL.
+    const _ZMG=["guadalajara","zapopan","tlajomulco","tonala","tlaquepaque","el salto","san pedro","zmg","gdl","zmgdl","zona metropolitana"];
+    const _estMatch=(a,b)=>{a=norm(a);b=norm(b);return !!(a&&b&&(a.includes(b)||b.includes(a)));};
+    const _ciuMatch=(a,b)=>{a=norm(a);b=norm(b);if(!a||!b)return false;if(a.includes(b)||b.includes(a))return true;return _ZMG.some(z=>a.includes(z))&&_ZMG.some(z=>b.includes(z));};
+    if(estado){ if(lotEstado&&_estMatch(estado,lotEstado)){score+=15;razones.push(`Estado ✓`);} else if(lotEstado){ descalificadores.push(`Estado no coincide`); } }
+    if(ciudad){ if(lotCiudad&&_ciuMatch(ciudad,lotCiudad)){score+=15;razones.push(`Ciudad ✓`);} else if(lotCiudad){ descalificadores.push(`Ciudad no coincide`); } }
     if(usoSuelo&&lotUso&&(lotUso.includes(usoSuelo)||usoSuelo.includes(lotUso))){score+=15;razones.push(`Uso ✓`);}
     return {lot,score,razones,descalificadores,descalificado:descalificadores.length>0};
   }).filter(m=>m!==null).sort((a,b)=>b.score-a.score);
