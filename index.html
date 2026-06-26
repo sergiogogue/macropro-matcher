@@ -15108,6 +15108,11 @@ Respuesta: [respuesta exacta, conversacional]
         const inStyle = {width:"100%",padding:"9px 11px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:13,color:B.navy,background:B.offW,fontFamily:"'DM Sans',sans-serif",outline:"none"};
         const lbStyle = {fontSize:10,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4,display:"block"};
         const esNueva = !solicitudesAsesor.some(s=>s.id===f.id);
+        // Catálogo de estados/ciudades tomado del INVENTARIO (para que el match solo busque donde sí hay lotes)
+        const _invCat = inventory.length>0?inventory:SAMPLE_INVENTORY;
+        const _estadosInv = [...new Set(_invCat.map(l=>(l.estado||"").trim()).filter(Boolean))].sort();
+        const _ciudadesDe = (est)=>[...new Set(_invCat.filter(l=>!est||(l.estado||"").trim().toLowerCase()===String(est).trim().toLowerCase()).map(l=>(l.ciudad||"").trim()).filter(Boolean))].sort();
+        const _ciudadesInv = _ciudadesDe(f.estado);
         return (
           <div onClick={()=>setShowSolicitudModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2600,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"30px 20px",overflowY:"auto"}}>
             <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:660,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden",margin:"auto"}}>
@@ -15157,8 +15162,20 @@ Respuesta: [respuesta exacta, conversacional]
                         <option value="">—</option>{USOS_SUELO_OPCIONES.map(u=><option key={u} value={u}>{u}</option>)}
                       </select>
                     </div>
-                    <div><span style={lbStyle}>Estado</span><input style={inStyle} value={f.estado||""} onChange={e=>setF({estado:e.target.value})}/></div>
-                    <div><span style={lbStyle}>Ciudad</span><input style={inStyle} value={f.ciudad||""} onChange={e=>setF({ciudad:e.target.value})}/></div>
+                    <div><span style={lbStyle}>Estado</span>
+                      <select style={inStyle} value={f.estado||""} onChange={e=>{const est=e.target.value; const ci=_ciudadesDe(est); setF({estado:est, ciudad:(est&&f.ciudad&&!ci.some(c=>c.toLowerCase()===String(f.ciudad).toLowerCase()))?"":f.ciudad});}}>
+                        <option value="">— Cualquiera</option>
+                        {_estadosInv.map(s=><option key={s} value={s}>{s}</option>)}
+                        {f.estado&&!_estadosInv.some(s=>s.toLowerCase()===String(f.estado).toLowerCase())&&<option value={f.estado}>{f.estado} (fuera de inventario)</option>}
+                      </select>
+                    </div>
+                    <div><span style={lbStyle}>Ciudad</span>
+                      <select style={inStyle} value={f.ciudad||""} onChange={e=>setF({ciudad:e.target.value})}>
+                        <option value="">— Cualquiera</option>
+                        {_ciudadesInv.map(c=><option key={c} value={c}>{c}</option>)}
+                        {f.ciudad&&!_ciudadesInv.some(c=>c.toLowerCase()===String(f.ciudad).toLowerCase())&&<option value={f.ciudad}>{f.ciudad} (fuera de inventario)</option>}
+                      </select>
+                    </div>
                   </div>
                 </div>
                 <div>
