@@ -3319,7 +3319,11 @@ function MacroProMatcher() {
         const cli = mode==="clientToLots" ? subject : t;
         const lot = mode==="clientToLots" ? t : subject;
         const of = getOferta(cli,lot);
-        if(of && of.estado==="descartado"){ nExcl++; return false; }
+        // Descartado por historial de ofertas O por etapa "Descartado" en el CRM (descartar desde cualquier lado)
+        let crmDesc=false;
+        const lid=lot&&lot.id, cn=(cli&&cli.nombre||"").toLowerCase().trim();
+        if(lid&&cn){ const e=crmOf(lid); if(e&&Array.isArray(e.prospectos)) crmDesc=e.prospectos.some(p=>p&&p.nombre&&p.nombre.toLowerCase().trim()===cn&&p.pipeline==="Descartado"); }
+        if((of&&of.estado==="descartado")||crmDesc){ nExcl++; return false; }
         return true;
       });
       if(nExcl>0) toast("🚫 "+nExcl+" descartado(s) excluido(s) del match");
@@ -15366,29 +15370,46 @@ Respuesta: [respuesta exacta, conversacional]
       {/* ══════ HISTORIAL DEL CLIENTE (ofertas + análisis de necesidades) ══════ */}
       {historialCliente && (()=>{
         const c=historialCliente;
-        const ofs=ofertasDeCliente(c).slice().sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||"")));
-        const lotDe=(o)=> srcInv.find(l=>lKeyOf(l)===o.loteId || l.id===o.loteId) || {id:o.loteId,nombre:o.loteNombre};
-        const off=ofs.filter(o=>o.estado==="ofrecido"), likes=ofs.filter(o=>o.estado==="analisis"), rej=ofs.filter(o=>o.estado==="descartado");
-        const top=(arr,fn)=>{ const m={}; arr.forEach(o=>{ const k=fn(lotDe(o)); if(k)m[k]=(m[k]||0)+1; }); return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(e=>e[0]+(e[1]>1?" ("+e[1]+")":"")); };
-        const usoCat=(l)=>{try{return usoCategoria(l.uso).cat;}catch(e){return l.uso||"";}};
+        const cn=(c.nombre||"").toLowerCase().trim();
+        const lotDeId=(id)=> srcInv.find(l=>lKeyOf(l)===id||l.id===id) || null;
+        // Unir TODO lo del cliente: historial de ofertas + prospectos del CRM (con su etapa)
+        const items={};
+        ofertasDeCliente(c).forEach(o=>{ const k=o.loteId; const l=lotDeId(k)||{id:k,nombre:o.loteNombre}; items[k]=items[k]||{loteId:k,lote:l}; items[k].estadoOferta=o.estado; items[k].fecha=o.fecha; });
+        srcInv.forEach(l=>{ const e=crmOf(l.id); if(!e||!Array.isArray(e.prospectos)) return; const p=e.prospectos.find(p=>p&&p.nombre&&p.nombre.toLowerCase().trim()===cn); if(p){ const k=lKeyOf(l); items[k]=items[k]||{loteId:k,lote:l}; items[k].etapa=p.pipeline; if(!items[k].fecha) items[k].fecha=p.fechaInicio||""; } });
+        const arr=Object.values(items);
+        const stageOrder={"Vendido":11,"Contrato":10,"Apartado":9,"Propuesta":8,"En negociación":7,"En análisis":6,"Visita":5,"Cita":4,"Contactado":3,"Por Contactar":2,"Prospecto":1,"Disponible":0,"Descartado":-1};
+        const impt=(it)=>{ if(it.estadoOferta==="descartado"||it.etapa==="Descartado") return -100; let s=stageOrder[it.etapa]; if(s==null) s=(it.estadoOferta==="analisis"?6:1); if(it.estadoOferta==="analisis"&&s<6) s=6.5; return s; };
+        arr.sort((a,b)=> impt(b)-impt(a) || String(b.fecha||"").localeCompare(String(a.fecha||"")));
+        const off=arr.filter(it=>it.estadoOferta==="ofrecido"||(it.etapa&&it.etapa!=="Descartado"&&it.estadoOferta==null)).length;
+        const likes=arr.filter(it=>it.estadoOferta==="analisis"||it.etapa==="En análisis").length;
+        const rej=arr.filter(it=>it.estadoOferta==="descartado"||it.etapa==="Descartado").length;
+        const usoCat=(l)=>{try{return usoCategoria((l||{}).uso).cat;}catch(e){return (l||{}).uso||"";}};
+        const topI=(items2,fn)=>{ const m={}; items2.forEach(it=>{ const k=fn(it.lote||{}); if(k)m[k]=(m[k]||0)+1; }); return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(e=>e[0]+(e[1]>1?" ("+e[1]+")":"")); };
+        const likeItems=arr.filter(it=>it.estadoOferta==="analisis"||it.etapa==="En análisis");
+        const rejItems=arr.filter(it=>it.estadoOferta==="descartado"||it.etapa==="Descartado");
         const insights=[];
-        if(likes.length){ const u=top(likes,usoCat), ci=top(likes,l=>l.ciudad); insights.push({ic:"👍",col:"#15803d",bg:"#f0fdf4",t:"Le interesa (en análisis): "+(u.join(", ")||"—")+(ci.length?" · "+ci.join(", "):"")}); }
-        if(rej.length){ const u=top(rej,usoCat), ci=top(rej,l=>l.ciudad); insights.push({ic:"👎",col:"#b91c1c",bg:"#fef2f2",t:"Ha descartado "+rej.length+": "+(u.join(", ")||"—")+(ci.length?" · "+ci.join(", "):"")}); }
+        if(likeItems.length){ const u=topI(likeItems,usoCat), ci=topI(likeItems,l=>l.ciudad); insights.push({ic:"👍",col:"#15803d",bg:"#f0fdf4",t:"Le interesa: "+(u.join(", ")||"—")+(ci.length?" · "+ci.join(", "):"")}); }
+        if(rejItems.length){ const u=topI(rejItems,usoCat), ci=topI(rejItems,l=>l.ciudad); insights.push({ic:"👎",col:"#b91c1c",bg:"#fef2f2",t:"Ha descartado "+rejItems.length+": "+(u.join(", ")||"—")+(ci.length?" · "+ci.join(", "):"")}); }
         if((c.uso_interes||[]).length||(c.ciudad_interes||[]).length) insights.push({ic:"🎯",col:"#1d4ed8",bg:"#eff6ff",t:"Busca: "+((c.uso_interes||[]).join(", ")||"sin uso")+" · "+((c.ciudad_interes||[]).join(", ")||"sin zona")+((c.presupuesto_max)?" · hasta "+fmtM(c.presupuesto_max):"")+((c.sup_min||c.sup_max)?" · "+(c.sup_min||0).toLocaleString()+"-"+(c.sup_max||0).toLocaleString()+" m²":"")});
-        if(!ofs.length&&!insights.length) insights.push({ic:"ℹ️",col:"#64748b",bg:"#f1f5f9",t:"Aún no le has ofrecido lotes. Cuando lo hagas desde el Match, su historial aparece aquí."});
-        const fila=(o,i)=>{ const l=lotDe(o); const opts=[["ofrecido","📤","#1d4ed8","#eff6ff"],["analisis","👍","#15803d","#f0fdf4"],["descartado","👎","#b91c1c","#fef2f2"]];
+        if(!arr.length&&!insights.length) insights.push({ic:"ℹ️",col:"#64748b",bg:"#f1f5f9",t:"Aún no le has ofrecido lotes. Ofrécele desde el Match o asígnalo en el CRM y aquí verás su historial."});
+        const fila=(it,i)=>{ const l=it.lote||{}; const est=it.estadoOferta; const etapa=it.etapa; const opts=[["ofrecido","📤","#1d4ed8","#eff6ff"],["analisis","👍","#15803d","#f0fdf4"],["descartado","👎","#b91c1c","#fef2f2"]];
+          const barCol = (est==="descartado"||etapa==="Descartado")?"#b91c1c":(est==="analisis"||etapa==="En análisis")?"#15803d":(PIPELINE_COLORS[etapa]||"#1d4ed8");
           return (
-            <div key={i} style={{border:"1px solid "+B.grey1,borderRadius:10,padding:"10px 12px",marginBottom:8,borderLeft:"4px solid "+(o.estado==="analisis"?"#15803d":o.estado==="descartado"?"#b91c1c":"#1d4ed8")}}>
+            <div key={i} style={{border:"1px solid "+B.grey1,borderRadius:10,padding:"10px 12px",marginBottom:8,borderLeft:"4px solid "+barCol,opacity:(est==="descartado"||etapa==="Descartado")?0.7:1}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{l.nombre||l.id} {l.desarrollo&&<span style={{fontSize:11,color:B.grey4,fontWeight:600}}>· {l.desarrollo}</span>}</div>
                   <div style={{fontSize:10.5,color:B.grey4,marginTop:2}}>{[l.ciudad,(l.uso||""),(l.sup_m2?Math.round(l.sup_m2).toLocaleString("es-MX")+" m²":""),(l.precio_total?fmtM(l.precio_total):"")].filter(Boolean).join(" · ")}</div>
-                  {o.fecha&&<div style={{fontSize:9.5,color:B.grey3,marginTop:2}}>🗓 {o.fecha}</div>}
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:5,alignItems:"center"}}>
+                    {etapa&&<span style={{fontSize:9.5,fontWeight:800,color:PIPELINE_COLORS[etapa]||B.grey4,background:(PIPELINE_COLORS[etapa]||B.grey3)+"22",borderRadius:5,padding:"2px 7px"}}>📌 {etapa}</span>}
+                    {est&&<span style={{fontSize:9.5,fontWeight:800,borderRadius:5,padding:"2px 7px",color:est==="analisis"?"#15803d":est==="descartado"?"#b91c1c":"#1d4ed8",background:est==="analisis"?"#f0fdf4":est==="descartado"?"#fef2f2":"#eff6ff"}}>{est==="analisis"?"👍 En análisis":est==="descartado"?"👎 Descartado":"📤 Ofrecido"}</span>}
+                    {it.fecha&&<span style={{fontSize:9,color:B.grey3}}>🗓 {it.fecha}</span>}
+                  </div>
                 </div>
                 <div style={{display:"flex",gap:4,flexShrink:0}}>
                   {opts.map(([val,ic,col,bg])=>(
-                    <button key={val} title={val} onClick={()=>setOfertaEstado(c,l,o.estado===val?null:val)}
-                      style={{fontSize:13,borderRadius:6,padding:"4px 8px",cursor:"pointer",border:"1px solid "+(o.estado===val?col:B.grey1),background:o.estado===val?bg:"#fff"}}>{ic}</button>
+                    <button key={val} title={"Marcar "+val} onClick={()=>setOfertaEstado(c,l,est===val?null:val)}
+                      style={{fontSize:13,borderRadius:6,padding:"4px 8px",cursor:"pointer",border:"1px solid "+(est===val?col:B.grey1),background:est===val?bg:"#fff"}}>{ic}</button>
                   ))}
                 </div>
               </div>
@@ -15409,7 +15430,7 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{padding:"18px 24px",maxHeight:"72vh",overflowY:"auto"}}>
                 {/* KPIs */}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
-                  {[["📤 Ofrecidos",off.length,"#1d4ed8"],["👍 En análisis",likes.length,"#15803d"],["👎 Descartados",rej.length,"#b91c1c"]].map(([l,v,col])=>(
+                  {[["📤 Ofrecidos",off,"#1d4ed8"],["👍 En análisis",likes,"#15803d"],["👎 Descartados",rej,"#b91c1c"]].map(([l,v,col])=>(
                     <div key={l} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
                       <div style={{fontSize:22,fontWeight:800,color:col,fontFamily:"'Playfair Display',serif"}}>{v}</div>
                       <div style={{fontSize:9.5,fontWeight:700,color:B.grey4}}>{l}</div>
@@ -15425,12 +15446,12 @@ Respuesta: [respuesta exacta, conversacional]
                     </div>
                   ))}
                 </div>
-                {/* Timeline de ofertas */}
-                <div style={{fontSize:11,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>🏷 Lotes ofrecidos ({ofs.length})</div>
-                {ofs.length===0
-                  ? <div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>Sin ofertas registradas todavía.</div>
-                  : ofs.map((o,i)=>fila(o,i))}
-                <div style={{fontSize:10,color:B.grey3,marginTop:8,fontStyle:"italic"}}>Cambia el estado con 📤/👍/👎. Lo 👎 descartado se excluye de futuros matches.</div>
+                {/* Historial de terrenos ofrecidos — ordenado por importancia (etapa) */}
+                <div style={{fontSize:11,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>🏷 Terrenos ofrecidos · por importancia ({arr.length})</div>
+                {arr.length===0
+                  ? <div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>Sin terrenos asignados todavía.</div>
+                  : arr.map((it,i)=>fila(it,i))}
+                <div style={{fontSize:10,color:B.grey3,marginTop:8,fontStyle:"italic"}}>Ordenado por etapa (más avanzado primero). Cambia el estado con 📤/👍/👎 · 👎 descartado se excluye de futuros matches (aquí o en el CRM).</div>
               </div>
               <div style={{padding:"14px 26px",borderTop:"1px solid "+B.grey1,display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
                 <button onClick={()=>{setSelectedClient(c);setHistorialCliente(null);setView("matchClient");}} style={{padding:"10px 16px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🎯 Hacer match</button>
