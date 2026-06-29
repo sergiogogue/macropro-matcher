@@ -15464,7 +15464,7 @@ Respuesta: [respuesta exacta, conversacional]
         const valOf=(l)=>l.precio_total||((l.sup_m2||0)*(l.precio_m2||0))||0;
         const bk=(it)=>{ if(it.estado==="vendido"||it.etapa==="Vendido")return"vendido"; if(it.estado==="descartado"||it.etapa==="Descartado")return"rej"; if(it.estado==="analisis"||it.etapa==="En análisis")return"analisis"; return"ofrecido"; };
         const resumen=(lot)=>{ const lk=lKeyOf(lot); const items={};
-          Object.values(ofertas||{}).filter(o=>o&&o.loteId===lk).forEach(o=>{ const k=o.cKey||("n:"+(o.clienteNombre||"").toLowerCase()); items[k]={estado:o.estado,motivo:o.motivo,nombre:o.clienteNombre}; });
+          Object.values(ofertas||{}).filter(o=>o&&o.loteId===lk).forEach(o=>{ const k=o.cKey||("n:"+(o.clienteNombre||"").toLowerCase()); items[k]={estado:o.estado,motivo:o.motivo,obs:o.obs,nombre:o.clienteNombre}; });
           const e=crmOf(lot.id); ((e&&e.prospectos)||[]).forEach(p=>{ if(!p||!p.nombre)return; const k="n:"+p.nombre.toLowerCase().trim(); items[k]=items[k]||{nombre:p.nombre}; items[k].etapa=p.pipeline; });
           const arr=Object.values(items); const c={vendido:0,analisis:0,ofrecido:0,rej:0}; arr.forEach(it=>c[bk(it)]++);
           const motL={}; arr.filter(it=>bk(it)==="rej").forEach(it=>{const m=it.motivo||"Sin motivo";motL[m]=(motL[m]||0)+1;});
@@ -15515,6 +15515,15 @@ Respuesta: [respuesta exacta, conversacional]
               doc.autoTable({ startY:y, head:[["Lote","Desarrollo","Ofrec.","Análisis","Vendido","Descart.","Motivo"]], body:list.map(r=>[ (r.lot.nombre||r.lot.id), (r.lot.desarrollo||""), r.ofrecido, r.analisis, r.vendido, r.rej, r.topMot||"" ]), styles:{fontSize:7,cellPadding:1.4}, headStyles:{fillColor:rgb,textColor:255,fontSize:7}, columnStyles:{2:{halign:"right"},3:{halign:"right"},4:{halign:"right"},5:{halign:"right"}}, margin:{left:MX,right:MX} });
               y=doc.lastAutoTable.finalY+9;
             });
+            // Detalle: clientes por lote (quién y por qué)
+            const itEst=(it)=> (it.estado==="vendido"||it.etapa==="Vendido")?"Vendido":((it.estado==="descartado"||it.etapa==="Descartado")?"Descartado":((it.estado==="analisis"||it.etapa==="En análisis")?"En análisis":"Ofrecido"));
+            const ordE={"Vendido":0,"En análisis":1,"Ofrecido":2,"Descartado":3};
+            const detalle=[]; rs.filter(r=>r.total>0).forEach(r=>{ (r.items||[]).slice().sort((a,b)=>ordE[itEst(a)]-ordE[itEst(b)]).forEach(it=>{ detalle.push([ (r.lot.nombre||r.lot.id), (it.nombre||"—"), itEst(it), (itEst(it)==="Descartado"?((it.motivo||"Sin motivo registrado")+(it.obs?(" — "+it.obs):"")):"") ]); }); });
+            if(detalle.length){ if(y>255){doc.addPage();y=16;}
+              doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(0,43,73); doc.text("Detalle: clientes por lote (quién y por qué)",MX,y); y+=2;
+              doc.autoTable({ startY:y+3, head:[["Lote","Cliente","Estado","Motivo / observación"]], body:detalle, styles:{fontSize:7,cellPadding:1.5}, headStyles:{fillColor:[0,43,73],textColor:255,fontSize:7}, columnStyles:{0:{cellWidth:38},1:{cellWidth:46},2:{cellWidth:24}}, margin:{left:MX,right:MX} });
+              y=doc.lastAutoTable.finalY+6;
+            }
           }
           doc.save("informe_"+dev.replace(/\s+/g,"_").toLowerCase()+(selDes!=="Todos"?("_"+selDes.replace(/\s+/g,"_").toLowerCase()):"")+".pdf"); toast("✅ Informe generado");
         };
