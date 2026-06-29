@@ -12792,116 +12792,235 @@ Respuesta: [respuesta exacta, conversacional]
 
   const ViewDashboard = () => {
     const cliSrc=clients.length>0?clients:DEMO_CLIENTS;
-    const totalLotes=srcInv.length, totalClientes=cliSrc.length;
-    const valorTotal=srcInv.reduce((a,l)=>a+(l.precio_total||0),0);
-    const supTotal=srcInv.reduce((a,l)=>a+(l.sup_m2||0),0);
-    const precioPromM2=supTotal>0?valorTotal/supTotal:0;
-    const byDev={},byUso={},byCity={},valByDev={};
-    srcInv.forEach(l=>{const d=l.desarrollo||"Sin desarrollo";byDev[d]=(byDev[d]||0)+1;valByDev[d]=(valByDev[d]||0)+(l.precio_total||0);});
-    srcInv.forEach(l=>{const uArr=l.usos_todos&&l.usos_todos.length>0?l.usos_todos:[l.uso||"Sin uso"];uArr.forEach(u=>{byUso[u]=(byUso[u]||0)+1;});});
-    srcInv.forEach(l=>{const c=l.ciudad||"Sin ciudad";byCity[c]=(byCity[c]||0)+1;});
-    const byAsesor={};cliSrc.forEach(c=>{const a=c.asesor||"Sin asesor";byAsesor[a]=(byAsesor[a]||0)+1;});
-    const byUsoCli={};cliSrc.forEach(c=>{(c.uso_interes||[]).forEach(u=>{byUsoCli[u]=(byUsoCli[u]||0)+1;});});
-    // Distribución por status (temperatura ya no existe en clientes)
-    const calientes=cliSrc.filter(c=>c.status==="Negociando"||c.status==="Presentación activa").length;
-    const tibios=cliSrc.filter(c=>c.status==="Calificado"||c.status==="Presentación enviada").length;
-    const frios=cliSrc.filter(c=>c.status==="Prospecto nuevo"||c.status==="Prospecto").length;
-    const inactivos=cliSrc.filter(c=>c.status==="Cerrado"||c.status==="Descartado").length;
-    const topLotes=[...srcInv].sort((a,b)=>(b.precio_total||0)-(a.precio_total||0)).slice(0,5);
-    const precios=srcInv.map(l=>l.precio_total).filter(p=>p>0);
-    const precioMin=precios.length>0?Math.min(...precios):0, precioMax=precios.length>0?Math.max(...precios):0;
-    const goldGrad=(i)=>{const c=[B.gold,B.goldD,"#c4841f",B.navy,B.navyL,B.blue,B.green,"#8B5CF6","#EC4899"];return c[i%c.length];};
-    const kpiCard=(label,value,sub,accent)=>(
-      <div style={{background:B.white,borderRadius:14,padding:"20px 18px",boxShadow:"0 2px 12px rgba(0,43,73,0.06)",borderLeft:`4px solid ${accent||B.gold}`,display:"flex",flexDirection:"column",gap:3}}>
-        <div style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:1.2,color:B.grey3}}>{label}</div>
-        <div style={{fontSize:26,fontWeight:800,color:B.navy,lineHeight:1.1}}>{value}</div>
-        {sub&&<div style={{fontSize:11,color:B.grey4,marginTop:1}}>{sub}</div>}
+    const demo=(inventory.length===0||clients.length===0);
+    const valOf=(l)=>l.precio_total||((l.sup_m2||0)*(l.precio_m2||0))||0;
+    const pipeOf=(l)=>{ const e=crmOf(l.id); return (e&&e.pipeline)||"Disponible"; };
+    const fmtN=(n)=>new Intl.NumberFormat("es-MX").format(Math.round(n||0));
+    // ─── Agregados de negocio ───────────────────────────────────────
+    let valPipeline=0,nPipeline=0,valVendido=0,nVendido=0,valDisp=0,nDisp=0,valCierre=0,nCierre=0;
+    const porEtapa={}; PIPELINE_STAGES.forEach(st=>porEtapa[st]={n:0,v:0});
+    srcInv.forEach(l=>{ const p=pipeOf(l), v=valOf(l);
+      if(porEtapa[p]){ porEtapa[p].n++; porEtapa[p].v+=v; }
+      if(p==="Vendido"){ valVendido+=v; nVendido++; }
+      else if(p==="Descartado"){}
+      else if(p==="Disponible"){ valDisp+=v; nDisp++; }
+      else { valPipeline+=v; nPipeline++; if(p==="Propuesta"||p==="Apartado"||p==="Contrato"){ valCierre+=v; nCierre++; } }
+    });
+    const valTotal=valDisp+valPipeline+valVendido;
+    // Demanda viva
+    const solActivas=solicitudesAsesor.filter(a=>a.pipeline!=="Match"&&a.pipeline!=="Cerrado sin match");
+    const cliActivos=cliSrc.filter(c=>["Negociando","Presentación activa","Calificado","Presentación enviada"].includes(c.status));
+    const cliCalientes=cliSrc.filter(c=>["Negociando","Presentación activa"].includes(c.status));
+    // Captación
+    const capActivas=(captaciones||[]).filter(c=>c.pipeline!=="Firmado"&&c.pipeline!=="Descartado");
+    const valCap=capActivas.reduce((a,c)=>a+(parseFloat(c.precioDueno)||0),0);
+    const capFirmadosPend=(captaciones||[]).filter(c=>c.pipeline==="Firmado"&&!c.loteInventarioId).length;
+    // Actividades / salud
+    const hoy0=new Date(); hoy0.setHours(0,0,0,0);
+    let actVenc=0,actHoy=0,actSem=0,sinAct=0;
+    const reqStages=["En negociación","Propuesta","Contrato"];
+    Object.values(crmData||{}).forEach(crm=>{
+      const acts=[...((crm.prospectos||[]).flatMap(p=>p.actividades||[])), ...(((crm.seguimientoAsesor&&crm.seguimientoAsesor.actividades))||[])];
+      acts.filter(a=>a&&!a.completada&&a.fecha).forEach(a=>{ const d=Math.floor((new Date(a.fecha+"T12:00:00")-hoy0)/864e5); if(d<0)actVenc++; else if(d===0)actHoy++; else if(d<=7)actSem++; });
+      (crm.prospectos||[]).forEach(p=>{ if(reqStages.includes(p.pipeline)&&!(p.actividades||[]).some(a=>!a.completada)) sinAct++; });
+    });
+    let semV=0,semA=0,semR=0;
+    srcInv.forEach(l=>{ const e=crmOf(l.id); if(e&&e.prospectos&&e.prospectos.length){ const sm=getSemaforo(l.id); if(sm==="green")semV++; else if(sm==="yellow")semA++; else if(sm==="red")semR++; } });
+    // Demanda vs Oferta por USO (categoría normalizada)
+    const demUso={}, ofUso={};
+    cliSrc.forEach(c=>{ if(["Cerrado","Descartado"].includes(c.status))return; (c.uso_interes||[]).forEach(u=>{ const k=usoCategoria(u).cat; demUso[k]=(demUso[k]||0)+1; }); });
+    solActivas.forEach(a=>{ if(a.usoSuelo){ const k=usoCategoria(a.usoSuelo).cat; demUso[k]=(demUso[k]||0)+1; } });
+    srcInv.forEach(l=>{ if(pipeOf(l)==="Disponible"){ const arr=(l.usos_todos&&l.usos_todos.length)?l.usos_todos:[l.uso]; arr.filter(Boolean).forEach(u=>{ const k=usoCategoria(u).cat; ofUso[k]=(ofUso[k]||0)+1; }); } });
+    // Demanda vs Oferta por CIUDAD
+    const norm=(s)=>String(s||"").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+    const demCiudad={}, ofCiudad={}, lblCiudad={};
+    const addCity=(obj,raw)=>{ const k=norm(raw); if(!k)return; obj[k]=(obj[k]||0)+1; if(!lblCiudad[k])lblCiudad[k]=raw; };
+    cliSrc.forEach(c=>{ if(["Cerrado","Descartado"].includes(c.status))return; (c.ciudad_interes||[]).forEach(ci=>addCity(demCiudad,ci)); });
+    solActivas.forEach(a=>{ if(a.ciudad)addCity(demCiudad,a.ciudad); });
+    srcInv.forEach(l=>{ if(pipeOf(l)==="Disponible"&&l.ciudad)addCity(ofCiudad,l.ciudad); });
+    // ─── Recomendaciones (motor de reglas) ──────────────────────────
+    const insights=[];
+    Object.keys({...demUso,...ofUso}).filter(k=>k&&k!=="Otro").forEach(k=>{ const d=demUso[k]||0, o=ofUso[k]||0; if(d-o>=2) insights.push({icon:"🎯",color:"#b45309",bg:"#fffbeb",msg:`Déficit en ${k}: ${d} buscan y solo ${o} disponibles → captar oferta de ${k}.`}); });
+    Object.keys(demCiudad).forEach(k=>{ const d=demCiudad[k]||0, o=ofCiudad[k]||0; if(d>=2&&o===0) insights.push({icon:"📍",color:"#b91c1c",bg:"#fef2f2",msg:`${d} buscan en ${lblCiudad[k]} y no tienes inventario ahí → oportunidad de captación.`}); });
+    if(valCierre>0) insights.push({icon:"🔥",color:"#15803d",bg:"#f0fdf4",msg:`${fmtM(valCierre)} en cierre inminente (${nCierre} en Propuesta/Apartado/Contrato) → prioriza el cierre.`});
+    if(actVenc>0) insights.push({icon:"⏰",color:"#b91c1c",bg:"#fef2f2",msg:`${actVenc} actividad(es) vencida(s) → recupéralas hoy.`});
+    if(sinAct>0) insights.push({icon:"⚠",color:"#b45309",bg:"#fffbeb",msg:`${sinAct} prospecto(s) en negociación SIN próxima acción agendada.`});
+    if(capFirmadosPend>0) insights.push({icon:"📦",color:"#1d4ed8",bg:"#eff6ff",msg:`${capFirmadosPend} terreno(s) firmado(s) en captación sin pasar a inventario.`});
+    if(semR>0) insights.push({icon:"🥶",color:"#b91c1c",bg:"#fef2f2",msg:`${semR} lote(s) con prospecto en frío (+60 días sin contacto).`});
+    if(nVendido>0) insights.push({icon:"🏆",color:"#15803d",bg:"#f0fdf4",msg:`Has cerrado ${nVendido} venta(s) por ${fmtM(valVendido)}. ¡Bien!`});
+    if(!insights.length) insights.push({icon:"✅",color:"#15803d",bg:"#f0fdf4",msg:"Sin alertas críticas. Mantén el seguimiento al día."});
+    // ─── Cierres inminentes (deals por cerrar) ──────────────────────
+    const cierres=srcInv.filter(l=>["En negociación","Propuesta","Apartado","Contrato"].includes(pipeOf(l)))
+      .map(l=>{ const e=crmOf(l.id); const p=(e&&e.prospectos&&e.prospectos[e.prospectos.length-1])||null; return {l,pip:pipeOf(l),cli:(p&&p.nombre)||(e&&e.seguimientoAsesor&&("Asesor: "+(e.seguimientoAsesor.asesor||"")))||"—",v:valOf(l)}; })
+      .sort((a,b)=>b.v-a.v).slice(0,8);
+
+    // ─── UI helpers ─────────────────────────────────────────────────
+    const hero=(icon,label,value,sub,accent,onClick)=>(
+      <div onClick={onClick} style={{background:B.white,borderRadius:16,padding:"16px 18px",boxShadow:"0 2px 14px rgba(0,43,73,0.07)",borderTop:`4px solid ${accent}`,cursor:onClick?"pointer":"default",transition:"transform .12s, box-shadow .12s",display:"flex",flexDirection:"column",gap:4}}
+        onMouseEnter={e=>{if(onClick){e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 8px 22px rgba(0,43,73,0.12)";}}}
+        onMouseLeave={e=>{e.currentTarget.style.transform="none";e.currentTarget.style.boxShadow="0 2px 14px rgba(0,43,73,0.07)";}}>
+        <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:1.1,color:B.grey3}}>{icon} {label}</div>
+        <div style={{fontSize:25,fontWeight:800,color:B.navy,lineHeight:1.05,fontFamily:"'Playfair Display',serif"}}>{value}</div>
+        {sub&&<div style={{fontSize:11,color:B.grey4}}>{sub}</div>}
       </div>
     );
-    const barChart=(entries,colorFn,valFmt)=>{const mx=Math.max(...entries.map(e=>e[1]),1);return entries.map(([label,val],i)=>(
-      <div key={i} style={{marginBottom:9}}>
-        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}>
-          <span style={{maxWidth:"70%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
-          <span style={{color:B.navy,fontWeight:700}}>{valFmt?valFmt(val):val}</span>
+    const sc=(title,children,extra)=>(
+      <div style={{background:B.white,borderRadius:14,padding:"18px 20px",boxShadow:"0 2px 12px rgba(0,43,73,0.06)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:7,borderBottom:`2px solid ${B.grey1}`}}>
+          <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{title}</div>{extra||null}
         </div>
-        <div style={{background:B.grey1,borderRadius:5,height:9,overflow:"hidden"}}>
-          <div style={{width:`${(val/mx)*100}%`,height:"100%",borderRadius:5,background:colorFn?colorFn(i):B.gold,transition:"width 0.6s ease"}}/>
-        </div>
-      </div>
-    ));};
-    const sc=(title,children)=>(
-      <div style={{background:B.white,borderRadius:14,padding:"18px 22px",boxShadow:"0 2px 12px rgba(0,43,73,0.06)"}}>
-        <div style={{fontSize:13,fontWeight:700,color:B.navy,marginBottom:14,paddingBottom:7,borderBottom:`2px solid ${B.grey1}`}}>{title}</div>
         {children}
       </div>
     );
-    return (
-      <div style={{...s.page,maxWidth:1200,margin:"0 auto"}}>
-        <div style={{marginBottom:22}}>
-          <div style={{fontSize:10,fontWeight:600,textTransform:"uppercase",letterSpacing:1.5,color:B.gold,marginBottom:3}}>📊 Dashboard Ejecutivo</div>
-          <div style={{fontSize:24,fontWeight:800,color:B.navy}}>Panorama General</div>
-          <div style={{fontSize:12,color:B.grey3,marginTop:3}}>{totalLotes} macrolotes · {totalClientes} clientes · {[...new Set(srcInv.map(l=>l.estado))].length} estados {(inventory.length===0||clients.length===0)&&<span style={{color:B.red}}>· ⚠ Usando datos demo</span>}</div>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:14,marginBottom:24}}>
-          {kpiCard("Valor del Portafolio",fmtM(valorTotal),`${totalLotes} macrolotes activos`,B.gold)}
-          {kpiCard("Superficie Total",`${(supTotal/1000).toFixed(0)}K m²`,`${(supTotal/10000).toFixed(1)} hectáreas`,B.green)}
-          {kpiCard("Precio Prom / m²",`$${Math.round(precioPromM2).toLocaleString("es-MX")}`,`Rango: ${fmtM(precioMin)} – ${fmtM(precioMax)}`,B.blue)}
-          {kpiCard("Clientes en Cartera",String(totalClientes),`${calientes} en negociación · ${tibios} calificados`,B.navy)}
-          {kpiCard("Ticket Promedio",fmtM(totalLotes>0?valorTotal/totalLotes:0),"por macrolote",B.goldD)}
-          {kpiCard("Ciudades",String([...new Set(srcInv.map(l=>l.ciudad))].length),[...new Set(srcInv.map(l=>l.ciudad))].slice(0,3).join(", "),B.navyL)}
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
-          {sc("🏗 Lotes por Desarrollo",barChart(Object.entries(byDev).sort((a,b)=>b[1]-a[1]),goldGrad))}
-          {sc("💰 Valor por Desarrollo",barChart(Object.entries(valByDev).sort((a,b)=>b[1]-a[1]),goldGrad,v=>fmtM(v)))}
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
-          {sc("🏷 Lotes por Uso de Suelo",barChart(Object.entries(byUso).sort((a,b)=>b[1]-a[1]),goldGrad))}
-          {sc("📍 Lotes por Ciudad",barChart(Object.entries(byCity).sort((a,b)=>b[1]-a[1]),goldGrad))}
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
-          {sc("📊 Clientes por Status",(
-            <div>
-              {[["#EF4444","Negociando / Activo",calientes],["#F59E0B","Calificado",tibios],["#3B82F6","Prospecto",frios],["#6B7280","Cerrado / Inactivo",inactivos]].map(([col,lbl,cnt])=>(
-                <div key={lbl} style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
-                  <div style={{width:11,height:11,borderRadius:"50%",background:col,flexShrink:0}}/>
-                  <span style={{fontSize:12,color:B.grey4,flex:1}}>{lbl}</span>
-                  <span style={{fontSize:14,fontWeight:700,color:B.navy}}>{cnt}</span>
+    const gapTable=(demObj,ofObj,lblMap)=>{
+      const keys=[...new Set([...Object.keys(demObj),...Object.keys(ofObj)])].filter(k=>k&&k!=="Otro")
+        .sort((a,b)=>((demObj[b]||0)-(ofObj[b]||0))-((demObj[a]||0)-(ofObj[a]||0)));
+      if(!keys.length) return <div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>Sin datos suficientes.</div>;
+      const mx=Math.max(1,...keys.map(k=>Math.max(demObj[k]||0,ofObj[k]||0)));
+      return (
+        <div>
+          <div style={{display:"flex",gap:10,fontSize:9,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:0.8,marginBottom:8,justifyContent:"flex-end"}}>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:9,height:9,borderRadius:2,background:B.gold,display:"inline-block"}}/>Demanda</span>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:9,height:9,borderRadius:2,background:B.navy,display:"inline-block"}}/>Oferta</span>
+          </div>
+          {keys.map(k=>{ const d=demObj[k]||0,o=ofObj[k]||0,gap=d-o;
+            const tag=gap>=2?{t:"CAPTAR",c:"#b45309",b:"#fffbeb"}:(gap<=-2?{t:"IMPULSAR",c:"#1d4ed8",b:"#eff6ff"}:{t:"OK",c:"#15803d",b:"#f0fdf4"});
+            return (
+              <div key={k} style={{marginBottom:11}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                  <span style={{fontSize:12,fontWeight:700,color:B.navy,maxWidth:"55%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(lblMap&&lblMap[k])||k}</span>
+                  <span style={{fontSize:9,fontWeight:800,color:tag.c,background:tag.b,borderRadius:5,padding:"1px 7px"}}>{tag.t} {gap>0?("+"+gap):gap}</span>
                 </div>
-              ))}
-              {totalClientes>0&&<div style={{marginTop:14,display:"flex",gap:3,height:24,borderRadius:7,overflow:"hidden"}}>
-                {calientes>0&&<div style={{flex:calientes,background:"#EF4444",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff"}}>{Math.round(calientes/totalClientes*100)}%</div>}
-                {tibios>0&&<div style={{flex:tibios,background:"#F59E0B",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff"}}>{Math.round(tibios/totalClientes*100)}%</div>}
-                {frios>0&&<div style={{flex:frios,background:"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff"}}>{Math.round(frios/totalClientes*100)}%</div>}
-                {inactivos>0&&<div style={{flex:inactivos,background:"#6B7280",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff"}}>{Math.round(inactivos/totalClientes*100)}%</div>}
-              </div>}
+                <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}><div style={{flex:1,background:B.grey1,borderRadius:4,height:8}}><div style={{width:`${(d/mx)*100}%`,height:"100%",background:B.gold,borderRadius:4}}/></div><span style={{fontSize:10,fontWeight:700,color:B.goldD,width:18,textAlign:"right"}}>{d}</span></div>
+                <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{flex:1,background:B.grey1,borderRadius:4,height:8}}><div style={{width:`${(o/mx)*100}%`,height:"100%",background:B.navy,borderRadius:4}}/></div><span style={{fontSize:10,fontWeight:700,color:B.navy,width:18,textAlign:"right"}}>{o}</span></div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    };
+
+    return (
+      <div style={{...s.page,maxWidth:1240,margin:"0 auto"}}>
+        <div style={{marginBottom:22,display:"flex",justifyContent:"space-between",alignItems:"flex-end",flexWrap:"wrap",gap:10}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5,color:B.gold,marginBottom:3}}>📊 Centro de mando · CEO</div>
+            <div style={{fontSize:26,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>Panorama del negocio</div>
+            <div style={{fontSize:12,color:B.grey3,marginTop:3}}>{srcInv.length} macrolotes · {cliSrc.length} clientes · {solActivas.length} solicitudes activas{demo&&<span style={{color:B.red}}> · ⚠ datos demo</span>}</div>
+          </div>
+          <div style={{fontSize:11,color:B.grey3,textAlign:"right"}}>{new Date().toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
+        </div>
+
+        {/* HERO KPIs */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:13,marginBottom:14}}>
+          {hero("💼","Pipeline activo",fmtM(valPipeline),`${nPipeline} lotes en proceso`,B.gold,()=>{setView("crm");setActiveTab("kanban");})}
+          {hero("🔥","Cierre inminente",fmtM(valCierre),`${nCierre} en Propuesta/Contrato`,"#8B5CF6",()=>{setView("crm");setActiveTab("kanban");})}
+          {hero("🏆","Vendido",fmtM(valVendido),`${nVendido} cerrados`,"#22c55e",()=>{setView("crm");setActiveTab("kanban");})}
+          {hero("📦","Inventario disponible",fmtM(valDisp),`${nDisp} lotes · ${valTotal>0?Math.round(valDisp/valTotal*100):0}% del portafolio`,B.navy,()=>setView("lots"))}
+          {hero("🤝","Demanda viva",String(solActivas.length+cliActivos.length),`${solActivas.length} solicitudes · ${cliActivos.length} clientes activos`,"#3B82F6",()=>setView("asesores"))}
+          {hero("🌱","Captación",fmtM(valCap),`${capActivas.length} terrenos en proceso`,"#15803d",()=>setView("captacion"))}
+          {hero("⏰","Acción inmediata",String(actVenc+actHoy),`${actVenc} vencidas · ${actHoy} hoy`,actVenc>0?"#dc2626":B.grey3,()=>{setView("crm");setActiveTab("midia");})}
+          {hero("👑","Clientes calientes",String(cliCalientes.length),"en negociación / activos","#ef4444",()=>setView("clients"))}
+        </div>
+
+        {/* EMBUDO + SALUD */}
+        <div style={{display:"grid",gridTemplateColumns:"1.3fr 1fr",gap:14,marginBottom:14}}>
+          {sc("🛒 Embudo comercial (valor por etapa)",(
+            <div>
+              {PIPELINE_STAGES.filter(st=>st!=="Descartado"&&porEtapa[st].n>0).map(st=>{ const mx=Math.max(1,...PIPELINE_STAGES.map(x=>porEtapa[x].v)); const d=porEtapa[st];
+                return (
+                  <div key={st} style={{marginBottom:9}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,marginBottom:2}}>
+                      <span style={{color:B.grey5}}><span style={{display:"inline-block",width:9,height:9,borderRadius:2,background:PIPELINE_COLORS[st]||B.gold,marginRight:6}}/>{st} <span style={{color:B.grey3}}>· {d.n}</span></span>
+                      <span style={{color:B.navy,fontWeight:700}}>{fmtM(d.v)}</span>
+                    </div>
+                    <div style={{background:B.grey1,borderRadius:5,height:9,overflow:"hidden"}}><div style={{width:`${(d.v/mx)*100}%`,height:"100%",borderRadius:5,background:PIPELINE_COLORS[st]||B.gold}}/></div>
+                  </div>
+                );
+              })}
+              {nPipeline===0&&nVendido===0&&<div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>Aún no hay lotes en el pipeline del CRM.</div>}
             </div>
           ))}
-          {sc("👔 Clientes por Asesor",barChart(Object.entries(byAsesor).sort((a,b)=>b[1]-a[1]),goldGrad))}
+          {sc("🩺 Salud comercial",(
+            <div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+                {[["🟢 Al día",semV,"#15803d","#f0fdf4"],["🟡 Tibios",semA,"#b45309","#fffbeb"],["🔴 Fríos",semR,"#b91c1c","#fef2f2"]].map(([l,v,c,b])=>(
+                  <div key={l} style={{background:b,borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+                    <div style={{fontSize:22,fontWeight:800,color:c,fontFamily:"'Playfair Display',serif"}}>{v}</div>
+                    <div style={{fontSize:9,fontWeight:700,color:c}}>{l}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:0.8,marginBottom:6}}>Agenda</div>
+              {[["Vencidas",actVenc,"#dc2626"],["Hoy",actHoy,"#d97706"],["Próx. 7 días",actSem,"#1e40af"],["Negociación sin acción",sinAct,"#b45309"]].map(([l,v,c])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+B.grey1}}>
+                  <span style={{fontSize:12,color:B.grey4}}>{l}</span><span style={{fontSize:14,fontWeight:800,color:c}}>{v}</span>
+                </div>
+              ))}
+              <button onClick={()=>{setView("crm");setActiveTab("midia");}} style={{marginTop:12,width:"100%",padding:"9px",borderRadius:8,border:"none",background:B.navy,color:B.gold,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📅 Ir a Mi día</button>
+            </div>
+          ))}
         </div>
-        {sc("🎯 Demanda por Uso de Suelo",barChart(Object.entries(byUsoCli).sort((a,b)=>b[1]-a[1]),goldGrad))}
-        <div style={{marginTop:14}}>
-          {sc("🏆 Top 5 Macrolotes por Valor",(
-            <div style={{overflowX:"auto"}}>
+
+        {/* DEMANDA vs OFERTA */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+          {sc("⚖️ Demanda vs Oferta · por uso de suelo",gapTable(demUso,ofUso,null),<span style={{fontSize:10,color:B.grey3}}>qué captar / qué impulsar</span>)}
+          {sc("⚖️ Demanda vs Oferta · por ciudad",gapTable(demCiudad,ofCiudad,lblCiudad),<span style={{fontSize:10,color:B.grey3}}>dónde hay hueco</span>)}
+        </div>
+
+        {/* RECOMENDACIONES + CAPTACIÓN */}
+        <div style={{display:"grid",gridTemplateColumns:"1.3fr 1fr",gap:14,marginBottom:14}}>
+          {sc("🧠 Recomendaciones del CEO",(
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {insights.slice(0,8).map((it,i)=>(
+                <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start",background:it.bg,borderRadius:10,padding:"10px 12px",borderLeft:`3px solid ${it.color}`}}>
+                  <span style={{fontSize:16,flexShrink:0}}>{it.icon}</span>
+                  <span style={{fontSize:12,color:"#1e293b",lineHeight:1.45,fontWeight:600}}>{it.msg}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+          {sc("🌱 Captación · pipeline de oferta",(
+            <div>
+              {CAPTACION_PIPELINE.filter(p=>p!=="Descartado").map(p=>{ const arr=(captaciones||[]).filter(c=>c.pipeline===p); const mx=Math.max(1,...CAPTACION_PIPELINE.map(x=>(captaciones||[]).filter(c=>c.pipeline===x).length));
+                return (
+                  <div key={p} style={{marginBottom:8}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,marginBottom:2}}>
+                      <span style={{color:B.grey5}}>{(CAPTACION_PIPELINE_ICONS[p]||"")} {p}</span><span style={{color:B.navy,fontWeight:700}}>{arr.length}</span>
+                    </div>
+                    <div style={{background:B.grey1,borderRadius:5,height:8,overflow:"hidden"}}><div style={{width:`${(arr.length/mx)*100}%`,height:"100%",borderRadius:5,background:(CAPTACION_PIPELINE_COLORS[p]&&CAPTACION_PIPELINE_COLORS[p].border)||B.gold}}/></div>
+                  </div>
+                );
+              })}
+              <div style={{marginTop:10,fontSize:12,color:B.grey4}}>Valor potencial en proceso: <b style={{color:B.navy}}>{fmtM(valCap)}</b></div>
+              <button onClick={()=>setView("captacion")} style={{marginTop:10,width:"100%",padding:"9px",borderRadius:8,border:"1px solid "+B.grey1,background:B.offW,color:B.navy,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🌱 Ir a Captación</button>
+            </div>
+          ))}
+        </div>
+
+        {/* CIERRES INMINENTES */}
+        {sc("🎯 Cierres inminentes · prioridad de venta",(
+          cierres.length===0
+          ? <div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>Sin lotes en etapas de cierre todavía. Avanza prospectos en el CRM.</div>
+          : <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                <thead><tr style={{borderBottom:`2px solid ${B.grey1}`}}>{["#","Nombre","Desarrollo","Ciudad","Uso","Superficie","Precio Total"].map((h,i)=><th key={i} style={{textAlign:i>4?"right":"left",padding:"7px 9px",fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:0.8}}>{h}</th>)}</tr></thead>
+                <thead><tr style={{borderBottom:`2px solid ${B.grey1}`}}>{["Lote","Desarrollo","Cliente","Etapa","Valor"].map((h,i)=><th key={i} style={{textAlign:i>3?"right":"left",padding:"7px 9px",fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:0.8}}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {topLotes.map((l,i)=>(
-                    <tr key={i} style={{borderBottom:`1px solid ${B.grey1}`,cursor:"pointer"}} onClick={()=>setSelectedLotDetail(l)} onMouseEnter={e=>e.currentTarget.style.background=B.offW} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                      <td style={{padding:"9px",fontWeight:700,color:B.gold}}>{i+1}</td>
-                      <td style={{padding:"9px",fontWeight:600,color:B.navy}}>{l.nombre}</td>
-                      <td style={{padding:"9px",color:B.grey4}}>{l.desarrollo}</td>
-                      <td style={{padding:"9px",color:B.grey4}}>{l.ciudad}</td>
-                      <td style={{padding:"9px",color:B.grey4}}>{l.uso}</td>
-                      <td style={{padding:"9px",textAlign:"right",fontWeight:600}}>{(l.sup_m2||0).toLocaleString()} m²</td>
-                      <td style={{padding:"9px",textAlign:"right",fontWeight:700,color:B.navy}}>{fmtM(l.precio_total)}</td>
+                  {cierres.map((x,i)=>(
+                    <tr key={i} style={{borderBottom:`1px solid ${B.grey1}`,cursor:"pointer"}} onClick={()=>{setSelectedLotCRM(x.l);setView("crm");setActiveTab("kanban");}} onMouseEnter={e=>e.currentTarget.style.background=B.offW} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <td style={{padding:"9px",fontWeight:700,color:B.navy}}>{x.l.nombre||x.l.id}</td>
+                      <td style={{padding:"9px",color:B.grey4}}>{x.l.desarrollo||"—"}</td>
+                      <td style={{padding:"9px",color:B.grey4}}>{x.cli}</td>
+                      <td style={{padding:"9px"}}><span style={{fontSize:10,fontWeight:800,color:PIPELINE_COLORS[x.pip]||B.gold,background:(PIPELINE_COLORS[x.pip]||B.gold)+"22",borderRadius:5,padding:"2px 8px"}}>{x.pip}</span></td>
+                      <td style={{padding:"9px",textAlign:"right",fontWeight:700,color:B.navy}}>{fmtM(x.v)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ))}
-        </div>
-        <div style={{textAlign:"center",marginTop:20,fontSize:11,color:B.grey3}}>MacroPro v3.0 · Dashboard Ejecutivo · Grupo Guía · {new Date().toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"})}</div>
+        ))}
+
+        <div style={{textAlign:"center",marginTop:20,fontSize:11,color:B.grey3}}>MacroPro · Centro de mando CEO · Grupo Guía · {new Date().toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"})}</div>
       </div>
     );
   };
