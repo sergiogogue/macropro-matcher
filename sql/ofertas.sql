@@ -9,7 +9,8 @@ create table if not exists public.ofertas (
   cliente_nombre    text,
   lote_id           text,               -- loteKey normalizado
   lote_nombre       text,
-  estado            text,               -- 'ofrecido' | 'analisis' | 'descartado'
+  estado            text,
+  motivo            text,               -- razón del descarte (precio alto, ubicación, etc.)               -- 'ofrecido' | 'analisis' | 'descartado'
   fecha             date,
   eliminado         boolean default false,
   updated_at        timestamptz default now(),
