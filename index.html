@@ -15480,21 +15480,43 @@ Respuesta: [respuesta exacta, conversacional]
         const conDemanda=rs.filter(r=>r.analisis>0).sort((a,b)=>b.analisis-a.analisis);
         const lotesVendidos=rs.filter(r=>r.vendido>0).length;
         const sumS=(k)=>rs.reduce((a,r)=>a+r[k],0);
-        const motG={}; lotes.forEach(lot=>{ Object.values(ofertas||{}).filter(o=>o&&o.loteId===lKeyOf(lot)&&o.estado==="descartado").forEach(o=>{ const m=o.motivo||"Sin motivo"; motG[m]=(motG[m]||0)+1; }); });
+        const motG={}; rs.forEach(r=>(r.items||[]).forEach(it=>{ if(it.estado==="descartado"||it.etapa==="Descartado"){ const m=(it.motivo||"").trim()||"Sin motivo registrado"; motG[m]=(motG[m]||0)+1; } }));
         const topMotG=Object.entries(motG).sort((a,b)=>b[1]-a[1]); const maxMG=Math.max(1,...topMotG.map(e2=>e2[1]));
         const exportar=()=>{
           if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
-          const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"}); const PW=210,MX=14; let y=16;
-          doc.setFillColor(0,43,73); doc.rect(MX,y,PW-MX*2,16,"F"); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.setTextColor(255,255,255);
-          doc.text("INFORME DE SEGUIMIENTO · "+dev.toUpperCase(),PW/2,y+7,{align:"center"});
-          doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.text("Generado: "+new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}),PW/2,y+12,{align:"center"}); y+=22;
+          const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"}); const PW=210,MX=14; let y=14;
+          // Encabezado de marca
+          doc.setFillColor(0,43,73); doc.rect(0,0,PW,26,"F"); doc.setFillColor(196,154,34); doc.rect(0,26,PW,1.6,"F");
+          doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.setTextColor(255,255,255); doc.text("Informe de seguimiento",MX,13);
+          doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(196,154,34); doc.text(dev+(selDes!=="Todos"?("  ·  "+selDes):"  ·  Todos los desarrollos"),MX,20.5);
+          doc.setFontSize(8); doc.setTextColor(205,212,222); doc.text("Grupo Guía · MacroPro",PW-MX,11,{align:"right"}); doc.text(new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}),PW-MX,17,{align:"right"});
+          y=36;
+          // KPIs
           const kp=[["Lotes",String(nLotes)],["Valor",fmtM(valorTotal)],["Vendidos",String(lotesVendidos)],["Sin ofrecer",String(sinOfrecer)],["En análisis",String(sumS("analisis"))]];
-          const kw=(PW-MX*2-4*3)/5; kp.forEach((k,i)=>{ const kx=MX+i*(kw+3); doc.setFillColor(245,247,250); doc.rect(kx,y,kw,15,"F"); doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(110,120,135); doc.text(k[0].toUpperCase(),kx+2,y+4,{maxWidth:kw-4}); doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(0,43,73); doc.text(k[1],kx+2,y+11); }); y+=21;
-          doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(0,43,73); doc.text("¿Por qué no se venden? (motivos de descarte)",MX,y); y+=5;
+          const kw=(PW-MX*2-4*3)/5; kp.forEach((k,i)=>{ const kx=MX+i*(kw+3); doc.setFillColor(245,247,250); doc.roundedRect(kx,y,kw,16,1.5,1.5,"F"); doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(110,120,135); doc.text(k[0].toUpperCase(),kx+2.5,y+5,{maxWidth:kw-5}); doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(0,43,73); doc.text(k[1],kx+2.5,y+12); }); y+=23;
+          // Por desarrollo
+          if(selDes==="Todos" && porDesArr.length>1 && doc.autoTable){
+            doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(0,43,73); doc.text("Por desarrollo",MX,y);
+            doc.autoTable({ startY:y+3, head:[["Desarrollo","Lotes","Valor","Sin ofrecer","Análisis","Vendido","Descart."]], body:porDesArr.map(([d,g])=>[d,g.lotes,fmtM(g.valor),g.sinOf,g.analisis,g.vendido,g.rej]), styles:{fontSize:7,cellPadding:1.6}, headStyles:{fillColor:[0,43,73],textColor:255,fontSize:7}, columnStyles:{1:{halign:"right"},2:{halign:"right"},3:{halign:"right"},4:{halign:"right"},5:{halign:"right"},6:{halign:"right"}}, margin:{left:MX,right:MX} });
+            y=doc.lastAutoTable.finalY+9;
+          }
+          // ¿Por qué no se venden?
+          if(y>262){doc.addPage();y=16;}
+          doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(0,43,73); doc.text("¿Por qué no se venden? (motivos de descarte)",MX,y); y+=6;
           doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(60,70,85);
-          (topMotG.length?topMotG:[["Sin descartes",0]]).slice(0,8).forEach(([m,n])=>{ doc.text("• "+m+(n?(" ("+n+")"):""),MX+2,y); y+=5; }); y+=3;
-          if(doc.autoTable){ const stPdf=(r)=> r.vendido>0?"Vendido":((r.ofrecido>0||r.analisis>0)?"Activo":(r.rej>0?"Descartado":"Sin movim.")); const ordSt={"Vendido":0,"Activo":1,"Descartado":2,"Sin movim.":3}; doc.autoTable({ startY:y, head:[["Lote","Estado","Ofrec.","Análisis","Vendido","Descart.","Motivo"]], body:rs.slice().sort((a,b)=>(ordSt[stPdf(a)]-ordSt[stPdf(b)])||b.analisis-a.analisis||b.total-a.total).map(r=>[ (r.lot.nombre||r.lot.id), stPdf(r), r.ofrecido, r.analisis, r.vendido, r.rej, r.topMot||"" ]), styles:{fontSize:7,cellPadding:1.5}, headStyles:{fillColor:[0,43,73],textColor:255,fontSize:7}, margin:{left:MX,right:MX} }); }
-          doc.save("informe_"+dev.replace(/\s+/g,"_").toLowerCase()+".pdf"); toast("✅ Informe generado");
+          (topMotG.length?topMotG:[["Sin descartes registrados",0]]).slice(0,10).forEach(([m,n])=>{ doc.text("•  "+m+(n?("   ("+n+")"):""),MX+2,y); y+=5; }); y+=4;
+          // Lotes por estado
+          if(doc.autoTable){
+            const stG=(r)=> r.vendido>0?"vendido":((r.ofrecido>0||r.analisis>0)?"activo":(r.rej>0?"descartado":"sinmov"));
+            const G={vendido:[],activo:[],descartado:[],sinmov:[]}; rs.forEach(r=>G[stG(r)].push(r)); G.activo.sort((a,b)=>b.analisis-a.analisis||b.total-a.total);
+            const grupos=[["vendido","VENDIDO",[22,163,74]],["activo","ACTIVO",[217,119,6]],["descartado","DESCARTADO",[185,28,28]],["sinmov","SIN MOVIMIENTO",[100,116,139]]];
+            grupos.forEach(([k,lbl,rgb])=>{ const list=G[k]; if(!list.length) return; if(y>262){doc.addPage();y=16;}
+              doc.setFillColor(rgb[0],rgb[1],rgb[2]); doc.rect(MX,y,PW-MX*2,6.5,"F"); doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(255,255,255); doc.text(lbl+"   ("+list.length+")",MX+2.5,y+4.5); y+=8.5;
+              doc.autoTable({ startY:y, head:[["Lote","Desarrollo","Ofrec.","Análisis","Vendido","Descart.","Motivo"]], body:list.map(r=>[ (r.lot.nombre||r.lot.id), (r.lot.desarrollo||""), r.ofrecido, r.analisis, r.vendido, r.rej, r.topMot||"" ]), styles:{fontSize:7,cellPadding:1.4}, headStyles:{fillColor:rgb,textColor:255,fontSize:7}, columnStyles:{2:{halign:"right"},3:{halign:"right"},4:{halign:"right"},5:{halign:"right"}}, margin:{left:MX,right:MX} });
+              y=doc.lastAutoTable.finalY+9;
+            });
+          }
+          doc.save("informe_"+dev.replace(/\s+/g,"_").toLowerCase()+(selDes!=="Todos"?("_"+selDes.replace(/\s+/g,"_").toLowerCase()):"")+".pdf"); toast("✅ Informe generado");
         };
         const rowL=(r)=>(
           <div key={r.lot.id} onClick={()=>{setInformeDev(null);setHistorialLote(r.lot);}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"8px 12px",borderBottom:"1px solid "+B.grey1,cursor:"pointer"}}>
