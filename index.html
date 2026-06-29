@@ -5197,6 +5197,55 @@ function MacroProMatcher() {
     const devs=(()=>{if(fCity==="Todas")return["Todos",...new Set(srcInv.map(l=>l.desarrollo).filter(Boolean))].sort((a,b)=>a==="Todos"?-1:b==="Todos"?1:a.localeCompare(b));return["Todos",...new Set(srcInv.filter(l=>l.ciudad===fCity).map(l=>l.desarrollo).filter(Boolean))].sort();})();
     const filtered=srcInv.filter(l=>(fCity==="Todas"||l.ciudad===fCity)&&(fDev==="Todos"||l.desarrollo===fDev)&&(fUso==="Todos"||(l.usos_todos&&l.usos_todos.length>0?l.usos_todos.includes(fUso):l.uso===fUso))&&(fTipo==="Todos"||l.tipo===fTipo));
     // ── ANÁLISIS DE SEGUIMIENTO DE MACROLOTES (ofertas + CRM) ──
+    // ── ANÁLISIS DE INVENTARIO (composición pura: valor, superficie, distribución) ──
+    const renderAnalisisInventario=()=>{
+      const data=filtered;
+      const valOf=(l)=>l.precio_total||((l.sup_m2||0)*(l.precio_m2||0))||0;
+      const n=data.length;
+      const valor=data.reduce((a,l)=>a+valOf(l),0);
+      const sup=data.reduce((a,l)=>a+(l.sup_m2||0),0);
+      const pm2=sup>0?valor/sup:0; const ticket=n>0?valor/n:0;
+      const ciudades=new Set(data.map(l=>l.ciudad).filter(Boolean));
+      const dess=new Set(data.map(l=>l.desarrollo).filter(Boolean));
+      const disp=data.filter(l=>!/vend|apar|descart/i.test(l.status||"")).length;
+      const byDev={},byUso={},byCity={},valDev={};
+      data.forEach(l=>{ const d=l.desarrollo||"Sin desarrollo"; byDev[d]=(byDev[d]||0)+1; valDev[d]=(valDev[d]||0)+valOf(l); const u=(()=>{try{return usoCategoria(l.uso).cat;}catch(e){return l.uso||"Sin uso";}})(); byUso[u]=(byUso[u]||0)+1; const c=l.ciudad||"Sin ciudad"; byCity[c]=(byCity[c]||0)+1; });
+      const pB={"< $10M":0,"$10–30M":0,"$30–60M":0,"$60–100M":0,"> $100M":0}; data.forEach(l=>{const v=valOf(l)/1e6; if(v<10)pB["< $10M"]++; else if(v<30)pB["$10–30M"]++; else if(v<60)pB["$30–60M"]++; else if(v<100)pB["$60–100M"]++; else pB["> $100M"]++;});
+      const sB={"< 1k m²":0,"1–5k m²":0,"5–10k m²":0,"10–20k m²":0,"> 20k m²":0}; data.forEach(l=>{const s2=l.sup_m2||0; if(s2<1000)sB["< 1k m²"]++; else if(s2<5000)sB["1–5k m²"]++; else if(s2<10000)sB["5–10k m²"]++; else if(s2<20000)sB["10–20k m²"]++; else sB["> 20k m²"]++;});
+      const top=[...data].sort((a,b)=>valOf(b)-valOf(a)).slice(0,10);
+      const barS=(obj,fmt,color)=>{ const ent=Object.entries(obj).sort((a,b)=>b[1]-a[1]); const mx=Math.max(1,...ent.map(e=>e[1])); return ent.map(([l,v])=>(<div key={l} style={{marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}><span style={{maxWidth:"68%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l}</span><span style={{color:B.navy,fontWeight:700}}>{fmt?fmt(v):v}</span></div><div style={{background:B.grey1,borderRadius:5,height:9}}><div style={{width:(v/mx*100)+"%",height:"100%",background:color||B.gold,borderRadius:5}}/></div></div>)); };
+      const barK=(obj,color)=>{ const ent=Object.entries(obj); const mx=Math.max(1,...ent.map(e=>e[1])); return ent.map(([l,v])=>(<div key={l} style={{marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}><span>{l}</span><span style={{color:B.navy,fontWeight:700}}>{v}</span></div><div style={{background:B.grey1,borderRadius:5,height:9}}><div style={{width:(v/mx*100)+"%",height:"100%",background:color||B.gold,borderRadius:5}}/></div></div>)); };
+      const sc=(t,ch)=>(<div style={{background:B.white,borderRadius:14,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.05)",padding:"16px 18px"}}><div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:12,paddingBottom:7,borderBottom:"2px solid "+B.grey1}}>{t}</div>{ch}</div>);
+      const kpis=[["📦 Lotes",String(n),B.navy],["💰 Valor",fmtM(valor),B.gold],["📐 Superficie",(sup/10000).toFixed(1)+" ha",B.green],["💲 Prom $/m²","$"+Math.round(pm2).toLocaleString("es-MX"),B.blue],["🎟 Ticket prom.",fmtM(ticket),B.goldD],["🟢 Disponibles",String(disp),"#16a34a"],["📍 Ciudades",String(ciudades.size),B.navyL],["🏗 Desarrollos",String(dess.size),"#8B5CF6"]];
+      return (
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:16}}>
+            {kpis.map(([l,v,col])=>(<div key={l} style={{background:B.white,borderRadius:12,border:"1px solid "+B.grey1,padding:"14px 12px",borderLeft:"4px solid "+col}}><div style={{fontSize:22,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{v}</div><div style={{fontSize:10,fontWeight:700,color:B.grey4,marginTop:2}}>{l}</div></div>))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+            {sc("🏗 Lotes por desarrollo",barS(byDev,null,B.gold))}
+            {sc("💰 Valor por desarrollo",barS(valDev,v=>fmtM(v),B.navy))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+            {sc("🏷 Por uso de suelo",barS(byUso,null,"#8B5CF6"))}
+            {sc("📍 Por ciudad",barS(byCity,null,"#0891b2"))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+            {sc("💵 Rango de precio",barK(pB,B.goldD))}
+            {sc("📐 Rango de superficie",barK(sB,B.green))}
+          </div>
+          {sc("🏆 Top 10 lotes por valor",(
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead><tr style={{borderBottom:"2px solid "+B.grey1}}>{["#","Lote","Desarrollo","Ciudad","Uso","Superficie","Valor"].map((h,i)=><th key={i} style={{textAlign:i>4?"right":"left",padding:"7px 9px",fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase"}}>{h}</th>)}</tr></thead>
+                <tbody>{top.map((l,i)=>(<tr key={l.id} onClick={()=>setSelectedLotDetail(l)} style={{borderBottom:"1px solid "+B.grey1,cursor:"pointer"}}><td style={{padding:"8px 9px",fontWeight:700,color:B.gold}}>{i+1}</td><td style={{padding:"8px 9px",fontWeight:600,color:B.navy}}>{l.nombre||l.id}</td><td style={{padding:"8px 9px",color:B.grey4}}>{l.desarrollo}</td><td style={{padding:"8px 9px",color:B.grey4}}>{l.ciudad}</td><td style={{padding:"8px 9px",color:B.grey4}}>{l.uso}</td><td style={{padding:"8px 9px",textAlign:"right"}}>{(l.sup_m2||0).toLocaleString("es-MX")} m²</td><td style={{padding:"8px 9px",textAlign:"right",fontWeight:700,color:B.navy}}>{fmtM(valOf(l))}</td></tr>))}</tbody>
+              </table>
+            </div>
+          ))}
+          <div style={{fontSize:10,color:B.grey3,marginTop:10,textAlign:"center"}}>Respeta los filtros de ciudad/desarrollo/uso de arriba · {n} de {srcInv.length} lotes</div>
+        </div>
+      );
+    };
     const renderAnalisisLotes=()=>{
       const bk=(it)=>{ if(it.estado==="vendido"||it.etapa==="Vendido")return"vendido"; if(it.estado==="descartado"||it.etapa==="Descartado")return"rej"; if(it.estado==="analisis"||it.etapa==="En análisis")return"analisis"; return"ofrecido"; };
       const resumen=(lot)=>{ const lk=lKeyOf(lot); const items={};
@@ -5268,8 +5317,9 @@ function MacroProMatcher() {
           <div style={s.sectionTitle}>Inventario de Macrolotes</div>
           {inventory.length===0&&<Tag label="Datos demo" color={B.goldD} bg="#fff8e7"/>}
           <div style={{display:"flex",gap:4,background:B.offW,borderRadius:9,padding:3,border:"1px solid "+B.grey1}}>
-            <button onClick={()=>setVistaLots("lista")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaLots==="lista"?B.navy:"transparent",color:vistaLots==="lista"?"#fff":B.grey4}}>📋 Lista</button>
-            <button onClick={()=>setVistaLots("analisis")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaLots==="analisis"?B.navy:"transparent",color:vistaLots==="analisis"?"#fff":B.grey4}}>📊 Análisis</button>
+            {[["lista","📋 Lista"],["inventario","🏷 Inventario"],["seguimiento","📊 Seguimiento"]].map(([k,l])=>(
+              <button key={k} onClick={()=>setVistaLots(k)} style={{padding:"6px 13px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaLots===k?B.navy:"transparent",color:vistaLots===k?"#fff":B.grey4}}>{l}</button>
+            ))}
           </div>
           <button onClick={()=>setInformeDev("")} style={{padding:"7px 12px",borderRadius:8,border:"1px solid "+B.navy,background:"#fff",color:B.navy,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🏢 Informe desarrollador</button>
           <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
@@ -5278,7 +5328,7 @@ function MacroProMatcher() {
             <span style={{fontSize:12,color:B.grey3,fontWeight:600}}>{srcInv.length} lotes</span>
           </div>
         </div>
-        {vistaLots==="analisis" ? renderAnalisisLotes() : (<React.Fragment>
+        {vistaLots!=="seguimiento" && (
         <div style={s.filterBar}>
           <div style={{display:"flex",flexDirection:"column",gap:2}}>
             <span style={{fontSize:10,color:B.grey3,fontWeight:600,textTransform:"uppercase"}}>📍 Ciudad</span>
@@ -5308,6 +5358,8 @@ function MacroProMatcher() {
           </div>
           <span style={{marginLeft:"auto",fontSize:12,color:B.grey3,fontWeight:600}}>{filtered.length} lote{filtered.length!==1?"s":""}</span>
         </div>
+        )}
+        {vistaLots==="seguimiento" ? renderAnalisisLotes() : vistaLots==="inventario" ? renderAnalisisInventario() : (<React.Fragment>
         {filtered.map(lot=>(
           <div key={lot.id} style={{...s.lotCard(false),cursor:"default"}}>
             <div style={{display:"flex",alignItems:"center",gap:14}}>
