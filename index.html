@@ -1683,6 +1683,25 @@ function MacroProMatcher() {
   const [denueBLoading, setDenueBLoading] = useState(false);
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedLot, setSelectedLot] = useState(null);
+  // ─── HISTORIAL DE OFERTAS cliente↔lote (ofrecido / análisis / descartado) ───
+  const OFERTAS_KEY="macropro_ofertas_v1";
+  const [ofertas, setOfertas] = useState(()=>{ try{ const o=JSON.parse(localStorage.getItem(OFERTAS_KEY)||"{}"); return (o&&typeof o==="object")?o:{}; }catch(e){ return {}; } });
+  const saveOfertas=(o)=>{ try{ localStorage.setItem(OFERTAS_KEY, JSON.stringify(o||{})); }catch(e){} };
+  const cKeyOf=(c)=>{ const id=String((c&&(c.id||c.sb_id))||"").trim(); return id||("n:"+String((c&&c.nombre)||"").trim().toLowerCase()); };
+  const lKeyOf=(l)=>{ try{ return loteKey(l); }catch(e){ return String((l&&l.id)||"").trim().toLowerCase(); } };
+  const ofKey=(c,l)=>cKeyOf(c)+"||"+lKeyOf(l);
+  const getOferta=(c,l)=> (c&&l) ? (ofertas[ofKey(c,l)]||null) : null;
+  const setOfertaEstado=(c,l,estado)=>{
+    if(!c||!l) return;
+    setOfertas(prev=>{ const o={...(prev||{})}; const k=ofKey(c,l);
+      if(!estado){ delete o[k]; }
+      else { o[k]={ estado, fecha:new Date().toISOString().slice(0,10), clienteNombre:(c.nombre||""), cKey:cKeyOf(c), loteId:lKeyOf(l), loteNombre:(l.nombre||l.id||"") }; }
+      saveOfertas(o); return o;
+    });
+    const lbl={ofrecido:"📤 ofrecido",analisis:"👍 en análisis",descartado:"👎 descartado"}[estado]||"sin estado";
+    toast("✔ "+(c.nombre||"Cliente")+" · "+(l.nombre||l.id)+" → "+lbl);
+  };
+  const ofertasDeCliente=(c)=>{ const ck=cKeyOf(c); return Object.values(ofertas||{}).filter(o=>o&&o.cKey===ck); };
   const [matchResults, setMatchResults] = useState(null);
   const [matchMode, setMatchMode] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -3223,6 +3242,18 @@ function MacroProMatcher() {
 
   // ── CLAUDE MATCH ENGINE ──────────────────────────────────────────
   const runMatch = async (mode, subject, targets) => {
+    // Excluir pares DESCARTADOS del historial de ofertas (no se vuelven a considerar)
+    let nExcl=0;
+    if(subject && Array.isArray(targets)){
+      targets=targets.filter(t=>{
+        const cli = mode==="clientToLots" ? subject : t;
+        const lot = mode==="clientToLots" ? t : subject;
+        const of = getOferta(cli,lot);
+        if(of && of.estado==="descartado"){ nExcl++; return false; }
+        return true;
+      });
+      if(nExcl>0) toast("🚫 "+nExcl+" descartado(s) excluido(s) del match");
+    }
     setLoading(true); setMatchResults(null);
     const msgs=["Analizando perfil...","Calculando compatibilidad...","Generando argumentos...","Rankeando..."];
     let mi=0; setLoadingMsg(msgs[0]);
@@ -4187,8 +4218,27 @@ function MacroProMatcher() {
                     {isClientMode&&(item.usos_todos&&item.usos_todos.length>0?item.usos_todos:[item.uso].filter(Boolean)).map((u,ui)=><Tag key={u+"-"+ui} label={u} color={B.navy} bg={B.blueL}/>)}
                     {isClientMode&&<Tag label={item.ciudad} color={B.navy} bg={B.grey1}/>}
                     {isClientMode&&item.desarrollo&&<Tag label={item.desarrollo} color={B.goldD} bg="#FFF9EC"/>}
-                    
+
                   </div>
+                  {(isClientMode || (subject&&subject.id!=="FILTRO")) && (()=>{
+                    const cli=isClientMode?subject:item; const lot=isClientMode?item:subject;
+                    const of=getOferta(cli,lot); const est=of&&of.estado;
+                    const opts=[["ofrecido","📤 Ofrecido","#1d4ed8","#eff6ff"],["analisis","👍 En análisis","#15803d","#f0fdf4"],["descartado","👎 Descartar","#b91c1c","#fef2f2"]];
+                    return (
+                      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:10,padding:"7px 9px",background:B.offW,borderRadius:9,border:"1px solid "+B.grey1}}>
+                        <span style={{fontSize:10,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Oferta:</span>
+                        {est
+                          ? <span style={{fontSize:10,fontWeight:800,borderRadius:6,padding:"2px 8px",color:opts.find(o=>o[0]===est)[2],background:opts.find(o=>o[0]===est)[3]}}>{opts.find(o=>o[0]===est)[1].replace("Descartar","Descartado")}{of.fecha?" · "+of.fecha:""}</span>
+                          : <span style={{fontSize:10,color:B.grey3,fontStyle:"italic"}}>sin registrar</span>}
+                        <span style={{flex:1}}/>
+                        {opts.map(([val,lbl,col,bg])=>(
+                          <button key={val} onClick={(e)=>{e.stopPropagation(); setOfertaEstado(cli,lot, est===val?null:val);}}
+                            title={est===val?"Quitar":lbl}
+                            style={{fontSize:10,fontWeight:800,borderRadius:6,padding:"4px 8px",cursor:"pointer",border:"1px solid "+(est===val?col:B.grey1),background:est===val?bg:"#fff",color:est===val?col:B.grey4,fontFamily:"'DM Sans',sans-serif"}}>{lbl}</button>
+                        ))}
+                      </div>
+                    );
+                  })()}
                   <div style={{fontSize:12,color:B.grey3,marginBottom:10,display:"flex",gap:14,flexWrap:"wrap"}}>
                     {isClientMode?(<><span>📐 {(item.sup_m2||0).toLocaleString()} m²</span><span>💲 ${(item.precio_m2||0).toLocaleString()}/m²</span><span style={{fontWeight:700,color:B.navy}}>{fmtM(item.precio_total)}</span><span>⚡ {item.entrega}</span></>):(<><span>🏢 {item.empresa}</span><span>👨‍💼 {item.asesor}</span><span>💲 {fmtM(item.presupuesto_min)}–{fmtM(item.presupuesto_max)}</span><span>📐 {(item.sup_min||0).toLocaleString()}–{(item.sup_max||0).toLocaleString()} m²</span>{item.telefono&&<span style={{color:B.navy,fontWeight:600}}>📞 {item.telefono}</span>}{(item.correo||item.email)&&<span style={{color:B.navy,fontWeight:600}}>✉ {item.correo||item.email}</span>}</>)}
                   </div>
@@ -5022,6 +5072,18 @@ function MacroProMatcher() {
                 <div style={{fontSize:13,color:B.grey3,marginBottom:2}}>{c.empresa} · {c.ciudad_interes?.join(", ")}</div>
                 <div style={{fontSize:12,color:B.grey3}}>{c.uso_interes?.join(" / ")} · {fmtM(c.presupuesto_min)}–{fmtM(c.presupuesto_max)} · Sup: {(c.sup_min||0).toLocaleString()}–{(c.sup_max||0).toLocaleString()} m²</div>
                 {c.notas&&<div style={{fontSize:12,color:B.grey3,marginTop:3,fontStyle:"italic"}}>{c.notas}</div>}
+                {(()=>{ const ofs=ofertasDeCliente(c); if(!ofs.length) return null;
+                  const cnt=(e)=>ofs.filter(o=>o.estado===e).length;
+                  const col={ofrecido:["#1d4ed8","#eff6ff","📤"],analisis:["#15803d","#f0fdf4","👍"],descartado:["#b91c1c","#fef2f2","👎"]};
+                  return (
+                    <div style={{marginTop:7,paddingTop:6,borderTop:"1px dashed "+B.grey1}}>
+                      <div style={{fontSize:10,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5}}>🏷 Lotes ofrecidos · 📤 {cnt("ofrecido")} · 👍 {cnt("analisis")} en análisis · 👎 {cnt("descartado")} descartados</div>
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                        {ofs.slice(0,15).map((o,i)=>{ const cc=col[o.estado]||["#64748b","#f1f5f9","•"]; return <span key={i} style={{fontSize:10,fontWeight:700,borderRadius:6,padding:"2px 7px",color:cc[0],background:cc[1]}}>{cc[2]} {o.loteNombre||o.loteId}</span>; })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
               <div style={{display:"flex",gap:7,flexShrink:0}}>
                 <button style={s.btn("sm")} onClick={()=>{setSelectedClient(c);setView("matchClient");}}>🎯 Match</button>
