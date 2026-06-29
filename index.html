@@ -5256,14 +5256,21 @@ function MacroProMatcher() {
         const topMotL=Object.entries(motL).sort((a,b)=>b[1]-a[1]).map(e2=>e2[0]+(e2[1]>1?" ("+e2[1]+")":""));
         return {lot,total:arr.length,...c,topMotL};
       };
-      const all=srcInv.map(resumen);
+      const all=filtered.map(resumen);
+      const fIds=new Set(filtered.map(l=>lKeyOf(l)));
       const noOfrec=all.filter(r=>r.total===0);
       const conDemanda=all.filter(r=>r.analisis>0).sort((a,b)=>b.analisis-a.analisis);
       const vendidos=all.filter(r=>r.vendido>0);
       const descartados=all.filter(r=>r.rej>0).sort((a,b)=>b.rej-a.rej);
-      const motG={}; Object.values(ofertas||{}).forEach(o=>{ if(o&&o.estado==="descartado"){ const m=o.motivo||"Sin motivo"; motG[m]=(motG[m]||0)+1; } });
+      const motG={}; Object.values(ofertas||{}).forEach(o=>{ if(o&&o.estado==="descartado"&&fIds.has(o.loteId)){ const m=(o.motivo||"").trim()||"Sin motivo registrado"; motG[m]=(motG[m]||0)+1; } });
       const topMot=Object.entries(motG).sort((a,b)=>b[1]-a[1]); const maxMot=Math.max(1,...topMot.map(e2=>e2[1]));
-      const kpis=[["📦 Total",srcInv.length,B.navy],["🟢 Sin ofrecer",noOfrec.length,"#16a34a"],["🔥 Con demanda",conDemanda.length,"#d97706"],["✅ Vendidos",vendidos.length,"#16a34a"],["👎 Con descartes",descartados.length,"#b91c1c"]];
+      // Distribución por estado del lote + por desarrollo
+      const stL=(r)=> r.vendido>0?"vendido":((r.ofrecido>0||r.analisis>0)?"activo":(r.rej>0?"descartado":"sinmov"));
+      const distEstado={"⚪ Sin ofrecer":noOfrec.length,"🔥 Activo":all.filter(r=>stL(r)==="activo").length,"👎 Descartado":all.filter(r=>stL(r)==="descartado").length,"✅ Vendido":vendidos.length};
+      const maxDE=Math.max(1,...Object.values(distEstado));
+      const porDevS={}; all.forEach(r=>{ const d=r.lot.desarrollo||"Sin desarrollo"; const g=porDevS[d]||(porDevS[d]={total:0,sinof:0,activo:0,desc:0,vend:0}); g.total++; const b=stL(r); if(b==="sinmov")g.sinof++; else if(b==="activo")g.activo++; else if(b==="descartado")g.desc++; else g.vend++; });
+      const porDevSArr=Object.entries(porDevS).sort((a,b)=>b[1].total-a[1].total);
+      const kpis=[["📦 Total",filtered.length,B.navy],["🟢 Sin ofrecer",noOfrec.length,"#16a34a"],["🔥 Con demanda",conDemanda.length,"#d97706"],["✅ Vendidos",vendidos.length,"#16a34a"],["👎 Con descartes",descartados.length,"#b91c1c"]];
       const row=(r,extra)=>(
         <div key={r.lot.id} onClick={()=>setHistorialLote(r.lot)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:"1px solid "+B.grey1,cursor:"pointer"}}
           onMouseEnter={e=>e.currentTarget.style.background=B.offW} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -5293,6 +5300,23 @@ function MacroProMatcher() {
         <div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:16}}>
             {kpis.map(([l,v,col])=>(<div key={l} style={{background:B.white,borderRadius:12,border:"1px solid "+B.grey1,padding:"14px 12px",borderLeft:"4px solid "+col}}><div style={{fontSize:24,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{v}</div><div style={{fontSize:10,fontWeight:700,color:B.grey4,marginTop:2}}>{l}</div></div>))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1.3fr",gap:14,marginBottom:16}}>
+            <div style={{background:B.white,borderRadius:14,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.05)",padding:"16px 18px"}}>
+              <div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:12,paddingBottom:7,borderBottom:"2px solid "+B.grey1}}>📊 Distribución por estado</div>
+              {Object.entries(distEstado).map(([l,v])=>{ const col=l.indexOf("Vendido")>=0?"#16a34a":l.indexOf("Descartado")>=0?"#b91c1c":l.indexOf("Activo")>=0?"#d97706":"#64748b"; return (
+                <div key={l} style={{marginBottom:9}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}><span>{l}</span><span style={{color:B.navy,fontWeight:700}}>{v} · {all.length?Math.round(v/all.length*100):0}%</span></div><div style={{background:B.grey1,borderRadius:5,height:9}}><div style={{width:(v/maxDE*100)+"%",height:"100%",background:col,borderRadius:5}}/></div></div>
+              ); })}
+            </div>
+            <div style={{background:B.white,borderRadius:14,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.05)",overflow:"hidden"}}>
+              <div style={{fontSize:13,fontWeight:800,color:B.navy,padding:"14px 16px",borderBottom:"2px solid "+B.grey1}}>🏗 Seguimiento por desarrollo</div>
+              <div style={{overflowX:"auto",maxHeight:240}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                  <thead><tr style={{borderBottom:"2px solid "+B.grey1}}>{["Desarrollo","Total","🟢","🔥","👎","✅"].map((h,i)=><th key={i} style={{textAlign:i>0?"right":"left",padding:"6px 9px",fontSize:9.5,fontWeight:700,color:B.grey3}}>{h}</th>)}</tr></thead>
+                  <tbody>{porDevSArr.map(([d,g])=>(<tr key={d} style={{borderBottom:"1px solid "+B.grey1}}><td style={{padding:"6px 9px",fontWeight:700,color:B.navy}}>{d}</td><td style={{padding:"6px 9px",textAlign:"right"}}>{g.total}</td><td style={{padding:"6px 9px",textAlign:"right",color:"#16a34a",fontWeight:g.sinof?700:400}}>{g.sinof}</td><td style={{padding:"6px 9px",textAlign:"right",color:"#d97706",fontWeight:g.activo?700:400}}>{g.activo}</td><td style={{padding:"6px 9px",textAlign:"right",color:"#b91c1c",fontWeight:g.desc?700:400}}>{g.desc}</td><td style={{padding:"6px 9px",textAlign:"right",color:"#16a34a",fontWeight:g.vend?700:400}}>{g.vend}</td></tr>))}</tbody>
+                </table>
+              </div>
+            </div>
           </div>
           <div style={{background:B.white,borderRadius:14,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.05)",padding:"16px 18px",marginBottom:16}}>
             <div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:12}}>🚫 ¿Por qué NO se venden? (motivos de descarte)</div>
@@ -5328,7 +5352,7 @@ function MacroProMatcher() {
             <span style={{fontSize:12,color:B.grey3,fontWeight:600}}>{srcInv.length} lotes</span>
           </div>
         </div>
-        {vistaLots!=="seguimiento" && (
+        {(
         <div style={s.filterBar}>
           <div style={{display:"flex",flexDirection:"column",gap:2}}>
             <span style={{fontSize:10,color:B.grey3,fontWeight:600,textTransform:"uppercase"}}>📍 Ciudad</span>
