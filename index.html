@@ -15493,7 +15493,7 @@ Respuesta: [respuesta exacta, conversacional]
           doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(0,43,73); doc.text("¿Por qué no se venden? (motivos de descarte)",MX,y); y+=5;
           doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(60,70,85);
           (topMotG.length?topMotG:[["Sin descartes",0]]).slice(0,8).forEach(([m,n])=>{ doc.text("• "+m+(n?(" ("+n+")"):""),MX+2,y); y+=5; }); y+=3;
-          if(doc.autoTable){ doc.autoTable({ startY:y, head:[["Lote","Ofrec.","Análisis","Vendido","Descart.","Motivo"]], body:rs.sort((a,b)=>b.analisis-a.analisis||b.total-a.total).map(r=>[ (r.lot.nombre||r.lot.id), r.ofrecido, r.analisis, r.vendido, r.rej, r.topMot||"" ]), styles:{fontSize:7,cellPadding:1.5}, headStyles:{fillColor:[0,43,73],textColor:255,fontSize:7}, margin:{left:MX,right:MX} }); }
+          if(doc.autoTable){ const stPdf=(r)=> r.vendido>0?"Vendido":((r.ofrecido>0||r.analisis>0)?"Activo":(r.rej>0?"Descartado":"Sin movim.")); const ordSt={"Vendido":0,"Activo":1,"Descartado":2,"Sin movim.":3}; doc.autoTable({ startY:y, head:[["Lote","Estado","Ofrec.","Análisis","Vendido","Descart.","Motivo"]], body:rs.slice().sort((a,b)=>(ordSt[stPdf(a)]-ordSt[stPdf(b)])||b.analisis-a.analisis||b.total-a.total).map(r=>[ (r.lot.nombre||r.lot.id), stPdf(r), r.ofrecido, r.analisis, r.vendido, r.rej, r.topMot||"" ]), styles:{fontSize:7,cellPadding:1.5}, headStyles:{fillColor:[0,43,73],textColor:255,fontSize:7}, margin:{left:MX,right:MX} }); }
           doc.save("informe_"+dev.replace(/\s+/g,"_").toLowerCase()+".pdf"); toast("✅ Informe generado");
         };
         const rowL=(r)=>(
@@ -15562,11 +15562,18 @@ Respuesta: [respuesta exacta, conversacional]
                     <div key={m} style={{marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}><span>{m}</span><span style={{color:B.navy,fontWeight:700}}>{n}</span></div><div style={{background:B.grey1,borderRadius:5,height:8}}><div style={{width:(n/maxMG*100)+"%",height:"100%",background:"#b91c1c",borderRadius:5}}/></div></div>
                   ))}
                 </div>
-                {conDemanda.length>0&&<div style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,overflow:"hidden",marginBottom:14}}><div style={{padding:"10px 14px",background:"#fffbeb",borderBottom:"2px solid #fde68a",fontSize:12,fontWeight:800,color:B.navy}}>🔥 Con demanda activa ({conDemanda.length})</div><div style={{maxHeight:240,overflowY:"auto"}}>{conDemanda.map(rowL)}</div></div>}
-                <div style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,overflow:"hidden"}}>
-                  <div style={{padding:"10px 14px",background:B.offW,borderBottom:"1px solid "+B.grey1,fontSize:12,fontWeight:800,color:B.navy}}>📋 Todos sus lotes ({nLotes})</div>
-                  <div style={{maxHeight:320,overflowY:"auto"}}>{rs.slice().sort((a,b)=>b.analisis-a.analisis||b.total-a.total).map(rowL)}</div>
-                </div>
+                {(()=>{
+                  const st=(r)=> r.vendido>0?"vendido":((r.ofrecido>0||r.analisis>0)?"activo":(r.rej>0?"descartado":"sinmov"));
+                  const grupos=[["vendido","✅ Vendido","#16a34a","#dcfce7"],["activo","🔥 Activo","#d97706","#fffbeb"],["descartado","👎 Descartado","#b91c1c","#fef2f2"],["sinmov","⚪ Sin movimiento","#64748b","#f1f5f9"]];
+                  const byG={vendido:[],activo:[],descartado:[],sinmov:[]}; rs.forEach(r=>byG[st(r)].push(r));
+                  byG.activo.sort((a,b)=>b.analisis-a.analisis||b.total-a.total);
+                  return grupos.map(([k,lbl,col,bg])=>{ const list=byG[k]; if(!list.length) return null; return (
+                    <div key={k} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,overflow:"hidden",marginBottom:12}}>
+                      <div style={{padding:"10px 14px",background:bg,borderBottom:"2px solid "+col+"55",fontSize:12,fontWeight:800,color:B.navy}}>{lbl} ({list.length})</div>
+                      <div style={{maxHeight:300,overflowY:"auto"}}>{list.map(rowL)}</div>
+                    </div>
+                  ); });
+                })()}
               </div>
             </div>
           </div>
