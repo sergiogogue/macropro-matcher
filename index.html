@@ -1629,6 +1629,7 @@ function MacroProMatcher() {
   const [vistaKanban, setVistaKanban] = React.useState("board"); // "board" | "canales"
   const [vistaMiDia, setVistaMiDia] = React.useState("lista"); // "lista" | "calendario"
   const [vistaLots, setVistaLots] = React.useState("lista"); // "lista" | "analisis"
+  const [dashDev, setDashDev] = React.useState("Todos"); // filtro desarrollador del Dashboard
   const [miDiaWeekOffset, setMiDiaWeekOffset] = React.useState(0); // semanas respecto a la actual
   const [tabEjecutivoGlobal, setTabEjecutivoGlobal] = React.useState("ejecutivo");
   const [semaforoDrawer, setSemaforoDrawer] = React.useState(null);
@@ -13096,13 +13097,16 @@ Respuesta: [respuesta exacta, conversacional]
   const ViewDashboard = () => {
     const cliSrc=clients.length>0?clients:DEMO_CLIENTS;
     const demo=(inventory.length===0||clients.length===0);
+    const devsDash=["Todos",...[...new Set(srcInv.map(l=>(l.desarrollador||l.desarrollo||"Sin desarrollador")).filter(Boolean))].sort()];
+    const dashDevSel=devsDash.indexOf(dashDev)>=0?dashDev:"Todos";
+    const srcD=dashDevSel==="Todos"?srcInv:srcInv.filter(l=>(l.desarrollador||l.desarrollo||"Sin desarrollador")===dashDevSel);
     const valOf=(l)=>l.precio_total||((l.sup_m2||0)*(l.precio_m2||0))||0;
     const pipeOf=(l)=>{ const e=crmOf(l.id); return (e&&e.pipeline)||"Disponible"; };
     const fmtN=(n)=>new Intl.NumberFormat("es-MX").format(Math.round(n||0));
     // ─── Agregados de negocio ───────────────────────────────────────
     let valPipeline=0,nPipeline=0,valVendido=0,nVendido=0,valDisp=0,nDisp=0,valCierre=0,nCierre=0;
     const porEtapa={}; PIPELINE_STAGES.forEach(st=>porEtapa[st]={n:0,v:0});
-    srcInv.forEach(l=>{ const p=pipeOf(l), v=valOf(l);
+    srcD.forEach(l=>{ const p=pipeOf(l), v=valOf(l);
       if(porEtapa[p]){ porEtapa[p].n++; porEtapa[p].v+=v; }
       if(p==="Vendido"){ valVendido+=v; nVendido++; }
       else if(p==="Descartado"){}
@@ -13115,11 +13119,12 @@ Respuesta: [respuesta exacta, conversacional]
       Object.values(ofertas||{}).forEach(of=>{ if(of&&of.loteId===lk){ if(of.estado==="vendido")v=true; else if(of.estado==="analisis")a=true; else if(of.estado==="ofrecido")o=true; else if(of.estado==="descartado")d=true; } });
       const e=crmOf(l.id); ((e&&e.prospectos)||[]).forEach(p=>{ if(!p||!p.pipeline)return; if(p.pipeline==="Vendido")v=true; else if(p.pipeline==="En análisis")a=true; else if(p.pipeline==="Descartado")d=true; else if(p.pipeline!=="Disponible")o=true; });
       if(v)return"vendido"; if(a||o)return"activo"; if(d)return"descartado"; return"sinmov"; };
-    const segDist={sinmov:0,activo:0,descartado:0,vendido:0}; srcInv.forEach(l=>{ segDist[loteSt(l)]++; });
+    const segDist={sinmov:0,activo:0,descartado:0,vendido:0}; srcD.forEach(l=>{ segDist[loteSt(l)]++; });
     const segMax=Math.max(1,segDist.sinmov,segDist.activo,segDist.descartado,segDist.vendido);
-    const motDash={}; Object.values(ofertas||{}).forEach(o=>{ if(o&&o.estado==="descartado"){ const m=(o.motivo||"").trim()||"Sin motivo registrado"; motDash[m]=(motDash[m]||0)+1; } });
+    const dIds=new Set(srcD.map(l=>lKeyOf(l)));
+    const motDash={}; Object.values(ofertas||{}).forEach(o=>{ if(o&&o.estado==="descartado"&&dIds.has(o.loteId)){ const m=(o.motivo||"").trim()||"Sin motivo registrado"; motDash[m]=(motDash[m]||0)+1; } });
     const topMotDash=Object.entries(motDash).sort((a,b)=>b[1]-a[1]); const maxMotDash=Math.max(1,...topMotDash.map(e=>e[1]));
-    const cobertura=srcInv.length>0?Math.round((srcInv.length-segDist.sinmov)/srcInv.length*100):0;
+    const cobertura=srcD.length>0?Math.round((srcD.length-segDist.sinmov)/srcD.length*100):0;
     // Demanda viva
     const solActivas=solicitudesAsesor.filter(a=>a.pipeline!=="Match"&&a.pipeline!=="Cerrado sin match");
     const cliActivos=cliSrc.filter(c=>["Negociando","Presentación activa","Calificado","Presentación enviada"].includes(c.status));
@@ -13138,19 +13143,19 @@ Respuesta: [respuesta exacta, conversacional]
       (crm.prospectos||[]).forEach(p=>{ if(reqStages.includes(p.pipeline)&&!(p.actividades||[]).some(a=>!a.completada)) sinAct++; });
     });
     let semV=0,semA=0,semR=0;
-    srcInv.forEach(l=>{ const e=crmOf(l.id); if(e&&e.prospectos&&e.prospectos.length){ const sm=getSemaforo(l.id); if(sm==="green")semV++; else if(sm==="yellow")semA++; else if(sm==="red")semR++; } });
+    srcD.forEach(l=>{ const e=crmOf(l.id); if(e&&e.prospectos&&e.prospectos.length){ const sm=getSemaforo(l.id); if(sm==="green")semV++; else if(sm==="yellow")semA++; else if(sm==="red")semR++; } });
     // Demanda vs Oferta por USO (categoría normalizada)
     const demUso={}, ofUso={};
     cliSrc.forEach(c=>{ if(["Cerrado","Descartado"].includes(c.status))return; (c.uso_interes||[]).forEach(u=>{ const k=usoCategoria(u).cat; demUso[k]=(demUso[k]||0)+1; }); });
     solActivas.forEach(a=>{ if(a.usoSuelo){ const k=usoCategoria(a.usoSuelo).cat; demUso[k]=(demUso[k]||0)+1; } });
-    srcInv.forEach(l=>{ if(pipeOf(l)==="Disponible"){ const arr=(l.usos_todos&&l.usos_todos.length)?l.usos_todos:[l.uso]; arr.filter(Boolean).forEach(u=>{ const k=usoCategoria(u).cat; ofUso[k]=(ofUso[k]||0)+1; }); } });
+    srcD.forEach(l=>{ if(pipeOf(l)==="Disponible"){ const arr=(l.usos_todos&&l.usos_todos.length)?l.usos_todos:[l.uso]; arr.filter(Boolean).forEach(u=>{ const k=usoCategoria(u).cat; ofUso[k]=(ofUso[k]||0)+1; }); } });
     // Demanda vs Oferta por CIUDAD
     const norm=(s)=>String(s||"").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
     const demCiudad={}, ofCiudad={}, lblCiudad={};
     const addCity=(obj,raw)=>{ const k=norm(raw); if(!k)return; obj[k]=(obj[k]||0)+1; if(!lblCiudad[k])lblCiudad[k]=raw; };
     cliSrc.forEach(c=>{ if(["Cerrado","Descartado"].includes(c.status))return; (c.ciudad_interes||[]).forEach(ci=>addCity(demCiudad,ci)); });
     solActivas.forEach(a=>{ if(a.ciudad)addCity(demCiudad,a.ciudad); });
-    srcInv.forEach(l=>{ if(pipeOf(l)==="Disponible"&&l.ciudad)addCity(ofCiudad,l.ciudad); });
+    srcD.forEach(l=>{ if(pipeOf(l)==="Disponible"&&l.ciudad)addCity(ofCiudad,l.ciudad); });
     // ─── Recomendaciones (motor de reglas) ──────────────────────────
     const insights=[];
     Object.keys({...demUso,...ofUso}).filter(k=>k&&k!=="Otro").forEach(k=>{ const d=demUso[k]||0, o=ofUso[k]||0; if(d-o>=2) insights.push({icon:"🎯",color:"#b45309",bg:"#fffbeb",msg:`Déficit en ${k}: ${d} buscan y solo ${o} disponibles → captar oferta de ${k}.`}); });
@@ -13163,7 +13168,7 @@ Respuesta: [respuesta exacta, conversacional]
     if(nVendido>0) insights.push({icon:"🏆",color:"#15803d",bg:"#f0fdf4",msg:`Has cerrado ${nVendido} venta(s) por ${fmtM(valVendido)}. ¡Bien!`});
     if(!insights.length) insights.push({icon:"✅",color:"#15803d",bg:"#f0fdf4",msg:"Sin alertas críticas. Mantén el seguimiento al día."});
     // ─── Cierres inminentes (deals por cerrar) ──────────────────────
-    const cierres=srcInv.filter(l=>["En negociación","Propuesta","Apartado","Contrato"].includes(pipeOf(l)))
+    const cierres=srcD.filter(l=>["En negociación","Propuesta","Apartado","Contrato"].includes(pipeOf(l)))
       .map(l=>{ const e=crmOf(l.id); const p=(e&&e.prospectos&&e.prospectos[e.prospectos.length-1])||null; return {l,pip:pipeOf(l),cli:(p&&p.nombre)||(e&&e.seguimientoAsesor&&("Asesor: "+(e.seguimientoAsesor.asesor||"")))||"—",v:valOf(l)}; })
       .sort((a,b)=>b.v-a.v).slice(0,8);
 
@@ -13219,9 +13224,14 @@ Respuesta: [respuesta exacta, conversacional]
           <div>
             <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:1.5,color:B.gold,marginBottom:3}}>📊 Centro de mando · CEO</div>
             <div style={{fontSize:26,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>Panorama del negocio</div>
-            <div style={{fontSize:12,color:B.grey3,marginTop:3}}>{srcInv.length} macrolotes · {cliSrc.length} clientes · {solActivas.length} solicitudes activas{demo&&<span style={{color:B.red}}> · ⚠ datos demo</span>}</div>
+            <div style={{fontSize:12,color:B.grey3,marginTop:3}}>{srcD.length} macrolotes · {cliSrc.length} clientes · {solActivas.length} solicitudes activas{demo&&<span style={{color:B.red}}> · ⚠ datos demo</span>}</div>
           </div>
-          <div style={{fontSize:11,color:B.grey3,textAlign:"right"}}>{new Date().toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+            <select value={dashDevSel} onChange={e=>setDashDev(e.target.value)} title="Filtrar por desarrollador" style={{padding:"8px 12px",borderRadius:8,border:"1.5px solid "+B.grey1,fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",color:B.navy,background:"#fff",cursor:"pointer",outline:"none"}}>
+              {devsDash.map(d=><option key={d} value={d}>{d==="Todos"?"🏢 Todos los desarrolladores":d}</option>)}
+            </select>
+            <div style={{fontSize:11,color:B.grey3,textAlign:"right"}}>{new Date().toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div>
+          </div>
         </div>
 
         {/* HERO KPIs */}
@@ -13291,7 +13301,7 @@ Respuesta: [respuesta exacta, conversacional]
               </div>
               {[["⚪ Sin ofrecer",segDist.sinmov,"#64748b"],["🔥 Activo",segDist.activo,"#d97706"],["👎 Descartado",segDist.descartado,"#b91c1c"],["✅ Vendido",segDist.vendido,"#16a34a"]].map(([l,v,col])=>(
                 <div key={l} style={{marginBottom:9}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}><span>{l}</span><span style={{color:B.navy,fontWeight:700}}>{v} · {srcInv.length?Math.round(v/srcInv.length*100):0}%</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}><span>{l}</span><span style={{color:B.navy,fontWeight:700}}>{v} · {srcD.length?Math.round(v/srcD.length*100):0}%</span></div>
                   <div style={{background:B.grey1,borderRadius:5,height:9}}><div style={{width:(v/segMax*100)+"%",height:"100%",background:col,borderRadius:5}}/></div>
                 </div>
               ))}
