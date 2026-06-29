@@ -1710,6 +1710,7 @@ function MacroProMatcher() {
   const [selectedLot, setSelectedLot] = useState(null);
   const [historialCliente, setHistorialCliente] = useState(null); // cliente cuyo historial/análisis se muestra
   const [historialLote, setHistorialLote] = useState(null); // lote cuyo historial (a quién se ofreció) se muestra
+  const [informeDev, setInformeDev] = useState(null); // desarrollador seleccionado para su informe (string) | null cerrado
   const [descarteModal, setDescarteModal] = useState(null); // {c,l} para capturar motivo+observación al descartar
   const [descarteForm, setDescarteForm] = useState({motivo:"",obs:""});
   // ─── HISTORIAL DE OFERTAS cliente↔lote (ofrecido / análisis / descartado) ───
@@ -5269,6 +5270,7 @@ function MacroProMatcher() {
             <button onClick={()=>setVistaLots("lista")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaLots==="lista"?B.navy:"transparent",color:vistaLots==="lista"?"#fff":B.grey4}}>📋 Lista</button>
             <button onClick={()=>setVistaLots("analisis")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaLots==="analisis"?B.navy:"transparent",color:vistaLots==="analisis"?"#fff":B.grey4}}>📊 Análisis</button>
           </div>
+          <button onClick={()=>setInformeDev("")} style={{padding:"7px 12px",borderRadius:8,border:"1px solid "+B.navy,background:"#fff",color:B.navy,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🏢 Informe desarrollador</button>
           <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
             <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>fileRef.current?.click()}>📤 Cargar Inventario Excel</button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleExcelUpload}/>
@@ -15280,6 +15282,7 @@ Respuesta: [respuesta exacta, conversacional]
               {label}
             </button>
           ))}
+          <button onClick={()=>setInformeDev("")} style={{marginLeft:"auto",padding:"8px 14px",border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:800,fontFamily:"'DM Sans',sans-serif",background:"#002B49",color:"#C49A22"}}>🏢 Informe del desarrollador</button>
         </div>
       )}
       {view==="ejecutivo"&&(tabEjecutivoGlobal==="semaforo"?<ReporteSemaforo/>:<ViewEjecutivo/>)}
@@ -15448,6 +15451,92 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
           );
         })()}
+
+      {/* ══════ INFORME DEL DESARROLLADOR (seguimiento de sus macrolotes) ══════ */}
+      {informeDev!==null && (()=>{
+        const devs=[...new Set(srcInv.map(l=>(l.desarrollador||l.desarrollo||"Sin desarrollador")).filter(Boolean))].sort();
+        const dev=(informeDev&&informeDev!=="")?informeDev:(devs[0]||"—");
+        const lotes=srcInv.filter(l=>(l.desarrollador||l.desarrollo||"Sin desarrollador")===dev);
+        const valOf=(l)=>l.precio_total||((l.sup_m2||0)*(l.precio_m2||0))||0;
+        const bk=(it)=>{ if(it.estado==="vendido"||it.etapa==="Vendido")return"vendido"; if(it.estado==="descartado"||it.etapa==="Descartado")return"rej"; if(it.estado==="analisis"||it.etapa==="En análisis")return"analisis"; return"ofrecido"; };
+        const resumen=(lot)=>{ const lk=lKeyOf(lot); const items={};
+          Object.values(ofertas||{}).filter(o=>o&&o.loteId===lk).forEach(o=>{ const k=o.cKey||("n:"+(o.clienteNombre||"").toLowerCase()); items[k]={estado:o.estado,motivo:o.motivo,nombre:o.clienteNombre}; });
+          const e=crmOf(lot.id); ((e&&e.prospectos)||[]).forEach(p=>{ if(!p||!p.nombre)return; const k="n:"+p.nombre.toLowerCase().trim(); items[k]=items[k]||{nombre:p.nombre}; items[k].etapa=p.pipeline; });
+          const arr=Object.values(items); const c={vendido:0,analisis:0,ofrecido:0,rej:0}; arr.forEach(it=>c[bk(it)]++);
+          const motL={}; arr.filter(it=>bk(it)==="rej").forEach(it=>{const m=it.motivo||"Sin motivo";motL[m]=(motL[m]||0)+1;});
+          return {lot,total:arr.length,...c,topMot:Object.entries(motL).sort((a,b)=>b[1]-a[1]).map(e2=>e2[0]).join(", "),items:arr};
+        };
+        const rs=lotes.map(resumen);
+        const nLotes=lotes.length, valorTotal=lotes.reduce((a,l)=>a+valOf(l),0);
+        const sinOfrecer=rs.filter(r=>r.total===0).length;
+        const conDemanda=rs.filter(r=>r.analisis>0).sort((a,b)=>b.analisis-a.analisis);
+        const lotesVendidos=rs.filter(r=>r.vendido>0).length;
+        const sumS=(k)=>rs.reduce((a,r)=>a+r[k],0);
+        const motG={}; lotes.forEach(lot=>{ Object.values(ofertas||{}).filter(o=>o&&o.loteId===lKeyOf(lot)&&o.estado==="descartado").forEach(o=>{ const m=o.motivo||"Sin motivo"; motG[m]=(motG[m]||0)+1; }); });
+        const topMotG=Object.entries(motG).sort((a,b)=>b[1]-a[1]); const maxMG=Math.max(1,...topMotG.map(e2=>e2[1]));
+        const exportar=()=>{
+          if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
+          const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"}); const PW=210,MX=14; let y=16;
+          doc.setFillColor(0,43,73); doc.rect(MX,y,PW-MX*2,16,"F"); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.setTextColor(255,255,255);
+          doc.text("INFORME DE SEGUIMIENTO · "+dev.toUpperCase(),PW/2,y+7,{align:"center"});
+          doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.text("Generado: "+new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}),PW/2,y+12,{align:"center"}); y+=22;
+          const kp=[["Lotes",String(nLotes)],["Valor",fmtM(valorTotal)],["Vendidos",String(lotesVendidos)],["Sin ofrecer",String(sinOfrecer)],["En análisis",String(sumS("analisis"))]];
+          const kw=(PW-MX*2-4*3)/5; kp.forEach((k,i)=>{ const kx=MX+i*(kw+3); doc.setFillColor(245,247,250); doc.rect(kx,y,kw,15,"F"); doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(110,120,135); doc.text(k[0].toUpperCase(),kx+2,y+4,{maxWidth:kw-4}); doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(0,43,73); doc.text(k[1],kx+2,y+11); }); y+=21;
+          doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(0,43,73); doc.text("¿Por qué no se venden? (motivos de descarte)",MX,y); y+=5;
+          doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(60,70,85);
+          (topMotG.length?topMotG:[["Sin descartes",0]]).slice(0,8).forEach(([m,n])=>{ doc.text("• "+m+(n?(" ("+n+")"):""),MX+2,y); y+=5; }); y+=3;
+          if(doc.autoTable){ doc.autoTable({ startY:y, head:[["Lote","Ofrec.","Análisis","Vendido","Descart.","Motivo"]], body:rs.sort((a,b)=>b.analisis-a.analisis||b.total-a.total).map(r=>[ (r.lot.nombre||r.lot.id), r.ofrecido, r.analisis, r.vendido, r.rej, r.topMot||"" ]), styles:{fontSize:7,cellPadding:1.5}, headStyles:{fillColor:[0,43,73],textColor:255,fontSize:7}, margin:{left:MX,right:MX} }); }
+          doc.save("informe_"+dev.replace(/\s+/g,"_").toLowerCase()+".pdf"); toast("✅ Informe generado");
+        };
+        const rowL=(r)=>(
+          <div key={r.lot.id} onClick={()=>{setInformeDev(null);setHistorialLote(r.lot);}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"8px 12px",borderBottom:"1px solid "+B.grey1,cursor:"pointer"}}>
+            <div style={{minWidth:0}}><div style={{fontSize:12,fontWeight:700,color:B.navy}}>{r.lot.nombre||r.lot.id}</div><div style={{fontSize:10,color:B.grey4}}>{[r.lot.ciudad,(r.lot.uso||""),(r.lot.precio_total?fmtM(r.lot.precio_total):"")].filter(Boolean).join(" · ")}{r.topMot?(" · ✋ "+r.topMot):""}</div></div>
+            <div style={{display:"flex",gap:3,flexShrink:0}}>
+              {r.ofrecido>0&&<span style={{fontSize:9,fontWeight:800,color:"#1d4ed8",background:"#eff6ff",borderRadius:5,padding:"2px 6px"}}>📤{r.ofrecido}</span>}
+              {r.analisis>0&&<span style={{fontSize:9,fontWeight:800,color:"#15803d",background:"#f0fdf4",borderRadius:5,padding:"2px 6px"}}>👍{r.analisis}</span>}
+              {r.vendido>0&&<span style={{fontSize:9,fontWeight:800,color:"#16a34a",background:"#dcfce7",borderRadius:5,padding:"2px 6px"}}>✅{r.vendido}</span>}
+              {r.rej>0&&<span style={{fontSize:9,fontWeight:800,color:"#b91c1c",background:"#fef2f2",borderRadius:5,padding:"2px 6px"}}>👎{r.rej}</span>}
+            </div>
+          </div>
+        );
+        return (
+          <div onClick={()=>setInformeDev(null)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2700,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"30px 20px",overflowY:"auto"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#f8fafc",borderRadius:16,maxWidth:760,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden",margin:"auto"}}>
+              <div style={{padding:"18px 24px",background:"linear-gradient(135deg,"+B.navy+",#003a66)",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase"}}>🏢 Informe del desarrollador</div>
+                  <div style={{fontSize:20,fontWeight:800,fontFamily:"'Playfair Display',serif",marginTop:2}}>Seguimiento de macrolotes</div>
+                </div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <select value={dev} onChange={e=>setInformeDev(e.target.value)} style={{padding:"8px 10px",borderRadius:8,border:"none",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
+                    {devs.map(d=><option key={d} value={d}>{d}</option>)}
+                  </select>
+                  <button onClick={exportar} style={{padding:"8px 14px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📄 PDF</button>
+                  <span onClick={()=>setInformeDev(null)} style={{cursor:"pointer",fontSize:22,fontWeight:700}}>×</span>
+                </div>
+              </div>
+              <div style={{padding:"16px 22px",maxHeight:"74vh",overflowY:"auto"}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
+                  {[["📦 Lotes",nLotes,B.navy],["💰 Valor",fmtM(valorTotal),B.gold],["✅ Vendidos",lotesVendidos,"#16a34a"],["🟢 Sin ofrecer",sinOfrecer,"#15803d"],["👍 En análisis",sumS("analisis"),"#d97706"]].map(([l,v,col])=>(
+                    <div key={l} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:10,padding:"10px 6px",textAlign:"center"}}><div style={{fontSize:17,fontWeight:800,color:col,fontFamily:"'Playfair Display',serif"}}>{v}</div><div style={{fontSize:8.5,fontWeight:700,color:B.grey4}}>{l}</div></div>
+                  ))}
+                </div>
+                <div style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,padding:"14px 16px",marginBottom:14}}>
+                  <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:10}}>🚫 ¿Por qué no se venden?</div>
+                  {topMotG.length===0?<div style={{fontSize:11,color:B.grey3,fontStyle:"italic"}}>Sin descartes registrados.</div>:topMotG.map(([m,n])=>(
+                    <div key={m} style={{marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}><span>{m}</span><span style={{color:B.navy,fontWeight:700}}>{n}</span></div><div style={{background:B.grey1,borderRadius:5,height:8}}><div style={{width:(n/maxMG*100)+"%",height:"100%",background:"#b91c1c",borderRadius:5}}/></div></div>
+                  ))}
+                </div>
+                {conDemanda.length>0&&<div style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,overflow:"hidden",marginBottom:14}}><div style={{padding:"10px 14px",background:"#fffbeb",borderBottom:"2px solid #fde68a",fontSize:12,fontWeight:800,color:B.navy}}>🔥 Con demanda activa ({conDemanda.length})</div><div style={{maxHeight:240,overflowY:"auto"}}>{conDemanda.map(rowL)}</div></div>}
+                <div style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,overflow:"hidden"}}>
+                  <div style={{padding:"10px 14px",background:B.offW,borderBottom:"1px solid "+B.grey1,fontSize:12,fontWeight:800,color:B.navy}}>📋 Todos sus lotes ({nLotes})</div>
+                  <div style={{maxHeight:320,overflowY:"auto"}}>{rs.slice().sort((a,b)=>b.analisis-a.analisis||b.total-a.total).map(rowL)}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ══════ MODAL: descartar con catálogo + observación ══════ */}
       {descarteModal && (()=>{ const {c,l}=descarteModal;
