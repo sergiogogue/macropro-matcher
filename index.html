@@ -13110,6 +13110,16 @@ Respuesta: [respuesta exacta, conversacional]
       else { valPipeline+=v; nPipeline++; if(p==="Propuesta"||p==="Apartado"||p==="Contrato"){ valCierre+=v; nCierre++; } }
     });
     const valTotal=valDisp+valPipeline+valVendido;
+    // ─── Cobertura / estado del inventario por OFERTAS (ofrecido/análisis/descartado/vendido) ───
+    const loteSt=(l)=>{ const lk=lKeyOf(l); let v=false,a=false,o=false,d=false;
+      Object.values(ofertas||{}).forEach(of=>{ if(of&&of.loteId===lk){ if(of.estado==="vendido")v=true; else if(of.estado==="analisis")a=true; else if(of.estado==="ofrecido")o=true; else if(of.estado==="descartado")d=true; } });
+      const e=crmOf(l.id); ((e&&e.prospectos)||[]).forEach(p=>{ if(!p||!p.pipeline)return; if(p.pipeline==="Vendido")v=true; else if(p.pipeline==="En análisis")a=true; else if(p.pipeline==="Descartado")d=true; else if(p.pipeline!=="Disponible")o=true; });
+      if(v)return"vendido"; if(a||o)return"activo"; if(d)return"descartado"; return"sinmov"; };
+    const segDist={sinmov:0,activo:0,descartado:0,vendido:0}; srcInv.forEach(l=>{ segDist[loteSt(l)]++; });
+    const segMax=Math.max(1,segDist.sinmov,segDist.activo,segDist.descartado,segDist.vendido);
+    const motDash={}; Object.values(ofertas||{}).forEach(o=>{ if(o&&o.estado==="descartado"){ const m=(o.motivo||"").trim()||"Sin motivo registrado"; motDash[m]=(motDash[m]||0)+1; } });
+    const topMotDash=Object.entries(motDash).sort((a,b)=>b[1]-a[1]); const maxMotDash=Math.max(1,...topMotDash.map(e=>e[1]));
+    const cobertura=srcInv.length>0?Math.round((srcInv.length-segDist.sinmov)/srcInv.length*100):0;
     // Demanda viva
     const solActivas=solicitudesAsesor.filter(a=>a.pipeline!=="Match"&&a.pipeline!=="Cerrado sin match");
     const cliActivos=cliSrc.filter(c=>["Negociando","Presentación activa","Calificado","Presentación enviada"].includes(c.status));
@@ -13269,6 +13279,35 @@ Respuesta: [respuesta exacta, conversacional]
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
           {sc("⚖️ Demanda vs Oferta · por uso de suelo",gapTable(demUso,ofUso,null),<span style={{fontSize:10,color:B.grey3}}>qué captar / qué impulsar</span>)}
           {sc("⚖️ Demanda vs Oferta · por ciudad",gapTable(demCiudad,ofCiudad,lblCiudad),<span style={{fontSize:10,color:B.grey3}}>dónde hay hueco</span>)}
+        </div>
+
+        {/* COBERTURA DEL INVENTARIO (seguimiento de ofertas) */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+          {sc("🏷 Estado del inventario · seguimiento",(
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
+                <span style={{fontSize:11,color:B.grey4}}>Cobertura de oferta</span>
+                <span style={{fontSize:18,fontWeight:800,color:B.navy}}>{cobertura}% <span style={{fontSize:10,color:B.grey3,fontWeight:600}}>ofrecidos</span></span>
+              </div>
+              {[["⚪ Sin ofrecer",segDist.sinmov,"#64748b"],["🔥 Activo",segDist.activo,"#d97706"],["👎 Descartado",segDist.descartado,"#b91c1c"],["✅ Vendido",segDist.vendido,"#16a34a"]].map(([l,v,col])=>(
+                <div key={l} style={{marginBottom:9}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}><span>{l}</span><span style={{color:B.navy,fontWeight:700}}>{v} · {srcInv.length?Math.round(v/srcInv.length*100):0}%</span></div>
+                  <div style={{background:B.grey1,borderRadius:5,height:9}}><div style={{width:(v/segMax*100)+"%",height:"100%",background:col,borderRadius:5}}/></div>
+                </div>
+              ))}
+              <button onClick={()=>{setView("lots");}} style={{marginTop:10,width:"100%",padding:"9px",borderRadius:8,border:"1px solid "+B.grey1,background:B.offW,color:B.navy,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🏷 Ir a análisis de inventario</button>
+            </div>
+          ),<span style={{fontSize:10,color:B.grey3}}>{segDist.sinmov} sin ofrecer</span>)}
+          {sc("🚫 ¿Por qué no se venden?",(
+            <div>
+              {topMotDash.length===0?<div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>Aún no hay descartes con motivo registrado.</div>:topMotDash.slice(0,8).map(([m,n])=>(
+                <div key={m} style={{marginBottom:9}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}><span>{m}</span><span style={{color:B.navy,fontWeight:700}}>{n}</span></div>
+                  <div style={{background:B.grey1,borderRadius:5,height:9}}><div style={{width:(n/maxMotDash*100)+"%",height:"100%",background:"#b91c1c",borderRadius:5}}/></div>
+                </div>
+              ))}
+            </div>
+          ),<span style={{fontSize:10,color:B.grey3}}>motivos de descarte</span>)}
         </div>
 
         {/* RECOMENDACIONES + CAPTACIÓN */}
