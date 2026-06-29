@@ -1894,6 +1894,64 @@ function MacroProMatcher() {
   const saveCRM=(d)=>{try{localStorage.setItem(CRM_KEY,JSON.stringify(d));}catch(e){console.warn("⚠ No se pudo guardar CRM:",e.message);try{toast("⚠ NO se guardó el CRM: almacenamiento del navegador lleno. Tus cambios NO quedaron.");}catch(_){}}};
   const [crmData,setCrmData]=React.useState(()=>loadCRM());
   const updateCRM=(id,patch)=>{setCrmData(prev=>{const next={...prev,[id]:{...(prev[id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]}), ...patch}};saveCRM(next);return next;});};
+  // ═══ SYNC AUTOMÁTICA MULTIUSUARIO (por registro, fusión — nunca borra) ═══
+  const [syncAuto,setSyncAuto]=React.useState(()=>{ try{ return localStorage.getItem("macropro_sync_auto")!=="0"; }catch(e){ return true; } });
+  const [syncEstado,setSyncEstado]=React.useState("");
+  React.useEffect(()=>{ try{ localStorage.setItem("macropro_sync_auto", syncAuto?"1":"0"); }catch(e){} },[syncAuto]);
+  // Subida del CRM por LOTE (mismas columnas que la sync manual; lote_id canónico = loteKey)
+  const crmFila=(key,e)=>({ lote_id: loteKey({id:key}), pipeline: e.pipeline||"Disponible", asesor_asignado: e.asesorResponsable||null, prospectos: e.prospectos||[], interacciones: e.interacciones||[], dev_feedback: e.devFeedback||[], seguimientos_asesor: e.seguimientosAsesor||(e.seguimientoAsesor?[e.seguimientoAsesor]:[]), updated_at:new Date().toISOString() });
+  const subirCRMLoteCloud=async(key,e)=>{ if(!window.sb||!key||!e) return; try{ await window.sb.from('crm_lotes').upsert(crmFila(key,e),{onConflict:'lote_id'}); }catch(err){ console.warn('subir crm lote:',err&&err.message); } };
+  const crmSnapRef=React.useRef(null); const syncReady2=React.useRef(false);
+  React.useEffect(()=>{ const t=setTimeout(()=>{ syncReady2.current=true; try{crmSnapRef.current=JSON.stringify(crmData);}catch(e){} }, 6000); return ()=>clearTimeout(t); },[]);
+  // Auto-subida: detecta lotes del CRM que cambiaron y sube solo esos (debounce 2.5s)
+  React.useEffect(()=>{
+    if(!syncAuto||!window.sb||!syncReady2.current) return;
+    const t=setTimeout(()=>{ try{
+      const prev=crmSnapRef.current?JSON.parse(crmSnapRef.current):{};
+      let subidos=0;
+      Object.keys(crmData||{}).forEach(k=>{ if(JSON.stringify(crmData[k])!==JSON.stringify(prev[k])){ subirCRMLoteCloud(k,crmData[k]); subidos++; } });
+      crmSnapRef.current=JSON.stringify(crmData);
+      if(subidos>0) setSyncEstado("☁︎ subiendo…");
+    }catch(e){} }, 2500);
+    return ()=>clearTimeout(t);
+  },[crmData,syncAuto]);
+  // Jalón periódico (45s): trae cambios de colaboradores y FUSIONA (CRM por unión; el resto por id)
+  React.useEffect(()=>{
+    if(!syncAuto) return;
+    let stop=false;
+    const norm=s=>String(s||"").trim().toLowerCase().replace(/\s+/g,"_");
+    const parseJ=v=>{ try{ return v?JSON.parse(JSON.stringify(v)):[]; }catch(e){ return []; } };
+    const tick=async()=>{
+      if(stop||!window.sb) return;
+      try{
+        const inv=Array.isArray(inventory)?inventory:[];
+        const invByNorm={}; inv.forEach(l=>{ if(l&&l.id) invByNorm[norm(loteKey(l))]=l.id; });
+        // ── CRM (unión por lote y por prospecto; nunca borra) ──
+        const R=await window.sb.from('crm_lotes').select('lote_id,pipeline,asesor_asignado,prospectos,interacciones,dev_feedback,seguimientos_asesor');
+        if(!stop&&R&&!R.error&&Array.isArray(R.data)){
+          setCrmData(prevC=>{ const out={...(prevC||{})}; let ch=false;
+            R.data.forEach(row=>{ if(!row||!row.lote_id) return; const key=invByNorm[norm(row.lote_id)]||row.lote_id;
+              const cloud={pipeline:row.pipeline||"Disponible",asesorResponsable:row.asesor_asignado||"",interacciones:parseJ(row.interacciones),prospectos:parseJ(row.prospectos),devFeedback:parseJ(row.dev_feedback),seguimientosAsesor:parseJ(row.seguimientos_asesor)};
+              const mine=out[key]||{}; const byN={}; (mine.prospectos||[]).forEach(p=>{if(p&&p.nombre)byN[p.nombre.toLowerCase().trim()]=p;}); (cloud.prospectos||[]).forEach(p=>{if(p&&p.nombre)byN[p.nombre.toLowerCase().trim()]=p;});
+              const merged={...mine,...cloud,prospectos:Object.values(byN),interacciones:(cloud.interacciones&&cloud.interacciones.length)?cloud.interacciones:(mine.interacciones||[]),devFeedback:(cloud.devFeedback&&cloud.devFeedback.length)?cloud.devFeedback:(mine.devFeedback||[])};
+              if(JSON.stringify(out[key])!==JSON.stringify(merged)){ out[key]=merged; ch=true; }
+            });
+            if(!ch) return prevC; saveCRM(out); try{crmSnapRef.current=JSON.stringify(out);}catch(e){} return out;
+          });
+        }
+        // ── Captaciones / Ofertas / Solicitudes (merge por id; respeta eliminado) ──
+        const C=await window.sb.from('captaciones').select('*');
+        if(!stop&&C&&!C.error&&Array.isArray(C.data)) setCaptaciones(prev=>{ const o={}; (prev||[]).forEach(x=>{if(x&&x.id)o[x.id]=x;}); C.data.forEach(r=>{ if(!r||!r.id) return; if(r.eliminado===true){delete o[r.id];return;} o[r.id]=captacionDeFila(r); }); const arr=Object.values(o); saveCaptaciones(arr); return arr; });
+        const O=await window.sb.from('ofertas').select('*');
+        if(!stop&&O&&!O.error&&Array.isArray(O.data)) setOfertas(prev=>{ const o={...(prev||{})}; O.data.forEach(r=>{ if(!r||!r.id) return; if(r.eliminado===true){delete o[r.id];return;} o[r.id]={estado:r.estado,motivo:r.motivo||"",obs:r.obs||"",fecha:r.fecha||"",clienteNombre:r.cliente_nombre||"",cKey:r.c_key||"",loteId:r.lote_id||"",loteNombre:r.lote_nombre||""}; }); saveOfertas(o); return o; });
+        const SS=await window.sb.from('solicitudes_asesor').select('*');
+        if(!stop&&SS&&!SS.error&&Array.isArray(SS.data)) setSolicitudesAsesor(prev=>{ const byId={}; (prev||[]).forEach(s=>{if(s&&s.id)byId[s.id]=s;}); SS.data.forEach(r=>{ if(!r||!r.id||r.eliminado===true) return; byId[r.id]=solicitudDeFila(r); }); const arr=Object.values(byId); saveSolicitudesAsesor(arr); return arr; });
+        if(!stop) setSyncEstado("✓ "+new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"}));
+      }catch(e){ /* queda lo local */ }
+    };
+    const iv=setInterval(tick, 45000); const t0=setTimeout(tick, 3000);
+    return ()=>{ stop=true; clearInterval(iv); clearTimeout(t0); };
+  },[syncAuto, inventory]);
   // ═══ AUTO-RE-ENLACE CRM↔inventario (fix raíz): el CRM se "desaparecía" cuando sus claves no
   // empataban con los ids del inventario por mayúsculas/espacios (ej. clave 'gen_05' vs lote 'GEN_05').
   // Esto re-clava cada entrada del CRM al id EXACTO del lote (comparando normalizado). Sin pérdida (fusiona). ═══
@@ -15375,6 +15433,7 @@ Respuesta: [respuesta exacta, conversacional]
           {[["home","🏠 Inicio"],["dashboard","📊 Dashboard"],["crm","🎯 CRM"+crmNavCount],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Captación"],["asesores","🤝 Asesores"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
+          <button onClick={()=>setSyncAuto(v=>!v)} title={syncAuto?("Sync automática ACTIVADA con colaboradores"+(syncEstado?(" · "+syncEstado):"")):"Sync automática DESACTIVADA (clic para activar)"} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:syncAuto?"#22c55e":"#94a3b8",fontSize:12,fontWeight:800,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4}}>{syncAuto?"🔄":"⏸"}<span style={{fontSize:9}}>{syncAuto?(syncEstado||"auto"):"off"}</span></button>
           <button onClick={()=>{setApiKeyInput(localStorage.getItem("macropro_api_key")||"");setShowApiModal(true);}} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:apiKey?"#22c55e":"#ef4444",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title={apiKey?"API Key configurada ✓":"Sin API Key — click para configurar"}>{apiKey?"🔑":"⚠️"}</button>
           <button onClick={()=>setShowNotifModal(true)} style={{position:"relative",padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:notifActs.length>0?"#ef4444":B.grey3,fontSize:16,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center"}} title={notifActs.length>0?`${notifActs.length} actividad(es) urgente(s)`:"Sin actividades urgentes"}>
             🔔
