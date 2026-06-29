@@ -1691,17 +1691,63 @@ function MacroProMatcher() {
   const lKeyOf=(l)=>{ try{ return loteKey(l); }catch(e){ return String((l&&l.id)||"").trim().toLowerCase(); } };
   const ofKey=(c,l)=>cKeyOf(c)+"||"+lKeyOf(l);
   const getOferta=(c,l)=> (c&&l) ? (ofertas[ofKey(c,l)]||null) : null;
+  // Paso 2: reflejar la oferta en el CRM (crea/actualiza prospecto del cliente sobre el lote)
+  const PIPE_DE_OFERTA={ofrecido:"Prospecto",analisis:"En análisis",descartado:"Descartado"};
+  const reflejarOfertaCRM=(c,l,estado)=>{
+    if(!c||!l||!estado) return;
+    const lotId=l.id; const nombreCli=(c.nombre||"").trim();
+    if(!lotId||!nombreCli) return;
+    const nrm=(s)=>String(s||"").toLowerCase().replace(/\s+/g,"_");
+    const pipe=PIPE_DE_OFERTA[estado]||"Prospecto";
+    setCrmData(prev=>{
+      const key=(prev[lotId]!==undefined)?lotId:(Object.keys(prev).find(k=>nrm(k)===nrm(lotId))||lotId);
+      const entry=prev[key]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
+      const pros=(entry.prospectos||[]).slice();
+      const i=pros.findIndex(p=>p.nombre&&p.nombre.toLowerCase().trim()===nombreCli.toLowerCase());
+      if(i>=0){ pros[i]={...pros[i], pipeline:pipe}; }
+      else { pros.push({nombre:nombreCli, empresa:c.empresa||c.giro||"", telefono:c.telefono||"", email:c.email||c.correo||"", asesor:c.asesor||"", pipeline:pipe, nota:"Desde historial de ofertas", fechaInicio:new Date().toISOString().slice(0,10), actividades:[]}); }
+      const lotePipe=(entry.pipeline==="Disponible"&&estado!=="descartado")?pipe:entry.pipeline;
+      const next={...prev,[key]:{...entry,prospectos:pros,pipeline:lotePipe,lastContact:new Date().toISOString().slice(0,10)}};
+      saveCRM(next); return next;
+    });
+  };
+  // Paso 1: sync Supabase por registro (tabla 'ofertas', upsert por id = clave cliente+lote)
+  const filaDeOferta=(key,o)=>({ id:key, c_key:o.cKey||null, cliente_nombre:o.clienteNombre||null, lote_id:o.loteId||null, lote_nombre:o.loteNombre||null, estado:o.estado||null, fecha:o.fecha||null, eliminado:false, updated_at:new Date().toISOString() });
+  const subirOfertaCloud=async(key,o)=>{ if(!window.sb||!key||!o) return; try{ await window.sb.from('ofertas').upsert(filaDeOferta(key,o),{onConflict:'id'}); }catch(e){ console.warn('subir oferta:',e&&e.message); } };
+  const borrarOfertaCloud=async(key)=>{ if(!window.sb||!key) return; try{ await window.sb.from('ofertas').update({eliminado:true,updated_at:new Date().toISOString()}).eq('id',key); }catch(e){ console.warn('borrar oferta:',e&&e.message); } };
   const setOfertaEstado=(c,l,estado)=>{
     if(!c||!l) return;
-    setOfertas(prev=>{ const o={...(prev||{})}; const k=ofKey(c,l);
+    const k=ofKey(c,l); let saved=null;
+    setOfertas(prev=>{ const o={...(prev||{})};
       if(!estado){ delete o[k]; }
-      else { o[k]={ estado, fecha:new Date().toISOString().slice(0,10), clienteNombre:(c.nombre||""), cKey:cKeyOf(c), loteId:lKeyOf(l), loteNombre:(l.nombre||l.id||"") }; }
+      else { saved={ estado, fecha:new Date().toISOString().slice(0,10), clienteNombre:(c.nombre||""), cKey:cKeyOf(c), loteId:lKeyOf(l), loteNombre:(l.nombre||l.id||"") }; o[k]=saved; }
       saveOfertas(o); return o;
     });
+    if(estado){ subirOfertaCloud(k,saved); reflejarOfertaCRM(c,l,estado); }
+    else { borrarOfertaCloud(k); }
     const lbl={ofrecido:"📤 ofrecido",analisis:"👍 en análisis",descartado:"👎 descartado"}[estado]||"sin estado";
     toast("✔ "+(c.nombre||"Cliente")+" · "+(l.nombre||l.id)+" → "+lbl);
   };
   const ofertasDeCliente=(c)=>{ const ck=cKeyOf(c); return Object.values(ofertas||{}).filter(o=>o&&o.cKey===ck); };
+  // Bajar/fusionar ofertas desde la nube al abrir
+  React.useEffect(()=>{
+    let cancel=false;
+    const t=setInterval(async ()=>{
+      if(cancel){ clearInterval(t); return; }
+      if(window.sb){ clearInterval(t);
+        try{ const r=await window.sb.from('ofertas').select('*');
+          if(!cancel&&r&&!r.error&&Array.isArray(r.data)){
+            setOfertas(prev=>{ const o={...(prev||{})};
+              r.data.forEach(row=>{ if(!row||!row.id) return; if(row.eliminado===true){ delete o[row.id]; return; }
+                o[row.id]={ estado:row.estado, fecha:row.fecha||"", clienteNombre:row.cliente_nombre||"", cKey:row.c_key||"", loteId:row.lote_id||"", loteNombre:row.lote_nombre||"" }; });
+              saveOfertas(o); return o;
+            });
+          }
+        }catch(e){ /* queda lo local */ }
+      }
+    },400);
+    return ()=>{ cancel=true; clearInterval(t); };
+  }, []);
   const [matchResults, setMatchResults] = useState(null);
   const [matchMode, setMatchMode] = useState(null);
   const [loading, setLoading] = useState(false);
