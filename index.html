@@ -1628,6 +1628,7 @@ function MacroProMatcher() {
   const [filterCanal, setFilterCanal] = React.useState("Todos");
   const [vistaKanban, setVistaKanban] = React.useState("board"); // "board" | "canales"
   const [vistaMiDia, setVistaMiDia] = React.useState("lista"); // "lista" | "calendario"
+  const [vistaLots, setVistaLots] = React.useState("lista"); // "lista" | "analisis"
   const [miDiaWeekOffset, setMiDiaWeekOffset] = React.useState(0); // semanas respecto a la actual
   const [tabEjecutivoGlobal, setTabEjecutivoGlobal] = React.useState("ejecutivo");
   const [semaforoDrawer, setSemaforoDrawer] = React.useState(null);
@@ -5193,18 +5194,88 @@ function MacroProMatcher() {
     const lotTipos=["Todos",...new Set(srcInv.map(l=>l.tipo).filter(Boolean))].sort();
     const devs=(()=>{if(fCity==="Todas")return["Todos",...new Set(srcInv.map(l=>l.desarrollo).filter(Boolean))].sort((a,b)=>a==="Todos"?-1:b==="Todos"?1:a.localeCompare(b));return["Todos",...new Set(srcInv.filter(l=>l.ciudad===fCity).map(l=>l.desarrollo).filter(Boolean))].sort();})();
     const filtered=srcInv.filter(l=>(fCity==="Todas"||l.ciudad===fCity)&&(fDev==="Todos"||l.desarrollo===fDev)&&(fUso==="Todos"||(l.usos_todos&&l.usos_todos.length>0?l.usos_todos.includes(fUso):l.uso===fUso))&&(fTipo==="Todos"||l.tipo===fTipo));
+    // ── ANÁLISIS DE SEGUIMIENTO DE MACROLOTES (ofertas + CRM) ──
+    const renderAnalisisLotes=()=>{
+      const bk=(it)=>{ if(it.estado==="vendido"||it.etapa==="Vendido")return"vendido"; if(it.estado==="descartado"||it.etapa==="Descartado")return"rej"; if(it.estado==="analisis"||it.etapa==="En análisis")return"analisis"; return"ofrecido"; };
+      const resumen=(lot)=>{ const lk=lKeyOf(lot); const items={};
+        Object.values(ofertas||{}).filter(o=>o&&o.loteId===lk).forEach(o=>{ const k=o.cKey||("n:"+(o.clienteNombre||"").toLowerCase()); items[k]={estado:o.estado,motivo:o.motivo,obs:o.obs,nombre:o.clienteNombre}; });
+        const e=crmOf(lot.id); ((e&&e.prospectos)||[]).forEach(p=>{ if(!p||!p.nombre)return; const k="n:"+p.nombre.toLowerCase().trim(); items[k]=items[k]||{nombre:p.nombre}; items[k].etapa=p.pipeline; });
+        const arr=Object.values(items); const c={vendido:0,analisis:0,ofrecido:0,rej:0}; arr.forEach(it=>c[bk(it)]++);
+        const motL={}; arr.filter(it=>bk(it)==="rej").forEach(it=>{ const m=it.motivo||"Sin motivo"; motL[m]=(motL[m]||0)+1; });
+        const topMotL=Object.entries(motL).sort((a,b)=>b[1]-a[1]).map(e2=>e2[0]+(e2[1]>1?" ("+e2[1]+")":""));
+        return {lot,total:arr.length,...c,topMotL};
+      };
+      const all=srcInv.map(resumen);
+      const noOfrec=all.filter(r=>r.total===0);
+      const conDemanda=all.filter(r=>r.analisis>0).sort((a,b)=>b.analisis-a.analisis);
+      const vendidos=all.filter(r=>r.vendido>0);
+      const descartados=all.filter(r=>r.rej>0).sort((a,b)=>b.rej-a.rej);
+      const motG={}; Object.values(ofertas||{}).forEach(o=>{ if(o&&o.estado==="descartado"){ const m=o.motivo||"Sin motivo"; motG[m]=(motG[m]||0)+1; } });
+      const topMot=Object.entries(motG).sort((a,b)=>b[1]-a[1]); const maxMot=Math.max(1,...topMot.map(e2=>e2[1]));
+      const kpis=[["📦 Total",srcInv.length,B.navy],["🟢 Sin ofrecer",noOfrec.length,"#16a34a"],["🔥 Con demanda",conDemanda.length,"#d97706"],["✅ Vendidos",vendidos.length,"#16a34a"],["👎 Con descartes",descartados.length,"#b91c1c"]];
+      const row=(r,extra)=>(
+        <div key={r.lot.id} onClick={()=>setHistorialLote(r.lot)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"9px 12px",borderBottom:"1px solid "+B.grey1,cursor:"pointer"}}
+          onMouseEnter={e=>e.currentTarget.style.background=B.offW} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:12.5,fontWeight:700,color:B.navy}}>{r.lot.nombre||r.lot.id} <span style={{fontSize:10,color:B.grey4,fontWeight:600}}>· {r.lot.desarrollo||""}</span></div>
+            <div style={{fontSize:10,color:B.grey4,marginTop:1}}>{[r.lot.ciudad,(r.lot.uso||""),(r.lot.precio_total?fmtM(r.lot.precio_total):"")].filter(Boolean).join(" · ")}</div>
+            {extra}
+          </div>
+          <div style={{display:"flex",gap:4,flexShrink:0}}>
+            {r.ofrecido>0&&<span style={{fontSize:9,fontWeight:800,color:"#1d4ed8",background:"#eff6ff",borderRadius:5,padding:"2px 6px"}}>📤 {r.ofrecido}</span>}
+            {r.analisis>0&&<span style={{fontSize:9,fontWeight:800,color:"#15803d",background:"#f0fdf4",borderRadius:5,padding:"2px 6px"}}>👍 {r.analisis}</span>}
+            {r.vendido>0&&<span style={{fontSize:9,fontWeight:800,color:"#16a34a",background:"#dcfce7",borderRadius:5,padding:"2px 6px"}}>✅ {r.vendido}</span>}
+            {r.rej>0&&<span style={{fontSize:9,fontWeight:800,color:"#b91c1c",background:"#fef2f2",borderRadius:5,padding:"2px 6px"}}>👎 {r.rej}</span>}
+          </div>
+        </div>
+      );
+      const box=(titulo,sub,color,rows)=>(
+        <div style={{background:B.white,borderRadius:14,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.05)",overflow:"hidden",marginBottom:16}}>
+          <div style={{padding:"12px 16px",borderBottom:"2px solid "+color+"33",background:color+"10"}}>
+            <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{titulo} <span style={{color:color}}>({rows.length})</span></div>
+            {sub&&<div style={{fontSize:10.5,color:B.grey4,marginTop:2}}>{sub}</div>}
+          </div>
+          <div style={{maxHeight:340,overflowY:"auto"}}>{rows.length===0?<div style={{padding:"16px",fontSize:12,color:B.grey3,fontStyle:"italic",textAlign:"center"}}>—</div>:rows}</div>
+        </div>
+      );
+      return (
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:16}}>
+            {kpis.map(([l,v,col])=>(<div key={l} style={{background:B.white,borderRadius:12,border:"1px solid "+B.grey1,padding:"14px 12px",borderLeft:"4px solid "+col}}><div style={{fontSize:24,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{v}</div><div style={{fontSize:10,fontWeight:700,color:B.grey4,marginTop:2}}>{l}</div></div>))}
+          </div>
+          <div style={{background:B.white,borderRadius:14,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.05)",padding:"16px 18px",marginBottom:16}}>
+            <div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:12}}>🚫 ¿Por qué NO se venden? (motivos de descarte)</div>
+            {topMot.length===0?<div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>Aún no hay descartes registrados.</div>:topMot.map(([m,n])=>(
+              <div key={m} style={{marginBottom:9}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}><span>{m}</span><span style={{color:B.navy,fontWeight:700}}>{n}</span></div>
+                <div style={{background:B.grey1,borderRadius:5,height:9,overflow:"hidden"}}><div style={{width:(n/maxMot*100)+"%",height:"100%",background:"#b91c1c",borderRadius:5}}/></div>
+              </div>
+            ))}
+          </div>
+          {box("🟢 Sin ofrecer — oportunidad","Macrolotes que nadie ha visto todavía. Promuévelos.","#16a34a",noOfrec.map(r=>row(r)))}
+          {box("🔥 Con demanda activa","Tienen clientes en análisis. Empújalos a cierre.","#d97706",conDemanda.map(r=>row(r)))}
+          {box("👎 Más descartados","Señal de precio/ubicación. Clic para ver el detalle por cliente.","#b91c1c",descartados.map(r=>row(r,r.topMotL.length?<div style={{fontSize:10,color:"#b91c1c",marginTop:2,fontWeight:600}}>✋ {r.topMotL.join(" · ")}</div>:null)))}
+          {box("✅ Vendidos","Cierres ganados.","#16a34a",vendidos.map(r=>row(r)))}
+        </div>
+      );
+    };
     return (
       <div style={s.page}>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,flexWrap:"wrap"}}>
           <button style={s.btn("ghost")} onClick={()=>setView("home")}>← Inicio</button>
           <div style={s.sectionTitle}>Inventario de Macrolotes</div>
           {inventory.length===0&&<Tag label="Datos demo" color={B.goldD} bg="#fff8e7"/>}
+          <div style={{display:"flex",gap:4,background:B.offW,borderRadius:9,padding:3,border:"1px solid "+B.grey1}}>
+            <button onClick={()=>setVistaLots("lista")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaLots==="lista"?B.navy:"transparent",color:vistaLots==="lista"?"#fff":B.grey4}}>📋 Lista</button>
+            <button onClick={()=>setVistaLots("analisis")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaLots==="analisis"?B.navy:"transparent",color:vistaLots==="analisis"?"#fff":B.grey4}}>📊 Análisis</button>
+          </div>
           <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
             <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>fileRef.current?.click()}>📤 Cargar Inventario Excel</button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleExcelUpload}/>
             <span style={{fontSize:12,color:B.grey3,fontWeight:600}}>{srcInv.length} lotes</span>
           </div>
         </div>
+        {vistaLots==="analisis" ? renderAnalisisLotes() : (<React.Fragment>
         <div style={s.filterBar}>
           <div style={{display:"flex",flexDirection:"column",gap:2}}>
             <span style={{fontSize:10,color:B.grey3,fontWeight:600,textTransform:"uppercase"}}>📍 Ciudad</span>
@@ -5268,6 +5339,7 @@ function MacroProMatcher() {
           </div>
         ))}
         {filtered.length===0&&<div style={{textAlign:"center",padding:40,color:B.grey3,fontSize:14}}>Sin lotes con estos filtros</div>}
+        </React.Fragment>)}
       </div>
     );
   };
