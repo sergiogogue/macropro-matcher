@@ -1711,6 +1711,7 @@ function MacroProMatcher() {
   const [historialCliente, setHistorialCliente] = useState(null); // cliente cuyo historial/análisis se muestra
   const [historialLote, setHistorialLote] = useState(null); // lote cuyo historial (a quién se ofreció) se muestra
   const [informeDev, setInformeDev] = useState(null); // desarrollador seleccionado para su informe (string) | null cerrado
+  const [informeDevDes, setInformeDevDes] = useState("Todos"); // filtro de desarrollo dentro del informe
   const [descarteModal, setDescarteModal] = useState(null); // {c,l} para capturar motivo+observación al descartar
   const [descarteForm, setDescarteForm] = useState({motivo:"",obs:""});
   // ─── HISTORIAL DE OFERTAS cliente↔lote (ofrecido / análisis / descartado) ───
@@ -15456,7 +15457,10 @@ Respuesta: [respuesta exacta, conversacional]
       {informeDev!==null && (()=>{
         const devs=[...new Set(srcInv.map(l=>(l.desarrollador||l.desarrollo||"Sin desarrollador")).filter(Boolean))].sort();
         const dev=(informeDev&&informeDev!=="")?informeDev:(devs[0]||"—");
-        const lotes=srcInv.filter(l=>(l.desarrollador||l.desarrollo||"Sin desarrollador")===dev);
+        const lotesAll=srcInv.filter(l=>(l.desarrollador||l.desarrollo||"Sin desarrollador")===dev);
+        const desarrollos=["Todos",...[...new Set(lotesAll.map(l=>l.desarrollo||"Sin desarrollo"))].sort()];
+        const selDes=(desarrollos.indexOf(informeDevDes)>=0)?informeDevDes:"Todos";
+        const lotes=selDes==="Todos"?lotesAll:lotesAll.filter(l=>(l.desarrollo||"Sin desarrollo")===selDes);
         const valOf=(l)=>l.precio_total||((l.sup_m2||0)*(l.precio_m2||0))||0;
         const bk=(it)=>{ if(it.estado==="vendido"||it.etapa==="Vendido")return"vendido"; if(it.estado==="descartado"||it.etapa==="Descartado")return"rej"; if(it.estado==="analisis"||it.etapa==="En análisis")return"analisis"; return"ofrecido"; };
         const resumen=(lot)=>{ const lk=lKeyOf(lot); const items={};
@@ -15467,6 +15471,10 @@ Respuesta: [respuesta exacta, conversacional]
           return {lot,total:arr.length,...c,topMot:Object.entries(motL).sort((a,b)=>b[1]-a[1]).map(e2=>e2[0]).join(", "),items:arr};
         };
         const rs=lotes.map(resumen);
+        // Desglose por desarrollo (siempre sobre todos los del desarrollador)
+        const porDes={};
+        lotesAll.forEach(lot=>{ const d=lot.desarrollo||"Sin desarrollo"; const r=resumen(lot); const g=porDes[d]||(porDes[d]={lotes:0,valor:0,ofrecido:0,analisis:0,vendido:0,rej:0,sinOf:0}); g.lotes++; g.valor+=valOf(lot); g.ofrecido+=r.ofrecido; g.analisis+=r.analisis; g.vendido+=r.vendido; g.rej+=r.rej; if(r.total===0)g.sinOf++; });
+        const porDesArr=Object.entries(porDes).sort((a,b)=>b[1].valor-a[1].valor);
         const nLotes=lotes.length, valorTotal=lotes.reduce((a,l)=>a+valOf(l),0);
         const sinOfrecer=rs.filter(r=>r.total===0).length;
         const conDemanda=rs.filter(r=>r.analisis>0).sort((a,b)=>b.analisis-a.analisis);
@@ -15508,8 +15516,11 @@ Respuesta: [respuesta exacta, conversacional]
                   <div style={{fontSize:20,fontWeight:800,fontFamily:"'Playfair Display',serif",marginTop:2}}>Seguimiento de macrolotes</div>
                 </div>
                 <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                  <select value={dev} onChange={e=>setInformeDev(e.target.value)} style={{padding:"8px 10px",borderRadius:8,border:"none",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
+                  <select value={dev} onChange={e=>{setInformeDevDes("Todos");setInformeDev(e.target.value);}} style={{padding:"8px 10px",borderRadius:8,border:"none",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
                     {devs.map(d=><option key={d} value={d}>{d}</option>)}
+                  </select>
+                  <select value={selDes} onChange={e=>setInformeDevDes(e.target.value)} title="Filtrar por desarrollo" style={{padding:"8px 10px",borderRadius:8,border:"none",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
+                    {desarrollos.map(d=><option key={d} value={d}>{d==="Todos"?"Todos los desarrollos":d}</option>)}
                   </select>
                   <button onClick={exportar} style={{padding:"8px 14px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📄 PDF</button>
                   <span onClick={()=>setInformeDev(null)} style={{cursor:"pointer",fontSize:22,fontWeight:700}}>×</span>
@@ -15521,8 +15532,32 @@ Respuesta: [respuesta exacta, conversacional]
                     <div key={l} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:10,padding:"10px 6px",textAlign:"center"}}><div style={{fontSize:17,fontWeight:800,color:col,fontFamily:"'Playfair Display',serif"}}>{v}</div><div style={{fontSize:8.5,fontWeight:700,color:B.grey4}}>{l}</div></div>
                   ))}
                 </div>
+                {porDesArr.length>1&&(
+                  <div style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,overflow:"hidden",marginBottom:14}}>
+                    <div style={{padding:"10px 14px",background:B.offW,borderBottom:"1px solid "+B.grey1,fontSize:12,fontWeight:800,color:B.navy}}>🏘 Por desarrollo {selDes!=="Todos"&&<span style={{fontSize:10,color:B.gold,fontWeight:700,marginLeft:6}}>· filtrando: {selDes} <span onClick={()=>setInformeDevDes("Todos")} style={{cursor:"pointer",textDecoration:"underline"}}>ver todos</span></span>}</div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                        <thead><tr style={{borderBottom:"2px solid "+B.grey1}}>{["Desarrollo","Lotes","Valor","Sin ofrecer","Análisis","Vendido","Descart."].map((h,i)=><th key={i} style={{textAlign:i>0?"right":"left",padding:"7px 10px",fontSize:9.5,fontWeight:700,color:B.grey3,textTransform:"uppercase"}}>{h}</th>)}</tr></thead>
+                        <tbody>
+                          {porDesArr.map(([d,g])=>(
+                            <tr key={d} onClick={()=>setInformeDevDes(selDes===d?"Todos":d)} style={{borderBottom:"1px solid "+B.grey1,cursor:"pointer",background:selDes===d?"#fff8e7":"transparent"}}>
+                              <td style={{padding:"8px 10px",fontWeight:700,color:B.navy}}>{d}</td>
+                              <td style={{padding:"8px 10px",textAlign:"right"}}>{g.lotes}</td>
+                              <td style={{padding:"8px 10px",textAlign:"right",fontWeight:700,color:B.navy}}>{fmtM(g.valor)}</td>
+                              <td style={{padding:"8px 10px",textAlign:"right",color:g.sinOf>0?"#15803d":B.grey3,fontWeight:g.sinOf>0?700:400}}>{g.sinOf}</td>
+                              <td style={{padding:"8px 10px",textAlign:"right",color:g.analisis>0?"#d97706":B.grey3,fontWeight:g.analisis>0?700:400}}>{g.analisis}</td>
+                              <td style={{padding:"8px 10px",textAlign:"right",color:g.vendido>0?"#16a34a":B.grey3,fontWeight:g.vendido>0?700:400}}>{g.vendido}</td>
+                              <td style={{padding:"8px 10px",textAlign:"right",color:g.rej>0?"#b91c1c":B.grey3,fontWeight:g.rej>0?700:400}}>{g.rej}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{padding:"7px 14px",fontSize:9.5,color:B.grey3,fontStyle:"italic"}}>Clic en un desarrollo para filtrar el informe.</div>
+                  </div>
+                )}
                 <div style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,padding:"14px 16px",marginBottom:14}}>
-                  <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:10}}>🚫 ¿Por qué no se venden?</div>
+                  <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:10}}>🚫 ¿Por qué no se venden?{selDes!=="Todos"?" · "+selDes:""}</div>
                   {topMotG.length===0?<div style={{fontSize:11,color:B.grey3,fontStyle:"italic"}}>Sin descartes registrados.</div>:topMotG.map(([m,n])=>(
                     <div key={m} style={{marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,color:B.grey5,marginBottom:2}}><span>{m}</span><span style={{color:B.navy,fontWeight:700}}>{n}</span></div><div style={{background:B.grey1,borderRadius:5,height:8}}><div style={{width:(n/maxMG*100)+"%",height:"100%",background:"#b91c1c",borderRadius:5}}/></div></div>
                   ))}
@@ -15617,6 +15652,13 @@ Respuesta: [respuesta exacta, conversacional]
                             </div>
                             {bucket(it)==="rej"&&(it.motivo||it.obs)&&<div style={{fontSize:10.5,color:"#b91c1c",marginTop:5}}>✋ {it.motivo}{it.obs?" — "+it.obs:""}</div>}
                           </div>
+                          <div style={{display:"flex",gap:4,flexShrink:0,flexWrap:"wrap"}}>
+                            {[["ofrecido","📤","#1d4ed8","#eff6ff"],["analisis","👍","#15803d","#f0fdf4"],["vendido","✅","#16a34a","#dcfce7"],["descartado","👎","#b91c1c","#fef2f2"]].map(([val,ic,col,bg])=>{
+                              const cliObj=clients.find(x=>x.nombre&&x.nombre.toLowerCase().trim()===(it.nombre||"").toLowerCase().trim())||{nombre:it.nombre};
+                              return <button key={val} title={"Marcar "+val} onClick={()=>setOfertaEstado(cliObj,l,it.estadoOferta===val?null:val)} style={{fontSize:12,borderRadius:6,padding:"3px 7px",cursor:"pointer",border:"1px solid "+(it.estadoOferta===val?col:B.grey1),background:it.estadoOferta===val?bg:"#fff"}}>{ic}</button>;
+                            })}
+                            <button onClick={()=>{const cliObj=clients.find(x=>x.nombre&&x.nombre.toLowerCase().trim()===(it.nombre||"").toLowerCase().trim())||{nombre:it.nombre}; setHistorialCliente(cliObj);}} style={{fontSize:10,fontWeight:800,borderRadius:6,padding:"4px 8px",cursor:"pointer",border:"1px solid "+B.navy,background:"#fff",color:B.navy,fontFamily:"'DM Sans',sans-serif"}}>👤 Ficha</button>
+                          </div>
                         </div>
                       </div>
                     ); })}
@@ -15682,7 +15724,7 @@ Respuesta: [respuesta exacta, conversacional]
           );
         };
         return (
-          <div onClick={()=>setHistorialCliente(null)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2700,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"30px 20px",overflowY:"auto"}}>
+          <div onClick={()=>setHistorialCliente(null)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2760,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"30px 20px",overflowY:"auto"}}>
             <div onClick={e=>e.stopPropagation()} style={{background:"#f8fafc",borderRadius:16,maxWidth:680,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden",margin:"auto"}}>
               <div style={{padding:"20px 26px",background:"linear-gradient(135deg,"+B.navy+",#003a66)",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
