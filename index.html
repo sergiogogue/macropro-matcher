@@ -1706,6 +1706,7 @@ function MacroProMatcher() {
   const [denueBLoading, setDenueBLoading] = useState(false);
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedLot, setSelectedLot] = useState(null);
+  const [historialCliente, setHistorialCliente] = useState(null); // cliente cuyo historial/análisis se muestra
   // ─── HISTORIAL DE OFERTAS cliente↔lote (ofrecido / análisis / descartado) ───
   const OFERTAS_KEY="macropro_ofertas_v1";
   const [ofertas, setOfertas] = useState(()=>{ try{ const o=JSON.parse(localStorage.getItem(OFERTAS_KEY)||"{}"); return (o&&typeof o==="object")?o:{}; }catch(e){ return {}; } });
@@ -5155,6 +5156,7 @@ function MacroProMatcher() {
                 })()}
               </div>
               <div style={{display:"flex",gap:7,flexShrink:0}}>
+                <button style={{...s.btn("sm"),background:B.navy,color:"#fff"}} onClick={()=>setHistorialCliente(c)}>📋 Historial</button>
                 <button style={s.btn("sm")} onClick={()=>{setSelectedClient(c);setView("matchClient");}}>🎯 Match</button>
                 {clients.length>0&&<button style={{...s.btn("sm"),background:B.redL,color:B.red}} onClick={()=>deleteClient(c.id)}>🗑 Eliminar</button>}
               </div>
@@ -6890,6 +6892,9 @@ function MacroProMatcher() {
                 </div>
                 <button onClick={guardarCambios} disabled={saving} style={{width:"100%",padding:"9px",background:B.navy,color:B.gold,border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:saving?"wait":"pointer",fontFamily:"'DM Sans',sans-serif"}}>
                   {saving?"Guardando...":"💾 Guardar cambios"}
+                </button>
+                <button onClick={()=>{ const cliH=cliQ||clients.find(x=>x.nombre&&x.nombre.toLowerCase().trim()===(p.nombre||"").toLowerCase().trim())||{nombre:p.nombre,empresa:p.empresa||""}; setShowQuickProspModal(false); setHistorialCliente(cliH); }} style={{width:"100%",marginTop:8,padding:"9px",background:"#fff",color:B.navy,border:"1px solid "+B.grey1,borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                  📋 Ver historial del cliente
                 </button>
                 {/* Cotización */}
                 {(()=>{
@@ -15358,6 +15363,83 @@ Respuesta: [respuesta exacta, conversacional]
           );
         })()}
 
+      {/* ══════ HISTORIAL DEL CLIENTE (ofertas + análisis de necesidades) ══════ */}
+      {historialCliente && (()=>{
+        const c=historialCliente;
+        const ofs=ofertasDeCliente(c).slice().sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||"")));
+        const lotDe=(o)=> srcInv.find(l=>lKeyOf(l)===o.loteId || l.id===o.loteId) || {id:o.loteId,nombre:o.loteNombre};
+        const off=ofs.filter(o=>o.estado==="ofrecido"), likes=ofs.filter(o=>o.estado==="analisis"), rej=ofs.filter(o=>o.estado==="descartado");
+        const top=(arr,fn)=>{ const m={}; arr.forEach(o=>{ const k=fn(lotDe(o)); if(k)m[k]=(m[k]||0)+1; }); return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(e=>e[0]+(e[1]>1?" ("+e[1]+")":"")); };
+        const usoCat=(l)=>{try{return usoCategoria(l.uso).cat;}catch(e){return l.uso||"";}};
+        const insights=[];
+        if(likes.length){ const u=top(likes,usoCat), ci=top(likes,l=>l.ciudad); insights.push({ic:"👍",col:"#15803d",bg:"#f0fdf4",t:"Le interesa (en análisis): "+(u.join(", ")||"—")+(ci.length?" · "+ci.join(", "):"")}); }
+        if(rej.length){ const u=top(rej,usoCat), ci=top(rej,l=>l.ciudad); insights.push({ic:"👎",col:"#b91c1c",bg:"#fef2f2",t:"Ha descartado "+rej.length+": "+(u.join(", ")||"—")+(ci.length?" · "+ci.join(", "):"")}); }
+        if((c.uso_interes||[]).length||(c.ciudad_interes||[]).length) insights.push({ic:"🎯",col:"#1d4ed8",bg:"#eff6ff",t:"Busca: "+((c.uso_interes||[]).join(", ")||"sin uso")+" · "+((c.ciudad_interes||[]).join(", ")||"sin zona")+((c.presupuesto_max)?" · hasta "+fmtM(c.presupuesto_max):"")+((c.sup_min||c.sup_max)?" · "+(c.sup_min||0).toLocaleString()+"-"+(c.sup_max||0).toLocaleString()+" m²":"")});
+        if(!ofs.length&&!insights.length) insights.push({ic:"ℹ️",col:"#64748b",bg:"#f1f5f9",t:"Aún no le has ofrecido lotes. Cuando lo hagas desde el Match, su historial aparece aquí."});
+        const fila=(o,i)=>{ const l=lotDe(o); const opts=[["ofrecido","📤","#1d4ed8","#eff6ff"],["analisis","👍","#15803d","#f0fdf4"],["descartado","👎","#b91c1c","#fef2f2"]];
+          return (
+            <div key={i} style={{border:"1px solid "+B.grey1,borderRadius:10,padding:"10px 12px",marginBottom:8,borderLeft:"4px solid "+(o.estado==="analisis"?"#15803d":o.estado==="descartado"?"#b91c1c":"#1d4ed8")}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{l.nombre||l.id} {l.desarrollo&&<span style={{fontSize:11,color:B.grey4,fontWeight:600}}>· {l.desarrollo}</span>}</div>
+                  <div style={{fontSize:10.5,color:B.grey4,marginTop:2}}>{[l.ciudad,(l.uso||""),(l.sup_m2?Math.round(l.sup_m2).toLocaleString("es-MX")+" m²":""),(l.precio_total?fmtM(l.precio_total):"")].filter(Boolean).join(" · ")}</div>
+                  {o.fecha&&<div style={{fontSize:9.5,color:B.grey3,marginTop:2}}>🗓 {o.fecha}</div>}
+                </div>
+                <div style={{display:"flex",gap:4,flexShrink:0}}>
+                  {opts.map(([val,ic,col,bg])=>(
+                    <button key={val} title={val} onClick={()=>setOfertaEstado(c,l,o.estado===val?null:val)}
+                      style={{fontSize:13,borderRadius:6,padding:"4px 8px",cursor:"pointer",border:"1px solid "+(o.estado===val?col:B.grey1),background:o.estado===val?bg:"#fff"}}>{ic}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        };
+        return (
+          <div onClick={()=>setHistorialCliente(null)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2700,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"30px 20px",overflowY:"auto"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#f8fafc",borderRadius:16,maxWidth:680,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden",margin:"auto"}}>
+              <div style={{padding:"20px 26px",background:"linear-gradient(135deg,"+B.navy+",#003a66)",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase"}}>📋 Historial del cliente</div>
+                  <div style={{fontSize:20,fontWeight:800,fontFamily:"'Playfair Display',serif",marginTop:2}}>{c.nombre}</div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.8)",marginTop:2}}>{[c.empresa,c.status,c.asesor].filter(Boolean).join(" · ")}</div>
+                </div>
+                <span onClick={()=>setHistorialCliente(null)} style={{cursor:"pointer",fontSize:24,fontWeight:700,lineHeight:1}}>×</span>
+              </div>
+              <div style={{padding:"18px 24px",maxHeight:"72vh",overflowY:"auto"}}>
+                {/* KPIs */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+                  {[["📤 Ofrecidos",off.length,"#1d4ed8"],["👍 En análisis",likes.length,"#15803d"],["👎 Descartados",rej.length,"#b91c1c"]].map(([l,v,col])=>(
+                    <div key={l} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:10,padding:"10px 8px",textAlign:"center"}}>
+                      <div style={{fontSize:22,fontWeight:800,color:col,fontFamily:"'Playfair Display',serif"}}>{v}</div>
+                      <div style={{fontSize:9.5,fontWeight:700,color:B.grey4}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* Lectura de necesidades */}
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:11,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>🧠 Lectura de necesidades</div>
+                  {insights.map((it,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start",background:it.bg,borderRadius:10,padding:"9px 12px",borderLeft:"3px solid "+it.col,marginBottom:7}}>
+                      <span style={{fontSize:15}}>{it.ic}</span><span style={{fontSize:12,color:"#1e293b",lineHeight:1.45,fontWeight:600}}>{it.t}</span>
+                    </div>
+                  ))}
+                </div>
+                {/* Timeline de ofertas */}
+                <div style={{fontSize:11,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>🏷 Lotes ofrecidos ({ofs.length})</div>
+                {ofs.length===0
+                  ? <div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>Sin ofertas registradas todavía.</div>
+                  : ofs.map((o,i)=>fila(o,i))}
+                <div style={{fontSize:10,color:B.grey3,marginTop:8,fontStyle:"italic"}}>Cambia el estado con 📤/👍/👎. Lo 👎 descartado se excluye de futuros matches.</div>
+              </div>
+              <div style={{padding:"14px 26px",borderTop:"1px solid "+B.grey1,display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                <button onClick={()=>{setSelectedClient(c);setHistorialCliente(null);setView("matchClient");}} style={{padding:"10px 16px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🎯 Hacer match</button>
+                <button onClick={()=>setHistorialCliente(null)} style={{padding:"10px 18px",borderRadius:8,border:"none",background:B.navy,color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cerrar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {showSolicitudModal && editingSolicitud && (()=>{
         const f = editingSolicitud;
         const setF = (patch)=>setEditingSolicitud(prev=>({ ...prev, ...patch }));
