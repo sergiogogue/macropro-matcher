@@ -6271,6 +6271,77 @@ function MacroProMatcher() {
         return true;
       });
 
+      // ─── Exportar la lista FILTRADA de prospectos a PDF (respeta empresa/desarrollo/asesor/etapa/búsqueda) ───
+      const exportarProspectosPDF=()=>{
+        if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
+        if(!filtered.length){ toast("No hay prospectos para exportar"); return; }
+        const {jsPDF}=window.jspdf;
+        const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+        const PW=297, MX=12; let y=14;
+        // Banda de encabezado
+        doc.setFillColor(0,43,73); doc.rect(0,0,PW,22,"F");
+        doc.setTextColor(245,179,53); doc.setFont("helvetica","bold"); doc.setFontSize(15);
+        doc.text("MacroPro · Prospectos CRM",MX,13);
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","normal"); doc.setFontSize(9);
+        const fechaStr=new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"});
+        doc.text("Grupo Guía · "+fechaStr,PW-MX,13,{align:"right"});
+        y=30;
+        // Filtros aplicados
+        const fParts=[];
+        if(filterDevCompania!=="Todos") fParts.push("Empresa: "+filterDevCompania);
+        if(filterDesarrolloGlobal!=="Todos") fParts.push("Desarrollo: "+filterDesarrolloGlobal.split(" / ")[0]);
+        if(filterAsesor!=="Todos") fParts.push("Asesor: "+filterAsesor);
+        if(filterPipeline!=="Todos") fParts.push("Etapa: "+filterPipeline);
+        if(searchProsp.trim()) fParts.push('Búsqueda: "'+searchProsp.trim()+'"');
+        doc.setTextColor(0,43,73); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+        doc.text(filtered.length+" prospecto"+(filtered.length!==1?"s":""),MX,y);
+        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(90,90,90);
+        doc.text(fParts.length?fParts.join("   ·   "):"Sin filtros — todos los prospectos",MX,y+5);
+        y+=10;
+        // Tabla
+        const head=[["#","Cliente","Empresa","Asesor","Desarrollo","Lote","Etapa","Temp.","Teléfono","Días s/cont.","Último contacto","Nota"]];
+        const body=filtered.map((item,i)=>{
+          const cli=item.cli||{}, p2=item.prospecto||{}, crm=item.crm||{};
+          const li=(crm.interacciones||[]).slice().reverse()[0];
+          const ultimo=li?((li.canal||"")+(li.fecha?" · "+li.fecha:"")):"Sin interacciones";
+          const nota=((li&&li.nota)||p2.nota||"").toString();
+          return [
+            String(i+1),
+            p2.nombre||"",
+            cli.empresa||p2.empresa||"",
+            asesorDe(item)||"",
+            item.lot?(item.lot.desarrollo||""):"",
+            item.lot?(item.lot.nombre||""):"",
+            item.pipeline||"",
+            getTempFromPipeline(item.pipeline),
+            cli.telefono||p2.telefono||"",
+            item.diasSinContacto!=null?String(item.diasSinContacto):"—",
+            ultimo,
+            nota.slice(0,70)+(nota.length>70?"…":"")
+          ];
+        });
+        doc.autoTable({startY:y,head,body,theme:"striped",
+          styles:{fontSize:7.5,cellPadding:1.6,overflow:"linebreak",valign:"middle"},
+          headStyles:{fillColor:[0,43,73],textColor:[245,179,53],fontStyle:"bold",fontSize:7.5},
+          alternateRowStyles:{fillColor:[245,247,250]},
+          columnStyles:{0:{cellWidth:8,halign:"center"},6:{cellWidth:24},7:{halign:"center",cellWidth:16},9:{halign:"center",cellWidth:15},11:{cellWidth:50}},
+          margin:{left:MX,right:MX},
+          didDrawPage:()=>{
+            doc.setFontSize(7); doc.setTextColor(150,150,150);
+            doc.text("MacroPro · Grupo Guía",MX,205);
+            doc.text("Página "+doc.internal.getNumberOfPages(),PW-MX,205,{align:"right"});
+          }
+        });
+        const tag=(s)=>s.split(" / ")[0].replace(/[^\w]+/g,"");
+        const fname="Prospectos_MacroPro"
+          +(filterDevCompania!=="Todos"?"_"+tag(filterDevCompania):"")
+          +(filterDesarrolloGlobal!=="Todos"?"_"+tag(filterDesarrolloGlobal):"")
+          +(filterAsesor!=="Todos"?"_"+tag(filterAsesor):"")
+          +".pdf";
+        doc.save(fname);
+        toast("✅ PDF exportado · "+filtered.length+" prospecto"+(filtered.length!==1?"s":""));
+      };
+
       return (
         <div>
           <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
@@ -6297,6 +6368,8 @@ function MacroProMatcher() {
               <button onClick={()=>{setSearchProsp("");setFilterAsesor("Todos");setFilterPipeline("Todos");}} style={{padding:"7px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>✕ Limpiar</button>
             }
             <span style={{fontSize:11,color:B.grey3,marginLeft:"auto"}}>{filtered.length} prospecto{filtered.length!==1?"s":""}</span>
+            <button onClick={exportarProspectosPDF} disabled={!filtered.length} title="Exportar a PDF la lista de prospectos según los filtros activos"
+              style={{padding:"7px 12px",background:filtered.length?B.navy:B.grey1,color:filtered.length?B.gold:B.grey3,border:"none",borderRadius:8,cursor:filtered.length?"pointer":"not-allowed",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",display:"inline-flex",alignItems:"center",gap:5}}>⬇ PDF</button>
           </div>
 
           {filterAsesor!=="Todos"&&(()=>{
