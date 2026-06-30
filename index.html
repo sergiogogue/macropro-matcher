@@ -12713,7 +12713,7 @@ Respuesta: [respuesta exacta, conversacional]
                         const incumple = !isFuture&&v<planV&&planV>0;
                         return (
                           <td key={i} style={{padding:"11px 6px", textAlign:"center", color:cumple?"#15803d":incumple?"#b91c1c":(isFuture?B.grey3:B.navy), fontWeight:cumple||incumple?800:600, background:i===mesActualIdx2?B.gold+"15":"transparent", whiteSpace:"nowrap"}}>
-                            {isFuture?"—":fmtVal(v||0)}
+                            {v?fmtVal(v):(isFuture?"—":fmtVal(0))}
                           </td>
                         );
                       })}
@@ -12725,7 +12725,7 @@ Respuesta: [respuesta exacta, conversacional]
                         <td style={{padding:"9px 8px", fontWeight:700, color:"#0e7490", position:"sticky", left:0, background:"#f0fdf4", fontSize:11}} title="m² efectivamente vendidos">📐 m² vendidos</td>
                         {realM2Mes.map((v,i)=>(
                           <td key={i} style={{padding:"9px 6px", textAlign:"center", color:i>mesActualIdx2?B.grey3:"#0e7490", fontWeight:600, fontSize:10, background:i===mesActualIdx2?B.gold+"15":"transparent", whiteSpace:"nowrap"}}>
-                            {i>mesActualIdx2?"—":(v?new Intl.NumberFormat("es-MX",{maximumFractionDigits:0}).format(v):"—")}
+                            {v?new Intl.NumberFormat("es-MX",{maximumFractionDigits:0}).format(v):"—"}
                           </td>
                         ))}
                         <td style={{padding:"9px 8px", textAlign:"right", fontWeight:800, color:"#0e7490", background:"#dcfce7", fontSize:11, whiteSpace:"nowrap"}}>{new Intl.NumberFormat("es-MX",{maximumFractionDigits:0}).format(realM2Total)} m²</td>
@@ -12739,7 +12739,7 @@ Respuesta: [respuesta exacta, conversacional]
                           const pr = precioM2(realMontoMes[i], m2);
                           return (
                             <td key={i} style={{padding:"9px 6px", textAlign:"center", color:i>mesActualIdx2?B.grey3:"#92400e", fontWeight:600, fontSize:10, background:i===mesActualIdx2?B.gold+"08":"transparent", whiteSpace:"nowrap"}}>
-                              {i>mesActualIdx2||pr<=0?"—":fmtMiles(Math.round(pr))}
+                              {pr>0?fmtMiles(Math.round(pr)):"—"}
                             </td>
                           );
                         })}
@@ -12767,7 +12767,7 @@ Respuesta: [respuesta exacta, conversacional]
                       <td style={{padding:"11px 8px", fontWeight:700, color:B.grey4, position:"sticky", left:0, background:B.white, fontSize:12}}>⚡ Δ Real vs Plan</td>
                       {realMes.map((v,i)=>{
                         const planV = planMes[i]||0;
-                        const delta = (i>mesActualIdx2)?null:(v-planV);
+                        const delta = (i>mesActualIdx2&&!v)?null:(v-planV);
                         return (
                           <td key={i} style={{padding:"11px 6px", textAlign:"center", color:delta===null?B.grey3:colorDelta(delta), fontWeight:700, fontSize:11, background:i===mesActualIdx2?B.gold+"08":"transparent", whiteSpace:"nowrap"}}>
                             {delta===null?"—":(delta>0?"+":"")+(metasModoVista==="uds"?delta:fmtMiles(delta).replace("$",""))}
