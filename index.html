@@ -15172,6 +15172,32 @@ Respuesta: [respuesta exacta, conversacional]
     const [importing, setImporting] = React.useState(false);
 
     const parseMetasExcel = (wb) => {
+      const MESES_M2=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+      // ── HOJA OPCIONAL DE m² ──────────────────────────────────────────────
+      // Pestaña simple (no toca las fórmulas de Captura Ventas): una fila por
+      // (Desarrollo, Tipo=Plan/Real) con los m² de Ene..Dic. Se fusiona al final.
+      const fillM2FromSheet=(workbook, target)=>{
+        const m2Name=workbook.SheetNames.find(s=>{ const n=s.toLowerCase(); return (n.includes("m2")||n.includes("m²"))&&!n.includes("meta"); });
+        if(!m2Name) return;
+        const raw=XLSX.utils.sheet_to_json(workbook.Sheets[m2Name],{defval:"",header:1});
+        let hdrIdx=-1, mcols=null;
+        for(let i=0;i<raw.length;i++){
+          const cols=MESES_M2.map(m=>(raw[i]||[]).findIndex((h,idx)=>idx>=1&&String(h||"").toLowerCase().startsWith(m)));
+          if(cols.filter(x=>x>=0).length>=6){ hdrIdx=i; mcols=cols; break; }
+        }
+        if(hdrIdx<0) return;
+        for(let i=hdrIdx+1;i<raw.length;i++){
+          const row=raw[i]||[];
+          const dev=String(row[0]||"").trim();
+          const tipo=String(row[1]||"").trim().toLowerCase();
+          if(!dev) continue;
+          const key=tipo.includes("real")?"real":(tipo.includes("plan")?"plan":null);
+          if(!key) continue;
+          if(!target[dev]) target[dev]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0),m2:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0),m2:Array(12).fill(0)}};
+          if(!target[dev][key].m2) target[dev][key].m2=Array(12).fill(0);
+          mcols.forEach((c,m)=>{ if(c>=0&&c<row.length){ const v=parseFloat(String(row[c]||"0").replace(/[$,\s]/g,""))||0; target[dev][key].m2[m]=v; } });
+        }
+      };
       // ── FUENTE PREFERIDA: hoja "📋 Captura Ventas" ──
       // Plan = filas "Plan Desarr." · Real = filas "✏️ Venta Real". Ahí los nombres están
       // correctos (ej. "Gran Valle" sin typo) → evita el desarrollo duplicado.
@@ -15207,6 +15233,7 @@ Respuesta: [respuesta exacta, conversacional]
         if(Object.keys(resC).length>0){
           const catNm=wb.SheetNames.find(s=>s.toLowerCase().includes("catálogo")||s.toLowerCase().includes("catalogo"));
           if(catNm){ const catRaw=XLSX.utils.sheet_to_json(wb.Sheets[catNm],{defval:"",header:1}); catRaw.slice(1).forEach(row=>{ const dev=String(row[3]||"").trim(); const desa=String(row[4]||"").trim(); if(dev&&desa&&resC[dev]) resC[dev].desarrollador=desa; }); }
+          fillM2FromSheet(wb, resC); // m² desde la pestaña dedicada (si existe)
           return {data:resC, replace:true}; // Captura Ventas = fuente autoritativa → reemplaza (limpia stale como 'Gfran Valle')
         }
       }
@@ -15270,6 +15297,7 @@ Respuesta: [respuesta exacta, conversacional]
       }
 
       if(Object.keys(result).length===0) throw new Error("No se encontraron desarrollos con tipo 'Plan'. Verifica que el Excel tenga filas con TIPO=Plan");
+      fillM2FromSheet(wb, result); // m² desde la pestaña dedicada (si existe)
       return {data:result, replace:false}; // fallback hoja Metas → fusiona (comportamiento anterior)
     };
 
@@ -15322,7 +15350,7 @@ Respuesta: [respuesta exacta, conversacional]
             {/* Instrucciones */}
             <div style={{background:"#f0f9ff",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:12,color:"#0369a1",border:"1px solid #bae6fd"}}>
               <strong>Lee la hoja <code>📋 Captura Ventas</code></strong> (preferida): toma el <strong>Plan Desarr.</strong> y la <strong>Venta Real</strong> de cada desarrollo. Si no existe, usa la hoja <code>🎯 Metas</code> (Plan/Real, Unidades + Monto).<br/>
-              <strong>📐 m²:</strong> si en la columna <em>Tipo</em> (junto a <code>Uds</code> y <code>$</code>) agregas un renglón <code>m²</code> bajo <strong>Plan Desarr.</strong> y bajo <strong>Venta Real</strong>, se cargan los m² y el precio promedio por m².<br/>
+              <strong>📐 m²:</strong> agrega una pestaña <code>📐 M2</code> con una fila por <em>Desarrollo</em> y <em>Tipo</em> (Plan/Real) y los m² de Ene–Dic. (También funciona un renglón <code>m²</code> en la columna Tipo de Captura Ventas.) Se cargan los m² y el precio promedio por m².<br/>
               Al importar desde Captura Ventas se <strong>reemplazan</strong> las metas con esa fuente (evita duplicados como un nombre mal escrito).
             </div>
 
