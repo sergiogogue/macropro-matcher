@@ -741,7 +741,7 @@ function saveMetas(d){try{localStorage.setItem(METAS_KEY,JSON.stringify(d));}cat
 
 // ─── METAS · FUNCIONES UTILITARIAS ───────────────────────────────
 function calcularMetasResumen(metas, filtroDesarrollador, filtroDesarrollo){
-  let planUdsTotal=0, planMontoTotal=0, realUdsTotal=0, realMontoTotal=0;
+  let planUdsTotal=0, planMontoTotal=0, realUdsTotal=0, realMontoTotal=0, planM2Total=0, realM2Total=0;
   const porDesarrollo=[];
   Object.entries(metas||{}).forEach(([nombre, d])=>{
     if(!d||!d.plan||!d.real) return;
@@ -751,12 +751,16 @@ function calcularMetasResumen(metas, filtroDesarrollador, filtroDesarrollo){
     const planM=(d.plan.monto||[]).reduce((a,b)=>a+(b||0),0);
     const realU=(d.real.uds||[]).reduce((a,b)=>a+(b||0),0);
     const realM=(d.real.monto||[]).reduce((a,b)=>a+(b||0),0);
-    planUdsTotal+=planU; planMontoTotal+=planM; realUdsTotal+=realU; realMontoTotal+=realM;
-    porDesarrollo.push({nombre, desarrollador:d.desarrollador, planUds:planU, planMonto:planM, realUds:realU, realMonto:realM});
+    const planA2=(d.plan.m2||[]).reduce((a,b)=>a+(b||0),0);
+    const realA2=(d.real.m2||[]).reduce((a,b)=>a+(b||0),0);
+    planUdsTotal+=planU; planMontoTotal+=planM; realUdsTotal+=realU; realMontoTotal+=realM; planM2Total+=planA2; realM2Total+=realA2;
+    porDesarrollo.push({nombre, desarrollador:d.desarrollador, planUds:planU, planMonto:planM, realUds:realU, realMonto:realM, planM2:planA2, realM2:realA2});
   });
   const cumplUds=planUdsTotal>0?(realUdsTotal/planUdsTotal):(realUdsTotal>0?1.5:0);
   const cumplMonto=planMontoTotal>0?(realMontoTotal/planMontoTotal):(realMontoTotal>0?1.5:0);
-  return { planUdsTotal, planMontoTotal, realUdsTotal, realMontoTotal, cumplUds, cumplMonto, porDesarrollo };
+  const precioM2Plan=planM2Total>0?(planMontoTotal*1000)/planM2Total:0;
+  const precioM2Real=realM2Total>0?(realMontoTotal*1000)/realM2Total:0;
+  return { planUdsTotal, planMontoTotal, realUdsTotal, realMontoTotal, planM2Total, realM2Total, precioM2Plan, precioM2Real, cumplUds, cumplMonto, porDesarrollo };
 }
 // Helper: calcular meta acumulada al mes actual (para % cumplimiento mensual)
 function calcularMetaAlMes(planArr, mesIdx){
@@ -6267,6 +6271,116 @@ function MacroProMatcher() {
         return true;
       });
 
+      // ─── Exportar la lista FILTRADA de prospectos a PDF (respeta empresa/desarrollo/asesor/etapa/búsqueda) ───
+      const exportarProspectosPDF=()=>{
+        if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
+        if(!filtered.length){ toast("No hay prospectos para exportar"); return; }
+        const {jsPDF}=window.jspdf;
+        const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+        const PW=297, MX=12; let y=14;
+        // ── Agregados (respetan el filtro activo) ──
+        const cnt={red:0,yellow:0,green:0,grey:0};
+        filtered.forEach(it=>{ cnt[it.semaforo]=(cnt[it.semaforo]||0)+1; });
+        const sinInter=filtered.filter(it=>(((it.crm&&it.crm.interacciones)||[]).length===0)).length;
+        const byStage={}; filtered.forEach(it=>{ const s=it.pipeline||"—"; byStage[s]=(byStage[s]||0)+1; });
+        const byAsesor={}; filtered.forEach(it=>{ const a=asesorDe(it)||"Sin asesor"; byAsesor[a]=(byAsesor[a]||0)+1; });
+        const pct=v=>filtered.length?Math.round(v/filtered.length*100)+"%":"0%";
+        const fechaStr=new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"});
+        const fParts=[];
+        if(filterDevCompania!=="Todos") fParts.push("Empresa: "+filterDevCompania);
+        if(filterDesarrolloGlobal!=="Todos") fParts.push("Desarrollo: "+filterDesarrolloGlobal.split(" / ")[0]);
+        if(filterAsesor!=="Todos") fParts.push("Asesor: "+filterAsesor);
+        if(filterPipeline!=="Todos") fParts.push("Etapa: "+filterPipeline);
+        if(searchProsp.trim()) fParts.push('Búsqueda: "'+searchProsp.trim()+'"');
+        const filtrosTxt=fParts.length?fParts.join("   ·   "):"Sin filtros — todos los prospectos";
+        const drawHeader=()=>{
+          doc.setFillColor(0,43,73); doc.rect(0,0,PW,22,"F");
+          doc.setTextColor(245,179,53); doc.setFont("helvetica","bold"); doc.setFontSize(15);
+          doc.text("MacroPro · Prospectos CRM",MX,13);
+          doc.setTextColor(255,255,255); doc.setFont("helvetica","normal"); doc.setFontSize(9);
+          doc.text("Grupo Guía · "+fechaStr,PW-MX,13,{align:"right"});
+        };
+
+        // ═══════ PÁGINA 1 · RESUMEN ═══════
+        drawHeader();
+        doc.setTextColor(90,90,90); doc.setFont("helvetica","normal"); doc.setFontSize(9);
+        doc.text(filtrosTxt,MX,29);
+        // Tarjetas KPI
+        const cards=[
+          {label:"TOTAL", val:filtered.length, c:[0,43,73]},
+          {label:"FRIOS >60d", val:cnt.red||0, c:[239,68,68]},
+          {label:"TIBIOS 30-60d", val:cnt.yellow||0, c:[245,158,11]},
+          {label:"AL DIA", val:cnt.green||0, c:[34,197,94]},
+          {label:"SIN INTERACCION", val:sinInter, c:[107,114,128]}
+        ];
+        const cw=50.6, ch=22, gap=5.1, cyy=34; let cx=MX;
+        cards.forEach(cd=>{
+          doc.setFillColor(cd.c[0],cd.c[1],cd.c[2]); doc.roundedRect(cx,cyy,cw,ch,2.5,2.5,"F");
+          doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(19);
+          doc.text(String(cd.val),cx+cw/2,cyy+11,{align:"center"});
+          doc.setFont("helvetica","normal"); doc.setFontSize(6.6);
+          doc.text(cd.label,cx+cw/2,cyy+17.5,{align:"center"});
+          cx+=cw+gap;
+        });
+        // Tablas resumen: por etapa (izq) y por asesor (der)
+        doc.setTextColor(0,43,73); doc.setFont("helvetica","bold"); doc.setFontSize(10);
+        doc.text("Por etapa",MX,68); doc.text("Por asesor",MX+138,68);
+        const stageRows=Object.entries(byStage).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[k,String(v),pct(v)]);
+        const asesorRows=Object.entries(byAsesor).sort((a,b)=>b[1]-a[1]).map(([k,v])=>[k,String(v),pct(v)]);
+        const resumStyle={startY:71, theme:"striped", styles:{fontSize:9,cellPadding:2},
+          headStyles:{fillColor:[0,43,73],textColor:[245,179,53],fontStyle:"bold"},
+          alternateRowStyles:{fillColor:[245,247,250]},
+          columnStyles:{1:{halign:"center",cellWidth:20},2:{halign:"center",cellWidth:24}}};
+        doc.autoTable({...resumStyle, head:[["Etapa","#","%"]], body:stageRows, margin:{left:MX}, tableWidth:128});
+        doc.autoTable({...resumStyle, head:[["Asesor","#","%"]], body:asesorRows, margin:{left:MX+138}, tableWidth:128});
+
+        // ═══════ PÁGINA 2+ · DETALLE ═══════
+        doc.addPage();
+        drawHeader();
+        doc.setTextColor(0,43,73); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+        doc.text("Detalle de prospectos ("+filtered.length+")",MX,30);
+        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(90,90,90);
+        doc.text(filtrosTxt,MX,35);
+        const head=[["#","Cliente","Empresa","Asesor","Desarrollo","Lote","Etapa","Temp.","Teléfono","Días s/cont.","Último contacto","Nota"]];
+        const body=filtered.map((item,i)=>{
+          const cli=item.cli||{}, p2=item.prospecto||{}, crm=item.crm||{};
+          const li=(crm.interacciones||[]).slice().reverse()[0];
+          const ultimo=li?((li.canal||"")+(li.fecha?" · "+li.fecha:"")):"Sin interacciones";
+          const nota=((li&&li.nota)||p2.nota||"").toString();
+          return [
+            String(i+1),
+            p2.nombre||"",
+            cli.empresa||p2.empresa||"",
+            asesorDe(item)||"",
+            item.lot?(item.lot.desarrollo||""):"",
+            item.lot?(item.lot.nombre||""):"",
+            item.pipeline||"",
+            getTempFromPipeline(item.pipeline),
+            cli.telefono||p2.telefono||"",
+            item.diasSinContacto!=null?String(item.diasSinContacto):"—",
+            ultimo,
+            nota.slice(0,70)+(nota.length>70?"…":"")
+          ];
+        });
+        doc.autoTable({startY:40,head,body,theme:"striped",
+          styles:{fontSize:7.5,cellPadding:1.6,overflow:"linebreak",valign:"middle"},
+          headStyles:{fillColor:[0,43,73],textColor:[245,179,53],fontStyle:"bold",fontSize:7.5},
+          alternateRowStyles:{fillColor:[245,247,250]},
+          columnStyles:{0:{cellWidth:8,halign:"center"},6:{cellWidth:24},7:{halign:"center",cellWidth:16},9:{halign:"center",cellWidth:15},11:{cellWidth:50}},
+          margin:{left:MX,right:MX}});
+        // Pie de página en todas las hojas
+        const np=doc.internal.getNumberOfPages();
+        for(let i=1;i<=np;i++){ doc.setPage(i); doc.setFontSize(7); doc.setTextColor(150,150,150); doc.text("MacroPro · Grupo Guía",MX,205); doc.text("Página "+i+" / "+np,PW-MX,205,{align:"right"}); }
+        const tag=(s)=>s.split(" / ")[0].replace(/[^\w]+/g,"");
+        const fname="Prospectos_MacroPro"
+          +(filterDevCompania!=="Todos"?"_"+tag(filterDevCompania):"")
+          +(filterDesarrolloGlobal!=="Todos"?"_"+tag(filterDesarrolloGlobal):"")
+          +(filterAsesor!=="Todos"?"_"+tag(filterAsesor):"")
+          +".pdf";
+        doc.save(fname);
+        toast("✅ PDF exportado · "+filtered.length+" prospecto"+(filtered.length!==1?"s":""));
+      };
+
       return (
         <div>
           <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
@@ -6293,6 +6407,8 @@ function MacroProMatcher() {
               <button onClick={()=>{setSearchProsp("");setFilterAsesor("Todos");setFilterPipeline("Todos");}} style={{padding:"7px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>✕ Limpiar</button>
             }
             <span style={{fontSize:11,color:B.grey3,marginLeft:"auto"}}>{filtered.length} prospecto{filtered.length!==1?"s":""}</span>
+            <button onClick={exportarProspectosPDF} disabled={!filtered.length} title="Exportar a PDF la lista de prospectos según los filtros activos"
+              style={{padding:"7px 12px",background:filtered.length?B.navy:B.grey1,color:filtered.length?B.gold:B.grey3,border:"none",borderRadius:8,cursor:filtered.length?"pointer":"not-allowed",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",display:"inline-flex",alignItems:"center",gap:5}}>⬇ PDF</button>
           </div>
 
           {filterAsesor!=="Todos"&&(()=>{
@@ -12481,14 +12597,31 @@ Respuesta: [respuesta exacta, conversacional]
           // Calcular Plan y Real agregados por mes según filtros activos
           const planMes = new Array(12).fill(0);
           const realMes = new Array(12).fill(0);
+          // Series dedicadas (independientes del toggle Uds/Monto) para m² y precio
+          const planMontoMes = new Array(12).fill(0), realMontoMes = new Array(12).fill(0);
+          const planM2Mes = new Array(12).fill(0), realM2Mes = new Array(12).fill(0);
           Object.entries(metasData).forEach(([nombre, d])=>{
             if(!d||!d.plan||!d.real) return;
             if(metasFiltroDesarrollador!=="Todos"&&d.desarrollador!==metasFiltroDesarrollador) return;
             if(metasFiltroDesarrollo!=="Todos"&&nombre!==metasFiltroDesarrollo) return;
             const planArr = metasModoVista==="uds"?(d.plan.uds||[]):(d.plan.monto||[]);
             const realArr = metasModoVista==="uds"?(d.real.uds||[]):(d.real.monto||[]);
-            for(let i=0;i<12;i++){ planMes[i]+=(planArr[i]||0); realMes[i]+=(realArr[i]||0); }
+            const pMonto=d.plan.monto||[], rMonto=d.real.monto||[], pM2=d.plan.m2||[], rM2=d.real.m2||[];
+            for(let i=0;i<12;i++){
+              planMes[i]+=(planArr[i]||0); realMes[i]+=(realArr[i]||0);
+              planMontoMes[i]+=(pMonto[i]||0); realMontoMes[i]+=(rMonto[i]||0);
+              planM2Mes[i]+=(pM2[i]||0); realM2Mes[i]+=(rM2[i]||0);
+            }
           });
+          // Totales m² / monto crudo (miles MXN) y precio promedio por m² (monto*1000 / m²)
+          const planM2Total = planM2Mes.reduce((a,b)=>a+b,0);
+          const realM2Total = realM2Mes.reduce((a,b)=>a+b,0);
+          const planMontoTotalRaw = planMontoMes.reduce((a,b)=>a+b,0);
+          const realMontoTotalRaw = realMontoMes.reduce((a,b)=>a+b,0);
+          const hayM2 = planM2Total>0 || realM2Total>0;
+          const precioM2 = (montoMiles,m2)=> m2>0 ? (montoMiles*1000)/m2 : 0; // $ por m²
+          const precioPlanProm = precioM2(planMontoTotalRaw, planM2Total);
+          const precioRealProm = precioM2(realMontoTotalRaw, realM2Total);
           const momentumMes = metasModoVista==="uds"?momentum.totalUds:momentum.totalMonto;
           const mesActualIdx2 = new Date().getMonth();
           const planTotal = planMes.reduce((a,b)=>a+b,0);
@@ -12553,6 +12686,18 @@ Respuesta: [respuesta exacta, conversacional]
                       ))}
                       <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:B.navy, background:B.navy+"08", fontSize:12, whiteSpace:"nowrap"}}>{fmtVal(planTotal)}</td>
                     </tr>
+                    {/* Fila m² a vender (Plan) — solo si hay datos de m² */}
+                    {hayM2&&(
+                      <tr style={{borderBottom:"1px solid "+B.grey1}}>
+                        <td style={{padding:"9px 8px", fontWeight:700, color:"#0e7490", position:"sticky", left:0, background:B.white, fontSize:11}} title="m² planeados a vender">📐 m² a vender</td>
+                        {planM2Mes.map((v,i)=>(
+                          <td key={i} style={{padding:"9px 6px", textAlign:"center", color:i>mesActualIdx2?B.grey3:"#0e7490", fontWeight:600, fontSize:10, background:i===mesActualIdx2?B.gold+"08":"transparent", whiteSpace:"nowrap"}}>
+                            {v?new Intl.NumberFormat("es-MX",{maximumFractionDigits:0}).format(v):"—"}
+                          </td>
+                        ))}
+                        <td style={{padding:"9px 8px", textAlign:"right", fontWeight:800, color:"#0e7490", background:"#ecfeff", fontSize:11, whiteSpace:"nowrap"}}>{new Intl.NumberFormat("es-MX",{maximumFractionDigits:0}).format(planM2Total)} m²</td>
+                      </tr>
+                    )}
                     {/* Fila Real */}
                     <tr style={{borderBottom:"1px solid "+B.grey1, background:"#f0fdf4"}}>
                       <td style={{padding:"11px 8px", fontWeight:800, color:"#15803d", position:"sticky", left:0, background:"#f0fdf4", fontSize:12}}>✅ Real</td>
@@ -12569,6 +12714,33 @@ Respuesta: [respuesta exacta, conversacional]
                       })}
                       <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:"#15803d", background:"#dcfce7", fontSize:12, whiteSpace:"nowrap"}}>{fmtVal(realTotal)}</td>
                     </tr>
+                    {/* Fila m² vendidos (Real) — solo si hay datos de m² */}
+                    {hayM2&&(
+                      <tr style={{borderBottom:"1px solid "+B.grey1, background:"#f0fdf4"}}>
+                        <td style={{padding:"9px 8px", fontWeight:700, color:"#0e7490", position:"sticky", left:0, background:"#f0fdf4", fontSize:11}} title="m² efectivamente vendidos">📐 m² vendidos</td>
+                        {realM2Mes.map((v,i)=>(
+                          <td key={i} style={{padding:"9px 6px", textAlign:"center", color:i>mesActualIdx2?B.grey3:"#0e7490", fontWeight:600, fontSize:10, background:i===mesActualIdx2?B.gold+"15":"transparent", whiteSpace:"nowrap"}}>
+                            {i>mesActualIdx2?"—":(v?new Intl.NumberFormat("es-MX",{maximumFractionDigits:0}).format(v):"—")}
+                          </td>
+                        ))}
+                        <td style={{padding:"9px 8px", textAlign:"right", fontWeight:800, color:"#0e7490", background:"#dcfce7", fontSize:11, whiteSpace:"nowrap"}}>{new Intl.NumberFormat("es-MX",{maximumFractionDigits:0}).format(realM2Total)} m²</td>
+                      </tr>
+                    )}
+                    {/* Fila precio promedio por m² (Real) — solo si hay m² vendidos */}
+                    {hayM2&&realM2Total>0&&(
+                      <tr style={{borderBottom:"1px solid "+B.grey1}}>
+                        <td style={{padding:"9px 8px", fontWeight:700, color:"#92400e", position:"sticky", left:0, background:B.white, fontSize:11}} title="Precio promedio por m² = monto vendido ÷ m² vendidos">💲 $/m² prom.</td>
+                        {realM2Mes.map((m2,i)=>{
+                          const pr = precioM2(realMontoMes[i], m2);
+                          return (
+                            <td key={i} style={{padding:"9px 6px", textAlign:"center", color:i>mesActualIdx2?B.grey3:"#92400e", fontWeight:600, fontSize:10, background:i===mesActualIdx2?B.gold+"08":"transparent", whiteSpace:"nowrap"}}>
+                              {i>mesActualIdx2||pr<=0?"—":fmtMiles(Math.round(pr))}
+                            </td>
+                          );
+                        })}
+                        <td style={{padding:"9px 8px", textAlign:"right", fontWeight:800, color:"#92400e", background:"#fef3c7", fontSize:11, whiteSpace:"nowrap"}}>{precioRealProm>0?fmtMiles(Math.round(precioRealProm)):"—"}</td>
+                      </tr>
+                    )}
                     {/* Fila Momentum (CRM) — solo si hay datos */}
                     {momentumTotal>0&&(
                       <tr style={{borderBottom:"1px solid "+B.grey1, background:"#fef3c7"}}>
@@ -12602,6 +12774,59 @@ Respuesta: [respuesta exacta, conversacional]
                   </tbody>
                 </table>
               </div>
+
+              {/* ═══ GRÁFICA DE BARRAS · Ventas reales: monto y m² por mes ═══ */}
+              {hayM2&&(
+                <div style={{marginTop:18, padding:"16px 18px", background:B.offW, borderRadius:10, border:"1px solid "+B.grey1}}>
+                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:14}}>
+                    <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1}}>📊 Ventas reales: monto y m² por mes</div>
+                    <div style={{display:"flex", gap:14, fontSize:10, fontWeight:700}}>
+                      <span style={{display:"flex", alignItems:"center", gap:5, color:B.grey4}}><span style={{width:10,height:10,borderRadius:2,background:B.gold,display:"inline-block"}}/>Monto vendido</span>
+                      <span style={{display:"flex", alignItems:"center", gap:5, color:B.grey4}}><span style={{width:10,height:10,borderRadius:2,background:"#0e7490",display:"inline-block"}}/>m² vendidos</span>
+                    </div>
+                  </div>
+                  {(() => {
+                    const maxMonto = Math.max(1, ...realMontoMes);
+                    const maxM2 = Math.max(1, ...realM2Mes);
+                    const H = 130;
+                    return (
+                      <div style={{display:"flex", alignItems:"flex-end", gap:6, minWidth:560}}>
+                        {MESES.map((m,i)=>{
+                          const mo = realMontoMes[i]||0, ar = realM2Mes[i]||0;
+                          const hMo = mo>0?Math.max(3, Math.round(mo/maxMonto*H)):0;
+                          const hAr = ar>0?Math.max(3, Math.round(ar/maxM2*H)):0;
+                          const isHoy = i===mesActualIdx2;
+                          return (
+                            <div key={i} style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4}}>
+                              <div style={{height:H, display:"flex", alignItems:"flex-end", gap:3, width:"100%", justifyContent:"center"}}>
+                                <div title={"Monto vendido: "+fmtMiles(mo)} style={{width:"42%", maxWidth:18, height:hMo, background:"linear-gradient(180deg,"+B.gold+","+B.goldD+")", borderRadius:"3px 3px 0 0", transition:"height 0.4s"}}/>
+                                <div title={"m² vendidos: "+new Intl.NumberFormat("es-MX").format(ar)} style={{width:"42%", maxWidth:18, height:hAr, background:"linear-gradient(180deg,#22d3ee,#0e7490)", borderRadius:"3px 3px 0 0", transition:"height 0.4s"}}/>
+                              </div>
+                              <div style={{fontSize:9, fontWeight:isHoy?800:600, color:isHoy?B.navy:B.grey4}}>{m}{isHoy&&<span style={{color:B.gold}}> •</span>}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                  {/* Resumen de totales reales */}
+                  <div style={{marginTop:14, display:"flex", flexWrap:"wrap", gap:10}}>
+                    <div style={{flex:1, minWidth:150, background:B.white, borderRadius:8, padding:"10px 12px", border:"1px solid "+B.grey1, borderLeft:"3px solid "+B.gold}}>
+                      <div style={{fontSize:9, color:B.grey4, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5}}>Monto vendido</div>
+                      <div style={{fontSize:17, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>{fmtMiles(realMontoTotalRaw)}</div>
+                    </div>
+                    <div style={{flex:1, minWidth:150, background:B.white, borderRadius:8, padding:"10px 12px", border:"1px solid "+B.grey1, borderLeft:"3px solid #0e7490"}}>
+                      <div style={{fontSize:9, color:B.grey4, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5}}>m² vendidos</div>
+                      <div style={{fontSize:17, fontWeight:800, color:"#0e7490", fontFamily:"'Playfair Display',serif"}}>{new Intl.NumberFormat("es-MX").format(realM2Total)} m²</div>
+                    </div>
+                    <div style={{flex:1, minWidth:150, background:B.white, borderRadius:8, padding:"10px 12px", border:"1px solid "+B.grey1, borderLeft:"3px solid #92400e"}}>
+                      <div style={{fontSize:9, color:B.grey4, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5}}>$/m² promedio</div>
+                      <div style={{fontSize:17, fontWeight:800, color:"#92400e", fontFamily:"'Playfair Display',serif"}}>{precioRealProm>0?fmtMiles(Math.round(precioRealProm)):"—"}</div>
+                    </div>
+                  </div>
+                  <div style={{marginTop:8, fontSize:9, color:B.grey3, fontStyle:"italic"}}>Cada serie se escala a su propio máximo (monto y m² usan unidades distintas). Pasa el cursor sobre las barras para ver el valor exacto.</div>
+                </div>
+              )}
 
               {/* Análisis estadístico — 2 proyecciones */}
               <div style={{marginTop:18, padding:"14px 16px", background:B.offW, borderRadius:10, border:"1px solid "+B.grey1}}>
@@ -14965,17 +15190,19 @@ Respuesta: [respuesta exacta, conversacional]
           if(/^inv\b/i.test(c2)||/^inv:/i.test(c2)){
             mesColsC=MESES_CAP.map(m=>row.findIndex((h,idx)=>idx>=3&&String(h||"").toLowerCase().startsWith(m)));
             curC=c1||null;
-            if(curC&&!resC[curC]) resC[curC]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
+            if(curC&&!resC[curC]) resC[curC]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0),m2:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0),m2:Array(12).fill(0)}};
             labelC=null; continue;
           }
           if(!curC||!mesColsC) continue;
           // col1 fija el bloque: "Plan Desarr."→plan, "Venta Real"→real; otras (Meta SGG, Diferencia)→ignorar
           if(c1){ const l=c1.toLowerCase(); labelC = l.includes("plan desarr")?"plan" : (l.includes("venta re")?"real":null); }
           if(!labelC) continue;
+          const c2l=c2.toLowerCase();
           const isMonto=c2.includes("$");
-          const isUds=!isMonto&&c2.toLowerCase().startsWith("ud");
-          if(!isMonto&&!isUds) continue;
-          mesColsC.forEach((col,m)=>{ if(col>=0&&col<row.length){ const v=toNumCap(row[col]); if(isMonto) resC[curC][labelC].monto[m]=v; else resC[curC][labelC].uds[m]=v; } });
+          const isUds=!isMonto&&c2l.startsWith("ud");
+          const isM2=!isMonto&&!isUds&&(c2l.includes("m2")||c2.includes("m²")||c2l.startsWith("mt")||c2l.includes("metro"));
+          if(!isMonto&&!isUds&&!isM2) continue;
+          mesColsC.forEach((col,m)=>{ if(col>=0&&col<row.length){ const v=toNumCap(row[col]); if(isMonto) resC[curC][labelC].monto[m]=v; else if(isM2) resC[curC][labelC].m2[m]=v; else resC[curC][labelC].uds[m]=v; } });
         }
         if(Object.keys(resC).length>0){
           const catNm=wb.SheetNames.find(s=>s.toLowerCase().includes("catálogo")||s.toLowerCase().includes("catalogo"));
@@ -15021,7 +15248,7 @@ Respuesta: [respuesta exacta, conversacional]
           if(!proyecto||proyecto.toUpperCase().includes("GRAN TOTAL")||proyecto.toUpperCase()==="TOTAL"||proyecto.toUpperCase()==="TIPO"||proyecto.toUpperCase()==="PROYECTO"||proyecto.toUpperCase()==="SUBTOTAL") continue;
           if(!rowTipo||rowTipo==="tipo") continue;
           if(rowTipo!=="plan"&&rowTipo!=="real") continue; // Importar Plan y Real
-          if(!result[proyecto]) result[proyecto]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0)}};
+          if(!result[proyecto]) result[proyecto]={desarrollador:"",plan:{uds:Array(12).fill(0),monto:Array(12).fill(0),m2:Array(12).fill(0)},real:{uds:Array(12).fill(0),monto:Array(12).fill(0),m2:Array(12).fill(0)}};
           const destKey=rowTipo==="real"?"real":"plan";
           mesIdx.forEach((col,m)=>{
             if(col>=0&&col<row.length) result[proyecto][destKey][tipo][m]=toNum(row[col]); // monto crudo (miles MXN), sin inflar
@@ -15095,6 +15322,7 @@ Respuesta: [respuesta exacta, conversacional]
             {/* Instrucciones */}
             <div style={{background:"#f0f9ff",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:12,color:"#0369a1",border:"1px solid #bae6fd"}}>
               <strong>Lee la hoja <code>📋 Captura Ventas</code></strong> (preferida): toma el <strong>Plan Desarr.</strong> y la <strong>Venta Real</strong> de cada desarrollo. Si no existe, usa la hoja <code>🎯 Metas</code> (Plan/Real, Unidades + Monto).<br/>
+              <strong>📐 m²:</strong> si en la columna <em>Tipo</em> (junto a <code>Uds</code> y <code>$</code>) agregas un renglón <code>m²</code> bajo <strong>Plan Desarr.</strong> y bajo <strong>Venta Real</strong>, se cargan los m² y el precio promedio por m².<br/>
               Al importar desde Captura Ventas se <strong>reemplazan</strong> las metas con esa fuente (evita duplicados como un nombre mal escrito).
             </div>
 
