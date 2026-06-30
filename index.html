@@ -12598,19 +12598,22 @@ Respuesta: [respuesta exacta, conversacional]
           // Series dedicadas (independientes del toggle Uds/Monto) para m² y precio
           const planMontoMes = new Array(12).fill(0), realMontoMes = new Array(12).fill(0);
           const planM2Mes = new Array(12).fill(0), realM2Mes = new Array(12).fill(0);
+          const realUdsMes = new Array(12).fill(0); // unidades (lotes) vendidos, indep. del toggle
           Object.entries(metasData).forEach(([nombre, d])=>{
             if(!d||!d.plan||!d.real) return;
             if(metasFiltroDesarrollador!=="Todos"&&d.desarrollador!==metasFiltroDesarrollador) return;
             if(metasFiltroDesarrollo!=="Todos"&&nombre!==metasFiltroDesarrollo) return;
             const planArr = metasModoVista==="uds"?(d.plan.uds||[]):(d.plan.monto||[]);
             const realArr = metasModoVista==="uds"?(d.real.uds||[]):(d.real.monto||[]);
-            const pMonto=d.plan.monto||[], rMonto=d.real.monto||[], pM2=d.plan.m2||[], rM2=d.real.m2||[];
+            const pMonto=d.plan.monto||[], rMonto=d.real.monto||[], pM2=d.plan.m2||[], rM2=d.real.m2||[], rUds=d.real.uds||[];
             for(let i=0;i<12;i++){
               planMes[i]+=(planArr[i]||0); realMes[i]+=(realArr[i]||0);
               planMontoMes[i]+=(pMonto[i]||0); realMontoMes[i]+=(rMonto[i]||0);
               planM2Mes[i]+=(pM2[i]||0); realM2Mes[i]+=(rM2[i]||0);
+              realUdsMes[i]+=(rUds[i]||0);
             }
           });
+          const realUdsTotal = realUdsMes.reduce((a,b)=>a+b,0);
           // Totales m² / monto crudo (miles MXN) y precio promedio por m² (monto*1000 / m²)
           const planM2Total = planM2Mes.reduce((a,b)=>a+b,0);
           const realM2Total = realM2Mes.reduce((a,b)=>a+b,0);
@@ -12820,6 +12823,10 @@ Respuesta: [respuesta exacta, conversacional]
                     <div style={{flex:1, minWidth:150, background:B.white, borderRadius:8, padding:"10px 12px", border:"1px solid "+B.grey1, borderLeft:"3px solid #92400e"}}>
                       <div style={{fontSize:9, color:B.grey4, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5}}>$/m² promedio</div>
                       <div style={{fontSize:17, fontWeight:800, color:"#92400e", fontFamily:"'Playfair Display',serif"}}>{precioRealProm>0?fmtMiles(Math.round(precioRealProm)):"—"}</div>
+                    </div>
+                    <div style={{flex:1, minWidth:150, background:B.white, borderRadius:8, padding:"10px 12px", border:"1px solid "+B.grey1, borderLeft:"3px solid "+B.navy}}>
+                      <div style={{fontSize:9, color:B.grey4, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5}}>Lotes vendidos</div>
+                      <div style={{fontSize:17, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>{new Intl.NumberFormat("es-MX").format(realUdsTotal)}</div>
                     </div>
                   </div>
                   <div style={{marginTop:8, fontSize:9, color:B.grey3, fontStyle:"italic"}}>Cada serie se escala a su propio máximo (monto y m² usan unidades distintas). Pasa el cursor sobre las barras para ver el valor exacto.</div>
