@@ -12712,7 +12712,7 @@ Respuesta: [respuesta exacta, conversacional]
                         const cumple = !isFuture&&v>=planV&&planV>0;
                         const incumple = !isFuture&&v<planV&&planV>0;
                         return (
-                          <td key={i} style={{padding:"11px 6px", textAlign:"center", color:cumple?"#15803d":incumple?"#b91c1c":(isFuture?B.grey3:B.navy), fontWeight:cumple||incumple?800:600, background:i===mesActualIdx2?B.gold+"15":"transparent", whiteSpace:"nowrap"}}>
+                          <td key={i} style={{padding:"11px 6px", textAlign:"center", color:cumple?"#15803d":incumple?"#b91c1c":(v?B.navy:(isFuture?B.grey3:B.navy)), fontWeight:cumple||incumple?800:600, background:i===mesActualIdx2?B.gold+"15":"transparent", whiteSpace:"nowrap"}}>
                             {v?fmtVal(v):(isFuture?"—":fmtVal(0))}
                           </td>
                         );
@@ -12724,7 +12724,7 @@ Respuesta: [respuesta exacta, conversacional]
                       <tr style={{borderBottom:"1px solid "+B.grey1, background:"#f0fdf4"}}>
                         <td style={{padding:"9px 8px", fontWeight:700, color:"#0e7490", position:"sticky", left:0, background:"#f0fdf4", fontSize:11}} title="m² efectivamente vendidos">📐 m² vendidos</td>
                         {realM2Mes.map((v,i)=>(
-                          <td key={i} style={{padding:"9px 6px", textAlign:"center", color:i>mesActualIdx2?B.grey3:"#0e7490", fontWeight:600, fontSize:10, background:i===mesActualIdx2?B.gold+"15":"transparent", whiteSpace:"nowrap"}}>
+                          <td key={i} style={{padding:"9px 6px", textAlign:"center", color:(i>mesActualIdx2&&!v)?B.grey3:"#0e7490", fontWeight:600, fontSize:10, background:i===mesActualIdx2?B.gold+"15":"transparent", whiteSpace:"nowrap"}}>
                             {v?new Intl.NumberFormat("es-MX",{maximumFractionDigits:0}).format(v):"—"}
                           </td>
                         ))}
@@ -12738,7 +12738,7 @@ Respuesta: [respuesta exacta, conversacional]
                         {realM2Mes.map((m2,i)=>{
                           const pr = precioM2(realMontoMes[i], m2);
                           return (
-                            <td key={i} style={{padding:"9px 6px", textAlign:"center", color:i>mesActualIdx2?B.grey3:"#92400e", fontWeight:600, fontSize:10, background:i===mesActualIdx2?B.gold+"08":"transparent", whiteSpace:"nowrap"}}>
+                            <td key={i} style={{padding:"9px 6px", textAlign:"center", color:(i>mesActualIdx2&&!(pr>0))?B.grey3:"#92400e", fontWeight:600, fontSize:10, background:i===mesActualIdx2?B.gold+"08":"transparent", whiteSpace:"nowrap"}}>
                               {pr>0?fmtMiles(Math.round(pr)):"—"}
                             </td>
                           );
