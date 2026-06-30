@@ -12686,8 +12686,8 @@ Respuesta: [respuesta exacta, conversacional]
                       ))}
                       <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:B.navy, background:B.navy+"08", fontSize:12, whiteSpace:"nowrap"}}>{fmtVal(planTotal)}</td>
                     </tr>
-                    {/* Fila m² a vender (Plan) — solo si hay datos de m² */}
-                    {hayM2&&(
+                    {/* Fila m² a vender (Plan) — siempre visible (en blanco si no hay datos) */}
+                    {(
                       <tr style={{borderBottom:"1px solid "+B.grey1}}>
                         <td style={{padding:"9px 8px", fontWeight:700, color:"#0e7490", position:"sticky", left:0, background:B.white, fontSize:11}} title="m² planeados a vender">📐 m² a vender</td>
                         {planM2Mes.map((v,i)=>(
@@ -12714,8 +12714,8 @@ Respuesta: [respuesta exacta, conversacional]
                       })}
                       <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:"#15803d", background:"#dcfce7", fontSize:12, whiteSpace:"nowrap"}}>{fmtVal(realTotal)}</td>
                     </tr>
-                    {/* Fila m² vendidos (Real) — solo si hay datos de m² */}
-                    {hayM2&&(
+                    {/* Fila m² vendidos (Real) — siempre visible (en blanco si no hay datos) */}
+                    {(
                       <tr style={{borderBottom:"1px solid "+B.grey1, background:"#f0fdf4"}}>
                         <td style={{padding:"9px 8px", fontWeight:700, color:"#0e7490", position:"sticky", left:0, background:"#f0fdf4", fontSize:11}} title="m² efectivamente vendidos">📐 m² vendidos</td>
                         {realM2Mes.map((v,i)=>(
@@ -12726,8 +12726,8 @@ Respuesta: [respuesta exacta, conversacional]
                         <td style={{padding:"9px 8px", textAlign:"right", fontWeight:800, color:"#0e7490", background:"#dcfce7", fontSize:11, whiteSpace:"nowrap"}}>{new Intl.NumberFormat("es-MX",{maximumFractionDigits:0}).format(realM2Total)} m²</td>
                       </tr>
                     )}
-                    {/* Fila precio promedio por m² (Real) — solo si hay m² vendidos */}
-                    {hayM2&&realM2Total>0&&(
+                    {/* Fila precio promedio por m² (Real) — siempre visible (en blanco si no hay datos) */}
+                    {(
                       <tr style={{borderBottom:"1px solid "+B.grey1}}>
                         <td style={{padding:"9px 8px", fontWeight:700, color:"#92400e", position:"sticky", left:0, background:B.white, fontSize:11}} title="Precio promedio por m² = monto vendido ÷ m² vendidos">💲 $/m² prom.</td>
                         {realM2Mes.map((m2,i)=>{
@@ -12775,8 +12775,8 @@ Respuesta: [respuesta exacta, conversacional]
                 </table>
               </div>
 
-              {/* ═══ GRÁFICA DE BARRAS · Ventas reales: monto y m² por mes ═══ */}
-              {hayM2&&(
+              {/* ═══ GRÁFICA DE BARRAS · Ventas reales: monto y m² por mes (siempre visible) ═══ */}
+              {(
                 <div style={{marginTop:18, padding:"16px 18px", background:B.offW, borderRadius:10, border:"1px solid "+B.grey1}}>
                   <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:14}}>
                     <div style={{fontSize:11, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1}}>📊 Ventas reales: monto y m² por mes</div>
