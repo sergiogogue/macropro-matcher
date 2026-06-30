@@ -1897,6 +1897,7 @@ function MacroProMatcher() {
   // ═══ SYNC AUTOMÁTICA MULTIUSUARIO (por registro, fusión — nunca borra) ═══
   const [syncAuto,setSyncAuto]=React.useState(()=>{ try{ return localStorage.getItem("macropro_sync_auto")!=="0"; }catch(e){ return true; } });
   const [syncEstado,setSyncEstado]=React.useState("");
+  const lastCrmRef=React.useRef(null), lastCapRef=React.useRef(null), lastOfRef=React.useRef(null), lastSolRef=React.useRef(null);
   React.useEffect(()=>{ try{ localStorage.setItem("macropro_sync_auto", syncAuto?"1":"0"); }catch(e){} },[syncAuto]);
   // Subida del CRM por LOTE (mismas columnas que la sync manual; lote_id canónico = loteKey)
   const crmFila=(key,e)=>({ lote_id: loteKey({id:key}), pipeline: e.pipeline||"Disponible", asesor_asignado: e.asesorResponsable||null, prospectos: e.prospectos||[], interacciones: e.interacciones||[], dev_feedback: e.devFeedback||[], seguimientos_asesor: e.seguimientosAsesor||(e.seguimientoAsesor?[e.seguimientoAsesor]:[]), updated_at:new Date().toISOString() });
@@ -1911,7 +1912,6 @@ function MacroProMatcher() {
       let subidos=0;
       Object.keys(crmData||{}).forEach(k=>{ if(JSON.stringify(crmData[k])!==JSON.stringify(prev[k])){ subirCRMLoteCloud(k,crmData[k]); subidos++; } });
       crmSnapRef.current=JSON.stringify(crmData);
-      if(subidos>0) setSyncEstado("☁︎ subiendo…");
     }catch(e){} }, 2500);
     return ()=>clearTimeout(t);
   },[crmData,syncAuto]);
@@ -1926,9 +1926,11 @@ function MacroProMatcher() {
       try{
         const inv=Array.isArray(inventory)?inventory:[];
         const invByNorm={}; inv.forEach(l=>{ if(l&&l.id) invByNorm[norm(loteKey(l))]=l.id; });
+        let any=false;
         // ── CRM (unión por lote y por prospecto; nunca borra) ──
         const R=await window.sb.from('crm_lotes').select('lote_id,pipeline,asesor_asignado,prospectos,interacciones,dev_feedback,seguimientos_asesor');
-        if(!stop&&R&&!R.error&&Array.isArray(R.data)){
+        const rk=(R&&!R.error&&Array.isArray(R.data))?JSON.stringify(R.data):null;
+        if(!stop&&rk!==null&&rk!==lastCrmRef.current){ lastCrmRef.current=rk;
           setCrmData(prevC=>{ const out={...(prevC||{})}; let ch=false;
             R.data.forEach(row=>{ if(!row||!row.lote_id) return; const key=invByNorm[norm(row.lote_id)]||row.lote_id;
               const cloud={pipeline:row.pipeline||"Disponible",asesorResponsable:row.asesor_asignado||"",interacciones:parseJ(row.interacciones),prospectos:parseJ(row.prospectos),devFeedback:parseJ(row.dev_feedback),seguimientosAsesor:parseJ(row.seguimientos_asesor)};
@@ -1937,16 +1939,19 @@ function MacroProMatcher() {
               if(JSON.stringify(out[key])!==JSON.stringify(merged)){ out[key]=merged; ch=true; }
             });
             if(!ch) return prevC; saveCRM(out); try{crmSnapRef.current=JSON.stringify(out);}catch(e){} return out;
-          });
+          }); any=true;
         }
-        // ── Captaciones / Ofertas / Solicitudes (merge por id; respeta eliminado) ──
+        // ── Captaciones / Ofertas / Solicitudes (merge por id; respeta eliminado; solo si cambió) ──
         const C=await window.sb.from('captaciones').select('*');
-        if(!stop&&C&&!C.error&&Array.isArray(C.data)) setCaptaciones(prev=>{ const o={}; (prev||[]).forEach(x=>{if(x&&x.id)o[x.id]=x;}); C.data.forEach(r=>{ if(!r||!r.id) return; if(r.eliminado===true){delete o[r.id];return;} o[r.id]=captacionDeFila(r); }); const arr=Object.values(o); saveCaptaciones(arr); return arr; });
+        const ck=(C&&!C.error&&Array.isArray(C.data))?JSON.stringify(C.data):null;
+        if(!stop&&ck!==null&&ck!==lastCapRef.current){ lastCapRef.current=ck; any=true; setCaptaciones(prev=>{ const o={}; (prev||[]).forEach(x=>{if(x&&x.id)o[x.id]=x;}); C.data.forEach(r=>{ if(!r||!r.id) return; if(r.eliminado===true){delete o[r.id];return;} o[r.id]=captacionDeFila(r); }); const arr=Object.values(o); saveCaptaciones(arr); return arr; }); }
         const O=await window.sb.from('ofertas').select('*');
-        if(!stop&&O&&!O.error&&Array.isArray(O.data)) setOfertas(prev=>{ const o={...(prev||{})}; O.data.forEach(r=>{ if(!r||!r.id) return; if(r.eliminado===true){delete o[r.id];return;} o[r.id]={estado:r.estado,motivo:r.motivo||"",obs:r.obs||"",fecha:r.fecha||"",clienteNombre:r.cliente_nombre||"",cKey:r.c_key||"",loteId:r.lote_id||"",loteNombre:r.lote_nombre||""}; }); saveOfertas(o); return o; });
+        const ok=(O&&!O.error&&Array.isArray(O.data))?JSON.stringify(O.data):null;
+        if(!stop&&ok!==null&&ok!==lastOfRef.current){ lastOfRef.current=ok; any=true; setOfertas(prev=>{ const o={...(prev||{})}; O.data.forEach(r=>{ if(!r||!r.id) return; if(r.eliminado===true){delete o[r.id];return;} o[r.id]={estado:r.estado,motivo:r.motivo||"",obs:r.obs||"",fecha:r.fecha||"",clienteNombre:r.cliente_nombre||"",cKey:r.c_key||"",loteId:r.lote_id||"",loteNombre:r.lote_nombre||""}; }); saveOfertas(o); return o; }); }
         const SS=await window.sb.from('solicitudes_asesor').select('*');
-        if(!stop&&SS&&!SS.error&&Array.isArray(SS.data)) setSolicitudesAsesor(prev=>{ const byId={}; (prev||[]).forEach(s=>{if(s&&s.id)byId[s.id]=s;}); SS.data.forEach(r=>{ if(!r||!r.id||r.eliminado===true) return; byId[r.id]=solicitudDeFila(r); }); const arr=Object.values(byId); saveSolicitudesAsesor(arr); return arr; });
-        if(!stop) setSyncEstado("✓ "+new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"}));
+        const sk=(SS&&!SS.error&&Array.isArray(SS.data))?JSON.stringify(SS.data):null;
+        if(!stop&&sk!==null&&sk!==lastSolRef.current){ lastSolRef.current=sk; any=true; setSolicitudesAsesor(prev=>{ const byId={}; (prev||[]).forEach(s=>{if(s&&s.id)byId[s.id]=s;}); SS.data.forEach(r=>{ if(!r||!r.id||r.eliminado===true) return; byId[r.id]=solicitudDeFila(r); }); const arr=Object.values(byId); saveSolicitudesAsesor(arr); return arr; }); }
+        if(!stop&&any) setSyncEstado("✓ "+new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"}));
       }catch(e){ /* queda lo local */ }
     };
     const iv=setInterval(tick, 45000); const t0=setTimeout(tick, 3000);
