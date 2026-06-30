@@ -6341,12 +6341,11 @@ function MacroProMatcher() {
         doc.text("Detalle de prospectos ("+filtered.length+")",MX,30);
         doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(90,90,90);
         doc.text(filtrosTxt,MX,35);
-        const head=[["#","Cliente","Empresa","Asesor","Desarrollo","Lote","Etapa","Temp.","Teléfono","Días s/cont.","Último contacto","Nota"]];
+        const head=[["#","Cliente","Empresa","Asesor","Desarrollo","Lote","Etapa","Temp.","Teléfono","Días s/cont.","Último contacto"]];
         const body=filtered.map((item,i)=>{
           const cli=item.cli||{}, p2=item.prospecto||{}, crm=item.crm||{};
           const li=(crm.interacciones||[]).slice().reverse()[0];
           const ultimo=li?((li.canal||"")+(li.fecha?" · "+li.fecha:"")):"Sin interacciones";
-          const nota=((li&&li.nota)||p2.nota||"").toString();
           return [
             String(i+1),
             p2.nombre||"",
@@ -6358,15 +6357,14 @@ function MacroProMatcher() {
             getTempFromPipeline(item.pipeline),
             cli.telefono||p2.telefono||"",
             item.diasSinContacto!=null?String(item.diasSinContacto):"—",
-            ultimo,
-            nota.slice(0,70)+(nota.length>70?"…":"")
+            ultimo
           ];
         });
         doc.autoTable({startY:40,head,body,theme:"striped",
           styles:{fontSize:7.5,cellPadding:1.6,overflow:"linebreak",valign:"middle"},
           headStyles:{fillColor:[0,43,73],textColor:[245,179,53],fontStyle:"bold",fontSize:7.5},
           alternateRowStyles:{fillColor:[245,247,250]},
-          columnStyles:{0:{cellWidth:8,halign:"center"},6:{cellWidth:24},7:{halign:"center",cellWidth:16},9:{halign:"center",cellWidth:15},11:{cellWidth:50}},
+          columnStyles:{0:{cellWidth:8,halign:"center"},6:{cellWidth:26},7:{halign:"center",cellWidth:18},9:{halign:"center",cellWidth:16},10:{cellWidth:42}},
           margin:{left:MX,right:MX}});
         // Pie de página en todas las hojas
         const np=doc.internal.getNumberOfPages();
@@ -15220,15 +15218,19 @@ Respuesta: [respuesta exacta, conversacional]
             labelC=null; continue;
           }
           if(!curC||!mesColsC) continue;
-          // col1 fija el bloque: "Plan Desarr."→plan, "Venta Real"→real; otras (Meta SGG, Diferencia)→ignorar
-          if(c1){ const l=c1.toLowerCase(); labelC = l.includes("plan desarr")?"plan" : (l.includes("venta re")?"real":null); }
-          if(!labelC) continue;
+          const c1l=c1.toLowerCase();
           const c2l=c2.toLowerCase();
-          const isMonto=c2.includes("$");
-          const isUds=!isMonto&&c2l.startsWith("ud");
-          const isM2=!isMonto&&!isUds&&(c2l.includes("m2")||c2.includes("m²")||c2l.startsWith("mt")||c2l.includes("metro"));
+          // ¿Es un renglón de m²? La palabra puede venir en la col del nombre (B) o en la col Tipo (C).
+          const esM2Txt=(s)=>s.includes("m2")||s.includes("m²")||s==="mt"||s.startsWith("mt ")||s.includes("metro");
+          const isM2=esM2Txt(c2l)||esM2Txt(c1l);
+          // col1 fija el bloque: "Plan Desarr."→plan, "Venta Real"→real; otras (Meta SGG, Diferencia)→ignorar.
+          // OJO: un renglón de m² NO debe cambiar el bloque (hereda el plan/real vigente).
+          if(c1 && !isM2){ labelC = c1l.includes("plan desarr")?"plan" : (c1l.includes("venta re")?"real":null); }
+          if(!labelC) continue;
+          const isMonto=!isM2&&c2.includes("$");
+          const isUds=!isMonto&&!isM2&&c2l.startsWith("ud");
           if(!isMonto&&!isUds&&!isM2) continue;
-          mesColsC.forEach((col,m)=>{ if(col>=0&&col<row.length){ const v=toNumCap(row[col]); if(isMonto) resC[curC][labelC].monto[m]=v; else if(isM2) resC[curC][labelC].m2[m]=v; else resC[curC][labelC].uds[m]=v; } });
+          mesColsC.forEach((col,m)=>{ if(col>=0&&col<row.length){ const v=toNumCap(row[col]); if(isM2) resC[curC][labelC].m2[m]=v; else if(isMonto) resC[curC][labelC].monto[m]=v; else resC[curC][labelC].uds[m]=v; } });
         }
         if(Object.keys(resC).length>0){
           const catNm=wb.SheetNames.find(s=>s.toLowerCase().includes("catálogo")||s.toLowerCase().includes("catalogo"));
