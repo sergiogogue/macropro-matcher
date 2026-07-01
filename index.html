@@ -6837,6 +6837,7 @@ function MacroProMatcher() {
               descripcion:actData.descripcion||"",
               fecha:ensureWeekday(actData.fecha||new Date().toISOString().slice(0,10)),
               hora:actData.hora||"",
+              asignadoA:actData.asignadoA||"",
               completada:false,
               creadaEn:new Date().toISOString().slice(0,10)
             });
@@ -8610,10 +8611,10 @@ function MacroProMatcher() {
           });
         }
       });
-      // Filtrar por asesor si aplica
+      // Filtrar por asesor si aplica (incluye tareas ASIGNADAS a esa persona)
       const actsFiltrados=filterAsesor==="Todos"?allActs:allActs.filter(a=>{
         const aName=a.asesor||(a.cli&&a.cli.asesor)||null;
-        return aName===filterAsesor;
+        return aName===filterAsesor||(a.act&&a.act.asignadoA===filterAsesor);
       });
       // Buscador: filtra por cliente, empresa, lote, desarrollo, asesor o descripción de la actividad
       const q=miDiaSearch.trim().toLowerCase();
@@ -8663,6 +8664,7 @@ function MacroProMatcher() {
                 <strong style={{color:B.navy}}>{a.prospecto.nombre}</strong>{a.prospecto.empresa&&<span style={{fontSize:10,fontWeight:700,color:B.gold,marginLeft:4}}>🏢 {a.prospecto.empresa}</span>} · {a.lot.nombre} · {a.lot.desarrollo}
               </div>
               {a.asesor&&<div style={{fontSize:10,color:"#2563AC",fontWeight:600}}>👤 {a.asesor}</div>}
+              {a.act.asignadoA&&<div style={{fontSize:10,color:"#7c3aed",fontWeight:700,marginTop:1}}>🙋 Asignada a: {a.act.asignadoA}</div>}
               {a.act.completada&&a.act.resultado&&(
                 <div style={{marginTop:6,fontSize:10,color:"#166534"}}>Resultado: <strong>{a.act.resultado}</strong>{a.act.notaResultado&&" — "+a.act.notaResultado}</div>
               )}
@@ -8823,16 +8825,24 @@ function MacroProMatcher() {
             </div>
           )}
 
-          {/* Advertencia si hay prospectos activos SIN actividad pendiente */}
+          {/* Advertencia: prospectos activos SIN una PRÓXIMA acción programada (respeta filtro de asesor) */}
           {(() => {
-            const prospSinAct=allProspectos.filter(x=>STAGES_REQUIRING_ACTIVITY.includes(x.pipeline)&&!(x.prospecto.actividades||[]).some(a=>!a.completada));
+            const asesorDeX=(x)=>(x.prospecto&&x.prospecto.asesor)||(x.cli&&x.cli.asesor)||(x.crm&&x.crm.asesorResponsable)||"";
+            const prospSinAct=allProspectos.filter(x=>{
+              if(!STAGES_REQUIRING_ACTIVITY.includes(x.pipeline)) return false;
+              // ¿tiene alguna actividad pendiente (no completada)? → está cubierto
+              if((x.prospecto.actividades||[]).some(a=>!a.completada)) return false;
+              // respetar el filtro de asesor activo (incluye tareas asignadas)
+              if(filterAsesor!=="Todos" && asesorDeX(x)!==filterAsesor && !(x.prospecto.actividades||[]).some(a=>a.asignadoA===filterAsesor)) return false;
+              return true;
+            });
             if(prospSinAct.length===0) return null;
             return (
               <div style={{background:"#fef3c7",border:"1.5px solid #f59e0b",borderRadius:10,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                 <span style={{fontSize:18}}>⚠</span>
                 <div style={{flex:1,minWidth:200}}>
-                  <div style={{fontSize:12,fontWeight:800,color:"#92400e"}}>{prospSinAct.length} prospecto{prospSinAct.length!==1?"s":""} activo{prospSinAct.length!==1?"s":""} sin actividad pendiente</div>
-                  <div style={{fontSize:10,color:"#78350f",marginTop:2}}>Prospectos en Negociación / Propuesta / Contrato deberían tener siempre una acción programada.</div>
+                  <div style={{fontSize:12,fontWeight:800,color:"#92400e"}}>{prospSinAct.length} prospecto{prospSinAct.length!==1?"s":""} sin próxima acción programada</div>
+                  <div style={{fontSize:10,color:"#78350f",marginTop:2}}>En Negociación / Propuesta / Contrato. Puede que ya les diste seguimiento, pero <strong>no hay una siguiente actividad pendiente</strong> agendada. Agéndala aquí:</div>
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                   {prospSinAct.slice(0,4).map((x,i)=>(
@@ -10075,6 +10085,19 @@ Respuesta: [respuesta exacta, conversacional]
                         <button onClick={()=>setActivityForm({...activityForm,fecha:addBusinessDays(new Date(),3)})} style={{fontSize:10,padding:"3px 8px",background:B.offW,border:"1px solid "+B.grey1,borderRadius:6,cursor:"pointer",color:B.grey4,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>+3 días</button>
                         <button onClick={()=>setActivityForm({...activityForm,fecha:addBusinessDays(new Date(),7)})} style={{fontSize:10,padding:"3px 8px",background:B.offW,border:"1px solid "+B.grey1,borderRadius:6,cursor:"pointer",color:B.grey4,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>+1 semana</button>
                       </div>
+                      {/* Asignar a un colaborador */}
+                      <label style={{fontSize:10,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:0.8,display:"block",marginTop:14,marginBottom:5}}>🙋 Asignar a (colaborador)</label>
+                      {(() => {
+                        const asignVal=activityForm.asignadoA!==undefined?activityForm.asignadoA:((actExisting&&actExisting.asignadoA)||"");
+                        return (
+                          <select value={asignVal} onChange={e=>setActivityForm({...activityForm,asignadoA:e.target.value})}
+                            style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid "+B.grey1,fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",boxSizing:"border-box",background:B.white,color:B.navy}}>
+                            <option value="">— Yo / sin asignar —</option>
+                            {[...new Set([...asesoresCatalog.map(a=>a.nombre).filter(Boolean), asignVal].filter(Boolean))].sort().map(n=><option key={n} value={n}>{n}</option>)}
+                          </select>
+                        );
+                      })()}
+                      <div style={{fontSize:9,color:B.grey3,marginTop:4,fontStyle:"italic"}}>La tarea aparecerá en el "Mi día" de esa persona al filtrar por su nombre.</div>
                     </>
                   )}
                 </div>
@@ -10099,7 +10122,8 @@ Respuesta: [respuesta exacta, conversacional]
                       completeActivity(showActivityModal.lotId,showActivityModal.prospectoIdx,actExisting.id,completeForm.resultado,completeForm.nota);
                     } else if(isEdit){
                       if(!activityForm.fecha){toast("⚠ Selecciona fecha");return;}
-                      updateActivity(showActivityModal.lotId,showActivityModal.prospectoIdx,actExisting.id,{tipo:activityForm.tipo,descripcion:activityForm.descripcion,fecha:activityForm.fecha,hora:activityForm.hora});
+                      const asignEdit=activityForm.asignadoA!==undefined?activityForm.asignadoA:((actExisting&&actExisting.asignadoA)||"");
+                      updateActivity(showActivityModal.lotId,showActivityModal.prospectoIdx,actExisting.id,{tipo:activityForm.tipo,descripcion:activityForm.descripcion,fecha:activityForm.fecha,hora:activityForm.hora,asignadoA:asignEdit});
                       toast("✅ Actividad actualizada");
                     } else {
                       if(!activityForm.fecha){toast("⚠ Selecciona fecha");return;}
