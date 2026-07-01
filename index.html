@@ -400,10 +400,18 @@ function loteToSupabase(lote) {
 function clienteToSupabase(cliente) {
   // Leer correo de cualquiera de los campos (los clientes importados usan 'correo', no 'email')
   const email = (cliente.email || cliente.correo || "").toString().trim().toLowerCase();
-  if (!email) return null; // Sin correo no se puede migrar (clave única acordada)
+  // Clave única estable: id explícito → correo → determinística por nombre+teléfono.
+  // Así un cliente SIN correo también sincroniza y NO se duplica (misma clave en las 3 compus).
+  let idc = (cliente.id || cliente.id_cliente || "").toString().trim() || email;
+  if (!idc) {
+    const n = (cliente.nombre || "").toString().trim().toLowerCase().replace(/\s+/g, " ");
+    const t = (cliente.telefono || "").toString().replace(/\D/g, "");
+    if (n || t) idc = "np:" + n + "|" + t;
+  }
+  if (!idc) return null; // sin correo, ni nombre, ni teléfono → no hay clave → no subir
   return {
-    email: email,
-    id_cliente: (cliente.id || cliente.id_cliente || "").toString().trim() || null,
+    email: email || null,
+    id_cliente: idc,
     nombre: cliente.nombre || null,
     empresa: cliente.empresa || null,
     telefono: cliente.telefono ? cliente.telefono.toString() : null,
@@ -533,7 +541,7 @@ async function migrarClientesASupabase(clientes, onProgress) {
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
     try {
-      const { data, error } = await sb.from('clientes').upsert(batch, { onConflict: 'email' }).select('id');
+      const { data, error } = await sb.from('clientes').upsert(batch, { onConflict: 'id_cliente' }).select('id');
       if (error) {
         errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${error.message}`);
       } else {
@@ -1907,10 +1915,13 @@ function MacroProMatcher() {
   // Subida del CRM por LOTE (mismas columnas que la sync manual; lote_id canónico = loteKey)
   const crmFila=(key,e)=>({ lote_id: loteKey({id:key}), pipeline: e.pipeline||"Disponible", asesor_asignado: e.asesorResponsable||null, prospectos: e.prospectos||[], interacciones: e.interacciones||[], dev_feedback: e.devFeedback||[], seguimientos_asesor: e.seguimientosAsesor||(e.seguimientoAsesor?[e.seguimientoAsesor]:[]), updated_at:new Date().toISOString() });
   const subirCRMLoteCloud=async(key,e)=>{ if(!window.sb||!key||!e) return; try{ await window.sb.from('crm_lotes').upsert(crmFila(key,e),{onConflict:'lote_id'}); }catch(err){ console.warn('subir crm lote:',err&&err.message); } };
-  // Subida de UN cliente (clave = email; sin email no se sube para evitar duplicados)
-  const subirClienteCloud=async(c)=>{ if(!window.sb||!c) return; const row=clienteToSupabase(c); if(!row) return; try{ await window.sb.from('clientes').upsert(row,{onConflict:'email'}); }catch(err){ console.warn('subir cliente:',err&&err.message); } };
+  // Subida de UN cliente (clave = id_cliente; sin id ni correo no se sube para evitar duplicados)
+  const subirClienteCloud=async(c)=>{ if(!window.sb||!c) return; const row=clienteToSupabase(c); if(!row) return; try{ await window.sb.from('clientes').upsert(row,{onConflict:'id_cliente'}); }catch(err){ console.warn('subir cliente:',err&&err.message); } };
+  // Clave de identidad de un cliente para snapshot/dedupe: correo → id → nombre+teléfono
+  const normTxt=s=>String(s||"").trim().toLowerCase().replace(/\s+/g," ");
+  const cliKey=(c)=>{ const e=normTxt(c&&(c.email||c.correo)); if(e) return "e:"+e; const n=normTxt(c&&c.nombre), t=String((c&&c.telefono)||"").replace(/\D/g,""); if(n||t) return "n:"+n+"|"+t; const id=String((c&&(c.id||c.id_cliente))||"").trim(); return id?("id:"+id):""; };
   const cliSnapRef=React.useRef(null);
-  const cliSnap=(arr)=>{ const s={}; (arr||[]).forEach(c=>{ const e=((c.email||c.correo||"")+"").toLowerCase().trim(); if(e) s[e]=JSON.stringify(c); }); return s; };
+  const cliSnap=(arr)=>{ const s={}; (arr||[]).forEach(c=>{ const k=cliKey(c); if(k) s[k]=JSON.stringify(c); }); return s; };
   const crmSnapRef=React.useRef(null); const syncReady2=React.useRef(false);
   React.useEffect(()=>{ const t=setTimeout(()=>{ syncReady2.current=true; try{crmSnapRef.current=JSON.stringify(crmData);}catch(e){} try{cliSnapRef.current=JSON.stringify(cliSnap(clients));}catch(e){} }, 6000); return ()=>clearTimeout(t); },[]);
   // Auto-subida: detecta lotes del CRM que cambiaron y sube solo esos (debounce 2.5s)
@@ -1929,7 +1940,7 @@ function MacroProMatcher() {
     if(!syncAuto||!window.sb||!syncReady2.current) return;
     const t=setTimeout(()=>{ try{
       const prev=cliSnapRef.current?JSON.parse(cliSnapRef.current):{};
-      (clients||[]).forEach(c=>{ const e=((c.email||c.correo||"")+"").toLowerCase().trim(); if(!e) return; const js=JSON.stringify(c); if(js!==prev[e]) subirClienteCloud(c); });
+      (clients||[]).forEach(c=>{ const k=cliKey(c); if(!k) return; const js=JSON.stringify(c); if(js!==prev[k]) subirClienteCloud(c); });
       cliSnapRef.current=JSON.stringify(cliSnap(clients));
     }catch(e){} }, 2500);
     return ()=>clearTimeout(t);
@@ -1977,8 +1988,8 @@ function MacroProMatcher() {
           const cloud=CL.data.map(clienteFromSupabase).filter(Boolean);
           setClients(prev=>{
             const used=new Set(); const out=[];
-            cloud.forEach(c=>{ const e=((c.email||c.correo||"")+"").toLowerCase().trim(); if(e) used.add(e); out.push(c); });
-            (prev||[]).forEach(c=>{ const e=((c.email||c.correo||"")+"").toLowerCase().trim(); if(!e||!used.has(e)) out.push(c); });
+            cloud.forEach(c=>{ const k=cliKey(c); if(k) used.add(k); out.push(c); }); // la nube manda
+            (prev||[]).forEach(c=>{ const k=cliKey(c); if(!k||!used.has(k)) out.push(c); }); // conserva locales que no están en la nube
             if(JSON.stringify(out)===JSON.stringify(prev||[])) return prev;
             savePersisted(STORAGE_KEYS.clients, out);
             try{ cliSnapRef.current=JSON.stringify(cliSnap(out)); }catch(e){} // evita re-subir lo recién bajado
