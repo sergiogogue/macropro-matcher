@@ -8630,8 +8630,23 @@ function MacroProMatcher() {
 
       const asesoresUnicos=[...new Set(allActs.map(a=>a.asesor||(a.cli&&a.cli.asesor)).filter(Boolean))].sort();
 
+      // ── Briefing del día (KPIs) — sobre el filtro de asesor (no del buscador) ──
+      const vencN=actsFiltrados.filter(a=>a.urgencia.rank===1).length;
+      const hoyN=actsFiltrados.filter(a=>a.urgencia.rank===2).length;
+      const pendientesTodos=actsFiltrados.filter(a=>a.urgencia.rank>=1&&a.urgencia.rank<=4);
+      const completadasTodas=actsFiltrados.filter(a=>a.urgencia.rank===5);
+      const totalActs=pendientesTodos.length+completadasTodas.length;
+      const tasaCumpl=totalActs>0?Math.round(completadasTodas.length/totalActs*100):0;
+      const lotesEnJuego={}; pendientesTodos.forEach(a=>{ if(a.lot&&a.lot.id) lotesEnJuego[a.lot.id]=a.lot.precio_total||(a.lot.sup_m2&&a.lot.precio_m2?a.lot.sup_m2*a.lot.precio_m2:0)||0; });
+      const valorEnJuego=Object.values(lotesEnJuego).reduce((x,y)=>x+y,0);
+      const foco=[...pendientesTodos].sort((a,b)=>((b.lot&&b.lot.precio_total)||0)-((a.lot&&a.lot.precio_total)||0))[0];
+
       const renderActCard=(a)=>{
         const tipo=ACTIVITY_TYPES.find(t=>t.id===a.act.tipo)||ACTIVITY_TYPES[ACTIVITY_TYPES.length-1];
+        const tel=(((a.cli&&a.cli.telefono)||(a.prospecto&&a.prospecto.telefono))||"").toString();
+        const digits=tel.replace(/\D/g,"");
+        const waNum=digits.length===10?"52"+digits:digits;
+        const waMsg=encodeURIComponent(`Hola ${a.prospecto&&a.prospecto.nombre?a.prospecto.nombre:""}, le escribo de Grupo Guía para dar seguimiento sobre ${a.lot&&(a.lot.nombre||a.lot.desarrollo)?(a.lot.nombre||a.lot.desarrollo):"su interés"}.`);
         return (
           <div key={a.lotId+"::"+a.prospectoIdx+"::"+a.act.id} style={{background:B.white,borderRadius:10,padding:"12px 14px",marginBottom:8,border:"1px solid "+B.grey1,borderLeft:"4px solid "+a.urgencia.bg,boxShadow:"0 1px 3px rgba(0,43,73,0.05)",display:"flex",gap:12,alignItems:"flex-start",flexWrap:"wrap"}}>
             {/* Icono + Tipo */}
@@ -8657,6 +8672,8 @@ function MacroProMatcher() {
               {!a.act.completada&&<button onClick={()=>{setShowActivityModal({mode:"complete",lotId:a.lotId,prospectoIdx:a.prospectoIdx,activity:a.act});setCompleteForm({resultado:"Positivo",nota:""});}} style={{padding:"6px 12px",background:"#16a34a",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>✓ Completar</button>}
               {!a.act.completada&&<button onClick={()=>{setShowActivityModal({mode:"edit",lotId:a.lotId,prospectoIdx:a.prospectoIdx,activity:a.act});setActivityForm({tipo:a.act.tipo,descripcion:a.act.descripcion,fecha:a.act.fecha,hora:a.act.hora||""});}} style={{padding:"6px 10px",background:B.offW,color:B.grey4,border:"1px solid "+B.grey1,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>✏ Editar</button>}
               <button onClick={()=>{const crm=crmData[a.lotId]||{};const prosp=(crm.prospectos||[])[a.prospectoIdx];if(prosp){const cliMidia=clients.find(c=>c.nombre===prosp.nombre)||null;setQuickProspData({lot:a.lot,p:prosp,prospectoIdx:a.prospectoIdx,crm,cli:cliMidia});setShowQuickProspModal(true);}}} style={{padding:"6px 10px",background:"#eff6ff",color:"#1d4ed8",border:"1px solid #bfdbfe",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>👤 Ver prospecto</button>
+              {digits&&<a href={`https://wa.me/${waNum}?text=${waMsg}`} target="_blank" rel="noreferrer" title={"WhatsApp a "+tel} style={{padding:"6px 10px",background:"#25d366",color:"#fff",borderRadius:7,fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",textDecoration:"none",display:"inline-flex",alignItems:"center"}}>📱 WA</a>}
+              {digits&&<a href={`tel:${digits}`} title={"Llamar a "+tel} style={{padding:"6px 10px",background:"#eff6ff",color:"#1d4ed8",border:"1px solid #bfdbfe",borderRadius:7,fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",textDecoration:"none",display:"inline-flex",alignItems:"center"}}>📞 Llamar</a>}
               <button onClick={()=>{setSelectedLotCRM(a.lot);setActiveTab("kanban");}} style={{padding:"6px 10px",background:B.offW,color:B.grey4,border:"1px solid "+B.grey1,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Ver lote</button>
               <button onClick={()=>deleteActivity(a.lotId,a.prospectoIdx,a.act.id)} style={{padding:"6px 8px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:7,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>🗑</button>
             </div>
@@ -8772,6 +8789,39 @@ function MacroProMatcher() {
               )}
             </div>
           </div>
+
+          {/* ── BRIEFING DEL DÍA (KPIs) ── */}
+          {allActs.length>0&&(
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+              <div style={{flex:"1 1 120px",minWidth:110,background:vencN>0?"#fef2f2":B.white,borderRadius:12,padding:"12px 14px",border:"1px solid "+(vencN>0?"#fecaca":B.grey1),borderLeft:"4px solid #dc2626"}}>
+                <div style={{fontSize:9,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6}}>🔴 Vencidas</div>
+                <div style={{fontSize:24,fontWeight:800,color:"#dc2626",fontFamily:"'Playfair Display',serif"}}>{vencN}</div>
+                <div style={{fontSize:9,color:B.grey4}}>requieren atención hoy</div>
+              </div>
+              <div style={{flex:"1 1 120px",minWidth:110,background:B.white,borderRadius:12,padding:"12px 14px",border:"1px solid "+B.grey1,borderLeft:"4px solid #d97706"}}>
+                <div style={{fontSize:9,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6}}>🟡 Para hoy</div>
+                <div style={{fontSize:24,fontWeight:800,color:"#d97706",fontFamily:"'Playfair Display',serif"}}>{hoyN}</div>
+                <div style={{fontSize:9,color:B.grey4}}>programadas hoy</div>
+              </div>
+              <div style={{flex:"1 1 120px",minWidth:110,background:B.white,borderRadius:12,padding:"12px 14px",border:"1px solid "+B.grey1,borderLeft:"4px solid #16a34a"}}>
+                <div style={{fontSize:9,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6}}>✅ Cumplimiento</div>
+                <div style={{fontSize:24,fontWeight:800,color:"#16a34a",fontFamily:"'Playfair Display',serif"}}>{tasaCumpl}%</div>
+                <div style={{fontSize:9,color:B.grey4}}>{completadasTodas.length} de {totalActs} actividades</div>
+              </div>
+              <div style={{flex:"1 1 140px",minWidth:130,background:B.navy,borderRadius:12,padding:"12px 14px",borderLeft:"4px solid "+B.gold}}>
+                <div style={{fontSize:9,fontWeight:800,color:B.gold,textTransform:"uppercase",letterSpacing:0.6}}>💰 Valor en juego</div>
+                <div style={{fontSize:22,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>{fmtM(valorEnJuego)}</div>
+                <div style={{fontSize:9,color:"rgba(255,255,255,0.65)"}}>{Object.keys(lotesEnJuego).length} lote{Object.keys(lotesEnJuego).length!==1?"s":""} en seguimiento</div>
+              </div>
+              {foco&&foco.prospecto&&(
+                <div onClick={()=>setMiDiaSearch(foco.prospecto.nombre||"")} title="Filtrar a este prospecto" style={{flex:"1 1 180px",minWidth:150,background:"linear-gradient(135deg,#fffbeb,#fff)",borderRadius:12,padding:"12px 14px",border:"1px solid #fde68a",borderLeft:"4px solid "+B.gold,cursor:"pointer"}}>
+                  <div style={{fontSize:9,fontWeight:800,color:"#b45309",textTransform:"uppercase",letterSpacing:0.6}}>⭐ Foco del día</div>
+                  <div style={{fontSize:14,fontWeight:800,color:B.navy,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{foco.prospecto.nombre}</div>
+                  <div style={{fontSize:10,color:B.grey4}}>{foco.lot&&foco.lot.precio_total?fmtM(foco.lot.precio_total):""}{foco.lot?" · "+(foco.lot.nombre||foco.lot.desarrollo||""):""}</div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Advertencia si hay prospectos activos SIN actividad pendiente */}
           {(() => {
