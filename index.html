@@ -1902,13 +1902,17 @@ function MacroProMatcher() {
   // ═══ SYNC AUTOMÁTICA MULTIUSUARIO (por registro, fusión — nunca borra) ═══
   const [syncAuto,setSyncAuto]=React.useState(()=>{ try{ return localStorage.getItem("macropro_sync_auto")!=="0"; }catch(e){ return true; } });
   const [syncEstado,setSyncEstado]=React.useState("");
-  const lastCrmRef=React.useRef(null), lastCapRef=React.useRef(null), lastOfRef=React.useRef(null), lastSolRef=React.useRef(null);
+  const lastCrmRef=React.useRef(null), lastCapRef=React.useRef(null), lastOfRef=React.useRef(null), lastSolRef=React.useRef(null), lastCliRef=React.useRef(null);
   React.useEffect(()=>{ try{ localStorage.setItem("macropro_sync_auto", syncAuto?"1":"0"); }catch(e){} },[syncAuto]);
   // Subida del CRM por LOTE (mismas columnas que la sync manual; lote_id canónico = loteKey)
   const crmFila=(key,e)=>({ lote_id: loteKey({id:key}), pipeline: e.pipeline||"Disponible", asesor_asignado: e.asesorResponsable||null, prospectos: e.prospectos||[], interacciones: e.interacciones||[], dev_feedback: e.devFeedback||[], seguimientos_asesor: e.seguimientosAsesor||(e.seguimientoAsesor?[e.seguimientoAsesor]:[]), updated_at:new Date().toISOString() });
   const subirCRMLoteCloud=async(key,e)=>{ if(!window.sb||!key||!e) return; try{ await window.sb.from('crm_lotes').upsert(crmFila(key,e),{onConflict:'lote_id'}); }catch(err){ console.warn('subir crm lote:',err&&err.message); } };
+  // Subida de UN cliente (clave = email; sin email no se sube para evitar duplicados)
+  const subirClienteCloud=async(c)=>{ if(!window.sb||!c) return; const row=clienteToSupabase(c); if(!row) return; try{ await window.sb.from('clientes').upsert(row,{onConflict:'email'}); }catch(err){ console.warn('subir cliente:',err&&err.message); } };
+  const cliSnapRef=React.useRef(null);
+  const cliSnap=(arr)=>{ const s={}; (arr||[]).forEach(c=>{ const e=((c.email||c.correo||"")+"").toLowerCase().trim(); if(e) s[e]=JSON.stringify(c); }); return s; };
   const crmSnapRef=React.useRef(null); const syncReady2=React.useRef(false);
-  React.useEffect(()=>{ const t=setTimeout(()=>{ syncReady2.current=true; try{crmSnapRef.current=JSON.stringify(crmData);}catch(e){} }, 6000); return ()=>clearTimeout(t); },[]);
+  React.useEffect(()=>{ const t=setTimeout(()=>{ syncReady2.current=true; try{crmSnapRef.current=JSON.stringify(crmData);}catch(e){} try{cliSnapRef.current=JSON.stringify(cliSnap(clients));}catch(e){} }, 6000); return ()=>clearTimeout(t); },[]);
   // Auto-subida: detecta lotes del CRM que cambiaron y sube solo esos (debounce 2.5s)
   React.useEffect(()=>{
     if(!syncAuto||!window.sb||!syncReady2.current) return;
@@ -1920,6 +1924,16 @@ function MacroProMatcher() {
     }catch(e){} }, 2500);
     return ()=>clearTimeout(t);
   },[crmData,syncAuto]);
+  // Auto-subida de CLIENTES: sube solo los que cambiaron (clave email, debounce 2.5s)
+  React.useEffect(()=>{
+    if(!syncAuto||!window.sb||!syncReady2.current) return;
+    const t=setTimeout(()=>{ try{
+      const prev=cliSnapRef.current?JSON.parse(cliSnapRef.current):{};
+      (clients||[]).forEach(c=>{ const e=((c.email||c.correo||"")+"").toLowerCase().trim(); if(!e) return; const js=JSON.stringify(c); if(js!==prev[e]) subirClienteCloud(c); });
+      cliSnapRef.current=JSON.stringify(cliSnap(clients));
+    }catch(e){} }, 2500);
+    return ()=>clearTimeout(t);
+  },[clients,syncAuto]);
   // Jalón periódico (45s): trae cambios de colaboradores y FUSIONA (CRM por unión; el resto por id)
   React.useEffect(()=>{
     if(!syncAuto) return;
@@ -1956,6 +1970,21 @@ function MacroProMatcher() {
         const SS=await window.sb.from('solicitudes_asesor').select('*');
         const sk=(SS&&!SS.error&&Array.isArray(SS.data))?JSON.stringify(SS.data):null;
         if(!stop&&sk!==null&&sk!==lastSolRef.current){ lastSolRef.current=sk; any=true; setSolicitudesAsesor(prev=>{ const byId={}; (prev||[]).forEach(s=>{if(s&&s.id)byId[s.id]=s;}); SS.data.forEach(r=>{ if(!r||!r.id||r.eliminado===true) return; byId[r.id]=solicitudDeFila(r); }); const arr=Object.values(byId); saveSolicitudesAsesor(arr); return arr; }); }
+        // ── CLIENTES (fusión por email: la nube manda en los que coinciden; conserva locales sin email o no subidos) ──
+        const CL=await window.sb.from('clientes').select('*');
+        const clk=(CL&&!CL.error&&Array.isArray(CL.data))?JSON.stringify(CL.data):null;
+        if(!stop&&clk!==null&&clk!==lastCliRef.current){ lastCliRef.current=clk;
+          const cloud=CL.data.map(clienteFromSupabase).filter(Boolean);
+          setClients(prev=>{
+            const used=new Set(); const out=[];
+            cloud.forEach(c=>{ const e=((c.email||c.correo||"")+"").toLowerCase().trim(); if(e) used.add(e); out.push(c); });
+            (prev||[]).forEach(c=>{ const e=((c.email||c.correo||"")+"").toLowerCase().trim(); if(!e||!used.has(e)) out.push(c); });
+            if(JSON.stringify(out)===JSON.stringify(prev||[])) return prev;
+            savePersisted(STORAGE_KEYS.clients, out);
+            try{ cliSnapRef.current=JSON.stringify(cliSnap(out)); }catch(e){} // evita re-subir lo recién bajado
+            return out;
+          }); any=true;
+        }
         if(!stop&&any) setSyncEstado("✓ "+new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"}));
       }catch(e){ /* queda lo local */ }
     };
