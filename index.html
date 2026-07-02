@@ -13416,6 +13416,73 @@ Respuesta: [respuesta exacta, conversacional]
   };
 
   // ══════════════ CAPTACIÓN DE TERRENOS (opcionamiento) ══════════════
+  // ── PDF de instrucciones para compartir la liga de captación (con logo Macrolotes Guía) ──
+  const CAPTAR_URL = "https://sergiogogue.github.io/macropro-matcher/captar.html";
+  const LOGO_MACROLOTES = "https://xugrrabebphdelgwqnwc.supabase.co/storage/v1/object/public/logos-desarrollos/03ad3f32-7322-4e98-b653-8bdb970b68d5-1779665862554.png";
+  const cargarImg = (url)=> new Promise((resolve)=>{
+    try{
+      const img = new Image(); img.crossOrigin = "anonymous";
+      img.onload = ()=>{ try{ const c=document.createElement("canvas"); c.width=img.naturalWidth; c.height=img.naturalHeight; c.getContext("2d").drawImage(img,0,0); resolve({data:c.toDataURL("image/png"), w:img.naturalWidth, h:img.naturalHeight}); }catch(e){ resolve(null); } };
+      img.onerror = ()=>resolve(null);
+      img.src = url;
+    }catch(e){ resolve(null); }
+  });
+  const descargarInstruccionesCaptacionPDF = async () => {
+    if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
+    toast("📄 Generando PDF…");
+    const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+    const PW=210, MX=18; let y=0;
+    // Banda de encabezado
+    doc.setFillColor(0,43,73); doc.rect(0,0,PW,46,"F");
+    const logo = await cargarImg(LOGO_MACROLOTES);
+    if(logo && logo.w){ const h=20, w=Math.min(70, h*(logo.w/logo.h)); try{ doc.addImage(logo.data,"PNG",MX,13,w,h); }catch(e){} }
+    else { doc.setTextColor(245,179,53); doc.setFont("helvetica","bold"); doc.setFontSize(20); doc.text("MACROLOTES GUÍA",MX,26); }
+    doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.text("Semáforo para Opción",PW-MX,20,{align:"right"});
+    doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(200,215,230);
+    doc.text("Captación de terrenos y macrolotes",PW-MX,26,{align:"right"});
+    y=60;
+    doc.setTextColor(0,43,73); doc.setFont("helvetica","bold"); doc.setFontSize(17);
+    doc.text("¿Tienes un terreno para ofrecernos?",MX,y);
+    y+=8; doc.setFont("helvetica","normal"); doc.setFontSize(11); doc.setTextColor(70,80,95);
+    const intro = doc.splitTextToSize("Registra tu terreno o macrolote en unos minutos con la siguiente liga. La información llega directo a nuestro equipo de Grupo Guía para su análisis y seguimiento.", PW-2*MX);
+    doc.text(intro,MX,y); y+=intro.length*5.6+6;
+    // Caja con la liga
+    doc.setFillColor(245,247,250); doc.setDrawColor(210,216,226); doc.roundedRect(MX,y,PW-2*MX,20,3,3,"FD");
+    doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(0,43,73);
+    doc.text("Liga para registrar:",MX+6,y+8);
+    doc.setTextColor(20,90,160); doc.setFontSize(11);
+    doc.text(CAPTAR_URL,MX+6,y+15);
+    // QR opcional
+    const qr = await cargarImg("https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=0&data="+encodeURIComponent(CAPTAR_URL));
+    if(qr && qr.data){ try{ doc.addImage(qr.data,"PNG",PW-MX-20,y+2,16,16); }catch(e){} }
+    y+=30;
+    // Cómo usarlo
+    doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.setTextColor(0,43,73); doc.text("Cómo usarlo",MX,y); y+=7;
+    doc.setFont("helvetica","normal"); doc.setFontSize(11); doc.setTextColor(45,55,70);
+    const pasos=[
+      "1. Abre la liga (o escanea el código QR) desde tu celular o computadora.",
+      "2. Llena los datos del terreno. Todos los campos son obligatorios excepto frente y polígono.",
+      "3. Presiona \"Enviar opción\". La fecha de solicitud se registra automáticamente.",
+      "4. Envía los documentos por correo (ver abajo)."
+    ];
+    pasos.forEach(p=>{ const t=doc.splitTextToSize(p,PW-2*MX); doc.text(t,MX,y); y+=t.length*5.6+2; });
+    y+=6;
+    // Documentos
+    doc.setFillColor(240,249,255); doc.setDrawColor(186,230,253); doc.roundedRect(MX,y,PW-2*MX,52,3,3,"FD");
+    doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.setTextColor(3,105,161); doc.text("Documentos a enviar por correo",MX+6,y+9);
+    doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(45,55,70);
+    doc.text("Envíalos a:  icortez@grupoguia.mx   y   mortuno@grupoguia.mx",MX+6,y+17);
+    ["•  Plano","•  Certificado de Uso de Suelo","•  Escrituras","•  INE"].forEach((dline,i)=>{ doc.text(dline,MX+8,y+26+i*6); });
+    y+=60;
+    // Pie
+    doc.setDrawColor(210,216,226); doc.line(MX,280,PW-MX,280);
+    doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,43,73); doc.text("Grupo Guía · Macrolotes",MX,286);
+    doc.setFont("helvetica","normal"); doc.setTextColor(150,150,150); doc.text(CAPTAR_URL,PW-MX,286,{align:"right"});
+    doc.save("Semaforo_para_Opcion_GrupoGuia.pdf");
+    toast("✅ PDF descargado");
+  };
+
   const ViewCaptacion = () => {
     const ahoraC = new Date();
     const fechaRelC = (iso)=>{ if(!iso) return "—"; const d=new Date(iso); const dias=Math.floor((ahoraC-d)/(1000*60*60*24)); if(dias===0) return "Hoy"; if(dias===1) return "Ayer"; if(dias<7) return `Hace ${dias}d`; if(dias<30) return `Hace ${Math.floor(dias/7)}sem`; return `Hace ${Math.floor(dias/30)}m`; };
@@ -13440,10 +13507,16 @@ Respuesta: [respuesta exacta, conversacional]
             <h1 style={{fontSize:34, fontWeight:800, color:B.navy, margin:"4px 0 0 0", fontFamily:"'Playfair Display',serif"}}>Terrenos en opcionamiento</h1>
             <div style={{fontSize:12, color:B.grey4, marginTop:6}}>Propietarios que nos ofrecen un terreno a vender · seguimiento hasta firmar el encargo</div>
           </div>
-          <button onClick={()=>{setEditingCaptacion(nuevaCaptacion()); setShowCaptacionModal(true);}}
-            style={{padding:"12px 22px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#15803d,#22c55e)", color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 14px rgba(21,128,61,0.35)"}}>
-            ➕ Registrar terreno
-          </button>
+          <div style={{display:"flex", gap:10, flexWrap:"wrap"}}>
+            <button onClick={descargarInstruccionesCaptacionPDF} title="Descarga un PDF con las indicaciones y la liga para compartir con asesores"
+              style={{padding:"12px 18px", borderRadius:10, border:"1.5px solid "+B.navy, background:B.white, color:B.navy, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+              📄 Instrucciones (PDF)
+            </button>
+            <button onClick={()=>{setEditingCaptacion(nuevaCaptacion()); setShowCaptacionModal(true);}}
+              style={{padding:"12px 22px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#15803d,#22c55e)", color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 14px rgba(21,128,61,0.35)"}}>
+              ➕ Registrar terreno
+            </button>
+          </div>
         </div>
 
         {/* KPIs */}
