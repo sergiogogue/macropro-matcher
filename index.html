@@ -13469,12 +13469,12 @@ Respuesta: [respuesta exacta, conversacional]
     pasos.forEach(p=>{ const t=doc.splitTextToSize(p,PW-2*MX); doc.text(t,MX,y); y+=t.length*5.6+2; });
     y+=6;
     // Documentos
-    doc.setFillColor(240,249,255); doc.setDrawColor(186,230,253); doc.roundedRect(MX,y,PW-2*MX,52,3,3,"FD");
+    doc.setFillColor(240,249,255); doc.setDrawColor(186,230,253); doc.roundedRect(MX,y,PW-2*MX,58,3,3,"FD");
     doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.setTextColor(3,105,161); doc.text("Documentos a enviar por correo",MX+6,y+9);
     doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(45,55,70);
     doc.text("Envíalos a:  icortez@grupoguia.mx   y   mortuno@grupoguia.mx",MX+6,y+17);
-    ["•  Plano","•  Certificado de Uso de Suelo","•  Escrituras","•  INE"].forEach((dline,i)=>{ doc.text(dline,MX+8,y+26+i*6); });
-    y+=60;
+    ["•  Plano","•  Certificado de Uso de Suelo","•  Escrituras","•  INE","•  4 fotos del terreno"].forEach((dline,i)=>{ doc.text(dline,MX+8,y+26+i*6); });
+    y+=66;
     // Pie
     doc.setDrawColor(210,216,226); doc.line(MX,280,PW-MX,280);
     doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,43,73); doc.text("Grupo Guía · Macrolotes",MX,286);
