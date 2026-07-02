@@ -6870,7 +6870,9 @@ function MacroProMatcher() {
           const prospectos=[...(entry.prospectos||[])];
           if(prospectos[prospectoIdx]){
             const p={...prospectos[prospectoIdx]};
-            const actividades=[...(p.actividades||[])];
+            // Agendar = reemplazar la actividad PENDIENTE vigente por la nueva (una acción a la vez).
+            // Se conserva el historial de actividades ya completadas.
+            const actividades=(p.actividades||[]).filter(a=>a.completada);
             actividades.push({
               id:"act-"+Date.now()+"-"+Math.floor(Math.random()*1000),
               tipo:actData.tipo||"Seguimiento",
@@ -10093,6 +10095,7 @@ Respuesta: [respuesta exacta, conversacional]
                     </>
                   ):(
                     <>
+                      {!isEdit&&<div style={{fontSize:10,color:"#92400e",background:"#fef3c7",border:"1px solid #fde68a",borderRadius:8,padding:"8px 10px",marginBottom:12}}>ℹ️ Al agendar se <strong>reemplaza la actividad pendiente actual</strong> de este prospecto (el historial ya completado se conserva).</div>}
                       <label style={{fontSize:10,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:0.8,display:"block",marginBottom:8}}>Tipo de actividad</label>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:5,marginBottom:14}}>
                         {ACTIVITY_TYPES.map(t=>(
@@ -10168,7 +10171,7 @@ Respuesta: [respuesta exacta, conversacional]
                     } else {
                       if(!activityForm.fecha){toast("⚠ Selecciona fecha");return;}
                       createActivity(showActivityModal.lotId,showActivityModal.prospectoIdx,activityForm);
-                      toast("✅ Actividad creada");
+                      toast("✅ Actividad agendada (reemplaza la pendiente anterior)");
                     }
                     setShowActivityModal(null);
                   }}
