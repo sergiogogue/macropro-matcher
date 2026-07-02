@@ -1598,7 +1598,7 @@ async function idbSet(key,val){ const db=await idbOpen(); return await new Promi
 if(typeof window!=="undefined"){ window.__idbSet=idbSet; window.__idbGet=idbGet; }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────
-function MacroProMatcher() {
+function MacroProMatcher({ sessionEmail } = {}) {
   // ═══════════════════════════════════════════════════════════
   // PERSISTENCIA: claves de localStorage y helpers
   // ═══════════════════════════════════════════════════════════
@@ -2429,6 +2429,21 @@ function MacroProMatcher() {
   const saveAsesores=(arr)=>{try{localStorage.setItem(ASESORES_KEY,JSON.stringify(arr));}catch(e){}};
   const [asesoresCatalog,setAsesoresCatalog]=React.useState(()=>loadAsesores());
   const updateAsesoresCatalog=(arr)=>{setAsesoresCatalog(arr);saveAsesores(arr);};
+  // ── Identidad del usuario logueado → su asesor (por correo). Sirve para que "Mi día"
+  //    abra mostrando SOLO lo de cada colaborador (puede cambiar a "Todos" cuando quiera). ──
+  const miAsesor = React.useMemo(()=>{
+    // 1) elección recordada en este dispositivo · 2) por correo de la sesión
+    let stored=""; try{ stored=(localStorage.getItem("macropro_mi_asesor")||"").trim(); }catch(e){}
+    if(stored) return stored;
+    const e=(sessionEmail||"").trim().toLowerCase(); if(!e) return "";
+    const hit=(asesoresCatalog||[]).find(a=>((a.email||"")+"").trim().toLowerCase()===e);
+    return hit?hit.nombre:"";
+  },[sessionEmail, asesoresCatalog]);
+  const autoAsesorRef = React.useRef(false);
+  React.useEffect(()=>{
+    if(autoAsesorRef.current) return;
+    if(miAsesor){ autoAsesorRef.current=true; setFilterAsesor(miAsesor); }
+  },[miAsesor]);
   const [showAsesorModal,setShowAsesorModal]=useState(false);
   const [editingAsesor,setEditingAsesor]=useState(null);
   const [asesorForm,setAsesorForm]=useState({nombre:"",zona:"",telefono:"",email:""});
@@ -8825,7 +8840,8 @@ function MacroProMatcher() {
                 <button onClick={()=>setVistaMiDia("calendario")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaMiDia==="calendario"?B.navy:"transparent",color:vistaMiDia==="calendario"?"#fff":B.grey4}}>📅 Calendario</button>
               </div>
               {asesoresUnicos.length>1&&(
-                <select value={filterAsesor} onChange={e=>setFilterAsesor(e.target.value)}
+                <select value={filterAsesor} onChange={e=>{ const v=e.target.value; setFilterAsesor(v); if(v!=="Todos"){ try{ localStorage.setItem("macropro_mi_asesor", v); }catch(err){} } }}
+                  title="Al elegir tu nombre, este equipo recordará que ese eres tú y 'Mi día' abrirá con lo tuyo."
                   style={{padding:"8px 12px",borderRadius:8,border:"1.5px solid "+B.grey1,fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,color:B.navy,background:B.white,cursor:"pointer",outline:"none"}}>
                   <option value="Todos">Todos los asesores</option>
                   {asesoresUnicos.map(a=><option key={a} value={a}>{a}</option>)}
@@ -17071,7 +17087,7 @@ function AuthGate() {
 
   return (
     <React.Fragment>
-      <MacroProMatcher />
+      <MacroProMatcher sessionEmail={session && session.user ? (session.user.email || "") : ""} />
       <button onClick={()=>{ if(window.confirm("¿Cerrar sesión?")) handleLogout(); }} title="Cerrar sesión"
         style={{ position:"fixed", bottom:12, right:12, zIndex:9999, padding:"7px 12px", borderRadius:20, border:"1px solid rgba(255,255,255,.25)", background:"#002B49", color:"#fff", fontSize:12, fontWeight:600, cursor:"pointer", boxShadow:"0 4px 14px rgba(0,0,0,.25)", opacity:.9 }}>
         Salir
