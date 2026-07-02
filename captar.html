@@ -93,14 +93,14 @@
             <option>Otros</option>
           </select>
         </div>
-        <div><label>Superficie (m²) <span class="req">*</span></label><input name="superficie" required inputmode="decimal" placeholder="Ej. 5000"></div>
+        <div><label>Superficie (m²) <span class="req">*</span></label><input name="superficie" class="money" required inputmode="decimal" placeholder="Ej. 5,000"></div>
         <div><label>Frente (m) <span class="opt">(opcional)</span></label><input name="frente" inputmode="decimal" placeholder="Ej. 40"></div>
         <div class="full"><label>Polígono <span class="opt">(opcional)</span></label><input name="poligono" placeholder="Regular / irregular"></div>
       </div>
 
       <div class="sect">Comercial</div>
       <div class="grid">
-        <div><label>Precio del predio ($) <span class="req">*</span></label><input name="precio_dueno" required inputmode="decimal" placeholder="Ej. 18000000"></div>
+        <div><label>Precio del predio ($) <span class="req">*</span></label><input name="precio_dueno" class="money" required inputmode="decimal" placeholder="Ej. 18,000,000"></div>
         <div><label>Tipo de acuerdo <span class="req">*</span></label>
           <select name="tipo_acuerdo" required>
             <option value="">Selecciona…</option>
@@ -162,6 +162,15 @@ const form = $("#form"), btn = $("#submit"), msg = $("#msg");
 // Fecha de solicitud automática (día del envío) — visible y de solo lectura
 try{ $("#fechaSol").value = new Date().toLocaleDateString("es-MX",{weekday:"long",day:"2-digit",month:"long",year:"numeric"}); }catch(e){}
 const numOrNull = v => { const n = parseFloat(String(v||"").replace(/[$,\s]/g,"")); return isFinite(n) ? n : null; };
+// Formato de miles en vivo (permite decimales) para campos .money
+function fmtMiles(raw){
+  raw = String(raw).replace(/[^\d.]/g,"").replace(/(\..*)\./g,"$1");
+  if(raw==="") return "";
+  const p = raw.split("."); const i = p[0].replace(/^0+(?=\d)/,"");
+  const gi = i ? Number(i).toLocaleString("es-MX") : (p.length>1?"0":"");
+  return p.length>1 ? gi+"."+p.slice(1).join("") : gi;
+}
+document.querySelectorAll("input.money").forEach(inp=>{ inp.addEventListener("input", ()=>{ inp.value = fmtMiles(inp.value); }); });
 const showErr = t => { msg.textContent = t; msg.className = "msg err"; msg.scrollIntoView({behavior:"smooth",block:"center"}); };
 
 btn.addEventListener("click", async () => {
