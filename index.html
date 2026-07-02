@@ -8827,6 +8827,13 @@ function MacroProMatcher({ sessionEmail } = {}) {
               <div style={{fontSize:11,color:B.grey4,marginTop:3}}>
                 <strong style={{color:"#dc2626"}}>{vencidas.length}</strong> vencidas · <strong style={{color:"#d97706"}}>{hoy.length}</strong> hoy · <strong style={{color:"#1e40af"}}>{semana.length}</strong> esta semana · <strong style={{color:"#4b5563"}}>{futuras.length}</strong> futuras
               </div>
+              {/* Rótulo: a quién se le está mostrando la agenda */}
+              <div style={{display:"inline-flex",alignItems:"center",gap:8,marginTop:8,background:filterAsesor!=="Todos"?"#eef4fb":B.offW,border:"1px solid "+(filterAsesor!=="Todos"?"#bfdbfe":B.grey1),borderRadius:20,padding:"4px 6px 4px 12px"}}>
+                <span style={{fontSize:12,fontWeight:800,color:filterAsesor!=="Todos"?"#1e40af":B.grey4}}>👤 {filterAsesor!=="Todos"?("Viendo: "+filterAsesor):"Viendo: todo el equipo"}</span>
+                {filterAsesor!=="Todos"
+                  ? <button onClick={()=>setFilterAsesor("Todos")} style={{fontSize:10,fontWeight:700,color:B.grey4,background:B.white,border:"1px solid "+B.grey1,borderRadius:14,padding:"3px 9px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver todos</button>
+                  : (miAsesor?<button onClick={()=>{ setFilterAsesor(miAsesor); try{localStorage.setItem("macropro_mi_asesor",miAsesor);}catch(e){} }} style={{fontSize:10,fontWeight:700,color:"#1e40af",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:14,padding:"3px 9px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver solo lo mío</button>:null)}
+              </div>
             </div>
             <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
               <div style={{position:"relative"}}>
