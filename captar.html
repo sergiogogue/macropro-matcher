@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Captar terreno · Grupo Guía</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📍</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{ --navy:#002B49; --navy2:#0a3d5c; --gold:#F5B335; --goldD:#d4952a; --bg:#eef1f5; --ink:#1f2a37; --mut:#6b7280; --line:#e2e6ee; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ font-family:'DM Sans',system-ui,sans-serif; background:var(--bg); color:var(--ink); padding:0 0 60px; }
+  header{ background:linear-gradient(135deg,var(--navy),var(--navy2)); color:#fff; padding:26px 20px 30px; text-align:center; }
+  header .kicker{ font-size:11px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:var(--gold); }
+  header h1{ font-size:22px; font-weight:800; margin-top:4px; }
+  header p{ font-size:13px; color:#c7d4e3; margin-top:6px; max-width:520px; margin-left:auto; margin-right:auto; }
+  .wrap{ max-width:640px; margin:-16px auto 0; padding:0 16px; }
+  .card{ background:#fff; border:1px solid var(--line); border-radius:16px; box-shadow:0 12px 40px rgba(0,43,73,.10); overflow:hidden; }
+  .body{ padding:20px 20px 8px; }
+  .sect{ font-size:11px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; color:var(--goldD); margin:16px 0 10px; display:flex; align-items:center; gap:8px; }
+  .sect:first-child{ margin-top:0; }
+  .sect::after{ content:""; flex:1; height:1px; background:var(--line); }
+  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .full{ grid-column:1 / -1; }
+  label{ display:block; font-size:12px; font-weight:700; color:var(--navy); margin-bottom:5px; }
+  label .req{ color:#dc2626; }
+  input,select,textarea{ width:100%; padding:11px 12px; border:1.5px solid var(--line); border-radius:10px; font-size:14px; font-family:inherit; color:var(--ink); outline:none; background:#fff; }
+  input:focus,select:focus,textarea:focus{ border-color:var(--navy); }
+  textarea{ resize:vertical; min-height:70px; }
+  .hint{ font-size:11px; color:var(--mut); margin-top:4px; }
+  .foot{ padding:16px 20px 22px; }
+  .btn{ width:100%; padding:15px; border:none; border-radius:12px; background:linear-gradient(135deg,var(--gold),var(--goldD)); color:var(--navy); font-size:16px; font-weight:800; cursor:pointer; font-family:inherit; box-shadow:0 6px 20px rgba(245,179,53,.45); }
+  .btn:disabled{ opacity:.6; cursor:default; }
+  .msg{ margin:0 20px 16px; padding:12px 14px; border-radius:10px; font-size:13px; font-weight:600; display:none; }
+  .msg.err{ display:block; background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
+  .ok-screen{ display:none; text-align:center; padding:40px 24px; }
+  .ok-screen .big{ font-size:56px; }
+  .ok-screen h2{ font-size:22px; color:var(--navy); margin-top:10px; }
+  .ok-screen p{ font-size:14px; color:var(--mut); margin-top:8px; }
+  .ok-screen button{ margin-top:20px; padding:12px 24px; border:1.5px solid var(--navy); background:#fff; color:var(--navy); border-radius:10px; font-weight:700; cursor:pointer; font-family:inherit; font-size:14px; }
+  .note{ text-align:center; font-size:11px; color:var(--mut); margin-top:16px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="kicker">Grupo Guía · Macrolotes</div>
+  <h1>📍 Captar un terreno</h1>
+  <p>¿Tienes un terreno o macrolote para ofrecernos? Llena esta forma y nuestro equipo lo recibe al instante.</p>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <div id="msg" class="msg"></div>
+    <form id="form" class="body">
+      <div class="sect">Propietario y contacto</div>
+      <div class="grid">
+        <div class="full"><label>Propietario / quién ofrece <span class="req">*</span></label><input name="propietario" required placeholder="Nombre del dueño o de quien ofrece"></div>
+        <div><label>Persona de contacto</label><input name="contacto" placeholder="Con quién tratamos"></div>
+        <div><label>Teléfono</label><input name="telefono" inputmode="tel" placeholder="10 dígitos"></div>
+        <div class="full"><label>Correo</label><input name="email" type="email" placeholder="correo@ejemplo.com"></div>
+      </div>
+
+      <div class="sect">Ubicación</div>
+      <div class="grid">
+        <div><label>Estado</label><input name="estado" placeholder="Ej. Jalisco"></div>
+        <div><label>Ciudad</label><input name="ciudad" placeholder="Ej. Zapopan"></div>
+        <div class="full"><label>Zona / referencia</label><input name="zona" placeholder="Colonia, cruce, referencia"></div>
+        <div class="full"><label>Dirección / descripción</label><input name="ubicacion" placeholder="Dirección aproximada"></div>
+        <div class="full"><label>Liga de Google Maps</label><input name="liga_maps" placeholder="https://maps.google.com/..."><div class="hint">Pega la ubicación de Google Maps (muy útil).</div></div>
+      </div>
+
+      <div class="sect">Características</div>
+      <div class="grid">
+        <div><label>Uso de suelo</label><input name="uso_suelo" placeholder="Habitacional, comercial, mixto..."></div>
+        <div><label>Superficie (m²)</label><input name="superficie" inputmode="decimal" placeholder="Ej. 5000"></div>
+        <div><label>Frente (m)</label><input name="frente" inputmode="decimal" placeholder="Ej. 40"></div>
+        <div><label>Polígono</label><input name="poligono" placeholder="Regular / irregular"></div>
+      </div>
+
+      <div class="sect">Comercial</div>
+      <div class="grid">
+        <div><label>Precio del dueño ($)</label><input name="precio_dueno" inputmode="decimal" placeholder="Ej. 18000000"></div>
+        <div><label>Precio por m² ($)</label><input name="precio_m2" inputmode="decimal" placeholder="Ej. 3600"></div>
+        <div><label>Tipo de acuerdo</label><input name="tipo_acuerdo" placeholder="Exclusiva, opción, corretaje..."></div>
+        <div><label>Comisión</label><input name="comision" placeholder="Ej. 5%"></div>
+        <div class="full"><label>Notas / documentos</label><textarea name="notas" placeholder="Escrituras, gravámenes, condiciones, lo que sepas..."></textarea></div>
+        <div class="full"><label>Tu nombre (quién capta)</label><input name="asesor_responsable_gg" placeholder="Asesor de Grupo Guía o referente"></div>
+      </div>
+    </form>
+    <div class="foot">
+      <button id="submit" class="btn" type="button">Enviar terreno →</button>
+    </div>
+  </div>
+
+  <div class="card ok-screen" id="ok">
+    <div class="big">✅</div>
+    <h2>¡Recibido, gracias!</h2>
+    <p>Tu terreno ya llegó a Grupo Guía. Nuestro equipo lo revisará y te contactará.</p>
+    <button id="another" type="button">Captar otro terreno</button>
+  </div>
+
+  <p class="note">Grupo Guía · MacroPro — Captación de macrolotes</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://xugrrabebphdelgwqnwc.supabase.co";
+const SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
+let sb = null;
+try{ if(window.supabase) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); }catch(e){}
+
+const $ = s => document.querySelector(s);
+const form = $("#form"), btn = $("#submit"), msg = $("#msg");
+const numOrNull = v => { const n = parseFloat(String(v||"").replace(/[$,\s]/g,"")); return isFinite(n) ? n : null; };
+const showErr = t => { msg.textContent = t; msg.className = "msg err"; msg.scrollIntoView({behavior:"smooth",block:"center"}); };
+
+btn.addEventListener("click", async () => {
+  msg.className = "msg";
+  const d = Object.fromEntries(new FormData(form).entries());
+  if(!(d.propietario||"").trim() && !(d.ubicacion||"").trim()){ showErr("Pon al menos el propietario o la ubicación del terreno."); return; }
+  if(!sb){ showErr("No se pudo conectar. Revisa tu internet e intenta de nuevo."); return; }
+  btn.disabled = true; btn.textContent = "Enviando…";
+  const now = new Date().toISOString();
+  const id = "cap-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,8);
+  const row = {
+    id, pipeline: "Ofrecido",
+    fecha_creacion: now, fecha_ultima_actividad: now,
+    asesor_responsable_gg: (d.asesor_responsable_gg||"").trim() || null,
+    propietario: (d.propietario||"").trim() || null,
+    contacto: (d.contacto||"").trim() || null,
+    telefono: (d.telefono||"").trim() || null,
+    email: (d.email||"").trim() || null,
+    estado: (d.estado||"").trim() || null,
+    ciudad: (d.ciudad||"").trim() || null,
+    zona: (d.zona||"").trim() || null,
+    ubicacion: (d.ubicacion||"").trim() || null,
+    liga_maps: (d.liga_maps||"").trim() || null,
+    uso_suelo: (d.uso_suelo||"").trim() || null,
+    poligono: (d.poligono||"").trim() || null,
+    superficie: numOrNull(d.superficie),
+    frente: numOrNull(d.frente),
+    precio_dueno: numOrNull(d.precio_dueno),
+    precio_m2: numOrNull(d.precio_m2),
+    tipo_acuerdo: (d.tipo_acuerdo||"").trim() || null,
+    comision: (d.comision||"").trim() || null,
+    notas: (d.notas||"").trim() || null,
+    eliminado: false, updated_at: now, created_at: now
+  };
+  try{
+    const { error } = await sb.from("captaciones").insert([row]);
+    if(error) throw error;
+    document.querySelector(".card:not(.ok-screen)").style.display = "none";
+    $("#ok").style.display = "block";
+    window.scrollTo({top:0,behavior:"smooth"});
+  }catch(e){
+    btn.disabled = false; btn.textContent = "Enviar terreno →";
+    showErr("No se pudo enviar: " + ((e&&e.message)||e) + ". Intenta de nuevo o avísanos.");
+  }
+});
+
+$("#another").addEventListener("click", () => {
+  form.reset();
+  document.querySelector(".card:not(.ok-screen)").style.display = "";
+  $("#ok").style.display = "none";
+  btn.disabled = false; btn.textContent = "Enviar terreno →";
+  window.scrollTo({top:0,behavior:"smooth"});
+});
+</script>
+</body>
+</html>
