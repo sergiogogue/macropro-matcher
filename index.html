@@ -13494,6 +13494,58 @@ Respuesta: [respuesta exacta, conversacional]
     toast("✅ PDF descargado");
   };
 
+  // ── Reporte / estadístico de captación (recibidos, aceptados, descartados, tiempos) ──
+  const computeReporteCaptacion = () => {
+    const arr = captaciones||[];
+    const esAceptado = (c)=> (c.viabilidad||"").startsWith("🟢") || ["En negociación","Documentación","Contrato","Firmado"].includes(c.pipeline);
+    const esDescartado = (c)=> c.pipeline==="Descartado" || (c.viabilidad||"").startsWith("🔴");
+    const totalRecibidos = arr.length;
+    const totalAceptados = arr.filter(esAceptado).length;
+    const totalDescartados = arr.filter(esDescartado).length;
+    const totalFirmados = arr.filter(c=>c.pipeline==="Firmado").length;
+    const tasaAcept = totalRecibidos ? Math.round(totalAceptados/totalRecibidos*100) : 0;
+    const tiempos = arr.map(c=>{ if(!c.fechaCreacion||!c.fechaUltimaActividad) return null; const d=(new Date(c.fechaUltimaActividad)-new Date(c.fechaCreacion))/(1000*60*60*24); return (d>0)?d:null; }).filter(x=>x!=null);
+    const tRespProm = tiempos.length ? (tiempos.reduce((a,b)=>a+b,0)/tiempos.length) : 0;
+    const rows = arr.slice().sort((a,b)=> new Date(b.fechaCreacion||0)-new Date(a.fechaCreacion||0)).map(c=>{
+      const d = c.fechaCreacion ? new Date(c.fechaCreacion) : null;
+      const dias = (c.fechaCreacion&&c.fechaUltimaActividad) ? Math.max(0,Math.round((new Date(c.fechaUltimaActividad)-new Date(c.fechaCreacion))/(1000*60*60*24))) : null;
+      return {
+        fecha: d ? d.toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}) : "—",
+        hora: d ? d.toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"}) : "—",
+        asesor: c.asesorResponsableGG||"—",
+        cliente: c.propietario||"—",
+        etapa: c.pipeline||"Nueva opción",
+        viab: c.viabilidad||"—",
+        dias: dias==null?"—":String(dias)
+      };
+    });
+    return { totalRecibidos, totalAceptados, totalDescartados, totalFirmados, tasaAcept, tRespProm, rows };
+  };
+  const descargarReporteCaptacionPDF = async () => {
+    if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
+    toast("📄 Generando reporte…");
+    const R = computeReporteCaptacion();
+    const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+    const PW=297, MX=14;
+    doc.setFillColor(0,43,73); doc.rect(0,0,PW,26,"F");
+    const logo=await cargarImg(LOGO_MACROLOTES);
+    if(logo&&logo.w){ const h=15,w=Math.min(55,h*(logo.w/logo.h)); try{doc.addImage(logo.data,"PNG",MX,5,w,h);}catch(e){} }
+    else { doc.setTextColor(245,179,53); doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.text("MACROLOTES GUÍA",MX,16); }
+    doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.text("Reporte de Captación de Terrenos",PW-MX,13,{align:"right"});
+    doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(200,215,230); doc.text(new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"}),PW-MX,19,{align:"right"});
+    let y=34;
+    const kpis=[["Recibidos",String(R.totalRecibidos)],["Aceptados",String(R.totalAceptados)],["Descartados",String(R.totalDescartados)],["Firmados",String(R.totalFirmados)],["Tasa aceptación",R.tasaAcept+"%"],["Tiempo resp. prom.",R.tRespProm?R.tRespProm.toFixed(1)+" d":"—"]];
+    const kw=(PW-2*MX-5*4)/6;
+    kpis.forEach((k,i)=>{ const x=MX+i*(kw+4); doc.setFillColor(245,247,250); doc.roundedRect(x,y,kw,18,2,2,"F"); doc.setTextColor(0,43,73); doc.setFont("helvetica","bold"); doc.setFontSize(14); doc.text(k[1],x+kw/2,y+9,{align:"center"}); doc.setFont("helvetica","normal"); doc.setFontSize(6.4); doc.setTextColor(90,90,90); doc.text(k[0],x+kw/2,y+15,{align:"center"}); });
+    y+=26;
+    const body = R.rows.map(r=>[r.fecha,r.hora,r.asesor,r.cliente,r.etapa,r.viab,r.dias]);
+    doc.autoTable({startY:y, head:[["Fecha","Hora","Asesor","Cliente Opcionador","Etapa","Viabilidad","Días resp."]], body, theme:"striped",
+      styles:{fontSize:8,cellPadding:1.8,overflow:"linebreak"}, headStyles:{fillColor:[0,43,73],textColor:[245,179,53],fontStyle:"bold"}, alternateRowStyles:{fillColor:[245,247,250]},
+      columnStyles:{6:{halign:"center",cellWidth:18}}, margin:{left:MX,right:MX}});
+    doc.save("Reporte_Captacion_GrupoGuia.pdf");
+    toast("✅ Reporte descargado");
+  };
+
   const ViewCaptacion = () => {
     const ahoraC = new Date();
     const fechaRelC = (iso)=>{ if(!iso) return "—"; const d=new Date(iso); const dias=Math.floor((ahoraC-d)/(1000*60*60*24)); if(dias===0) return "Hoy"; if(dias===1) return "Ayer"; if(dias<7) return `Hace ${dias}d`; if(dias<30) return `Hace ${Math.floor(dias/7)}sem`; return `Hace ${Math.floor(dias/30)}m`; };
@@ -13522,6 +13574,10 @@ Respuesta: [respuesta exacta, conversacional]
             <button onClick={descargarInstruccionesCaptacionPDF} title="Descarga un PDF con las indicaciones y la liga para compartir con asesores"
               style={{padding:"12px 18px", borderRadius:10, border:"1.5px solid "+B.navy, background:B.white, color:B.navy, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
               📄 Instrucciones (PDF)
+            </button>
+            <button onClick={descargarReporteCaptacionPDF} title="Descarga el reporte estadístico de captación (recibidos, aceptados, tiempos)"
+              style={{padding:"12px 18px", borderRadius:10, border:"1.5px solid "+B.navy, background:B.white, color:B.navy, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
+              📊 Reporte (PDF)
             </button>
             <button onClick={()=>{setEditingCaptacion(nuevaCaptacion()); setShowCaptacionModal(true);}}
               style={{padding:"12px 22px", borderRadius:10, border:"none", background:"linear-gradient(135deg,#15803d,#22c55e)", color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:"0 4px 14px rgba(21,128,61,0.35)"}}>
@@ -13560,6 +13616,61 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
           )}
         </div>
+
+        {/* ══════ REPORTE / ESTADÍSTICO DE CAPTACIÓN ══════ */}
+        {(() => {
+          const R = computeReporteCaptacion();
+          const kpis = [
+            {l:"Recibidos", v:R.totalRecibidos, c:B.navy},
+            {l:"Aceptados", v:R.totalAceptados, c:"#15803d"},
+            {l:"Descartados", v:R.totalDescartados, c:"#b91c1c"},
+            {l:"Firmados", v:R.totalFirmados, c:"#0e7490"},
+            {l:"Tasa aceptación", v:R.tasaAcept+"%", c:"#7c3aed"},
+            {l:"Tiempo resp. prom.", v:R.tRespProm?R.tRespProm.toFixed(1)+" d":"—", c:"#b45309"},
+          ];
+          return (
+            <div style={{background:B.white, borderRadius:14, padding:18, border:"1px solid "+B.grey1, marginBottom:20, boxShadow:"0 2px 10px rgba(0,43,73,0.04)"}}>
+              <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:14}}>
+                <div style={{fontSize:13, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1}}>📊 Reporte de captación</div>
+                <button onClick={descargarReporteCaptacionPDF} style={{padding:"7px 14px", borderRadius:8, border:"1px solid "+B.navy, background:B.white, color:B.navy, fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>📄 Descargar PDF</button>
+              </div>
+              <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))", gap:10, marginBottom:16}}>
+                {kpis.map((k,i)=>(
+                  <div key={i} style={{background:B.offW, borderRadius:10, padding:"10px 12px", borderLeft:"3px solid "+k.c}}>
+                    <div style={{fontSize:9, fontWeight:800, color:B.grey4, textTransform:"uppercase", letterSpacing:0.5}}>{k.l}</div>
+                    <div style={{fontSize:22, fontWeight:800, color:k.c, fontFamily:"'Playfair Display',serif"}}>{k.v}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%", borderCollapse:"collapse", fontSize:11, minWidth:720}}>
+                  <thead>
+                    <tr style={{background:B.navy}}>
+                      {["Fecha","Hora","Asesor","Cliente Opcionador","Etapa","Viabilidad","Días resp."].map((h,i)=>(
+                        <th key={i} style={{padding:"9px 8px", textAlign:i>=6?"center":"left", fontSize:10, fontWeight:800, color:B.gold, textTransform:"uppercase", letterSpacing:0.4, whiteSpace:"nowrap"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {R.rows.length===0 && <tr><td colSpan={7} style={{padding:20, textAlign:"center", color:B.grey3}}>Aún no hay terrenos captados</td></tr>}
+                    {R.rows.map((r,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid "+B.grey1, background:i%2?B.offW:B.white}}>
+                        <td style={{padding:"8px", whiteSpace:"nowrap", color:B.navy, fontWeight:600}}>{r.fecha}</td>
+                        <td style={{padding:"8px", whiteSpace:"nowrap", color:B.grey4}}>{r.hora}</td>
+                        <td style={{padding:"8px", color:"#2563AC", fontWeight:600}}>{r.asesor}</td>
+                        <td style={{padding:"8px", color:B.navy, fontWeight:700}}>{r.cliente}</td>
+                        <td style={{padding:"8px", whiteSpace:"nowrap"}}>{r.etapa}</td>
+                        <td style={{padding:"8px", whiteSpace:"nowrap"}}>{r.viab}</td>
+                        <td style={{padding:"8px", textAlign:"center", color:B.grey4}}>{r.dias}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{fontSize:9, color:B.grey3, fontStyle:"italic", marginTop:8}}>Aceptados = viabilidad 🟢 o en negociación/documentación/contrato/firmado. Tiempo de respuesta = días de la recepción a la última gestión.</div>
+            </div>
+          );
+        })()}
 
         {/* Kanban */}
         <div style={{background:B.white, borderRadius:14, padding:18, border:"1px solid "+B.grey1, marginBottom:20, boxShadow:"0 2px 10px rgba(0,43,73,0.04)"}}>
