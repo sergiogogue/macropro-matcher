@@ -64,6 +64,7 @@
     <form id="form" class="body">
       <div class="sect">Cliente y contacto</div>
       <div class="grid">
+        <div class="full"><label>Fecha de solicitud <span class="opt">(automática)</span></label><input id="fechaSol" readonly tabindex="-1" style="background:#f1f5f9;color:var(--navy);font-weight:700;cursor:default"></div>
         <div class="full"><label>Cliente Opcionador <span class="req">*</span></label><input name="propietario" required placeholder="Nombre de quien ofrece el predio"></div>
         <div><label>Persona de contacto <span class="req">*</span></label><input name="contacto" required placeholder="Con quién tratamos"></div>
         <div><label>Teléfono <span class="req">*</span></label><input name="telefono" required inputmode="tel" placeholder="10 dígitos"></div>
@@ -157,6 +158,8 @@ try{ if(window.supabase) sb = window.supabase.createClient(SUPABASE_URL, SUPABAS
 
 const $ = s => document.querySelector(s);
 const form = $("#form"), btn = $("#submit"), msg = $("#msg");
+// Fecha de solicitud automática (día del envío) — visible y de solo lectura
+try{ $("#fechaSol").value = new Date().toLocaleDateString("es-MX",{weekday:"long",day:"2-digit",month:"long",year:"numeric"}); }catch(e){}
 const numOrNull = v => { const n = parseFloat(String(v||"").replace(/[$,\s]/g,"")); return isFinite(n) ? n : null; };
 const showErr = t => { msg.textContent = t; msg.className = "msg err"; msg.scrollIntoView({behavior:"smooth",block:"center"}); };
 
