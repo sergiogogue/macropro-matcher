@@ -902,6 +902,17 @@ function loadCaptaciones(){
   catch(e){ console.warn("Error cargando captaciones:",e); return []; }
 }
 function saveCaptaciones(arr){ try{ localStorage.setItem(CAPTACION_KEY, JSON.stringify(arr||[])); }catch(e){ console.warn("Error guardando captaciones:",e); } }
+// Formatea un número crudo (ej. "41116950" o "41116950.5") con separadores de miles para lectura,
+// preservando lo que el usuario va escribiendo (incluidos decimales). El valor guardado sigue crudo.
+function agruparNum(raw){
+  if(raw==null||raw==="") return "";
+  let s=String(raw).replace(/[^\d.]/g,"").replace(/(\..*)\./g,"$1"); // solo dígitos y un punto
+  if(s==="") return "";
+  const [i,d]=s.split(".");
+  const gi=i?Number(i).toLocaleString("es-MX"):"0";
+  return d!==undefined ? gi+"."+d : gi;
+}
+function crudoNum(v){ return String(v==null?"":v).replace(/[^\d.]/g,"").replace(/(\..*)\./g,"$1"); }
 function nuevaCaptacion(){
   return {
     id: "capta-"+Date.now()+"-"+Math.floor(Math.random()*1000),
@@ -16073,8 +16084,8 @@ Respuesta: [respuesta exacta, conversacional]
                   <div>
                     <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>💰 Comercial / acuerdo</div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-                      <div><span style={lbStyle}>Precio que pide el dueño ($)</span><input type="number" style={inStyle} value={f.precioDueno||""} onChange={e=>setF({precioDueno:e.target.value})}/></div>
-                      <div><span style={lbStyle}>Precio por m² ($)</span><input type="number" style={inStyle} value={f.precioM2||""} onChange={e=>setF({precioM2:e.target.value})}/></div>
+                      <div><span style={lbStyle}>Precio que pide el dueño ($)</span><input type="text" inputMode="decimal" style={inStyle} value={agruparNum(f.precioDueno)} onChange={e=>setF({precioDueno:crudoNum(e.target.value)})} placeholder="0"/></div>
+                      <div><span style={lbStyle}>Precio por m² ($) <span style={{color:"#dc2626"}}>*</span></span><input type="text" inputMode="decimal" style={inStyle} value={agruparNum(f.precioM2)} onChange={e=>setF({precioM2:crudoNum(e.target.value)})} placeholder="0"/></div>
                       <div><span style={lbStyle}>Comisión acordada</span><input style={inStyle} value={f.comision||""} onChange={e=>setF({comision:e.target.value})} placeholder="Ej. 5%"/></div>
                       <div><span style={lbStyle}>Tipo de acuerdo</span>
                         <select style={inStyle} value={f.tipoAcuerdo||""} onChange={e=>setF({tipoAcuerdo:e.target.value})}>
@@ -16099,7 +16110,18 @@ Respuesta: [respuesta exacta, conversacional]
                   </div>
                   <div style={{display:"flex",gap:8}}>
                     <button onClick={()=>setShowCaptacionModal(false)} style={{padding:"10px 18px",borderRadius:8,border:"1px solid "+B.grey1,background:"#fff",color:B.grey4,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancelar</button>
-                    <button onClick={()=>{ if(!(f.propietario||f.zona||f.ciudad)){ toast("⚠ Pon al menos propietario, zona o ciudad"); return; } upsertCaptacion(f); setShowCaptacionModal(false); toast("✅ Terreno guardado"); }} style={{padding:"10px 20px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>💾 Guardar</button>
+                    <button onClick={()=>{
+                      if(!(f.propietario||f.zona||f.ciudad)){ toast("⚠ Pon al menos propietario, zona o ciudad"); return; }
+                      let ff=f;
+                      // Precio por m² obligatorio: si viene vacío, se calcula de precio ÷ superficie
+                      let pm2=parseFloat(crudoNum(f.precioM2))||0;
+                      if(!(pm2>0)){
+                        const pd=parseFloat(crudoNum(f.precioDueno))||0, sup=parseFloat(crudoNum(f.superficie))||0;
+                        if(pd>0&&sup>0){ pm2=Math.round(pd/sup); ff={...f, precioM2:String(pm2)}; setF({precioM2:String(pm2)}); }
+                      }
+                      if(!(pm2>0)){ toast("⚠ El precio por m² es obligatorio (o captura precio del dueño y superficie para calcularlo)"); return; }
+                      upsertCaptacion(ff); setShowCaptacionModal(false); toast("✅ Terreno guardado");
+                    }} style={{padding:"10px 20px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>💾 Guardar</button>
                   </div>
                 </div>
               </div>
