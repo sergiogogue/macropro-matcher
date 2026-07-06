@@ -6520,147 +6520,97 @@ function MacroProMatcher({ sessionEmail } = {}) {
             </div>
           )}
 
-          {filtered.map((item,i)=>{
-            const cli=item.cli; const crm=item.crm; const p=item.prospecto;
-            const semCol=semaforoColor[item.semaforo];
-            // Última interacción EXCLUSIVA de este prospecto (las interacciones son a nivel lote, etiquetadas por nombre)
-            const _pnL=(p.nombre||"").toLowerCase().trim();
-            const lastInterSorted=(crm.interacciones||[]).filter(x=>{ const nom=(x.prospecto||x.prospectoNombre||x.nombre||"").toLowerCase().trim(); return nom&&nom===_pnL; }).slice().reverse();
-            const lastInter=lastInterSorted[0];
-            // KEY ESTABLE: basada en identidad del prospecto, no en posición del array
-            const stableKey=item.lotId+"::"+item.prospectoIdx+"::"+p.nombre;
-            return (
-              <div key={stableKey} id={"prosp-row-"+stableKey} style={{background:highlightProspKey===stableKey?"#fffbeb":B.white,borderRadius:14,marginBottom:10,overflow:"hidden",boxShadow:highlightProspKey===stableKey?"0 0 0 3px #f59e0b,0 2px 10px rgba(0,43,73,0.07)":"0 2px 10px rgba(0,43,73,0.07)",border:"1px solid "+(highlightProspKey===stableKey?"#f59e0b":semCol+"55"),transition:"all 0.3s"}}>
-                <div style={{display:"flex"}}>
-                  <div style={{width:5,background:semCol,flexShrink:0,borderRadius:"14px 0 0 14px"}}/>
-                  <div style={{flex:1,padding:"14px 16px"}}>
-                    <div style={{display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
-
-                      {/* Columna izquierda: cliente */}
-                      <div style={{flex:"0 0 220px",minWidth:180}}>
-                        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
-                          <Semaforo lotId={item.lotId} size={10}/>
-                          <span style={{fontSize:15,fontWeight:800,color:B.navy}}>{p.nombre}</span>
-                          <button onClick={(e)=>{e.stopPropagation();setSelectedFichaItem(item);setShowFichaModal(true);}} style={{background:B.navy,color:"#fff",border:"none",borderRadius:6,padding:"2px 8px",fontSize:10,fontWeight:700,cursor:"pointer",marginLeft:4,fontFamily:"'DM Sans',sans-serif"}}>Ver ficha</button>
+          {(() => {
+            // Agrupar por cliente (nombre) → UNA sola ficha con sus varios terrenos
+            const gruposMap=new Map();
+            filtered.forEach(it=>{ const k=(it.prospecto.nombre||"(sin nombre)").toLowerCase().trim(); if(!gruposMap.has(k)) gruposMap.set(k,[]); gruposMap.get(k).push(it); });
+            const semRank={red:0,yellow:1,green:2,grey:3};
+            return [...gruposMap.values()].map((group)=>{
+              const primary=group[0]; const cli=primary.cli; const p=primary.prospecto;
+              const key=(p.nombre||"").toLowerCase().trim();
+              const worst=group.reduce((w,it)=> (semRank[it.semaforo]<semRank[w]?it.semaforo:w), "grey");
+              const semCol=semaforoColor[worst]||B.grey3;
+              // Historial unificado del cliente (interacciones de todos sus terrenos, etiquetadas por nombre; sin etiqueta si el lote tiene 1 prospecto)
+              const allInts=[]; group.forEach(it=>{ const uno=((it.crm.prospectos||[]).length===1); (it.crm.interacciones||[]).forEach(x=>{ const nom=(x.prospecto||x.prospectoNombre||x.nombre||"").toLowerCase().trim(); if(nom?nom===key:uno) allInts.push(x); }); });
+              allInts.sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
+              const lastInter=allInts[0];
+              const diasArr=group.map(it=> it.diasSinContacto==null?null:it.diasSinContacto).filter(x=>x!=null);
+              const diasMin=diasArr.length?Math.min(...diasArr):null;
+              const gkey=key+"::grp";
+              return (
+                <div key={gkey} id={"prosp-row-"+gkey} style={{background:highlightProspKey===gkey?"#fffbeb":B.white,borderRadius:14,marginBottom:10,overflow:"hidden",boxShadow:"0 2px 10px rgba(0,43,73,0.07)",border:"1px solid "+semCol+"55",transition:"all 0.3s"}}>
+                  <div style={{display:"flex"}}>
+                    <div style={{width:5,background:semCol,flexShrink:0,borderRadius:"14px 0 0 14px"}}/>
+                    <div style={{flex:1,padding:"14px 16px"}}>
+                      {/* Encabezado del cliente */}
+                      <div style={{display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+                        <div style={{flex:"1 1 260px",minWidth:220}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,flexWrap:"wrap"}}>
+                            <Semaforo lotId={primary.lotId} size={10}/>
+                            <span style={{fontSize:15,fontWeight:800,color:B.navy}}>{p.nombre}</span>
+                            <span style={{fontSize:10,fontWeight:800,color:B.navy,background:B.gold+"33",borderRadius:10,padding:"1px 8px"}}>{group.length} terreno{group.length!==1?"s":""}</span>
+                            <span style={{fontSize:9,fontWeight:800,color:tempColorP(primary.pipeline),background:tempBgP(primary.pipeline),border:"1.5px solid "+tempColorP(primary.pipeline)+"66",borderRadius:10,padding:"1px 8px"}}>🌡 {getTempFromPipeline(primary.pipeline)}</span>
+                            <button onClick={(e)=>{e.stopPropagation();setSelectedFichaItem(primary);setShowFichaModal(true);}} style={{background:B.navy,color:"#fff",border:"none",borderRadius:6,padding:"2px 8px",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver ficha</button>
+                          </div>
+                          <div style={{fontSize:11,color:B.grey4,display:"flex",gap:12,flexWrap:"wrap"}}>
+                            {((cli&&cli.empresa)||p.empresa)?<span>🏢 {(cli&&cli.empresa)||p.empresa}</span>:null}
+                            {(cli&&cli.asesor)?<span style={{color:"#2563AC",fontWeight:700}}>👤 {cli.asesor}</span>:null}
+                            {((cli&&cli.telefono)||p.telefono)?<span>📞 {(cli&&cli.telefono)||p.telefono}</span>:null}
+                            {((cli&&cli.email)||p.email)?<span>✉ {(cli&&cli.email)||p.email}</span>:null}
+                          </div>
                         </div>
-                        {cli?(
-                          <div style={{background:B.offW,borderRadius:8,padding:"8px 10px",fontSize:11}}>
-                            {cli.empresa&&<div style={{color:B.grey4,marginBottom:2}}>🏢 {cli.empresa}</div>}
-                            {cli.asesor&&<div style={{color:"#2563AC",fontWeight:700,marginBottom:2}}>👤 {cli.asesor}</div>}
-                            {(cli.telefono||p.telefono)&&<div style={{color:B.grey4,marginBottom:2}}>📞 {cli.telefono||p.telefono}</div>}
-                            {(cli.email||p.email)&&<div style={{color:B.grey4,marginBottom:2}}>✉ {cli.email||p.email}</div>}
-                                                        {/* Temperatura automática por pipeline */}
-                            <div style={{marginTop:5,display:"flex",alignItems:"center",gap:4}}>
-                              <span style={{fontSize:9,fontWeight:800,color:tempColorP(item.pipeline),background:tempBgP(item.pipeline),border:"1.5px solid "+tempColorP(item.pipeline)+"66",borderRadius:10,padding:"1px 8px"}}>
-                                🌡 {getTempFromPipeline(item.pipeline)}
-                              </span>
-                            </div>
-                            {cli.uso_interes&&cli.uso_interes.length>0&&<div style={{marginTop:4}}><span style={{padding:"1px 6px",borderRadius:10,fontSize:9,background:B.blueL,color:B.blue}}>{cli.uso_interes[0]}</span></div>}
-                          </div>
-                        ):(
-                          <div style={{background:B.offW,borderRadius:8,padding:"8px 10px",fontSize:11,color:B.grey3}}>
-                            {p.empresa&&<div>🏢 {p.empresa}</div>}
-                            {p.telefono&&<div>📞 {p.telefono}</div>}
-                            {p.email&&<div>✉ {p.email}</div>}
-                            {!p.empresa&&!p.telefono&&!p.email&&<div>Sin datos de contacto</div>}
-                            {/* Temperatura automática por pipeline */}
-                            <div style={{marginTop:5}}>
-                              <span style={{fontSize:9,fontWeight:800,color:tempColorP(item.pipeline),background:tempBgP(item.pipeline),border:"1.5px solid "+tempColorP(item.pipeline)+"66",borderRadius:10,padding:"1px 8px"}}>
-                                🌡 {getTempFromPipeline(item.pipeline)}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Columna centro: terreno + pipeline */}
-                      <div style={{flex:"0 0 200px",minWidth:160}}>
-                        <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Terreno</div>
-                        <div style={{fontWeight:700,color:B.navy,fontSize:12,marginBottom:4}}>{item.lot.nombre}</div>
-                        <div style={{fontSize:11,color:B.grey4,marginBottom:6}}>{item.lot.desarrollo} · {item.lot.ciudad}</div>
-                        <div style={{fontSize:11,color:B.grey4,marginBottom:8}}>{fmtM(item.lot.precio_total||0)} · {(item.lot.sup_m2||0).toLocaleString()} m²</div>
-                        {/* Selector de etapa INLINE */}
-                        {(() => {
-                          const pStage=item.pipeline;
-                          const pCol=PIPELINE_COLORS[pStage]||B.grey3;
-                          const isLegacy=!VALID_STAGES_SET.has(pStage);
-                          return (
-                            <div onClick={e=>e.stopPropagation()}>
-                              <div style={{fontSize:9,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:0.8,marginBottom:3}}>Etapa del prospecto</div>
-                              <select value={isLegacy?"__legacy__":pStage} onChange={e=>{if(e.target.value!=="__legacy__")updateProspectoPipeline(item.lotId,item.prospectoIdx,e.target.value);}}
-                                style={{width:"100%",fontSize:11,fontWeight:700,color:isLegacy?"#dc2626":pCol,background:isLegacy?"#fee2e2":pCol+"18",border:"2px solid "+(isLegacy?"#dc2626":pCol),borderRadius:8,padding:"5px 10px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
-                                {isLegacy&&<option value="__legacy__">⚠ {pStage} (legacy)</option>}
-                                {PIPELINE_STAGES.map(s=><option key={s} value={s}>{s}</option>)}
-                              </select>
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      {/* Columna derecha: último seguimiento + acciones */}
-                      <div style={{flex:1,minWidth:180}}>
-                        <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>
-                          Último contacto {item.diasSinContacto!==null&&<span style={{color:item.semaforo==="red"?"#ef4444":item.semaforo==="yellow"?"#f59e0b":"#22c55e",fontWeight:item.semaforo==="red"?800:600,background:item.semaforo==="red"?"#fee2e2":item.semaforo==="yellow"?"#fef3c7":"transparent",borderRadius:6,padding:item.semaforo==="red"||item.semaforo==="yellow"?"1px 5px":"0"}}>· hace {item.diasSinContacto}d {item.semaforo==="red"?"⚠":item.semaforo==="yellow"?"·":""}</span>}
-                        </div>
-                        {lastInter?(
-                          <div style={{background:B.offW,borderRadius:8,padding:"8px 10px",marginBottom:8}}>
-                            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3}}>
-                              <span style={{fontSize:10,fontWeight:700,color:B.navy}}>{lastInter.canal}</span>
-                              <span style={{padding:"1px 6px",borderRadius:10,fontSize:9,fontWeight:700,background:"#dbeafe",color:"#2563eb"}}>{lastInter.reaccion}</span>
-                              <span style={{fontSize:9,color:B.grey3,marginLeft:"auto"}}>{lastInter.fecha}</span>
-                            </div>
-                            {lastInter.nota&&<div style={{fontSize:11,color:B.grey4,fontStyle:"italic"}}>{lastInter.nota.slice(0,80)}{lastInter.nota.length>80?"...":""}</div>}
-                          </div>
-                        ):(
-                          <div style={{background:"#fef9c3",borderRadius:8,padding:"8px 10px",marginBottom:8,fontSize:11,color:"#92400e"}}>
-                            ⚠ Sin interacciones registradas
-                          </div>
-                        )}
-                        {p.nota&&<div style={{fontSize:10,color:B.grey3,fontStyle:"italic",marginBottom:6}}>{p.nota.slice(0,60)}{p.nota.length>60?"...":""}</div>}
-                        {/* Próxima actividad pendiente */}
-                        {(() => {
-                          const acts=(p.actividades||[]).filter(a=>!a.completada).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
-                          const proxima=acts[0];
-                          const esEtapaCritica=STAGES_REQUIRING_ACTIVITY.includes(item.pipeline);
-                          if(!proxima){
-                            if(esEtapaCritica){
-                              return (
-                                <div style={{marginBottom:8,padding:"6px 9px",background:"#fef3c7",borderRadius:7,border:"1.5px dashed #f59e0b",display:"flex",alignItems:"center",gap:6}}>
-                                  <span style={{fontSize:11}}>⚠</span>
-                                  <span style={{fontSize:10,fontWeight:700,color:"#92400e",flex:1}}>Sin actividad pendiente</span>
-                                  <button onClick={()=>{setShowActivityModal({mode:"create",lotId:item.lotId,prospectoIdx:item.prospectoIdx});setActivityForm({tipo:"Seguimiento",descripcion:"",fecha:addBusinessDays(new Date(),2),hora:""});}} style={{padding:"3px 8px",background:"#f59e0b",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Agendar</button>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }
-                          const urg=getActivityUrgency(proxima);
-                          const tipo=ACTIVITY_TYPES.find(t=>t.id===proxima.tipo)||ACTIVITY_TYPES[0];
-                          return (
-                            <div style={{marginBottom:8,padding:"7px 10px",background:urg.bg,borderRadius:7,borderLeft:"3px solid "+(urg.rank===1?"#dc2626":urg.rank===2?"#d97706":urg.rank===3?"#1e40af":"#6b7280"),display:"flex",alignItems:"center",gap:6,cursor:"pointer"}} onClick={()=>{setShowActivityModal({mode:"complete",lotId:item.lotId,prospectoIdx:item.prospectoIdx,activity:proxima});setCompleteForm({resultado:"Positivo",nota:""});}}>
-                              <span style={{fontSize:14}}>{tipo.icon}</span>
-                              <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontSize:10,fontWeight:800,color:urg.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{urg.icon} {urg.label} · {proxima.descripcion||proxima.tipo}</div>
-                                <div style={{fontSize:9,color:urg.color,opacity:0.8}}>{proxima.fecha}{proxima.hora?" · "+proxima.hora:""}</div>
+                        <div style={{flex:"1 1 220px",minWidth:180}}>
+                          <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Último contacto {diasMin!=null&&<span style={{color:worst==="red"?"#ef4444":worst==="yellow"?"#f59e0b":"#22c55e",fontWeight:700}}>· hace {diasMin}d</span>}</div>
+                          {lastInter?(
+                            <div style={{background:B.offW,borderRadius:8,padding:"8px 10px"}}>
+                              <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:3}}>
+                                <span style={{fontSize:10,fontWeight:700,color:B.navy}}>{lastInter.canal}</span>
+                                {lastInter.reaccion&&<span style={{padding:"1px 6px",borderRadius:10,fontSize:9,fontWeight:700,background:"#dbeafe",color:"#2563eb"}}>{lastInter.reaccion}</span>}
+                                <span style={{fontSize:9,color:B.grey3,marginLeft:"auto"}}>{lastInter.fecha}</span>
                               </div>
-                              <span style={{fontSize:9,color:urg.color,fontWeight:700}}>✓</span>
+                              {lastInter.nota&&<div style={{fontSize:11,color:B.grey4,fontStyle:"italic"}}>{lastInter.nota.slice(0,90)}{lastInter.nota.length>90?"...":""}</div>}
+                            </div>
+                          ):(
+                            <div style={{background:"#fef9c3",borderRadius:8,padding:"8px 10px",fontSize:11,color:"#92400e"}}>⚠ Sin interacciones registradas</div>
+                          )}
+                        </div>
+                      </div>
+                      {/* Terrenos del cliente */}
+                      <div style={{marginTop:12,borderTop:"1px dashed "+B.grey1,paddingTop:8}}>
+                        <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Terrenos ({group.length})</div>
+                        {group.map((item)=>{
+                          const ip=item.prospecto;
+                          const pStage=item.pipeline; const pCol=PIPELINE_COLORS[pStage]||B.grey3; const isLegacy=!VALID_STAGES_SET.has(pStage);
+                          const acts=(ip.actividades||[]).filter(a=>!a.completada).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha)); const proxima=acts[0];
+                          return (
+                            <div key={item.lotId+"::"+item.prospectoIdx} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"8px 0",borderTop:"1px solid "+B.grey1}}>
+                              <div style={{flex:"1 1 220px",minWidth:170}}>
+                                <div style={{fontWeight:700,color:B.navy,fontSize:12}}>{item.lot.nombre} <span style={{fontWeight:600,color:B.grey4}}>· {item.lot.desarrollo}</span></div>
+                                <div style={{fontSize:10,color:B.grey4}}>{fmtM(item.lot.precio_total||0)} · {(item.lot.sup_m2||0).toLocaleString()} m²{proxima?<span style={{color:"#0e7490",fontWeight:700}}> · 📅 {proxima.fecha}</span>:null}</div>
+                              </div>
+                              <div onClick={e=>e.stopPropagation()} style={{flex:"0 0 165px"}}>
+                                <select value={isLegacy?"__legacy__":pStage} onChange={e=>{if(e.target.value!=="__legacy__")updateProspectoPipeline(item.lotId,item.prospectoIdx,e.target.value);}}
+                                  style={{width:"100%",fontSize:11,fontWeight:700,color:isLegacy?"#dc2626":pCol,background:isLegacy?"#fee2e2":pCol+"18",border:"2px solid "+(isLegacy?"#dc2626":pCol),borderRadius:8,padding:"5px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
+                                  {isLegacy&&<option value="__legacy__">⚠ {pStage}</option>}
+                                  {PIPELINE_STAGES.map(s=><option key={s} value={s}>{s}</option>)}
+                                </select>
+                              </div>
+                              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                                <button title="Registrar interacción" onClick={()=>{setSelectedLotCRM(item.lot);setInterProsp(item.prospecto.nombre||"");setShowInterModal(true);}} style={{padding:"5px 9px",background:B.gold,color:B.navy,border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Int</button>
+                                <button title="Agendar actividad" onClick={()=>{setShowActivityModal({mode:"create",lotId:item.lotId,prospectoIdx:item.prospectoIdx});setActivityForm({tipo:"Seguimiento",descripcion:"",fecha:addBusinessDays(new Date(),2),hora:""});}} style={{padding:"5px 9px",background:"#0EA5E9",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📅</button>
+                                <button title="WhatsApp" onClick={()=>setShowTemplatesModal({item})} style={{padding:"5px 9px",background:"#25d366",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📱</button>
+                                <button title="Ver lote" onClick={()=>{setSelectedLotCRM(item.lot);setActiveTab("kanban");}} style={{padding:"5px 9px",background:B.offW,color:B.grey4,border:"1px solid "+B.grey1,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Ver lote</button>
+                              </div>
                             </div>
                           );
-                        })()}
-                        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                          <button onClick={()=>{setSelectedLotCRM(item.lot);setShowInterModal(true);}} style={{padding:"5px 10px",background:B.gold,color:B.navy,border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Interacción</button>
-                          <button onClick={()=>{setShowActivityModal({mode:"create",lotId:item.lotId,prospectoIdx:item.prospectoIdx});setActivityForm({tipo:"Seguimiento",descripcion:"",fecha:addBusinessDays(new Date(),2),hora:""});}} style={{padding:"5px 10px",background:"#0EA5E9",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📅 Actividad</button>
-                          {item.proximaAct&&<button onClick={()=>{if(window.confirm("¿Eliminar esta actividad?"))deleteActivity(item.lotId,item.prospectoIdx,item.proximaAct.id);}} style={{padding:"5px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>🗑 Act.</button>}
-                          <button onClick={()=>setShowTemplatesModal({item})} style={{padding:"5px 10px",background:"#25d366",color:"#fff",border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📱 WA</button>
-                          <button onClick={()=>{setSelectedLotCRM(item.lot);setActiveTab("kanban");}} style={{padding:"5px 10px",background:B.offW,color:B.grey4,border:"1px solid "+B.grey1,borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Ver lote</button>
-                        </div>
+                        })}
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
       );
     };
