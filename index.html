@@ -6522,7 +6522,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
           {filtered.map((item,i)=>{
             const cli=item.cli; const crm=item.crm; const p=item.prospecto;
             const semCol=semaforoColor[item.semaforo];
-            const lastInterSorted=(crm.interacciones||[]).slice().reverse();
+            // Última interacción EXCLUSIVA de este prospecto (las interacciones son a nivel lote, etiquetadas por nombre)
+            const _pnL=(p.nombre||"").toLowerCase().trim();
+            const lastInterSorted=(crm.interacciones||[]).filter(x=>{ const nom=(x.prospecto||x.prospectoNombre||x.nombre||"").toLowerCase().trim(); return nom&&nom===_pnL; }).slice().reverse();
             const lastInter=lastInterSorted[0];
             // KEY ESTABLE: basada en identidad del prospecto, no en posición del array
             const stableKey=item.lotId+"::"+item.prospectoIdx+"::"+p.nombre;
@@ -7118,7 +7120,13 @@ function MacroProMatcher({ sessionEmail } = {}) {
       const pip=p.pipeline||"Prospecto";
       const tCol=tempColorP(pip);
       const stageCol={"Prospecto":"#6b7280","Contactado":"#0ea5e9","Cita":"#0891b2","Visita":"#0d9488","En análisis":"#6366f1","En negociación":"#8b5cf6","Propuesta":"#f59e0b","Apartado":"#f97316","Contrato":"#22c55e","Vendido":"#16a34a","Descartado":"#94a3b8"};
-      const ultimas=((crmData[lot.id]||crm).interacciones||[]).slice(-4).reverse();
+      // Interacciones EXCLUSIVAS de este prospecto (las interacciones se guardan a nivel lote, etiquetadas por nombre)
+      const _pn=(p.nombre||"").toLowerCase().trim();
+      const misInteracciones=((crmData[lot.id]||crm).interacciones||[]).filter(x=>{
+        const nom=(x.prospecto||x.prospectoNombre||x.nombre||"").toLowerCase().trim();
+        return nom && nom===_pn;
+      });
+      const ultimas=misInteracciones.slice(-4).reverse();
       const acts=(p.actividades||[]).filter(a=>!a.completada).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
       const proxAct=acts[0]||null;
       const today=new Date().toISOString().slice(0,10);
@@ -7237,7 +7245,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
                     <div style={{fontSize:11,color:B.grey4,lineHeight:1.4}}>{inter.nota||inter.descripcion||"—"}</div>
                   </div>
                 ))}
-                {(crm.interacciones||[]).length>4&&<div style={{fontSize:10,color:B.grey3,textAlign:"center",paddingTop:4}}>+{(crm.interacciones||[]).length-4} interacciones más en detalle completo</div>}
+                {misInteracciones.length>4&&<div style={{fontSize:10,color:B.grey3,textAlign:"center",paddingTop:4}}>+{misInteracciones.length-4} interacciones más en detalle completo</div>}
               </>)}
 
               {/* ── TAB: EDITAR ── */}
