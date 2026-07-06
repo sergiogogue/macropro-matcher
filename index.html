@@ -5572,6 +5572,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     // ── STATE ──────────────────────────────────────────────────────
     // ── STATE LOCAL DE VIEWCRM (los críticos están en el padre) ───
     const [showInterModal, setShowInterModal] = React.useState(false);
+    const [interProsp, setInterProsp] = React.useState(""); // prospecto (nombre) al que se etiqueta la interacción; "" = a nivel lote
     const [kanbanSearch, setKanbanSearch] = React.useState(""); // buscador de clientes (local: conserva foco al teclear)
     const [showNoteModal, setShowNoteModal] = React.useState(false);
     const [interForm, setInterForm] = React.useState({fecha:new Date().toISOString().slice(0,10),canal:"Llamada",contacto:"",reaccion:"Interesado",nota:""});
@@ -7122,9 +7123,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
       const stageCol={"Prospecto":"#6b7280","Contactado":"#0ea5e9","Cita":"#0891b2","Visita":"#0d9488","En análisis":"#6366f1","En negociación":"#8b5cf6","Propuesta":"#f59e0b","Apartado":"#f97316","Contrato":"#22c55e","Vendido":"#16a34a","Descartado":"#94a3b8"};
       // Interacciones EXCLUSIVAS de este prospecto (las interacciones se guardan a nivel lote, etiquetadas por nombre)
       const _pn=(p.nombre||"").toLowerCase().trim();
-      const misInteracciones=((crmData[lot.id]||crm).interacciones||[]).filter(x=>{
+      const _crmQ=(crmData[lot.id]||crm); const _unoQ=((_crmQ.prospectos||[]).length===1);
+      const misInteracciones=(_crmQ.interacciones||[]).filter(x=>{
         const nom=(x.prospecto||x.prospectoNombre||x.nombre||"").toLowerCase().trim();
-        return nom && nom===_pn;
+        return nom ? (nom===_pn) : _unoQ; // sin etiqueta: solo si el lote tiene un único prospecto
       });
       const ultimas=misInteracciones.slice(-4).reverse();
       const acts=(p.actividades||[]).filter(a=>!a.completada).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
@@ -8042,7 +8044,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
                     {lastI&&<span style={{fontSize:10,color:selected?B.grey2:B.grey4}}>Último: {lastI.canal}</span>}
                   </div>
                 </div>
-                <button onClick={e=>{e.stopPropagation();setSelectedLotCRM(l);setShowInterModal(true);}} style={{padding:"4px 9px",background:B.gold,color:B.navy,border:"none",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:700,flexShrink:0}}>+ Acción</button>
+                <button onClick={e=>{e.stopPropagation();setSelectedLotCRM(l);setInterProsp("");setShowInterModal(true);}} style={{padding:"4px 9px",background:B.gold,color:B.navy,border:"none",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:700,flexShrink:0}}>+ Acción</button>
               </div>
             </div>
           );
@@ -8188,7 +8190,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
             <div style={{marginBottom:14}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
                 <div style={{fontSize:10,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.8}}>🔄 Seguimiento ({crm.interacciones?crm.interacciones.length:0})</div>
-                <button onClick={()=>setShowInterModal(true)} style={{padding:"4px 10px",background:B.gold,color:B.navy,border:"none",borderRadius:7,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Agregar</button>
+                <button onClick={()=>{setInterProsp("");setShowInterModal(true);}} style={{padding:"4px 10px",background:B.gold,color:B.navy,border:"none",borderRadius:7,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Agregar</button>
               </div>
               {(!crm.interacciones||crm.interacciones.length===0)&&<div style={{fontSize:11,color:B.grey3,padding:"6px 0",fontStyle:"italic"}}>Sin seguimiento registrado</div>}
               {(crm.interacciones||[]).slice().reverse().map((inter,i)=>(
@@ -8369,10 +8371,13 @@ function MacroProMatcher({ sessionEmail } = {}) {
       const save=()=>{
         if(!interForm.nota.trim()&&!interForm.contacto.trim()){toast("Agrega una nota o contacto");return;}
         const crm=crmData[selectedLotCRM.id]||{pipeline:"Disponible",interacciones:[],prospectos:[]};
-        const interacciones=[...(crm.interacciones||[]),Object.assign({},interForm)];
+        // Etiquetar la interacción con el prospecto (si se abrió desde su ficha) para que aparezca SOLO en ese cliente
+        const nuevaInter=Object.assign({},interForm, interProsp?{prospecto:interProsp}:{});
+        const interacciones=[...(crm.interacciones||[]),nuevaInter];
         updateCRM(selectedLotCRM.id,{interacciones,lastContact:interForm.fecha});
         toast("✅ Interacción registrada");
         setInterForm({fecha:new Date().toISOString().slice(0,10),canal:"Llamada",contacto:"",reaccion:"Interesado",nota:""});
+        setInterProsp("");
         setShowInterModal(false);
       };
       return (
@@ -8382,7 +8387,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
               <div style={{fontSize:17,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>Nueva Interacción</div>
               <button onClick={()=>setShowInterModal(false)} style={{background:"transparent",border:"none",cursor:"pointer",fontSize:18,color:B.grey3}}>✕</button>
             </div>
-            <div style={{fontSize:10,fontWeight:700,color:B.grey3,marginBottom:14,textTransform:"uppercase",letterSpacing:1}}>{selectedLotCRM.nombre} · {selectedLotCRM.desarrollo}</div>
+            <div style={{fontSize:10,fontWeight:700,color:B.grey3,marginBottom:14,textTransform:"uppercase",letterSpacing:1}}>{selectedLotCRM.nombre} · {selectedLotCRM.desarrollo}{interProsp?<span style={{color:B.navy}}> · 👤 {interProsp}</span>:null}</div>
             {[["Fecha","fecha","date"],["Contacto / Prospecto","contacto","text"]].map(([lbl,k,t])=>(
               <div key={k} style={{marginBottom:12}}>
                 <div style={{fontSize:11,fontWeight:600,color:B.grey4,marginBottom:4}}>{lbl}</div>
@@ -10405,7 +10410,7 @@ Respuesta: [respuesta exacta, conversacional]
                         <div style={{fontSize:10,color:"#d97706",background:"#fef9c3",borderRadius:6,padding:"3px 8px",marginBottom:8,display:"inline-block"}}>⚠ Sin interacciones registradas</div>
                       )}
                       {/* Acción directa */}
-                      <button onClick={()=>{setSelectedLotCRM(l);setShowInterModal(true);setDrawerLotes(null);}} style={{padding:"5px 12px",background:B.gold,color:B.navy,border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Registrar seguimiento</button>
+                      <button onClick={()=>{setSelectedLotCRM(l);setInterProsp("");setShowInterModal(true);setDrawerLotes(null);}} style={{padding:"5px 12px",background:B.gold,color:B.navy,border:"none",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Registrar seguimiento</button>
                     </div>
                   );
                 })}
@@ -14522,9 +14527,10 @@ Respuesta: [respuesta exacta, conversacional]
           const sem=getSemaforo(lot.id);
           const semColor={"green":"#22c55e","yellow":"#f59e0b","red":"#ef4444","grey":"#9ca3af"}[sem]||"#9ca3af";
           // Comentario exclusivo del prospecto: primero p.nota, luego interacción filtrada por nombre
+          const _unoD=((crm.prospectos||[]).length===1);
           const ints=[...(crm.interacciones||[])].filter(x=>{
-            if(!x.prospecto&&!x.prospectoNombre&&!x.nombre) return false;
             const nom=(x.prospecto||x.prospectoNombre||x.nombre||"").toLowerCase().trim();
+            if(!nom) return _unoD; // sin etiqueta: solo si el lote tiene un único prospecto
             return nom===p.nombre.toLowerCase().trim();
           }).sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
           // Si hay interacciones del prospecto, usarlas; si no, usar p.nota
