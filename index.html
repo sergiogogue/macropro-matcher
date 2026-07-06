@@ -7903,14 +7903,18 @@ function MacroProMatcher({ sessionEmail } = {}) {
                       {x.seguimiento.notas&&<div style={{fontSize:9,color:B.grey3,marginTop:3,fontStyle:"italic",overflow:"hidden",textOverflow:"ellipsis",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>"{x.seguimiento.notas}"</div>}
                     </div>
                   ))}
-                  {stageProsps.map((x,i)=>{
-                    const p=x.prospecto;
-                    const cli=x.cli;
-                    const asesor=p.asesor||(cli&&cli.asesor)||x.crm.asesorResponsable||null;
-                    const temp=getTempFromPipeline(x.pipeline);
-                    const tCol=tempColorP(x.pipeline);
-                    return (
-                      <div key={x.lotId+"_"+x.prospectoIdx+"_"+i} onClick={()=>{setQuickProspData({lot:x.lot,p:x.prospecto,prospectoIdx:x.prospectoIdx,crm:crmData[x.lotId]||{},cli:x.cli||null});setShowQuickProspModal(true);}}
+                  {(() => {
+                    // Agrupar por cliente + desarrollo dentro de la columna → una ficha con varios terrenos del mismo desarrollo
+                    const grupos=new Map();
+                    stageProsps.forEach(x=>{ const k=(x.prospecto.nombre||"(sin nombre)").toLowerCase().trim()+"||"+((x.lot.desarrollo||"").toLowerCase().trim()); if(!grupos.has(k)) grupos.set(k,[]); grupos.get(k).push(x); });
+                    return [...grupos.entries()].map(([gk,g])=>{
+                      const x=g[0]; const p=x.prospecto; const cli=x.cli;
+                      const asesor=p.asesor||(cli&&cli.asesor)||x.crm.asesorResponsable||null;
+                      const temp=getTempFromPipeline(x.pipeline); const tCol=tempColorP(x.pipeline);
+                      const diasArr=g.map(it=>it.diasSinContacto).filter(v=>v!=null); const diasMin=diasArr.length?Math.min(...diasArr):null;
+                      const isLegacy=!VALID_STAGES_SET.has(x.pipeline);
+                      return (
+                      <div key={gk} onClick={()=>{setQuickProspData({lot:x.lot,p:x.prospecto,prospectoIdx:x.prospectoIdx,crm:crmData[x.lotId]||{},cli:x.cli||null});setShowQuickProspModal(true);}}
                         style={{background:B.white,borderRadius:10,padding:"10px 11px",marginBottom:8,cursor:"pointer",border:"1px solid "+B.grey1,transition:"all 0.15s",boxShadow:"0 1px 3px rgba(0,43,73,0.05)"}}
                         onMouseEnter={e=>{e.currentTarget.style.borderColor=col;e.currentTarget.style.boxShadow="0 3px 10px rgba(0,43,73,0.12)";}}
                         onMouseLeave={e=>{e.currentTarget.style.borderColor=B.grey1;e.currentTarget.style.boxShadow="0 1px 3px rgba(0,43,73,0.05)";}}>
@@ -7922,12 +7926,17 @@ function MacroProMatcher({ sessionEmail } = {}) {
                           {p.giro&&<span style={{fontSize:9,background:"#f0f9ff",color:"#0369a1",borderRadius:4,padding:"1px 5px",fontWeight:600}}>{p.giro}</span>}
                           {p.canal&&(()=>{const cc=CANAL_COLORS[p.canal]||{bg:"#f1f5f9",color:"#475569"};return <span style={{fontSize:9,background:cc.bg,color:cc.color,borderRadius:4,padding:"1px 6px",fontWeight:700,border:"1px solid "+cc.color+"33"}}>🏷 {p.canal}</span>;})()}
                         </div>}
-                        {/* Lote + Desarrollo */}
-                        <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
-                          <Semaforo lotId={x.lotId} size={7}/>
-                          <span style={{fontSize:10,fontWeight:700,color:B.navy,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{x.lot.nombre}</span>
+                        {/* Desarrollo (una ficha por desarrollo) */}
+                        <div style={{fontSize:9,color:B.grey4,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:0.5}}>{x.lot.desarrollo}{g.length>1&&<span style={{color:B.gold,marginLeft:6}}>· {g.length} terrenos</span>}</div>
+                        {/* Terrenos del cliente en este desarrollo */}
+                        <div style={{marginBottom:5}}>
+                          {g.map((it,ii)=>(
+                            <div key={ii} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
+                              <Semaforo lotId={it.lotId} size={7}/>
+                              <span style={{fontSize:10,fontWeight:700,color:B.navy,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.lot.nombre}</span>
+                            </div>
+                          ))}
                         </div>
-                        <div style={{fontSize:9,color:B.grey4,marginBottom:5}}>{x.lot.desarrollo}</div>
                         {/* Asesor */}
                         {asesor&&<div style={{fontSize:9,color:B.grey4,marginBottom:3,display:"flex",alignItems:"center",gap:4}}>
                           <span style={{opacity:0.6}}>👤</span><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{asesor}</span>
@@ -7936,21 +7945,22 @@ function MacroProMatcher({ sessionEmail } = {}) {
                         {temp&&tCol&&<div style={{fontSize:9,color:tCol,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:3}}>
                           <span>🌡</span><span>{temp}</span>
                         </div>}
-                        {/* Selector de etapa INLINE en la tarjeta del Kanban */}
+                        {/* Selector de etapa INLINE (mueve TODOS los terrenos de este cliente+desarrollo) */}
                         <div onClick={e=>e.stopPropagation()} style={{marginTop:6,marginBottom:4}}>
-                          <select value={VALID_STAGES_SET.has(x.pipeline)?x.pipeline:"__legacy__"} onChange={e=>{if(e.target.value!=="__legacy__")updateProspectoPipeline(x.lotId,x.prospectoIdx,e.target.value);}}
-                            style={{width:"100%",fontSize:9,fontWeight:700,color:VALID_STAGES_SET.has(x.pipeline)?col:"#dc2626",background:VALID_STAGES_SET.has(x.pipeline)?col+"15":"#fee2e2",border:"1.5px solid "+(VALID_STAGES_SET.has(x.pipeline)?col+"55":"#dc2626"),borderRadius:6,padding:"3px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
-                            {!VALID_STAGES_SET.has(x.pipeline)&&<option value="__legacy__">⚠ {x.pipeline}</option>}
+                          <select value={isLegacy?"__legacy__":x.pipeline} onChange={e=>{ const v=e.target.value; if(v!=="__legacy__") g.forEach(it=>updateProspectoPipeline(it.lotId,it.prospectoIdx,v)); }}
+                            style={{width:"100%",fontSize:9,fontWeight:700,color:!isLegacy?col:"#dc2626",background:!isLegacy?col+"15":"#fee2e2",border:"1.5px solid "+(!isLegacy?col+"55":"#dc2626"),borderRadius:6,padding:"3px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none"}}>
+                            {isLegacy&&<option value="__legacy__">⚠ {x.pipeline}</option>}
                             {PIPELINE_STAGES.map(s=><option key={s} value={s}>→ {s}</option>)}
                           </select>
                         </div>
-                        {/* Footer: interacciones + días */}
+                        {/* Footer */}
                         <div style={{fontSize:9,color:B.grey3,borderTop:"1px solid "+B.grey1,paddingTop:5,marginTop:2}}>
-                          {x.interacciones} interacc.{x.diasSinContacto!==null?" · "+x.diasSinContacto+"d":""}
+                          {g.length} terreno{g.length!==1?"s":""}{diasMin!=null?" · "+diasMin+"d":""}
                         </div>
                       </div>
-                    );
-                  })}
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             );
