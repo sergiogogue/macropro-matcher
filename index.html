@@ -60,20 +60,55 @@
 
   <!-- Registro del Service Worker para funcionamiento offline -->
   <script>
-    // Desregistrar todos los SW viejos y limpiar caches al inicio
+    // ── ACTUALIZACIÓN PWA (mejor práctica): detecta versión nueva y ofrece
+    //    un botón "Actualizar" (sin bucles, seguro en iOS). El SW nuevo espera
+    //    hasta que el usuario acepta; entonces toma control y recarga UNA vez.
+    window.__mpApplyUpdate = function(){
+      try{ var w=window.__mpSwWaiting; if(w){ w.postMessage({type:'SKIP_WAITING'}); return; } }catch(e){}
+      location.reload();
+    };
+    function mpShowUpdateBanner(){
+      if(document.getElementById('mp-update-banner')) return;
+      var b=document.createElement('div');
+      b.id='mp-update-banner';
+      b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#002B49;color:#fff;padding:'+(('standalone' in navigator && navigator.standalone)?'14px 16px 30px':'13px 16px')+';display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;font-family:\'DM Sans\',system-ui,sans-serif;font-size:14px;font-weight:700;box-shadow:0 -6px 24px rgba(0,0,0,.28)';
+      var txt=document.createElement('span'); txt.textContent='🔄 Hay una versión nueva de MacroPro'; b.appendChild(txt);
+      var btn=document.createElement('button');
+      btn.textContent='Actualizar ahora';
+      btn.style.cssText='background:#C9A24B;color:#002B49;border:none;border-radius:8px;padding:9px 18px;font-weight:800;cursor:pointer;font-family:inherit;font-size:14px';
+      btn.onclick=function(){ btn.textContent='Actualizando…'; btn.disabled=true; window.__mpApplyUpdate(); };
+      b.appendChild(btn);
+      var later=document.createElement('button');
+      later.textContent='Después';
+      later.style.cssText='background:transparent;color:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.35);border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer;font-family:inherit;font-size:13px';
+      later.onclick=function(){ b.remove(); };
+      b.appendChild(later);
+      document.body.appendChild(b);
+    }
+    window.addEventListener('sw-update-ready', mpShowUpdateBanner);
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(regs) {
-        regs.forEach(function(r){ r.unregister(); });
+      // Recarga UNA sola vez cuando el SW nuevo toma control (tras "Actualizar")
+      var mpRefreshing=false;
+      navigator.serviceWorker.addEventListener('controllerchange', function(){
+        if(mpRefreshing) return; mpRefreshing=true; location.reload();
       });
-    }
-    if (window.caches) {
-      caches.keys().then(function(names){ names.forEach(function(n){ caches.delete(n); }); });
-    }
-    if ('serviceWorker' in navigator) {
       window.addEventListener('load', function() {
         navigator.serviceWorker.register('service-worker.js').then(function(reg) {
           console.log('✅ Service Worker registrado:', reg.scope);
+          function mpCheckWaiting(w){
+            if(w && w.state==='installed' && navigator.serviceWorker.controller){
+              window.__mpSwWaiting = reg.waiting || w;
+              window.dispatchEvent(new CustomEvent('sw-update-ready'));
+            }
+          }
+          if(reg.waiting && navigator.serviceWorker.controller){ window.__mpSwWaiting=reg.waiting; window.dispatchEvent(new CustomEvent('sw-update-ready')); }
+          reg.addEventListener('updatefound', function(){
+            var nw=reg.installing;
+            if(nw) nw.addEventListener('statechange', function(){ mpCheckWaiting(nw); });
+          });
           reg.update();
+          // Reintenta buscar versión nueva cada 60s (sin recargar; solo detecta)
+          setInterval(function(){ try{ reg.update(); }catch(e){} }, 60000);
         }).catch(function(err) {
           console.warn('⚠ Service Worker no se pudo registrar:', err);
         });

@@ -1,8 +1,11 @@
-// MacroPro Service Worker — v1
+// MacroPro Service Worker — v2
 // Cachea el HTML, fonts y librerías React/Babel para que la app
-// funcione aunque no haya internet.
+// funcione aunque no haya internet. Estrategia network-first: online
+// siempre trae la versión nueva; offline usa el cache.
+// La versión nueva ESPERA a que el usuario toque "Actualizar" (mensaje
+// SKIP_WAITING) para no interrumpir el trabajo a medias.
 
-const CACHE_NAME = 'macropro-v1';
+const CACHE_NAME = 'macropro-v2';
 const URLS_TO_CACHE = [
   './',
   './index.html',
@@ -14,7 +17,9 @@ const URLS_TO_CACHE = [
   'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700;900&family=DM+Sans:wght@400;500;600;700;800&display=swap'
 ];
 
-// Al instalar: cachea todos los recursos críticos
+// Al instalar: cachea todos los recursos críticos.
+// NO llamamos skipWaiting aquí: el SW nuevo queda "waiting" hasta que el
+// usuario toque "Actualizar" (así no se interrumpe el trabajo a medias).
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -23,7 +28,13 @@ self.addEventListener('install', (event) => {
       });
     })
   );
-  self.skipWaiting();
+});
+
+// La app pide activar la versión nueva cuando el usuario toca "Actualizar"
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // Al activar: limpia caches viejos
