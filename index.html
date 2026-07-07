@@ -2105,7 +2105,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
         const rk=(R&&!R.error&&Array.isArray(R.data))?JSON.stringify(R.data):null;
         if(!stop&&rk!==null&&rk!==lastCrmRef.current){ lastCrmRef.current=rk;
           setCrmData(prevC=>{ const out={...(prevC||{})}; let ch=false;
-            R.data.forEach(row=>{ if(!row||!row.lote_id) return; const key=invByNorm[superNormId(row.lote_id)]||norm(row.lote_id);
+            R.data.forEach(row=>{ if(!row||!row.lote_id) return; const key=invByNorm[superNormId(row.lote_id)]||superNormId(row.lote_id);
               const cloud={pipeline:row.pipeline||"Disponible",asesorResponsable:row.asesor_asignado||"",interacciones:parseJ(row.interacciones),prospectos:parseJ(row.prospectos),devFeedback:parseJ(row.dev_feedback),seguimientosAsesor:parseJ(row.seguimientos_asesor)};
               const mine=out[key]||{};
               const merged={...mine,...cloud,
@@ -2161,7 +2161,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     setCrmData(prev=>{
       const cur=prev||{}; const out={};
       Object.keys(cur).forEach(k=>{
-        const real=byS[superNormId(k)]||k;   // id exacto del inventario si existe; si no, deja su propia clave
+        const real=byS[superNormId(k)]||superNormId(k);   // id del inventario si existe; si no, clave canónica agnóstica (colapsa variantes huérfanas)
         const b=cur[k]||{};
         if(!out[real]){ out[real]={...b, interacciones:dedupInteracciones(b.interacciones)}; return; }
         const a=out[real];
@@ -2952,7 +2952,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
         const nrm=s=>String(s||"").trim().toLowerCase().replace(/\s+/g,"_");
         setCrmData(prev=>{
           const out={...(prev||{})};
-          K.data.forEach(row=>{ if(!row||!row.lote_id) return; const id=invByS[superNormId(row.lote_id)]||nrm(row.lote_id); const mine=out[id]||{};
+          K.data.forEach(row=>{ if(!row||!row.lote_id) return; const id=invByS[superNormId(row.lote_id)]||superNormId(row.lote_id); const mine=out[id]||{};
             out[id]={
               ...mine,
               pipeline: (stageRankMPM(row.pipeline)>stageRankMPM(mine.pipeline)?row.pipeline:(mine.pipeline||row.pipeline||"Disponible")),
@@ -2993,7 +2993,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
         const invByS={}; invSrc.forEach(l=>{ if(l&&l.id) invByS[superNormId(loteKey(l))]=l.id; });
         const nrm=s=>String(s||"").trim().toLowerCase().replace(/\s+/g,"_");
         const mergedCRM={...(crmData||{})};
-        K.data.forEach(row=>{ if(!row||!row.lote_id) return; const id=invByS[superNormId(row.lote_id)]||nrm(row.lote_id); const mine=mergedCRM[id]||{};
+        K.data.forEach(row=>{ if(!row||!row.lote_id) return; const id=invByS[superNormId(row.lote_id)]||superNormId(row.lote_id); const mine=mergedCRM[id]||{};
           mergedCRM[id]={
             ...mine,
             pipeline:(stageRankMPM(row.pipeline)>stageRankMPM(mine.pipeline)?row.pipeline:(mine.pipeline||row.pipeline||"Disponible")),
@@ -3239,7 +3239,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
   };
   // Búsqueda de la entrada CRM tolerante a mayúsculas/espacios en el id del lote
   // (la nube guarda lote_id en minúscula 'cs-001' pero el inventario puede traer 'CS-001').
-  const normLoteId=(s)=>String(s||"").trim().toLowerCase().replace(/\s+/g,"_");
+  // Normalización AGNÓSTICA total (ignora may/min, espacios, guiones y guiones bajos):
+  // 'KU-006' = 'ku_006' = 'ku 006'. Así crmOf empata cualquier variante con el inventario
+  // y las variantes de un mismo lote NUNCA se ven como lotes distintos.
+  const normLoteId=(s)=>superNormId(s);
   const _crmKeyByNorm=(()=>{ const idx={}; Object.keys(crmData||{}).forEach(k=>{ const n=normLoteId(k); if(!(n in idx)) idx[n]=k; }); return idx; })();
   const crmKeyFor=(id)=> ((crmData&&crmData[id]!==undefined) ? id : (_crmKeyByNorm[normLoteId(id)]||id));
   const crmOf=(id)=> (crmData&&crmData[crmKeyFor(id)])||{};
@@ -5821,12 +5824,16 @@ function MacroProMatcher({ sessionEmail } = {}) {
       // Un cliente cargado directo en la app puede quedar sobre un lote que
       // NO existe en el inventario (Excel). Como este bucle solo recorre el
       // inventario, ese cliente sería INVISIBLE aunque el dato exista y aunque
-      // sincronice bien. Los incluimos SIEMPRE para no ocultar clientes/ventas.
+      // sincronice bien. Los incluimos para no ocultar clientes/ventas, PERO solo
+      // cuando NO hay un filtro de desarrollo/empresa activo (un huérfano no
+      // pertenece a ningún desarrollo, así que no debe aparecer al filtrar por uno).
+      const sinFiltroGlobal = (filterDesarrolloGlobal==="Todos" && filterDevCompania==="Todos");
       const invNorm=new Set(srcInvCRM.map(l=>normLoteId(loteKey(l))));
       const yaKeys=new Set(list.map(it=>normLoteId(it.lotId)));
-      Object.keys(crmData||{}).forEach(k=>{
+      if(sinFiltroGlobal) Object.keys(crmData||{}).forEach(k=>{
         const nk=normLoteId(k);
         if(invNorm.has(nk)||yaKeys.has(nk)) return; // ya en inventario o ya listado
+        if(/^[0-9a-f]{32}$/i.test(nk)) return; // clave basura tipo UUID (dato corrupto de sync viejo): no mostrar
         const crm=crmData[k]||{};
         (crm.prospectos||[]).forEach((p,idx)=>{
           if(!p||!p.nombre) return;
