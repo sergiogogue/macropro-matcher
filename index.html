@@ -354,6 +354,22 @@ function procesarEntornoDENUE(arr, lat, lng, metros){
 }
 
 // Genera clave única para un lote: ID Macrolote limpio (sin sufijo -rN interno)
+// Fusión de prospectos por NOMBRE con resolución de conflictos:
+// gana el cambio MÁS RECIENTE (updatedAt). Empate/sin fecha → no degradar etapa ganada; si no, el de la nube.
+// Se usa igual en el jalón automático y en el botón "Sincronizar" para que NUNCA se duplique ni se revierta.
+function mergeProspectosByName(mineArr, cloudArr){
+  const wonRank=(s)=>({"Vendido":3,"Contrato":2,"Apartado":1})[s]||0;
+  const ts=(p)=>Date.parse((p&&p.updatedAt)||"")||0;
+  const byN={};
+  (mineArr||[]).forEach(p=>{ if(p&&p.nombre) byN[p.nombre.toLowerCase().trim()]=p; });
+  (cloudArr||[]).forEach(p=>{ if(!p||!p.nombre) return; const k=p.nombre.toLowerCase().trim(); const ex=byN[k];
+    if(!ex){ byN[k]=p; return; }
+    const ta=ts(ex), tb=ts(p);
+    if(ta!==tb){ byN[k]=(tb>ta)?p:ex; return; }
+    byN[k]=(wonRank(ex.pipeline)>wonRank(p.pipeline))?ex:p;
+  });
+  return Object.values(byN);
+}
 function loteKey(lote) {
   // El ID interno tiene formato "ML_001-r5" — quitamos el "-rN"
   const idRaw = (lote.id || lote.id_macrolote || "").toString().trim();
@@ -1975,15 +1991,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
           setCrmData(prevC=>{ const out={...(prevC||{})}; let ch=false;
             R.data.forEach(row=>{ if(!row||!row.lote_id) return; const key=invByNorm[norm(row.lote_id)]||row.lote_id;
               const cloud={pipeline:row.pipeline||"Disponible",asesorResponsable:row.asesor_asignado||"",interacciones:parseJ(row.interacciones),prospectos:parseJ(row.prospectos),devFeedback:parseJ(row.dev_feedback),seguimientosAsesor:parseJ(row.seguimientos_asesor)};
-              const mine=out[key]||{}; const byN={};
-              const _wonRank=(s)=>({"Vendido":3,"Contrato":2,"Apartado":1})[s]||0; // proteger etapas ganadas de degradarse por sync
-              (mine.prospectos||[]).forEach(p=>{if(p&&p.nombre)byN[p.nombre.toLowerCase().trim()]=p;});
-              (cloud.prospectos||[]).forEach(p=>{ if(!p||!p.nombre) return; const _k=p.nombre.toLowerCase().trim(); const _ex=byN[_k];
-                if(!_ex){ byN[_k]=p; return; }
-                // Si una versión ya está Vendido/Contrato/Apartado, NO permitir que otra la regrese a una etapa anterior
-                byN[_k] = (_wonRank(_ex.pipeline) > _wonRank(p.pipeline)) ? _ex : p;
-              });
-              const merged={...mine,...cloud,prospectos:Object.values(byN),interacciones:(cloud.interacciones&&cloud.interacciones.length)?cloud.interacciones:(mine.interacciones||[]),devFeedback:(cloud.devFeedback&&cloud.devFeedback.length)?cloud.devFeedback:(mine.devFeedback||[])};
+              const mine=out[key]||{};
+              const merged={...mine,...cloud,prospectos:mergeProspectosByName(mine.prospectos,cloud.prospectos),interacciones:(cloud.interacciones&&cloud.interacciones.length)?cloud.interacciones:(mine.interacciones||[]),devFeedback:(cloud.devFeedback&&cloud.devFeedback.length)?cloud.devFeedback:(mine.devFeedback||[])};
               if(JSON.stringify(out[key])!==JSON.stringify(merged)){ out[key]=merged; ch=true; }
             });
             if(!ch) return prevC; saveCRM(out); try{crmSnapRef.current=JSON.stringify(out);}catch(e){} return out;
@@ -2787,7 +2796,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
             out[id]={
               pipeline: mine.pipeline || row.pipeline || "Disponible",
               asesorResponsable: mine.asesorResponsable || row.asesor_asignado || "",
-              prospectos: unionById(mine.prospectos, parseJ(row.prospectos)),
+              prospectos: mergeProspectosByName(mine.prospectos, parseJ(row.prospectos)),
               interacciones: unionById(mine.interacciones, parseJ(row.interacciones)),
               devFeedback: unionById(mine.devFeedback, parseJ(row.dev_feedback)),
               seguimientosAsesor: unionById(mine.seguimientosAsesor, parseJ(row.seguimientos_asesor)),
@@ -6870,6 +6879,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
               creadaEn:new Date().toISOString().slice(0,10)
             });
             p.actividades=actividades;
+            p.updatedAt=new Date().toISOString();
             prospectos[prospectoIdx]=p;
           }
           const next={...prev,[lotId]:{...entry,prospectos}};
@@ -6887,6 +6897,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
           if(prospectos[prospectoIdx]){
             const p={...prospectos[prospectoIdx]};
             p.actividades=(p.actividades||[]).map(a=>a.id===actId?{...a,completada:true,fechaCompletada:new Date().toISOString().slice(0,10),resultado:resultado||"Positivo",notaResultado:nota||""}:a);
+            p.updatedAt=new Date().toISOString();
             prospectos[prospectoIdx]=p;
           }
           const next={...prev,[lotId]:{...entry,prospectos,lastContact:new Date().toISOString().slice(0,10)}};
@@ -6925,6 +6936,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
             const fixedPatch={...patch};
             if(fixedPatch.fecha) fixedPatch.fecha=ensureWeekday(fixedPatch.fecha);
             p.actividades=(p.actividades||[]).map(a=>a.id===actId?{...a,...fixedPatch}:a);
+            p.updatedAt=new Date().toISOString();
             prospectos[prospectoIdx]=p;
           }
           const next={...prev,[lotId]:{...entry,prospectos}};
@@ -6959,7 +6971,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
           const entry=prev[lotId]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
           const prospectos=[...(entry.prospectos||[])];
           if(prospectos[prospectoIdx]){
-            const updated={...prospectos[prospectoIdx],pipeline:newStage};
+            const updated={...prospectos[prospectoIdx],pipeline:newStage,updatedAt:new Date().toISOString()};
             // Si se mueve de "Descartado" a otra etapa, limpiar motivo
             if(newStage!=="Descartado"){
               delete updated.motivoPerdida;
@@ -7018,7 +7030,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
               pipeline:"Descartado",
               motivoPerdida:lossForm.motivo,
               notaPerdida:lossForm.nota.trim(),
-              fechaPerdida:new Date().toISOString().slice(0,10)
+              fechaPerdida:new Date().toISOString().slice(0,10),
+              updatedAt:new Date().toISOString()
             };
           }
           const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Contrato":8,"Vendido":9,"Descartado":0,"Disponible":0};
@@ -14134,7 +14147,7 @@ Respuesta: [respuesta exacta, conversacional]
     const cambiarEtapa = (etapa) => {
       setNuevaEtapa(etapa);
       const crm=crmData[f.lotId]||{};
-      const prospectos=(crm.prospectos||[]).map((p,idx)=>idx===f.prospectoIdx?{...p,pipeline:etapa}:p);
+      const prospectos=(crm.prospectos||[]).map((p,idx)=>idx===f.prospectoIdx?{...p,pipeline:etapa,updatedAt:new Date().toISOString()}:p);
       updateCRM(f.lotId,{prospectos});
       toast("✅ Etapa → "+etapa);
     };
@@ -14143,7 +14156,7 @@ Respuesta: [respuesta exacta, conversacional]
       if(!nuevoComentario.trim()) return;
       setGuardando(true);
       const crm=crmData[f.lotId]||{};
-      const prospectos=(crm.prospectos||[]).map((p,idx)=>idx===f.prospectoIdx?{...p,nota:nuevoComentario.trim()}:p);
+      const prospectos=(crm.prospectos||[]).map((p,idx)=>idx===f.prospectoIdx?{...p,nota:nuevoComentario.trim(),updatedAt:new Date().toISOString()}:p);
       updateCRM(f.lotId,{prospectos});
       setTimeout(()=>{setGuardando(false);setNuevoComentario("");toast("✅ Guardado");setSemaforoDrawer(null);},300);
     };
