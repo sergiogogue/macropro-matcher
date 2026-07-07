@@ -7293,6 +7293,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
                     <div style={{fontSize:9,color:"#92400e",marginTop:2}}>Toca un terreno para abrir su ficha. Cada terreno tiene su propia etapa.</div>
                   </div>
                 )}
+                {/* Cotizaciones del cliente (más recientes arriba) — arriba de todo */}
+                {cliQ&&<div style={{marginBottom:12}}><CotizacionesCliente cliente={cliQ}/></div>}
                 {/* Próxima actividad */}
                 {proxAct&&(
                   <div style={{background:new Date(proxAct.fecha+"T12:00:00")<new Date()?"#fef2f2":"#f0fdf4",borderRadius:8,padding:"8px 12px",marginBottom:12,borderLeft:"3px solid "+(new Date(proxAct.fecha+"T12:00:00")<new Date()?"#dc2626":"#16a34a")}}>
