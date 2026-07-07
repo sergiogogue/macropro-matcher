@@ -14864,7 +14864,7 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setFillColor(196,154,34); doc.rect(MX,y,PW-MX*2,6,"F");
         doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(0,43,73);
         doc.text("RESUMEN EJECUTIVO",MX+4,y+4); y+=8;
-        const kpis=[["TERRENOS",String(invComposicion.usoArr.reduce((s,x)=>s+x.count,0))],["VALOR INVENTARIO",fmtM(invComposicion.usoArr.reduce((s,x)=>s+x.monto,0))],["VENDIDOS (AÑO)",String(ventasAno.uds)],["MONTO VENDIDO (AÑO)",fmtM(ventasAno.montoPesos)],["TICKET PROMEDIO",fmtM(ventasAno.ticket)]];
+        const kpis=[["TERRENOS",String(invComposicion.usoArr.reduce((s,x)=>s+x.count,0))],["VALOR INVENTARIO",fmtM(invComposicion.usoArr.reduce((s,x)=>s+x.monto,0))],["VENTAS (AÑO)",String(ventasAno.uds)],["MONTO VENDIDO (AÑO)",fmtM(ventasAno.montoPesos)],["TICKET PROMEDIO / VENTA",fmtM(ventasAno.ticket)]];
         const kw=(PW-MX*2-4*3)/5;
         kpis.forEach((k,i)=>{
           const kx=MX+i*(kw+3);
@@ -15041,9 +15041,9 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(165px,1fr))",gap:1,background:"#e5e7eb"}}>
                 {[["🏗️ Terrenos",String(invComposicion.usoArr.reduce((s,x)=>s+x.count,0))],
                   ["🏦 Valor inventario",fmtMx(invComposicion.usoArr.reduce((s,x)=>s+x.monto,0))],
-                  ["✅ Vendidos (año)",String(ventasAno.uds)],
+                  ["✅ Ventas (año)",String(ventasAno.uds)],
                   ["💰 Monto vendido (año)",fmtMx(ventasAno.montoPesos)],
-                  ["🎯 Ticket promedio",fmtMx(ventasAno.ticket)],
+                  ["🎯 Ticket promedio / venta",fmtMx(ventasAno.ticket)],
                   ["💼 Prospectos activos",String(resumen.total)],
                   ["🤝 Negociación/Propuesta",String(resumen.enNego)]
                 ].map(([lbl,val])=>(
