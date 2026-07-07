@@ -14349,6 +14349,10 @@ Respuesta: [respuesta exacta, conversacional]
       const p=(crm.prospectos||[])[f.prospectoIdx]||{};
       const lot=inventory.find(l=>l.id===f.lotId)||{id:f.lotId,nombre:f.lote};
       const cli=clients.find(c=>c.nombre&&p.nombre&&c.nombre.toLowerCase()===p.nombre.toLowerCase())||null;
+      // La ficha (QuickProspectoModal) se monta dentro de la vista CRM; si estamos en
+      // Ejecutivo/otra vista, cambiamos a CRM para que la ficha SÍ abra en cualquier lado.
+      setView("crm");
+      setQuickProspInitTab("acciones");
       setQuickProspData({lot,p,prospectoIdx:f.prospectoIdx,crm,cli});
       setShowQuickProspModal(true);
       setSemaforoDrawer(null);
@@ -15587,7 +15591,7 @@ Respuesta: [respuesta exacta, conversacional]
               </div>
             </div>
             <div style={{display:"flex",gap:8,flexShrink:0}}>
-              <button onClick={()=>{onClose();const crm2=crmData[item.lotId]||{};setQuickProspData({lot:item.lot,p:item.prospecto,prospectoIdx:item.prospectoIdx,crm:crm2,cli:item.cli||null});setQuickProspInitTab("editar");setShowQuickProspModal(true);}}
+              <button onClick={()=>{onClose();const crm2=crmData[item.lotId]||{};setView("crm");setQuickProspData({lot:item.lot,p:item.prospecto,prospectoIdx:item.prospectoIdx,crm:crm2,cli:item.cli||null});setQuickProspInitTab("editar");setShowQuickProspModal(true);}}
                 style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"6px 12px",cursor:"pointer",color:"#fff",fontSize:11,fontWeight:700}}>✏️ Editar</button>
               <button onClick={()=>{if(window.confirm("¿Eliminar a "+p.nombre+" de este lote? Esta acción no se puede deshacer.")){const crm2=crmData[item.lotId]||{};const nuevosProsp=(crm2.prospectos||[]).filter((_,i)=>i!==item.prospectoIdx);updateCRM(item.lotId,{prospectos:nuevosProsp});onClose();toast("🗑 Prospecto eliminado: "+p.nombre);}}}
                 style={{background:"rgba(220,38,38,0.25)",border:"1px solid rgba(255,100,100,0.4)",borderRadius:8,padding:"6px 12px",cursor:"pointer",color:"#fca5a5",fontSize:11,fontWeight:700}}>🗑 Eliminar</button>
