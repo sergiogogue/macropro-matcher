@@ -1975,7 +1975,14 @@ function MacroProMatcher({ sessionEmail } = {}) {
           setCrmData(prevC=>{ const out={...(prevC||{})}; let ch=false;
             R.data.forEach(row=>{ if(!row||!row.lote_id) return; const key=invByNorm[norm(row.lote_id)]||row.lote_id;
               const cloud={pipeline:row.pipeline||"Disponible",asesorResponsable:row.asesor_asignado||"",interacciones:parseJ(row.interacciones),prospectos:parseJ(row.prospectos),devFeedback:parseJ(row.dev_feedback),seguimientosAsesor:parseJ(row.seguimientos_asesor)};
-              const mine=out[key]||{}; const byN={}; (mine.prospectos||[]).forEach(p=>{if(p&&p.nombre)byN[p.nombre.toLowerCase().trim()]=p;}); (cloud.prospectos||[]).forEach(p=>{if(p&&p.nombre)byN[p.nombre.toLowerCase().trim()]=p;});
+              const mine=out[key]||{}; const byN={};
+              const _wonRank=(s)=>({"Vendido":3,"Contrato":2,"Apartado":1})[s]||0; // proteger etapas ganadas de degradarse por sync
+              (mine.prospectos||[]).forEach(p=>{if(p&&p.nombre)byN[p.nombre.toLowerCase().trim()]=p;});
+              (cloud.prospectos||[]).forEach(p=>{ if(!p||!p.nombre) return; const _k=p.nombre.toLowerCase().trim(); const _ex=byN[_k];
+                if(!_ex){ byN[_k]=p; return; }
+                // Si una versión ya está Vendido/Contrato/Apartado, NO permitir que otra la regrese a una etapa anterior
+                byN[_k] = (_wonRank(_ex.pipeline) > _wonRank(p.pipeline)) ? _ex : p;
+              });
               const merged={...mine,...cloud,prospectos:Object.values(byN),interacciones:(cloud.interacciones&&cloud.interacciones.length)?cloud.interacciones:(mine.interacciones||[]),devFeedback:(cloud.devFeedback&&cloud.devFeedback.length)?cloud.devFeedback:(mine.devFeedback||[])};
               if(JSON.stringify(out[key])!==JSON.stringify(merged)){ out[key]=merged; ch=true; }
             });
