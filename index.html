@@ -7401,10 +7401,22 @@ function MacroProMatcher({ sessionEmail } = {}) {
                         <div style={{minWidth:0}}>
                           <div style={{fontSize:11,fontWeight:700,color:B.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.nombre} <span style={{fontWeight:400,color:B.grey4}}>· {t.desarrollo}</span></div>
                         </div>
-                        <span style={{fontSize:9,fontWeight:700,background:(stageCol[t.pipeline]||B.grey3),color:"#fff",borderRadius:10,padding:"2px 8px",flexShrink:0,whiteSpace:"nowrap"}}>{t.esActual?"● aquí · ":""}{t.pipeline}</span>
+                        <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                          <span style={{fontSize:9,fontWeight:700,background:(stageCol[t.pipeline]||B.grey3),color:"#fff",borderRadius:10,padding:"2px 8px",whiteSpace:"nowrap"}}>{t.esActual?"● aquí · ":""}{t.pipeline}</span>
+                          <button title={"Quitar a "+(t.prospecto.nombre||"este cliente")+" de este terreno"}
+                            onClick={(e)=>{ e.stopPropagation();
+                              if(!window.confirm("¿Quitar a "+(t.prospecto.nombre||"este cliente")+" del terreno \""+t.nombre+"\"?\n\nSolo se desvincula de ESE terreno; el cliente y sus otros terrenos NO se tocan.")) return;
+                              const c=crmData[t.lotId]||{};
+                              const prospectos=(c.prospectos||[]).filter((_,idx)=>idx!==t.prospectoIdx);
+                              updateCRM(t.lotId,{prospectos});
+                              toast("🗑 Quitado del terreno "+t.nombre);
+                              if(t.esActual||t.lotId===lot.id) setShowQuickProspModal(false);
+                            }}
+                            style={{background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:6,padding:"3px 7px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗑</button>
+                        </div>
                       </div>
                     ))}
-                    <div style={{fontSize:9,color:"#92400e",marginTop:2}}>Toca un terreno para abrir su ficha. Cada terreno tiene su propia etapa.</div>
+                    <div style={{fontSize:9,color:"#92400e",marginTop:2}}>Toca un terreno para abrir su ficha o cambiar su etapa/lote (pestaña Editar). 🗑 lo quita de ese terreno. Cada terreno tiene su propia etapa.</div>
                   </div>
                 )}
                 {/* Cotizaciones del cliente (más recientes arriba) — arriba de todo */}
