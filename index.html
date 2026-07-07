@@ -14582,6 +14582,20 @@ Respuesta: [respuesta exacta, conversacional]
       const tamArr=ordenTam.filter(k=>byTam[k]).map(k=>({nombre:k,...byTam[k]}));
       return {usoArr,tamArr};
     },[filtDev,filtTipo,inventory]);
+    // Ventas REALES del año (de Metas) para el desarrollo — fuente correcta de cierres/monto/ticket
+    const ventasAno=React.useMemo(()=>{
+      let uds=0, montoMiles=0, m2=0;
+      const norm=s=>(s||"").toString().trim().toLowerCase();
+      Object.entries(metasData||{}).forEach(([nombre,d])=>{
+        if(!d||!d.real) return;
+        if(filtDev!=="Todos" && norm(nombre)!==norm(filtDev)) return;
+        uds += (d.real.uds||[]).reduce((a,b)=>a+(b||0),0);
+        montoMiles += (d.real.monto||[]).reduce((a,b)=>a+(b||0),0);
+        m2 += (d.real.m2||[]).reduce((a,b)=>a+(b||0),0);
+      });
+      const montoPesos=montoMiles*1000; // los montos de Metas están en miles MXN
+      return { uds, montoPesos, m2, ticket: uds>0?montoPesos/uds:0 };
+    },[metasData,filtDev]);
     const fmtM=(v)=>v>0?"$"+(v/1e6).toFixed(1)+"M":"—";
     const fmtM2=(v)=>v>0?"$"+v.toLocaleString():"—";
     const fmtSup=(v)=>v>0?v.toLocaleString()+" m²":"—";
@@ -14850,7 +14864,7 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setFillColor(196,154,34); doc.rect(MX,y,PW-MX*2,6,"F");
         doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(0,43,73);
         doc.text("RESUMEN EJECUTIVO",MX+4,y+4); y+=8;
-        const kpis=[["VALOR EN PIPELINE",fmtM(resumen.monto)],["PROSPECTOS",String(resumen.total)],["NEGOCIACIÓN/PROPUESTA",String(resumen.enNego)],["CIERRES",String(resumen.cierres)],["TICKET PROMEDIO",fmtM(resumen.ticket)]];
+        const kpis=[["TERRENOS",String(invComposicion.usoArr.reduce((s,x)=>s+x.count,0))],["VALOR INVENTARIO",fmtM(invComposicion.usoArr.reduce((s,x)=>s+x.monto,0))],["VENDIDOS (AÑO)",String(ventasAno.uds)],["MONTO VENDIDO (AÑO)",fmtM(ventasAno.montoPesos)],["TICKET PROMEDIO",fmtM(ventasAno.ticket)]];
         const kw=(PW-MX*2-4*3)/5;
         kpis.forEach((k,i)=>{
           const kx=MX+i*(kw+3);
@@ -15027,11 +15041,11 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(165px,1fr))",gap:1,background:"#e5e7eb"}}>
                 {[["🏗️ Terrenos",String(invComposicion.usoArr.reduce((s,x)=>s+x.count,0))],
                   ["🏦 Valor inventario",fmtMx(invComposicion.usoArr.reduce((s,x)=>s+x.monto,0))],
-                  ["💰 Valor en pipeline",fmtMx(resumen.monto)],
-                  ["💼 Prospectos",String(resumen.total)],
-                  ["🤝 Negociación/Propuesta",String(resumen.enNego)],
-                  ["✅ Cierres",String(resumen.cierres)],
-                  ["🎯 Ticket promedio",fmtMx(resumen.ticket)]
+                  ["✅ Vendidos (año)",String(ventasAno.uds)],
+                  ["💰 Monto vendido (año)",fmtMx(ventasAno.montoPesos)],
+                  ["🎯 Ticket promedio",fmtMx(ventasAno.ticket)],
+                  ["💼 Prospectos activos",String(resumen.total)],
+                  ["🤝 Negociación/Propuesta",String(resumen.enNego)]
                 ].map(([lbl,val])=>(
                   <div key={lbl} style={{background:"#fff",padding:"12px 14px"}}>
                     <div style={{fontSize:9,color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>{lbl}</div>
