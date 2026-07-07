@@ -15024,8 +15024,10 @@ Respuesta: [respuesta exacta, conversacional]
                 <div style={{fontSize:11,fontWeight:700,color:"#C49A22",letterSpacing:2,textTransform:"uppercase"}}>⬡ Resumen Ejecutivo</div>
                 <div style={{fontSize:16,fontWeight:800,color:"#fff",fontFamily:"'Playfair Display',serif"}}>Concentrado · {filtDev!=="Todos"?filtDev:"Todos los desarrollos"}{filtCanal!=="Todos"?" · "+filtCanal:""}</div>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:1,background:"#e5e7eb"}}>
-                {[["💰 Valor en pipeline",fmtMx(resumen.monto)],
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(165px,1fr))",gap:1,background:"#e5e7eb"}}>
+                {[["🏗️ Terrenos",String(invComposicion.usoArr.reduce((s,x)=>s+x.count,0))],
+                  ["🏦 Valor inventario",fmtMx(invComposicion.usoArr.reduce((s,x)=>s+x.monto,0))],
+                  ["💰 Valor en pipeline",fmtMx(resumen.monto)],
                   ["💼 Prospectos",String(resumen.total)],
                   ["🤝 Negociación/Propuesta",String(resumen.enNego)],
                   ["✅ Cierres",String(resumen.cierres)],
