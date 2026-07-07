@@ -2598,11 +2598,35 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const hit=(asesoresCatalog||[]).find(a=>((a.email||"")+"").trim().toLowerCase()===e);
     return hit?hit.nombre:"";
   },[sessionEmail, asesoresCatalog]);
+  // Asesor SEGÚN EL CORREO de login (no la elección local): base del rol/bloqueo.
+  const miAsesorPorCorreo = React.useMemo(()=>{
+    const e=(sessionEmail||"").trim().toLowerCase(); if(!e) return "";
+    const hit=(asesoresCatalog||[]).find(a=>((a.email||"")+"").trim().toLowerCase()===e);
+    return hit?hit.nombre:"";
+  },[sessionEmail, asesoresCatalog]);
+  // ADMIN (ve todo y asigna) vs ASESOR (solo lo suyo, bloqueado).
+  // Admin si: no hay login · correo en lista de admins · correo NO registrado como
+  // asesor · o el asesor está marcado rol 'admin'. (Falla del lado seguro: ver todo.)
+  const ADMIN_EMAILS=["sergio@grupoguia.mx"];
+  const esAdmin = React.useMemo(()=>{
+    const e=(sessionEmail||"").trim().toLowerCase();
+    if(!e) return true;
+    if(ADMIN_EMAILS.indexOf(e)>=0) return true;
+    const hit=(asesoresCatalog||[]).find(a=>((a.email||"")+"").trim().toLowerCase()===e);
+    if(!hit) return true;
+    return hit.rol==="admin";
+  },[sessionEmail, asesoresCatalog]);
   const autoAsesorRef = React.useRef(false);
   React.useEffect(()=>{
     if(autoAsesorRef.current) return;
     if(miAsesor){ autoAsesorRef.current=true; setFilterAsesor(miAsesor); }
   },[miAsesor]);
+  // CANDADO: un asesor (no-admin) SIEMPRE queda fijado a su propio nombre; si algo
+  // intenta cambiar el filtro a otro/"Todos", regresa a lo suyo. El admin no se toca.
+  React.useEffect(()=>{
+    if(esAdmin) return;
+    if(miAsesorPorCorreo && filterAsesor!==miAsesorPorCorreo) setFilterAsesor(miAsesorPorCorreo);
+  },[esAdmin, miAsesorPorCorreo, filterAsesor]);
   const [showAsesorModal,setShowAsesorModal]=useState(false);
   const [editingAsesor,setEditingAsesor]=useState(null);
   const [asesorForm,setAsesorForm]=useState({nombre:"",zona:"",telefono:"",email:""});
@@ -4570,7 +4594,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
           </>):(<>
             <div style={{display:"flex",flexDirection:"column",gap:2}}>
               <span style={{fontSize:10,color:B.grey3,fontWeight:600}}>ASESOR</span>
-              <select style={s.select} value={filterAsesor} onChange={e=>setFilterAsesor(e.target.value)}>{asesores.map(a=><option key={a}>{a}</option>)}</select>
+              <select disabled={!esAdmin} title={!esAdmin?"Tu vista está fijada a tus prospectos":""} style={{...s.select,opacity:esAdmin?1:0.7,cursor:esAdmin?"pointer":"not-allowed"}} value={filterAsesor} onChange={e=>setFilterAsesor(e.target.value)}>{asesores.map(a=><option key={a}>{a}</option>)}</select>
             </div>
           </>)}
           <div style={{marginLeft:"auto",fontSize:12,color:B.grey3}}>Mostrando <strong style={{color:B.navy}}>{filtered.length}</strong> de {results.length}</div>
@@ -6651,7 +6675,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
               />
               {searchProsp&&<button onClick={()=>setSearchProsp("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:13,color:B.grey3,padding:0}}>✕</button>}
             </div>
-            <select value={filterAsesor} onChange={e=>setFilterAsesor(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
+            <select disabled={!esAdmin} title={!esAdmin?"Tu vista está fijada a tus prospectos":""} value={filterAsesor} onChange={e=>setFilterAsesor(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:esAdmin?B.white:B.offW,outline:"none",fontFamily:"'DM Sans',sans-serif",opacity:esAdmin?1:0.7,cursor:esAdmin?"pointer":"not-allowed"}}>
               <option value="Todos">Todos los asesores</option>
               {asesores.map(a=><option key={a}>{a}</option>)}
             </select>
@@ -9055,9 +9079,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
               {/* Rótulo: a quién se le está mostrando la agenda */}
               <div style={{display:"inline-flex",alignItems:"center",gap:8,marginTop:8,background:filterAsesor!=="Todos"?"#eef4fb":B.offW,border:"1px solid "+(filterAsesor!=="Todos"?"#bfdbfe":B.grey1),borderRadius:20,padding:"4px 6px 4px 12px"}}>
                 <span style={{fontSize:12,fontWeight:800,color:filterAsesor!=="Todos"?"#1e40af":B.grey4}}>👤 {filterAsesor!=="Todos"?("Viendo: "+filterAsesor):"Viendo: todo el equipo"}</span>
-                {filterAsesor!=="Todos"
+                {esAdmin ? (filterAsesor!=="Todos"
                   ? <button onClick={()=>setFilterAsesor("Todos")} style={{fontSize:10,fontWeight:700,color:B.grey4,background:B.white,border:"1px solid "+B.grey1,borderRadius:14,padding:"3px 9px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver todos</button>
-                  : (miAsesor?<button onClick={()=>{ setFilterAsesor(miAsesor); try{localStorage.setItem("macropro_mi_asesor",miAsesor);}catch(e){} }} style={{fontSize:10,fontWeight:700,color:"#1e40af",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:14,padding:"3px 9px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver solo lo mío</button>:null)}
+                  : (miAsesor?<button onClick={()=>{ setFilterAsesor(miAsesor); try{localStorage.setItem("macropro_mi_asesor",miAsesor);}catch(e){} }} style={{fontSize:10,fontWeight:700,color:"#1e40af",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:14,padding:"3px 9px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver solo lo mío</button>:null))
+                  : <span title="Tu vista está fijada a tus prospectos" style={{fontSize:10,fontWeight:700,color:"#1e40af",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:14,padding:"3px 9px"}}>🔒 Tu vista</span>}
               </div>
             </div>
             <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
@@ -9071,7 +9096,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
                 <button onClick={()=>setVistaMiDia("lista")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaMiDia==="lista"?B.navy:"transparent",color:vistaMiDia==="lista"?"#fff":B.grey4}}>📋 Lista</button>
                 <button onClick={()=>setVistaMiDia("calendario")} style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:vistaMiDia==="calendario"?B.navy:"transparent",color:vistaMiDia==="calendario"?"#fff":B.grey4}}>📅 Calendario</button>
               </div>
-              {asesoresUnicos.length>1&&(
+              {esAdmin&&asesoresUnicos.length>1&&(
                 <select value={filterAsesor} onChange={e=>{ const v=e.target.value; setFilterAsesor(v); if(v!=="Todos"){ try{ localStorage.setItem("macropro_mi_asesor", v); }catch(err){} } }}
                   title="Al elegir tu nombre, este equipo recordará que ese eres tú y 'Mi día' abrirá con lo tuyo."
                   style={{padding:"8px 12px",borderRadius:8,border:"1.5px solid "+B.grey1,fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,color:B.navy,background:B.white,cursor:"pointer",outline:"none"}}>
@@ -10145,7 +10170,7 @@ Respuesta: [respuesta exacta, conversacional]
                 {opts.map(o=><option key={o} value={o==="Todos los desarrollos"?"Todos":o}>{o}</option>)}
               </select>
             ))}
-            <select value={filterAsesor} onChange={e=>setFilterAsesor(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"}}>
+            <select disabled={!esAdmin} title={!esAdmin?"Tu vista está fijada a tus prospectos":""} value={filterAsesor} onChange={e=>setFilterAsesor(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:esAdmin?B.white:B.offW,outline:"none",fontFamily:"'DM Sans',sans-serif",opacity:esAdmin?1:0.7,cursor:esAdmin?"pointer":"not-allowed"}}>
               <option value="Todos">Todos los asesores</option>
               {(()=>{
                 // Unión: catálogo manual + asesores presentes en los datos (prospecto → cliente → CRM)
