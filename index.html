@@ -370,6 +370,19 @@ function mergeProspectosByName(mineArr, cloudArr){
   });
   return Object.values(byN);
 }
+// Clave de MATCHING de lote: ignora mayúsculas, espacios, guiones y guiones bajos.
+// Así "KU-010", "ku-010", "ku_010" y "KU_010" se reconocen como EL MISMO lote.
+function superNormId(s){ return String(s||"").toLowerCase().replace(/[^a-z0-9]/g,""); }
+// Orden de etapas para no regresar un lote a una etapa anterior al fusionar duplicados.
+const STAGE_ORD_MPM={"Disponible":0,"Prospecto":1,"Por Contactar":1.5,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":-1};
+function stageRankMPM(s){ return (s in STAGE_ORD_MPM)?STAGE_ORD_MPM[s]:0; }
+// Une interacciones quitando SOLO duplicados EXACTOS (byte a byte). Las malas
+// sincronizaciones multiplicaron interacciones idénticas (p.ej. ×8); esto las limpia.
+function dedupInteracciones(){
+  const seen=new Set(), out=[];
+  for(let a=0;a<arguments.length;a++){ (arguments[a]||[]).forEach(it=>{ let k; try{k=JSON.stringify(it);}catch(e){k=null;} if(k!==null){ if(seen.has(k)) return; seen.add(k); } out.push(it); }); }
+  return out;
+}
 function loteKey(lote) {
   // El ID interno tiene formato "ML_001-r5" — quitamos el "-rN"
   const idRaw = (lote.id || lote.id_macrolote || "").toString().trim();
@@ -1905,6 +1918,27 @@ function MacroProMatcher({ sessionEmail } = {}) {
         if(!d[newKey]){ d[newKey]=d[oldKey]; } // migrar solo si la clave limpia no existe
         delete d[oldKey];
       });
+      // DEDUP de claves variantes (may/min + guion/guionbajo/espacio): KU-010 / ku-010 / ku_010 → una sola.
+      // Fusiona prospectos por nombre y quita interacciones duplicadas EXACTAS (limpia el ×N de malas syncs).
+      try{
+        const bySuper={}; // superNorm → clave representante (la primera vista)
+        Object.keys(d).forEach(k=>{
+          const sn=superNormId(k); if(!sn){ return; }
+          const rep=bySuper[sn];
+          if(rep===undefined){ bySuper[sn]=k; d[k].interacciones=dedupInteracciones(d[k].interacciones); return; }
+          const a=d[rep], b=d[k];
+          d[rep]={...a,...b,
+            pipeline:(stageRankMPM(b.pipeline)>stageRankMPM(a.pipeline)?b.pipeline:(a.pipeline||b.pipeline||"Disponible")),
+            asesorResponsable:a.asesorResponsable||b.asesorResponsable||"",
+            prospectos:mergeProspectosByName(a.prospectos,b.prospectos),
+            interacciones:dedupInteracciones(a.interacciones,b.interacciones),
+            devFeedback:(a.devFeedback&&a.devFeedback.length)?a.devFeedback:(b.devFeedback||[]),
+            seguimientoAsesor:a.seguimientoAsesor||b.seguimientoAsesor,
+            seguimientosAsesor:a.seguimientosAsesor||b.seguimientosAsesor
+          };
+          delete d[k];
+        });
+      }catch(err){ console.warn("dedup migrateCRM:",err); }
       Object.keys(d||{}).forEach(id=>{
         const e=d[id]; if(!e) return;
         if(e.pipeline&&STAGE_MIGRATION[e.pipeline]) e.pipeline=STAGE_MIGRATION[e.pipeline];
@@ -1982,17 +2016,21 @@ function MacroProMatcher({ sessionEmail } = {}) {
       if(stop||!window.sb) return;
       try{
         const inv=Array.isArray(inventory)?inventory:[];
-        const invByNorm={}; inv.forEach(l=>{ if(l&&l.id) invByNorm[norm(loteKey(l))]=l.id; });
+        const invByNorm={}; inv.forEach(l=>{ if(l&&l.id) invByNorm[superNormId(loteKey(l))]=l.id; });
         let any=false;
         // ── CRM (unión por lote y por prospecto; nunca borra) ──
         const R=await window.sb.from('crm_lotes').select('lote_id,pipeline,asesor_asignado,prospectos,interacciones,dev_feedback,seguimientos_asesor');
         const rk=(R&&!R.error&&Array.isArray(R.data))?JSON.stringify(R.data):null;
         if(!stop&&rk!==null&&rk!==lastCrmRef.current){ lastCrmRef.current=rk;
           setCrmData(prevC=>{ const out={...(prevC||{})}; let ch=false;
-            R.data.forEach(row=>{ if(!row||!row.lote_id) return; const key=invByNorm[norm(row.lote_id)]||row.lote_id;
+            R.data.forEach(row=>{ if(!row||!row.lote_id) return; const key=invByNorm[superNormId(row.lote_id)]||norm(row.lote_id);
               const cloud={pipeline:row.pipeline||"Disponible",asesorResponsable:row.asesor_asignado||"",interacciones:parseJ(row.interacciones),prospectos:parseJ(row.prospectos),devFeedback:parseJ(row.dev_feedback),seguimientosAsesor:parseJ(row.seguimientos_asesor)};
               const mine=out[key]||{};
-              const merged={...mine,...cloud,prospectos:mergeProspectosByName(mine.prospectos,cloud.prospectos),interacciones:(cloud.interacciones&&cloud.interacciones.length)?cloud.interacciones:(mine.interacciones||[]),devFeedback:(cloud.devFeedback&&cloud.devFeedback.length)?cloud.devFeedback:(mine.devFeedback||[])};
+              const merged={...mine,...cloud,
+                pipeline:(stageRankMPM(cloud.pipeline)>stageRankMPM(mine.pipeline)?cloud.pipeline:(mine.pipeline||cloud.pipeline||"Disponible")),
+                prospectos:mergeProspectosByName(mine.prospectos,cloud.prospectos),
+                interacciones:dedupInteracciones(mine.interacciones,cloud.interacciones),
+                devFeedback:(cloud.devFeedback&&cloud.devFeedback.length)?cloud.devFeedback:(mine.devFeedback||[])};
               if(JSON.stringify(out[key])!==JSON.stringify(merged)){ out[key]=merged; ch=true; }
             });
             if(!ch) return prevC; saveCRM(out); try{crmSnapRef.current=JSON.stringify(out);}catch(e){} return out;
@@ -2034,18 +2072,30 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // Esto re-clava cada entrada del CRM al id EXACTO del lote (comparando normalizado). Sin pérdida (fusiona). ═══
   React.useEffect(()=>{
     if(!inventory || inventory.length===0) return;
-    const norm=s=>String(s||"").trim().toLowerCase().replace(/\s+/g,"_");
-    const byNorm={}; inventory.forEach(l=>{ if(l&&l.id) byNorm[norm(l.id)]=l.id; });
+    // Índice del inventario por clave AGNÓSTICA (ignora may/min, espacios, guiones y guiones bajos):
+    // así 'KU-010', 'ku-010', 'ku_010' y 'KU_010' se re-clavan al MISMO lote real del inventario.
+    const byS={}; inventory.forEach(l=>{ if(l&&l.id) byS[superNormId(loteKey(l))]=l.id; });
     setCrmData(prev=>{
-      const cur=prev||{}; const out={}; let changed=false;
+      const cur=prev||{}; const out={};
       Object.keys(cur).forEach(k=>{
-        const real=byNorm[norm(k)]||k;
-        if(real!==k) changed=true;
-        if(out[real]){ out[real]={...out[real], prospectos:[...((out[real].prospectos)||[]),...((cur[k].prospectos)||[])], interacciones:[...((out[real].interacciones)||[]),...((cur[k].interacciones)||[])]}; changed=true; }
-        else out[real]=cur[k];
+        const real=byS[superNormId(k)]||k;   // id exacto del inventario si existe; si no, deja su propia clave
+        const b=cur[k]||{};
+        if(!out[real]){ out[real]={...b, interacciones:dedupInteracciones(b.interacciones)}; return; }
+        const a=out[real];
+        out[real]={...a,...b,
+          pipeline:(stageRankMPM(b.pipeline)>stageRankMPM(a.pipeline)?b.pipeline:(a.pipeline||b.pipeline||"Disponible")),
+          asesorResponsable:a.asesorResponsable||b.asesorResponsable||"",
+          prospectos:mergeProspectosByName(a.prospectos,b.prospectos),
+          interacciones:dedupInteracciones(a.interacciones,b.interacciones),
+          devFeedback:(a.devFeedback&&a.devFeedback.length)?a.devFeedback:(b.devFeedback||[]),
+          seguimientoAsesor:a.seguimientoAsesor||b.seguimientoAsesor,
+          seguimientosAsesor:a.seguimientosAsesor||b.seguimientosAsesor
+        };
       });
-      if(!changed) return prev;       // sin cambios → no re-render (evita bucle)
-      saveCRM(out);
+      // Idempotente: solo re-render si de verdad cambió algo (evita bucle con dep crmData)
+      let same=false; try{ same=(JSON.stringify(out)===JSON.stringify(cur)); }catch(e){}
+      if(same) return prev;
+      saveCRM(out); try{crmSnapRef.current=JSON.stringify(out);}catch(e){}
       return out;
     });
   }, [inventory, crmData]);
@@ -2788,16 +2838,20 @@ function MacroProMatcher({ sessionEmail } = {}) {
           savePersisted(STORAGE_KEYS.clients, out); return out;
         });
       }
-      // CRM: UNIÓN de prospectos/interacciones por lote (nadie pierde)
+      // CRM: UNIÓN de prospectos/interacciones por lote (nadie pierde), re-clavando
+      // cada fila de la nube al id REAL del inventario (agnóstico a may/min y separadores)
       if(Array.isArray(K.data)){
+        const invByS={}; (inventory||[]).forEach(l=>{ if(l&&l.id) invByS[superNormId(loteKey(l))]=l.id; });
+        const nrm=s=>String(s||"").trim().toLowerCase().replace(/\s+/g,"_");
         setCrmData(prev=>{
           const out={...(prev||{})};
-          K.data.forEach(row=>{ const id=row.lote_id; if(!id) return; const mine=out[id]||{};
+          K.data.forEach(row=>{ if(!row||!row.lote_id) return; const id=invByS[superNormId(row.lote_id)]||nrm(row.lote_id); const mine=out[id]||{};
             out[id]={
-              pipeline: mine.pipeline || row.pipeline || "Disponible",
+              ...mine,
+              pipeline: (stageRankMPM(row.pipeline)>stageRankMPM(mine.pipeline)?row.pipeline:(mine.pipeline||row.pipeline||"Disponible")),
               asesorResponsable: mine.asesorResponsable || row.asesor_asignado || "",
               prospectos: mergeProspectosByName(mine.prospectos, parseJ(row.prospectos)),
-              interacciones: unionById(mine.interacciones, parseJ(row.interacciones)),
+              interacciones: dedupInteracciones(mine.interacciones, parseJ(row.interacciones)),
               devFeedback: unionById(mine.devFeedback, parseJ(row.dev_feedback)),
               seguimientosAsesor: unionById(mine.seguimientosAsesor, parseJ(row.seguimientos_asesor)),
             };
@@ -2827,9 +2881,22 @@ function MacroProMatcher({ sessionEmail } = {}) {
       if(Array.isArray(C.data) && C.data.length){ setClients(C.data.map(clienteFromSupabase).filter(Boolean)); }
       if(Array.isArray(K.data) && K.data.length){
         const parseJ=(v)=>{try{return v?JSON.parse(JSON.stringify(v)):[];}catch(e){return [];}};
-        const crmCloud={};
-        K.data.forEach(row=>{ if(!row.lote_id) return; crmCloud[row.lote_id]={pipeline:row.pipeline||"Disponible",asesorResponsable:row.asesor_asignado||"",interacciones:parseJ(row.interacciones),prospectos:parseJ(row.prospectos),devFeedback:parseJ(row.dev_feedback),seguimientosAsesor:parseJ(row.seguimientos_asesor)};});
-        const mergedCRM={...(crmData||{}),...crmCloud};
+        // Fusiona (nunca reemplaza) re-clavando al id real del inventario (agnóstico a may/min y separadores)
+        const invSrc = (Array.isArray(L.data)&&L.data.length)?L.data.map(loteFromSupabase).filter(Boolean):(inventory||[]);
+        const invByS={}; invSrc.forEach(l=>{ if(l&&l.id) invByS[superNormId(loteKey(l))]=l.id; });
+        const nrm=s=>String(s||"").trim().toLowerCase().replace(/\s+/g,"_");
+        const mergedCRM={...(crmData||{})};
+        K.data.forEach(row=>{ if(!row||!row.lote_id) return; const id=invByS[superNormId(row.lote_id)]||nrm(row.lote_id); const mine=mergedCRM[id]||{};
+          mergedCRM[id]={
+            ...mine,
+            pipeline:(stageRankMPM(row.pipeline)>stageRankMPM(mine.pipeline)?row.pipeline:(mine.pipeline||row.pipeline||"Disponible")),
+            asesorResponsable:mine.asesorResponsable||row.asesor_asignado||"",
+            prospectos:mergeProspectosByName(mine.prospectos,parseJ(row.prospectos)),
+            interacciones:dedupInteracciones(mine.interacciones,parseJ(row.interacciones)),
+            devFeedback:(mine.devFeedback&&mine.devFeedback.length)?mine.devFeedback:parseJ(row.dev_feedback),
+            seguimientosAsesor:mine.seguimientosAsesor||parseJ(row.seguimientos_asesor),
+          };
+        });
         saveCRM(mergedCRM); setCrmData(mergedCRM);
       }
       if(!silent) toast(`✅ Bajado de la nube: ${(L.data||[]).length} lotes · ${(C.data||[]).length} clientes · ${(K.data||[]).length} CRM`);
