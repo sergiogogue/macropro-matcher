@@ -14076,7 +14076,7 @@ Respuesta: [respuesta exacta, conversacional]
     const eCol = {"Vendido":"#16a34a","Contrato":"#06b6d4","Apartado":"#f97316","Propuesta":"#8b5cf6","En negociación":"#d97706","En análisis":"#6366f1","Visita":"#0d9488","Cita":"#0891b2","Contactado":"#3b82f6","Por Contactar":"#f59e0b"}[f.etapa]||"#475569";
     const semLabel = {"green":"Activo","yellow":"Tibio","red":"Frío","grey":"Sin seguimiento"}[f.sem]||"";
     const cotKey = f.lotId+"_"+(f.prospectoIdx||0);
-    const cotData = cotizaciones[cotKey]||null;
+    const cotData = cotizaciones[cotKey]||(()=>{const nom=(f.nombre||"").toLowerCase().trim();const lt=(f.lote||"").toLowerCase().trim();return nom?(Object.values(cotizaciones).find(c=>c&&(c.cliente||"").toLowerCase().trim()===nom&&(!lt||!c.lote||(c.lote||"").toLowerCase().trim()===lt))||null):null;})();
 
     const [docTab, setDocTab] = React.useState("ficha"); // "ficha" | "cotizacion"
     const [drawerTab, setDrawerTab] = React.useState("info"); // "info" | "acciones"
@@ -14354,7 +14354,8 @@ Respuesta: [respuesta exacta, conversacional]
     },[fichaData?.src]);
 
     const cotKey=f.lotId+"_"+(f.prospectoIdx||0);
-    const cotData=cotizaciones[cotKey]||null;
+    // Buscar por clave directa; si no, por NOMBRE del cliente (el prospectoIdx cambia al reordenar/sincronizar)
+    const cotData=cotizaciones[cotKey]||(()=>{const nom=(f.nombre||"").toLowerCase().trim();const lt=(f.lote||"").toLowerCase().trim();return nom?(Object.values(cotizaciones).find(c=>c&&(c.cliente||"").toLowerCase().trim()===nom&&(!lt||!c.lote||(c.lote||"").toLowerCase().trim()===lt))||null):null;})();
     const [cotSrc,setCotSrc]=React.useState(null);
     React.useEffect(()=>{
       if(!cotData?.src){setCotSrc(null);return;}
@@ -14672,7 +14673,7 @@ Respuesta: [respuesta exacta, conversacional]
       const cotImgsPDF={};
       await Promise.all(fichasFilas.map(async(f)=>{
         const cotKey=f.lotId+"_"+(f.prospectoIdx||0);
-        const cd=cotizaciones[cotKey]||null;
+        const cd=cotizaciones[cotKey]||(()=>{const nom=(f.nombre||"").toLowerCase().trim();const lt=(f.lote||"").toLowerCase().trim();return nom?(Object.values(cotizaciones).find(c=>c&&(c.cliente||"").toLowerCase().trim()===nom&&(!lt||!c.lote||(c.lote||"").toLowerCase().trim()===lt))||null):null;})();
         if(!cd||!cd.src) return;
         try{
           if(cd.src.startsWith("data:image")){ cotImgsPDF[cotKey]=cd.src; }
