@@ -8936,7 +8936,16 @@ function MacroProMatcher({ sessionEmail } = {}) {
               <div style={{fontSize:11,color:B.grey4,marginBottom:2}}>
                 <strong style={{color:B.navy}}>{a.prospecto.nombre}</strong>{a.prospecto.empresa&&<span style={{fontSize:10,fontWeight:700,color:B.gold,marginLeft:4}}>🏢 {a.prospecto.empresa}</span>} · {a.lot.nombre} · {a.lot.desarrollo}
               </div>
-              {a.asesor&&<div style={{fontSize:10,color:"#2563AC",fontWeight:600}}>👤 {a.asesor}</div>}
+              {/* Asesor SIEMPRE visible; clic para asignar/cambiar (abre la ficha en Editar) */}
+              {a.prospectoIdx>=0 ? (
+                <div onClick={()=>{const crm=crmData[a.lotId]||{};const prosp=(crm.prospectos||[])[a.prospectoIdx];if(prosp){const cliMidia=clients.find(c=>c.nombre===prosp.nombre)||null;setView("crm");setQuickProspInitTab("editar");setQuickProspData({lot:a.lot,p:prosp,prospectoIdx:a.prospectoIdx,crm,cli:cliMidia});setShowQuickProspModal(true);}}}
+                  title="Clic para asignar o cambiar el asesor"
+                  style={{fontSize:10,color:a.asesor?"#2563AC":"#94a3b8",fontWeight:700,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}}>
+                  👤 {a.asesor||"Sin asesor — asignar"}
+                </div>
+              ) : (
+                <div style={{fontSize:10,color:a.asesor?"#2563AC":"#94a3b8",fontWeight:700}}>👤 {a.asesor||"Sin asesor"}</div>
+              )}
               {a.act.asignadoA&&<div style={{fontSize:10,color:"#7c3aed",fontWeight:700,marginTop:1}}>🙋 Asignada a: {a.act.asignadoA}</div>}
               {a.act.completada&&a.act.resultado&&(
                 <div style={{marginTop:6,fontSize:10,color:"#166534"}}>Resultado: <strong>{a.act.resultado}</strong>{a.act.notaResultado&&" — "+a.act.notaResultado}</div>
