@@ -16376,7 +16376,7 @@ Respuesta: [respuesta exacta, conversacional]
           <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.1</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["dashboard","📊 Dashboard"],["crm","🎯 CRM"+crmNavCount],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Captación"],["asesores","🤝 Buscando"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["dashboard","📊 Dashboard"],["crm","🎯 CRM"+crmNavCount],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Opción"],["asesores","🤝 Buscando"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
