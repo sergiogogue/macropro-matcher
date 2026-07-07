@@ -146,6 +146,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #F8FAFC; font-family: 'DM Sans', sans-serif; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes mppulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
     @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
     .result-card { animation: fadeIn 0.3s ease both; }
     textarea, input, select { font-family: 'DM Sans', sans-serif; }
@@ -2006,6 +2007,17 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // ═══ SYNC AUTOMÁTICA MULTIUSUARIO (por registro, fusión — nunca borra) ═══
   const [syncAuto,setSyncAuto]=React.useState(()=>{ try{ return localStorage.getItem("macropro_sync_auto")!=="0"; }catch(e){ return true; } });
   const [syncEstado,setSyncEstado]=React.useState("");
+  // Indicador de sincronización en tiempo real: 'ok' | 'pushing' | 'pulling' | 'offline' | 'error'
+  const [syncStatus,setSyncStatus]=React.useState("ok");
+  const [lastSyncAt,setLastSyncAt]=React.useState(null); // ms epoch del último sync exitoso
+  const [nowTick,setNowTick]=React.useState(0); // fuerza re-render del "hace X" cada 20s
+  React.useEffect(()=>{ const iv=setInterval(()=>setNowTick(n=>n+1),20000); return ()=>clearInterval(iv); },[]);
+  React.useEffect(()=>{
+    const on=()=>setSyncStatus(s=>s==="offline"?"ok":s), off=()=>setSyncStatus("offline");
+    if(typeof navigator!=="undefined" && navigator.onLine===false) setSyncStatus("offline");
+    window.addEventListener("online",on); window.addEventListener("offline",off);
+    return ()=>{ window.removeEventListener("online",on); window.removeEventListener("offline",off); };
+  },[]);
   const lastCrmRef=React.useRef(null), lastCapRef=React.useRef(null), lastOfRef=React.useRef(null), lastSolRef=React.useRef(null), lastCliRef=React.useRef(null);
   React.useEffect(()=>{ try{ localStorage.setItem("macropro_sync_auto", syncAuto?"1":"0"); }catch(e){} },[syncAuto]);
   // Subida del CRM por LOTE (mismas columnas que la sync manual; lote_id canónico = loteKey)
@@ -2025,9 +2037,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
     if(!syncAuto||!window.sb||!syncReady2.current) return;
     const t=setTimeout(()=>{ try{
       const prev=crmSnapRef.current?JSON.parse(crmSnapRef.current):{};
-      let subidos=0;
-      Object.keys(crmData||{}).forEach(k=>{ if(JSON.stringify(crmData[k])!==JSON.stringify(prev[k])){ subirCRMLoteCloud(k,crmData[k]); subidos++; } });
+      const proms=[];
+      Object.keys(crmData||{}).forEach(k=>{ if(JSON.stringify(crmData[k])!==JSON.stringify(prev[k])){ proms.push(subirCRMLoteCloud(k,crmData[k])); } });
       crmSnapRef.current=JSON.stringify(crmData);
+      if(proms.length){ setSyncStatus("pushing"); Promise.all(proms).then(()=>{ setSyncStatus("ok"); setLastSyncAt(Date.now()); }).catch(()=>setSyncStatus(navigator.onLine===false?"offline":"error")); }
     }catch(e){} }, 2500);
     return ()=>clearTimeout(t);
   },[crmData,syncAuto]);
@@ -2036,8 +2049,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
     if(!syncAuto||!window.sb||!syncReady2.current) return;
     const t=setTimeout(()=>{ try{
       const prev=cliSnapRef.current?JSON.parse(cliSnapRef.current):{};
-      (clients||[]).forEach(c=>{ const k=cliKey(c); if(!k) return; const js=JSON.stringify(c); if(js!==prev[k]) subirClienteCloud(c); });
+      const proms=[];
+      (clients||[]).forEach(c=>{ const k=cliKey(c); if(!k) return; const js=JSON.stringify(c); if(js!==prev[k]) proms.push(subirClienteCloud(c)); });
       cliSnapRef.current=JSON.stringify(cliSnap(clients));
+      if(proms.length){ setSyncStatus("pushing"); Promise.all(proms).then(()=>{ setSyncStatus("ok"); setLastSyncAt(Date.now()); }).catch(()=>setSyncStatus(navigator.onLine===false?"offline":"error")); }
     }catch(e){} }, 2500);
     return ()=>clearTimeout(t);
   },[clients,syncAuto]);
@@ -2049,6 +2064,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const parseJ=v=>{ try{ return v?JSON.parse(JSON.stringify(v)):[]; }catch(e){ return []; } };
     const tick=async()=>{
       if(stop||!window.sb) return;
+      if(typeof navigator!=="undefined" && navigator.onLine===false){ setSyncStatus("offline"); return; }
+      setSyncStatus(s=>s==="pushing"?s:"pulling");
       try{
         const inv=Array.isArray(inventory)?inventory:[];
         const invByNorm={}; inv.forEach(l=>{ if(l&&l.id) invByNorm[superNormId(loteKey(l))]=l.id; });
@@ -2097,7 +2114,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
           }); any=true;
         }
         if(!stop&&any) setSyncEstado("✓ "+new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"}));
-      }catch(e){ /* queda lo local */ }
+        if(!stop){ setSyncStatus("ok"); setLastSyncAt(Date.now()); }
+      }catch(e){ if(!stop) setSyncStatus(navigator.onLine===false?"offline":"error"); /* queda lo local */ }
     };
     const iv=setInterval(tick, 45000); const t0=setTimeout(tick, 3000);
     return ()=>{ stop=true; clearInterval(iv); clearTimeout(t0); };
@@ -16265,7 +16283,26 @@ Respuesta: [respuesta exacta, conversacional]
           {[["home","🏠 Inicio"],["dashboard","📊 Dashboard"],["crm","🎯 CRM"+crmNavCount],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Captación"],["asesores","🤝 Asesores"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
-          <button onClick={()=>setSyncAuto(v=>!v)} title={syncAuto?("Sync automática ACTIVADA con colaboradores"+(syncEstado?(" · "+syncEstado):"")):"Sync automática DESACTIVADA (clic para activar)"} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:syncAuto?"#22c55e":"#94a3b8",fontSize:12,fontWeight:800,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:4}}>{syncAuto?"🔄":"⏸"}<span style={{fontSize:9}}>{syncAuto?(syncEstado||"auto"):"off"}</span></button>
+          {(()=>{
+            const rel=(()=>{ if(!lastSyncAt) return ""; const s=Math.max(0,Math.floor((Date.now()-lastSyncAt)/1000)); if(s<45) return "ahora"; const m=Math.floor(s/60); if(m<1) return "hace "+s+"s"; if(m<60) return "hace "+m+" min"; const h=Math.floor(m/60); return "hace "+h+" h"; })();
+            const cfg = !syncAuto ? {ic:"⏸",txt:"Pausado",col:"#94a3b8",pulse:false}
+              : syncStatus==="pushing" ? {ic:"⬆",txt:"Subiendo…",col:"#f59e0b",pulse:true}
+              : syncStatus==="pulling" ? {ic:"⬇",txt:"Sincronizando…",col:"#3B82F6",pulse:true}
+              : syncStatus==="offline" ? {ic:"⚠",txt:"Sin conexión",col:"#ef4444",pulse:false}
+              : syncStatus==="error" ? {ic:"⚠",txt:"Reintentando…",col:"#ef4444",pulse:false}
+              : {ic:"✓",txt:(rel||"Sincronizado"),col:"#22c55e",pulse:false};
+            const title = !syncAuto ? "Sincronización EN PAUSA (clic para reactivar). Tus cambios no se comparten hasta reactivar."
+              : syncStatus==="offline" ? "Sin conexión a internet. Tus cambios se guardan local y se subirán al reconectar."
+              : syncStatus==="error" ? "Error temporal de sincronización. Reintenta solo."
+              : ("Sincronización automática activa con los 3 usuarios"+(lastSyncAt?(" · último: "+rel):""))+" · clic para pausar";
+            return (
+              <button onClick={()=>setSyncAuto(v=>!v)} title={title}
+                style={{padding:"6px 10px",borderRadius:20,border:"1px solid "+cfg.col+"55",cursor:"pointer",background:cfg.col+"14",color:cfg.col,fontSize:11,fontWeight:800,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>
+                <span style={{animation:cfg.pulse?"mppulse 1.1s ease-in-out infinite":"none",display:"inline-block"}}>{cfg.ic}</span>
+                <span style={{fontSize:10}}>{cfg.txt}</span>
+              </button>
+            );
+          })()}
           <button onClick={()=>{setApiKeyInput(localStorage.getItem("macropro_api_key")||"");setShowApiModal(true);}} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:apiKey?"#22c55e":"#ef4444",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title={apiKey?"API Key configurada ✓":"Sin API Key — click para configurar"}>{apiKey?"🔑":"⚠️"}</button>
           <button onClick={()=>setShowNotifModal(true)} style={{position:"relative",padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:notifActs.length>0?"#ef4444":B.grey3,fontSize:16,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center"}} title={notifActs.length>0?`${notifActs.length} actividad(es) urgente(s)`:"Sin actividades urgentes"}>
             🔔
