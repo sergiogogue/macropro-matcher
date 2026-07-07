@@ -14565,6 +14565,23 @@ Respuesta: [respuesta exacta, conversacional]
       const etapaArr=ORDEN_ETAPAS.filter(e=>byEtapa[e]).map(e=>({nombre:e,...byEtapa[e]}));
       return {total,monto,enNego,cierres,ticket:conPrecio?monto/conPrecio:0,canalArr,etapaArr};
     },[filas]);
+    // Composición del INVENTARIO del desarrollo (todos los lotes) por uso de suelo y por tamaño — útil para el desarrollador
+    const invComposicion=React.useMemo(()=>{
+      const byUso={}, byTam={};
+      const bucket=(m2)=>{ m2=Number(m2)||0; if(m2<=0) return "Sin m²"; if(m2<1000) return "< 1,000 m²"; if(m2<3000) return "1,000–3,000 m²"; if(m2<5000) return "3,000–5,000 m²"; if(m2<10000) return "5,000–10,000 m²"; return "10,000+ m²"; };
+      inventory.forEach(l=>{
+        if(filtDev!=="Todos"&&l.desarrollo!==filtDev) return;
+        if(filtTipo!=="Todos"&&l.tipo!==filtTipo) return;
+        const v=l.precio_total||((Number(l.sup_m2)||0)*(Number(l.precio_m2)||0))||0;
+        const uc=usoCategoria(l.uso||l.uso_suelo||"");
+        (byUso[uc.cat]=byUso[uc.cat]||{monto:0,count:0,color:uc.color}); byUso[uc.cat].monto+=v; byUso[uc.cat].count++;
+        const tk=bucket(l.sup_m2); (byTam[tk]=byTam[tk]||{monto:0,count:0}); byTam[tk].monto+=v; byTam[tk].count++;
+      });
+      const usoArr=USO_CATEGORIAS.map(u=>u.cat).filter(c=>byUso[c]).map(c=>({nombre:c,...byUso[c]}));
+      const ordenTam=["< 1,000 m²","1,000–3,000 m²","3,000–5,000 m²","5,000–10,000 m²","10,000+ m²","Sin m²"];
+      const tamArr=ordenTam.filter(k=>byTam[k]).map(k=>({nombre:k,...byTam[k]}));
+      return {usoArr,tamArr};
+    },[filtDev,filtTipo,inventory]);
     const fmtM=(v)=>v>0?"$"+(v/1e6).toFixed(1)+"M":"—";
     const fmtM2=(v)=>v>0?"$"+v.toLocaleString():"—";
     const fmtSup=(v)=>v>0?v.toLocaleString()+" m²":"—";
@@ -14867,7 +14884,7 @@ Respuesta: [respuesta exacta, conversacional]
             bx+=bw+gap;
           });
         };
-        drawChart(MX,halfW,"VALOR POR CANAL DE ORIGEN",resumen.canalArr,(it,i)=>paletaPDF[i%paletaPDF.length]);
+        drawChart(MX,halfW,"VALOR DE INVENTARIO POR USO DE SUELO",invComposicion.usoArr,(it)=>it.color||"#475569");
         drawChart(MX+halfW+8,halfW,"VALOR POR ETAPA (PIPELINE)",resumen.etapaArr,(it)=>COLORES_ETAPA[it.nombre]||"#475569");
         y=baseY+10;
       }
@@ -14978,7 +14995,7 @@ Respuesta: [respuesta exacta, conversacional]
           const H=120;
           const paleta=["#C49A22","#0a2540","#1f5f3f","#2563AC","#a8893f","#6366f1","#0891b2","#b14f6a","#806b4a","#16a34a"];
           const trunc=(s,n)=>s.length>n?s.slice(0,n-1)+"…":s;
-          const Chart=({titulo,items,max,colorFn})=>(
+          const Chart=({titulo,items,max,colorFn,unidad})=>(
             <div style={{background:"#fff",border:"1px solid #eef0f4",borderRadius:12,padding:"14px 16px"}}>
               <div style={{fontSize:11,fontWeight:800,color:"#002B49",marginBottom:14,borderLeft:"4px solid #C49A22",paddingLeft:8,textTransform:"uppercase",letterSpacing:0.5}}>{titulo}</div>
               <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:4}}>
@@ -14988,13 +15005,13 @@ Respuesta: [respuesta exacta, conversacional]
                   return (
                     <div key={it.nombre} style={{flex:"1 0 58px",maxWidth:100,minWidth:58,display:"flex",flexDirection:"column",alignItems:"center"}}>
                       <div style={{height:H,width:"100%",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-                        <div title={it.nombre+" · "+fmtMx(it.monto)+" · "+it.count+" prosp."} style={{position:"relative",width:34,height:h,background:muted?"#e5e7eb":colorFn(it,i),borderRadius:"5px 5px 0 0"}}>
+                        <div title={it.nombre+" · "+fmtMx(it.monto)+" · "+it.count+" "+(unidad||"prosp.")} style={{position:"relative",width:34,height:h,background:muted?"#e5e7eb":colorFn(it,i),borderRadius:"5px 5px 0 0"}}>
                           <div style={{position:"absolute",top:-16,left:"50%",transform:"translateX(-50%)",whiteSpace:"nowrap",fontSize:9.5,fontWeight:800,color:muted?"#b6bdc9":"#002B49"}}>{fmtMx(it.monto)}</div>
                         </div>
                       </div>
                       <div style={{width:"100%",borderTop:"2px solid #e5e7eb"}}/>
                       <div style={{fontSize:9,fontWeight:700,color:"#334155",textAlign:"center",lineHeight:1.2,marginTop:6,height:24,overflow:"hidden"}}>{trunc(it.nombre,24)}</div>
-                      <div style={{fontSize:8.5,color:"#94a3b8",fontWeight:600}}>{it.count} prosp.</div>
+                      <div style={{fontSize:8.5,color:"#94a3b8",fontWeight:600}}>{it.count} {unidad||"prosp."}</div>
                     </div>
                   );
                 })}
@@ -15021,7 +15038,8 @@ Respuesta: [respuesta exacta, conversacional]
                 ))}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(330px,1fr))",gap:16,padding:"16px 18px",background:"#f8fafc"}}>
-                <Chart titulo="Valor por canal de origen" items={resumen.canalArr} max={maxC} colorFn={(it,i)=>paleta[i%paleta.length]}/>
+                <Chart titulo="Valor de inventario por uso de suelo" items={invComposicion.usoArr} max={Math.max(1,...invComposicion.usoArr.map(x=>x.monto))} colorFn={(it)=>it.color||"#475569"} unidad="lotes"/>
+                <Chart titulo="Valor de inventario por tamaño de terreno" items={invComposicion.tamArr} max={Math.max(1,...invComposicion.tamArr.map(x=>x.monto))} colorFn={(it,i)=>paleta[i%paleta.length]} unidad="lotes"/>
                 <Chart titulo="Valor por etapa (pipeline)" items={resumen.etapaArr} max={maxE} colorFn={(it)=>COLORES_ETAPA[it.nombre]||"#475569"}/>
               </div>
             </div>
