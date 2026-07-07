@@ -8210,6 +8210,15 @@ function MacroProMatcher({ sessionEmail } = {}) {
                             <div key={ii} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
                               <Semaforo lotId={it.lotId} size={7}/>
                               <span style={{fontSize:10,fontWeight:700,color:B.navy,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.lot.nombre}</span>
+                              <button title={"Quitar a "+(p.nombre||"este cliente")+" del terreno "+it.lot.nombre}
+                                onClick={(e)=>{ e.stopPropagation();
+                                  if(!window.confirm("¿Quitar a "+(p.nombre||"este cliente")+" del terreno \""+it.lot.nombre+"\"?\n\nSolo se desvincula de ESE terreno; sus otros terrenos NO se tocan.")) return;
+                                  const c=crmData[it.lotId]||{};
+                                  const prospectos=(c.prospectos||[]).filter((_,idx)=>idx!==it.prospectoIdx);
+                                  updateCRM(it.lotId,{prospectos});
+                                  toast("🗑 Quitado del terreno "+it.lot.nombre);
+                                }}
+                                style={{background:"transparent",color:"#dc2626",border:"none",borderRadius:5,padding:"0 4px",fontSize:11,cursor:"pointer",flexShrink:0,opacity:0.75}}>🗑</button>
                             </div>
                           ))}
                         </div>
