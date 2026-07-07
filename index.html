@@ -5643,6 +5643,31 @@ function MacroProMatcher({ sessionEmail } = {}) {
           });
         });
       });
+      // ── HUÉRFANOS ─────────────────────────────────────────────────
+      // Un cliente cargado directo en la app puede quedar sobre un lote que
+      // NO existe en el inventario (Excel). Como este bucle solo recorre el
+      // inventario, ese cliente sería INVISIBLE aunque el dato exista y aunque
+      // sincronice bien. Los incluimos SIEMPRE para no ocultar clientes/ventas.
+      const invNorm=new Set(srcInvCRM.map(l=>normLoteId(loteKey(l))));
+      const yaKeys=new Set(list.map(it=>normLoteId(it.lotId)));
+      Object.keys(crmData||{}).forEach(k=>{
+        const nk=normLoteId(k);
+        if(invNorm.has(nk)||yaKeys.has(nk)) return; // ya en inventario o ya listado
+        const crm=crmData[k]||{};
+        (crm.prospectos||[]).forEach((p,idx)=>{
+          if(!p||!p.nombre) return;
+          const cli=cliSrcCRM.find(c=>c.nombre&&c.nombre.toLowerCase().trim()===p.nombre.toLowerCase().trim());
+          const lotSintetico={id:k,nombre:(p.empresa||p.nombre||k),desarrollo:"(fuera de inventario)",desarrollador:"",ciudad:"",precio_total:0,precio_m2:0,sup_m2:0,uso:""};
+          const dias=crm.lastContact?Math.floor((Date.now()-new Date(crm.lastContact).getTime())/864e5):null;
+          list.push({lotId:k,lot:lotSintetico,prospectoIdx:idx,prospecto:p,crm,cli,esHuerfano:true,
+            semaforo:getSemaforo(k),
+            pipeline:p.pipeline||crm.pipeline||"Prospecto",
+            interacciones:(crm.interacciones||[]).length,
+            lastContact:crm.lastContact,
+            diasSinContacto:dias
+          });
+        });
+      });
       return list.sort((a,b)=>{
         const sc={red:0,yellow:1,green:2,grey:3};
         if(sc[a.semaforo]!==sc[b.semaforo]) return sc[a.semaforo]-sc[b.semaforo];
