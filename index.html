@@ -7127,6 +7127,24 @@ function MacroProMatcher({ sessionEmail } = {}) {
       const acts=(p.actividades||[]).filter(a=>!a.completada).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
       const proxAct=acts[0]||null;
       const today=new Date().toISOString().slice(0,10);
+      // TODOS los terrenos asignados a ESTE cliente (por nombre). Se muestran
+      // siempre en la ficha para no mover/editar por error creyendo que tiene uno.
+      const terrenosCliente=[];
+      Object.keys(crmData||{}).forEach(k=>{
+        const c=crmData[k]||{};
+        (c.prospectos||[]).forEach((pp,i)=>{
+          if(!pp||!pp.nombre||pp.nombre.toLowerCase().trim()!==_pn) return;
+          const lo=srcInv.find(l=>normLoteId(l.id)===normLoteId(k));
+          terrenosCliente.push({
+            lotId:k, prospectoIdx:i, prospecto:pp, crm:c,
+            lotObj: lo || {id:k,nombre:(pp.empresa||pp.nombre||k),desarrollo:"(fuera de inventario)",desarrollador:"",ciudad:"",precio_total:0,precio_m2:0,sup_m2:0,uso:""},
+            nombre: lo?lo.nombre:k,
+            desarrollo: lo?lo.desarrollo:"(fuera de inventario)",
+            pipeline: pp.pipeline||c.pipeline||"Prospecto",
+            esActual: (normLoteId(k)===normLoteId(lot.id) && i===prospectoIdx)
+          });
+        });
+      });
 
       const guardarCambios=()=>{
         setSaving(true);
@@ -7191,6 +7209,23 @@ function MacroProMatcher({ sessionEmail } = {}) {
 
               {/* ── TAB: ACCIONES ── */}
               {tabQ==="acciones"&&(<>
+                {/* Todos los terrenos de este cliente (evita mover/editar por error) */}
+                {terrenosCliente.length>1&&(
+                  <div style={{background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:8,padding:"10px 12px",marginBottom:12}}>
+                    <div style={{fontSize:10,fontWeight:800,color:"#b45309",marginBottom:6}}>🏗 ESTE CLIENTE TIENE {terrenosCliente.length} TERRENOS ASIGNADOS</div>
+                    {terrenosCliente.map((t,i)=>(
+                      <div key={t.lotId+"_"+t.prospectoIdx+"_"+i}
+                        onClick={()=>{ if(!t.esActual){ setQuickProspInitTab("acciones"); setQuickProspData({lot:t.lotObj,p:t.prospecto,prospectoIdx:t.prospectoIdx,crm:t.crm,cli:cliQ||null}); } }}
+                        style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"7px 9px",borderRadius:6,marginBottom:5,background:t.esActual?"#fef3c7":"#fff",border:"1px solid "+(t.esActual?"#f59e0b":B.grey1),cursor:t.esActual?"default":"pointer"}}>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:11,fontWeight:700,color:B.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.nombre} <span style={{fontWeight:400,color:B.grey4}}>· {t.desarrollo}</span></div>
+                        </div>
+                        <span style={{fontSize:9,fontWeight:700,background:(stageCol[t.pipeline]||B.grey3),color:"#fff",borderRadius:10,padding:"2px 8px",flexShrink:0,whiteSpace:"nowrap"}}>{t.esActual?"● aquí · ":""}{t.pipeline}</span>
+                      </div>
+                    ))}
+                    <div style={{fontSize:9,color:"#92400e",marginTop:2}}>Toca un terreno para abrir su ficha. Cada terreno tiene su propia etapa.</div>
+                  </div>
+                )}
                 {/* Próxima actividad */}
                 {proxAct&&(
                   <div style={{background:new Date(proxAct.fecha+"T12:00:00")<new Date()?"#fef2f2":"#f0fdf4",borderRadius:8,padding:"8px 12px",marginBottom:12,borderLeft:"3px solid "+(new Date(proxAct.fecha+"T12:00:00")<new Date()?"#dc2626":"#16a34a")}}>
@@ -7261,6 +7296,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
                       {srcInv.map(l=><option key={l.id} value={l.id}>{l.nombre} — {l.desarrollo}</option>)}
                     </select>
                     {loteEdit!==lot.id&&<div style={{fontSize:10,color:"#f59e0b",marginTop:4,fontWeight:700}}>⚠ El prospecto será movido a este terreno al guardar</div>}
+                    {terrenosCliente.length>1&&<div style={{fontSize:10,color:"#b45309",marginTop:4,fontWeight:700,background:"#fffbeb",border:"1px solid #fde68a",borderRadius:6,padding:"5px 8px"}}>🏗 Este cliente tiene {terrenosCliente.length} terrenos. Aquí solo mueves ESTE ({lot.nombre}); los demás no se tocan.</div>}
                   </div>
                   <label style={{fontSize:10,fontWeight:700,color:B.grey4,display:"block",marginBottom:4}}>TEMPERATURA <span style={{fontSize:9,color:"#3B82F6",fontWeight:400}}>(automática por etapa: {getTempFromPipeline(pip)})</span></label>
                   <div style={{display:"flex",gap:6}}>
@@ -10481,7 +10517,7 @@ Respuesta: [respuesta exacta, conversacional]
         )}
         {ModalInteraccion()}
         {ModalAnalisisProspecto()}
-        {showQuickProspModal&&quickProspData&&<QuickProspectoModal/>}
+        {showQuickProspModal&&quickProspData&&<QuickProspectoModal key={((quickProspData.lot&&quickProspData.lot.id)||"")+"::"+quickProspData.prospectoIdx}/>}
         {showGestorCanales&&<GestorCanalesModal/>}
       {semaforoDrawer&&<DrawerSemaforo/>}
 
