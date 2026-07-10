@@ -13839,6 +13839,20 @@ Respuesta: [respuesta exacta, conversacional]
             <div style={{fontSize:12, color:B.grey4, marginTop:6}}>Propietarios que nos ofrecen un terreno a vender · seguimiento hasta firmar el encargo</div>
           </div>
           <div style={{display:"flex", gap:10, flexWrap:"wrap"}}>
+            <button onClick={async()=>{
+                const url="https://sergiogogue.github.io/macropro-matcher/guia-asesores.pdf";
+                try{
+                  if(navigator.share){
+                    try{ const r=await fetch(url); const b=await r.blob(); const f=new File([b],"Guia-Asesores-Macrolotes.pdf",{type:"application/pdf"});
+                      if(navigator.canShare&&navigator.canShare({files:[f]})){ await navigator.share({files:[f],title:"Guía para asesores",text:"Guía para asesores · Macrolotes Grupo Guía"}); return; } }catch(e){}
+                    try{ await navigator.share({title:"Guía para asesores",text:"Guía para asesores · Macrolotes Grupo Guía",url}); return; }catch(e){}
+                  }
+                  window.open(url,"_blank");
+                }catch(e){ window.open(url,"_blank"); }
+              }} title="Abrir / compartir la Guía para asesores (PDF) — en el celular abre WhatsApp directo"
+              style={{padding:"12px 18px", borderRadius:10, border:"1.5px solid #15803d", background:"#f0fdf4", color:"#15803d", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", display:"inline-flex", alignItems:"center", gap:7}}>
+              📘 Guía para asesores <span style={{fontSize:15}}>⬇</span>
+            </button>
             <button onClick={descargarInstruccionesCaptacionPDF} title="Descarga un PDF con las indicaciones y la liga para compartir con asesores"
               style={{padding:"12px 18px", borderRadius:10, border:"1.5px solid "+B.navy, background:B.white, color:B.navy, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
               📄 Instrucciones (PDF)
