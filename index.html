@@ -2563,7 +2563,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
         empresa:cliente.empresa||"",
         telefono:cliente.telefono||"",
         email:cliente.email||"",
-        asesor:cliente.asesor||"",
+        asesor:cliente.asesor||miAsesor||"",
         pipeline:"Prospecto",
         nota:quickClientNota.trim()||("Asignado directamente desde inventario el "+new Date().toLocaleDateString("es-MX")),
         fechaInicio:new Date().toISOString().slice(0,10),
@@ -2620,8 +2620,11 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const autoAsesorRef = React.useRef(false);
   React.useEffect(()=>{
     if(autoAsesorRef.current) return;
+    // El ADMIN abre viendo TODO (no se auto-filtra a su nombre, para no esconder
+    // prospectos recién asignados o de otros). Solo los asesores abren con lo suyo.
+    if(esAdmin){ autoAsesorRef.current=true; return; }
     if(miAsesor){ autoAsesorRef.current=true; setFilterAsesor(miAsesor); }
-  },[miAsesor]);
+  },[miAsesor, esAdmin]);
   // CANDADO: un asesor (no-admin) SIEMPRE queda fijado a su propio nombre; si algo
   // intenta cambiar el filtro a otro/"Todos", regresa a lo suyo. El admin no se toca.
   React.useEffect(()=>{
@@ -4260,8 +4263,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
                         const crm=crmData[lot.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
                         const yaExiste=(crm.prospectos||[]).some(p=>p.nombre===selectedClient.nombre);
                         if(!yaExiste){
-                          const prospectos=[...(crm.prospectos||[]),{nombre:selectedClient.nombre,empresa:selectedClient.empresa||"",telefono:"",email:"",pipeline:"Prospecto",nota:"Asignado manualmente — "+new Date().toLocaleDateString("es-MX")}];
-                          updateCRM(lot.id,{prospectos,pipeline:crm.pipeline==="Disponible"?"Prospecto":crm.pipeline,lastContact:new Date().toISOString().slice(0,10)});
+                          const asrAsig=selectedClient.asesor||miAsesor||"";
+                          const prospectos=[...(crm.prospectos||[]),{nombre:selectedClient.nombre,empresa:selectedClient.empresa||"",telefono:"",email:"",asesor:asrAsig,pipeline:"Prospecto",nota:"Asignado manualmente — "+new Date().toLocaleDateString("es-MX")}];
+                          updateCRM(lot.id,{prospectos,pipeline:crm.pipeline==="Disponible"?"Prospecto":crm.pipeline,asesorResponsable:crm.asesorResponsable||asrAsig||undefined,lastContact:new Date().toISOString().slice(0,10)});
                         }
                         toast("✅ "+lot.nombre+" → "+selectedClient.nombre+" asignado · sigue eligiendo");
                       }} style={{padding:"4px 10px",background:"#22c55e",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📌 Asignar a CRM</button>
@@ -4693,8 +4697,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
                     const crm=crmData[item.id]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
                     const yaExiste=(crm.prospectos||[]).some(p=>p.nombre===subject.nombre);
                     if(!yaExiste){
-                      const prospectos=[...(crm.prospectos||[]),{nombre:subject.nombre,empresa:subject.empresa||"",telefono:"",email:"",pipeline:"Prospecto",nota:"Match IA — score: "+r.score+" — "+new Date().toLocaleDateString("es-MX")}];
-                      updateCRM(item.id,{prospectos,pipeline:crm.pipeline==="Disponible"?"Prospecto":crm.pipeline,lastContact:new Date().toISOString().slice(0,10)});
+                      const asrAsig=subject.asesor||miAsesor||"";
+                      const prospectos=[...(crm.prospectos||[]),{nombre:subject.nombre,empresa:subject.empresa||"",telefono:"",email:"",asesor:asrAsig,pipeline:"Prospecto",nota:"Match IA — score: "+r.score+" — "+new Date().toLocaleDateString("es-MX")}];
+                      updateCRM(item.id,{prospectos,pipeline:crm.pipeline==="Disponible"?"Prospecto":crm.pipeline,asesorResponsable:crm.asesorResponsable||asrAsig||undefined,lastContact:new Date().toISOString().slice(0,10)});
                     }
                     toast("✅ "+item.nombre+" → "+subject.nombre+" asignado · sigue eligiendo");
                   }} style={{padding:"7px 14px",background:"#22c55e",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>📌 Asignar a CRM</button>}
