@@ -410,7 +410,7 @@ function mergeProspectosByName(mineArr, cloudArr){
 // Así "KU-010", "ku-010", "ku_010" y "KU_010" se reconocen como EL MISMO lote.
 function superNormId(s){ return String(s||"").toLowerCase().replace(/[^a-z0-9]/g,""); }
 // Orden de etapas para no regresar un lote a una etapa anterior al fusionar duplicados.
-const STAGE_ORD_MPM={"Disponible":0,"Prospecto":1,"Por Contactar":1.5,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":-1};
+const STAGE_ORD_MPM={"Disponible":0,"Prospecto":1,"Por Contactar":1.5,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":-1};
 function stageRankMPM(s){ return (s in STAGE_ORD_MPM)?STAGE_ORD_MPM[s]:0; }
 // Une interacciones quitando SOLO duplicados EXACTOS (byte a byte). Las malas
 // sincronizaciones multiplicaron interacciones idénticas (p.ej. ×8); esto las limpia.
@@ -1467,6 +1467,7 @@ const TEMP_FROM_PIPELINE={
   "Propuesta":"Caliente",
   "Cita":"Tibio",
   "Visita":"Caliente",
+  "Cotización":"Caliente",
   "En análisis":"Tibio",
   "Apartado":"Caliente",
   "Contrato":"En cierre",
@@ -1980,7 +1981,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // ─── CRM STATE ────────────────────────────────────────────────────
   const CRM_KEY="macropro_crm_v1";
   const STAGE_MIGRATION={"Prospectado":"Prospecto","Propuesta formal":"Propuesta","Baja":"Descartado","Disponible":"Prospecto","Cierre":"Vendido","Perdido":"Descartado"};
-  const VALID_STAGES_SET=new Set(["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"]);
+  const VALID_STAGES_SET=new Set(["Prospecto","Por Contactar","Contactado","Cita","Visita","Cotización","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"]);
   const migrateCRM=(d)=>{
     try{
       // MIGRACIÓN DE IDs: convierte claves "ML_135-r94" → "ML_135"
@@ -3252,12 +3253,12 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const getSemaforo=(id)=>{const e=crmOf(id);if(!e||e.pipeline==="Descartado"||e.pipeline==="Vendido")return "grey";if(!e.lastContact)return "yellow";const d=Math.floor((Date.now()-new Date(e.lastContact).getTime())/(864e5));if(d<=30)return "green";if(d<=60)return "yellow";return "red";};
   const semaforoColor={green:"#22c55e",yellow:"#f59e0b",red:"#ef4444",grey:"#9ca3af"};
   const semaforoLabel={green:"Activo",yellow:"Tibio",red:"Frío — Acción requerida",grey:"Sin seguimiento"};
-  const PIPELINE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
-  const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Por Contactar":"#f59e0b","Contactado":"#3B82F6","Cita":"#0891b2","Visita":"#0d9488","En análisis":"#6366f1","En negociación":B.gold,"Propuesta":"#8B5CF6","Apartado":"#f97316","Contrato":"#06B6D4","Vendido":"#22c55e","Descartado":"#94a3b8"};
+  const PIPELINE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","Cotización","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
+  const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Por Contactar":"#f59e0b","Contactado":"#3B82F6","Cita":"#0891b2","Visita":"#0d9488","Cotización":"#0284c7","En análisis":"#6366f1","En negociación":B.gold,"Propuesta":"#8B5CF6","Apartado":"#f97316","Contrato":"#06B6D4","Vendido":"#22c55e","Descartado":"#94a3b8"};
   // Probabilidades estándar industria para forecast ponderado
-  const STAGE_PROBABILITY={"Prospecto":0.05,"Por Contactar":0.08,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En análisis":0.40,"En negociación":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
+  const STAGE_PROBABILITY={"Prospecto":0.05,"Por Contactar":0.08,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"Cotización":0.38,"En análisis":0.40,"En negociación":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
   // Etapas activas (excluye terminales)
-  const ACTIVE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
+  const ACTIVE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","Cotización","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
   const CANAL_OPTS=["Llamada","WhatsApp","Visita al terreno","Reunión presencial","Presentación virtual","Email","Otro"];
   const REACCION_OPTS=["Muy interesado","Interesado","Pendiente de info","Objeción de precio","Objeción técnica","No aplica","Archivado"];
 
@@ -4554,7 +4555,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
                       agregados++;
                     });
                     if(agregados===0&&yaExisten>0){toast("⚠ Todos ya existían en el Kanban");setSelectedMatchIds(new Set());return;}
-                    const STAGE_ORD={"Disponible":0,"Prospecto":1,"Por Contactar":1.5,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":-1};
+                    const STAGE_ORD={"Disponible":0,"Prospecto":1,"Por Contactar":1.5,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":-1};
                     let pipNuevo="Prospecto";
                     prospectos.forEach(p=>{if(p&&p.pipeline&&(STAGE_ORD[p.pipeline]||0)>(STAGE_ORD[pipNuevo]||0))pipNuevo=p.pipeline;});
                     const newEntry={...crmActual,prospectos,pipeline:pipNuevo,lastContact:new Date().toISOString().slice(0,10)};
@@ -7055,7 +7056,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
           const copy={...entry,prospectos,interacciones};
           delete copy.seguimientoAsesor;
           // Actualizar pipeline del lote si hace falta
-          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Contrato":8,"Vendido":9,"Descartado":0,"Disponible":0};
+          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociación":6,"Propuesta":7,"Contrato":8,"Vendido":9,"Descartado":0,"Disponible":0};
           const lotePipeline=prospectos.reduce((max,p)=>{
             const ord=stageOrder[p.pipeline]||0;
             return ord>stageOrder[max]?p.pipeline:max;
@@ -7211,7 +7212,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
             }
             prospectos[prospectoIdx]=updated;
           }
-          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Contrato":8,"Vendido":9,"Descartado":0,"Disponible":0};
+          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociación":6,"Propuesta":7,"Contrato":8,"Vendido":9,"Descartado":0,"Disponible":0};
           const lotePipeline=prospectos.reduce((max,p)=>{
             const ord=stageOrder[p.pipeline]||0;
             return ord>stageOrder[max]?p.pipeline:max;
@@ -7245,7 +7246,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
               updatedAt:new Date().toISOString()
             };
           }
-          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Contrato":8,"Vendido":9,"Descartado":0,"Disponible":0};
+          const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociación":6,"Propuesta":7,"Contrato":8,"Vendido":9,"Descartado":0,"Disponible":0};
           const lotePipeline=prospectos.reduce((max,p)=>{
             const ord=stageOrder[p.pipeline]||0;
             return ord>stageOrder[max]?p.pipeline:max;
@@ -7301,7 +7302,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
       const [nombreEdit,setNombreEdit]=React.useState(p.nombre||"");
       const pip=p.pipeline||"Prospecto";
       const tCol=tempColorP(pip);
-      const stageCol={"Prospecto":"#6b7280","Contactado":"#0ea5e9","Cita":"#0891b2","Visita":"#0d9488","En análisis":"#6366f1","En negociación":"#8b5cf6","Propuesta":"#f59e0b","Apartado":"#f97316","Contrato":"#22c55e","Vendido":"#16a34a","Descartado":"#94a3b8"};
+      const stageCol={"Prospecto":"#6b7280","Contactado":"#0ea5e9","Cita":"#0891b2","Visita":"#0d9488","Cotización":"#0284c7","En análisis":"#6366f1","En negociación":"#8b5cf6","Propuesta":"#f59e0b","Apartado":"#f97316","Contrato":"#22c55e","Vendido":"#16a34a","Descartado":"#94a3b8"};
       // Interacciones EXCLUSIVAS de este prospecto (las interacciones se guardan a nivel lote, etiquetadas por nombre)
       const _pn=(p.nombre||"").toLowerCase().trim();
       const _crmQ=(crmData[lot.id]||crm); const _unoQ=((_crmQ.prospectos||[]).length===1);
@@ -7686,7 +7687,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const VistaCanalCiudad=()=>{
       // Solo etapas de seguimiento activo: Por Contactar → Contrato
       const ETAPAS_MOSTRAR=new Set(["Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato"]);
-      const ETAPA_COLORS={"Por Contactar":"#f59e0b","Contactado":"#3b82f6","Cita":"#0891b2","Visita":"#0d9488","En análisis":"#6366f1","En negociación":"#d97706","Propuesta":"#8b5cf6","Apartado":"#f97316","Contrato":"#06b6d4"};
+      const ETAPA_COLORS={"Por Contactar":"#f59e0b","Contactado":"#3b82f6","Cita":"#0891b2","Visita":"#0d9488","Cotización":"#0284c7","En análisis":"#6366f1","En negociación":"#d97706","Propuesta":"#8b5cf6","Apartado":"#f97316","Contrato":"#06b6d4"};
 
       const datos=allProspectos.filter(x=>{
         if(filterDesarrolloCRM!=="Todos"&&x.lot.desarrollo!==filterDesarrolloCRM) return false;
@@ -10780,7 +10781,7 @@ Respuesta: [respuesta exacta, conversacional]
       const fmtMoney=(v)=>{if(!v||v===0)return "$0";const abs=Math.abs(v),sign=v<0?"-":"";if(abs>=1e9)return sign+"$"+(abs/1e9).toFixed(2)+"B";if(abs>=1e6)return sign+"$"+(abs/1e6).toFixed(1)+"M";if(abs>=1e3)return sign+"$"+Math.round(abs/1e3)+"k";return sign+"$"+abs.toFixed(0);};
       const fechaStr = ahora.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
       const MESES_ES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-      const ACTIVE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
+      const ACTIVE_STAGES=["Prospecto","Por Contactar","Contactado","Cita","Visita","Cotización","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
       const stageProb={"Prospecto":0.05,"Por Contactar":0.08,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En análisis":0.40,"En negociación":0.55,"En negociacion":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
       const tempColor=(t)=>t==="Caliente"?[220,38,38]:t==="Tibio"?[217,119,6]:t==="Frío"||t==="Frio"?[37,99,235]:t==="En cierre"?[249,115,22]:t==="Cerrado"?[22,163,74]:t==="Descartado"?[107,114,128]:[107,114,128];
       const stageColor=(s)=>s==="Vendido"||s==="Contrato"?green:s==="Propuesta"||s==="Apartado"||s==="Visita"?amber:s==="En negociacion"||s==="En análisis"||s==="Cita"?[8,145,178]:grey;
@@ -10797,7 +10798,7 @@ Respuesta: [respuesta exacta, conversacional]
         const prospectos=e.prospectos||[];
         if(prospectos.length===0) return e.pipeline||"Disponible";
         let best="Disponible"; let maxOrd=0;
-        const ord={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociacion":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10};
+        const ord={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociacion":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10};
         prospectos.forEach(p=>{ if(p&&p.pipeline){ const o=ord[p.pipeline]||0; if(o>maxOrd){maxOrd=o;best=p.pipeline;} } });
         return best;
       };
@@ -11130,7 +11131,7 @@ Respuesta: [respuesta exacta, conversacional]
         // CLIENTE: EMBUDO — CUBOS DE COLORES
         sectionHeader("3 | EMBUDO DE VENTAS",[8,145,178]);
         const embStages=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
-        const stageOrdEmb={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":0};
+        const stageOrdEmb={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":0};
         const stageColEmb={"Prospecto":[100,116,139],"Contactado":[59,130,246],"Cita":[8,145,178],"Visita":[13,148,136],"En análisis":[99,102,241],"En negociación":[196,154,34],"Propuesta":[139,92,246],"Apartado":[249,115,22],"Contrato":[8,182,212],"Vendido":[34,197,94],"Descartado":[148,163,184]};
         const totalAll=prospActivos.length||1;
         const bwEmb=(pageW-margin*2-(embStages.length-1)*2)/embStages.length;
@@ -11598,7 +11599,7 @@ Respuesta: [respuesta exacta, conversacional]
     // ════════════════════════════════════════════════════════════════
 
     // ─── Helpers locales ────────────────────────────────────────────
-    const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":0,"Disponible":0};
+    const stageOrder={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":0,"Disponible":0};
     const stageProb={"Prospecto":0.05,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"En análisis":0.40,"En negociación":0.55,"En negociacion":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
     const STAGES_REQUIRING_ACTIVITY_LOCAL = ["En negociación","Propuesta","Contrato"];
     const ACTIVE_STAGES_LOCAL = ["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
@@ -12146,7 +12147,7 @@ Respuesta: [respuesta exacta, conversacional]
                 {/* ═══════ SECCIÓN EMBUDO ═══════ */}
         {(()=>{
           const embStages=["Prospecto","Contactado","Cita","Visita","En análisis","En negociación","Propuesta","Apartado","Contrato","Vendido","Descartado"];
-          const stageOrdEmb={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":0};
+          const stageOrdEmb={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":0};
           const totalAll=prospectosActivos.length||1;
           return (
           <div style={{background:B.white,borderRadius:14,padding:"20px 24px",marginBottom:24,border:"1px solid "+B.grey1}}>
