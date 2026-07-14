@@ -3577,6 +3577,40 @@ function MacroProMatcher({ sessionEmail } = {}) {
             notas:g(row,"notas"),correo:g(row,"correo"),telefono:g(row,"telefono"),
           };
         });
+        // ── PROPAGAR CORRECCIONES DE NOMBRE al CRM ──
+        // Si un cliente conserva su clave estable (correo → teléfono → id real) pero
+        // cambió el nombre (arregló una falta de ortografía), renombramos también sus
+        // prospectos e interacciones en el CRM, para que no quede el nombre viejo.
+        try{
+          const stableKey=(c)=>{
+            const e=String((c&&(c.correo||c.email))||"").trim().toLowerCase(); if(e) return "e:"+e;
+            const t=String((c&&c.telefono)||"").replace(/\D/g,""); if(t) return "t:"+t;
+            const id=String((c&&c.id)||"").trim(); if(id && !/^CLI-\d+$/i.test(id)) return "id:"+id.toLowerCase();
+            return "";
+          };
+          const prevByKey={}; (clients||[]).forEach(c=>{ const k=stableKey(c); if(k) prevByKey[k]=c; });
+          const renameMap={};
+          mapped.forEach(c=>{ const k=stableKey(c); if(!k) return; const old=prevByKey[k];
+            if(old&&old.nombre&&c.nombre&&old.nombre.trim()&&old.nombre.trim().toLowerCase()!==c.nombre.trim().toLowerCase()){
+              renameMap[old.nombre.trim().toLowerCase()]=c.nombre.trim();
+            }
+          });
+          const nRen=Object.keys(renameMap).length;
+          if(nRen){
+            setCrmData(prev=>{
+              const out={}; let changed=false;
+              Object.keys(prev||{}).forEach(lid=>{
+                const entry=prev[lid]||{};
+                const prospectos=(entry.prospectos||[]).map(p=>{ const nm=p&&p.nombre&&p.nombre.toLowerCase().trim(); if(nm&&renameMap[nm]){ changed=true; return {...p,nombre:renameMap[nm],updatedAt:new Date().toISOString()}; } return p; });
+                const interacciones=(entry.interacciones||[]).map(it=>{ const nm=(it&&(it.prospecto||it.prospectoNombre)||"").toLowerCase().trim(); if(nm&&renameMap[nm]){ changed=true; return {...it,prospecto:renameMap[nm]}; } return it; });
+                out[lid]={...entry,prospectos,interacciones};
+              });
+              if(!changed) return prev;
+              saveCRM(out); try{crmSnapRef.current=JSON.stringify(out);}catch(e){} return out;
+            });
+            toast("✏️ "+nRen+" nombre(s) corregido(s) también en el CRM");
+          }
+        }catch(e){ console.warn("propagar rename clientes:",e); }
         setClients(mapped);
         toast(`✓ ${mapped.length} cliente${mapped.length>1?"s":""} cargado${mapped.length>1?"s":""} desde "${file.name}"`);
       } catch(err){ toast("⚠ Error al leer clientes: "+err.message); }
