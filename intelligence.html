@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA LOTES™ Intelligence v60</title>
+<title>GUÍA LOTES™ Intelligence v61</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -801,7 +801,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
     </div>
   </div>
   <div class="header-right">
-    <span class="v-badge">v60</span>
+    <span class="v-badge">v61</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -4814,11 +4814,7 @@ function generateAutorizacionPDF(){
   const comentHTML = comentarios ? esc(comentarios).replace(/\n/g,'<br>') : '<span style="color:#aaa;">— Sin comentarios —</span>';
   const has = v => v!=null && String(v).trim()!=='' && String(v).trim()!=='—';
 
-  // Precio total calculado (si tenemos precio/m² y superficie numérica)
-  let precioTotalCalc = '';
-  if(has(ld._precioVendedor) && ld.sup_num>0){ precioTotalCalc = '$'+Math.round(ld._precioVendedor*ld.sup_num).toLocaleString('es-MX')+' MXN'; }
-
-  // Generales del terreno — lo más específico posible (solo lo que tenga dato)
+  // Generales del terreno — lo más específico posible (solo lo que tenga dato, sin precios)
   const generales = [
     ['Nombre / Lote', ld.nombre],
     ['Desarrollo', ld.desarrollo],
@@ -4835,9 +4831,6 @@ function generateAutorizacionPDF(){
     ['Infraestructura', ld.infraestructura],
     ['Topografía', ld.topografia],
     ['Situación jurídica', ld.estatus_juridico],
-    ['Precio del vendedor', has(ld._precioVendedor)?'$'+Number(ld._precioVendedor).toLocaleString('es-MX')+'/m²':''],
-    ['Precio unitario', ld.precio_m2],
-    ['Precio total', has(ld.precio_total)?ld.precio_total:precioTotalCalc],
     ['Coordenadas GPS', (lat&&lon)?lat.toFixed(5)+', '+lon.toFixed(5):''],
     ['Cliente / referencia', ld._cliente]
   ].filter(([l,v])=>has(v));
@@ -4847,9 +4840,12 @@ function generateAutorizacionPDF(){
   const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Autorización ${folio} — ${esc(ld.nombre||'Macrolote')}</title>
 <style>
   *{box-sizing:border-box;} body{font-family:'Helvetica Neue',Arial,sans-serif;color:#1a1a1a;max-width:800px;margin:0 auto;padding:38px 40px;line-height:1.5;}
-  .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #c9890f;padding-bottom:16px;margin-bottom:20px;}
-  .logo{height:52px;width:auto;display:block;margin-bottom:6px;}
-  .tag{font-size:10px;letter-spacing:2px;color:#888;text-transform:uppercase;}
+  .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #E8B44C;padding-bottom:16px;margin-bottom:20px;}
+  .logo-text{font-size:30px;font-weight:800;letter-spacing:-.5px;line-height:1;}
+  .logo-text .lt-b{color:#10294A;} .logo-text .lt-g{color:#E8B44C;}
+  .logo-sub{font-size:10.5px;font-weight:700;letter-spacing:3px;color:#10294A;text-transform:uppercase;margin-top:5px;}
+  .logo-sub b{color:#E8B44C;}
+  .tag{font-size:10px;letter-spacing:2px;color:#888;text-transform:uppercase;margin-top:8px;}
   h1{font-size:18px;margin:4px 0 2px;}
   .meta{font-size:11.5px;color:#666;text-align:right;line-height:1.7;}
   .meta .folio{font-family:monospace;font-weight:700;color:#222;font-size:12px;}
@@ -4857,25 +4853,25 @@ function generateAutorizacionPDF(){
   .banner .est{font-size:50px;font-weight:900;letter-spacing:2px;color:${color};line-height:1.05;}
   .banner .ic{font-size:38px;color:${color};display:block;margin-bottom:4px;}
   .banner .sub{font-size:12px;color:#555;margin-top:8px;letter-spacing:1px;text-transform:uppercase;}
-  .sec{font-size:12.5px;font-weight:800;margin:22px 0 10px;padding:5px 12px;border-radius:6px;color:#fff;background:#c9890f;letter-spacing:.5px;}
-  .generales{display:grid;grid-template-columns:1fr 1fr;gap:0 32px;border:1px solid #e7d9b0;border-radius:8px;padding:4px 18px;background:#faf6ec;}
-  .gitem{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #eee4c8;font-size:12px;}
-  .gl{color:#7a6f52;} .gv{font-weight:700;color:#222;text-align:right;}
+  .sec{font-size:12.5px;font-weight:800;margin:22px 0 10px;padding:6px 12px;border-radius:6px;color:#fff;background:#10294A;letter-spacing:.5px;}
+  .generales{display:grid;grid-template-columns:1fr 1fr;gap:0 32px;border:1px solid #dfe4ea;border-radius:8px;padding:4px 18px;background:#f7f9fb;}
+  .gitem{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #e6ebf1;font-size:12px;}
+  .gl{color:#63708a;} .gv{font-weight:700;color:#10294A;text-align:right;}
   .coment{border:1px solid #ddd;border-radius:8px;padding:16px 18px;font-size:13px;min-height:110px;color:#333;background:#fcfcfc;}
-  .cond{font-size:11px;color:#666;background:#f7f7f7;border-left:3px solid #c9890f;padding:11px 15px;border-radius:0 6px 6px 0;margin-top:16px;}
+  .cond{font-size:11px;color:#666;background:#f7f7f7;border-left:3px solid #E8B44C;padding:11px 15px;border-radius:0 6px 6px 0;margin-top:16px;}
   .firmas{display:flex;gap:48px;margin-top:56px;}
   .firma{flex:1;text-align:center;} .firma .line{border-top:1.5px solid #333;padding-top:8px;}
-  .firma .name{font-weight:800;font-size:13.5px;color:#111;text-transform:uppercase;letter-spacing:.5px;}
+  .firma .name{font-weight:800;font-size:13.5px;color:#10294A;text-transform:uppercase;letter-spacing:.5px;}
   .firma .role{font-size:10.5px;color:#777;margin-top:3px;}
   .firma .lbl{font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;}
   .foot{margin-top:34px;border-top:1px solid #ddd;padding-top:12px;font-size:10.5px;color:#888;display:flex;justify-content:space-between;}
-  a{color:#c9890f;text-decoration:none;}
+  a{color:#b8860b;text-decoration:none;}
   @media print{body{padding:22px;} .firmas{margin-top:44px;}}
 </style></head><body>
   <div class="head">
     <div>
-      <img class="logo" src="data:${LOGO_MACROLOTES}" alt="Grupo Guía Macrolotes">
-      <div class="tag">Intelligence Platform · Autorización de Inventario</div>
+      <div class="logo-text"><span class="lt-b">grupoguia</span><span class="lt-g">.mx</span></div>
+      <div class="logo-sub">GUÍA <b>MACROLOTES</b></div>
       <h1>Autorización de Ingreso al Inventario</h1>
     </div>
     <div class="meta">
