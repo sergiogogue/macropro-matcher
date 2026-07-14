@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA LOTES™ Intelligence v59</title>
+<title>GUÍA LOTES™ Intelligence v60</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -801,7 +801,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
     </div>
   </div>
   <div class="header-right">
-    <span class="v-badge">v59</span>
+    <span class="v-badge">v60</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -4802,37 +4802,87 @@ function generateAutorizacionPDF(){
   const autorizado = estado==='AUTORIZADO';
   const comentarios = (document.getElementById('autoriza-comentarios').value||'').trim();
   const asesor = (document.getElementById('autoriza-asesor').value||'').trim();
-  const hoy = new Date().toLocaleDateString('es-MX',{year:'numeric',month:'long',day:'numeric'});
+  const _hoy = new Date();
+  const hoy = _hoy.toLocaleDateString('es-MX',{year:'numeric',month:'long',day:'numeric'});
+  const pad = n => String(n).padStart(2,'0');
+  const folio = `GG-AUT-${_hoy.getFullYear()}${pad(_hoy.getMonth()+1)}${pad(_hoy.getDate())}-${pad(_hoy.getHours())}${pad(_hoy.getMinutes())}`;
   const lat=parseFloat(ld.lat), lon=parseFloat(ld.long);
   const color = autorizado ? '#22a34a' : '#d64545';
   const colorSoft = autorizado ? '#eaf7ee' : '#fbeaea';
   const icon = autorizado ? '✔' : '✕';
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const comentHTML = comentarios ? esc(comentarios).replace(/\n/g,'<br>') : '<span style="color:#aaa;">— Sin comentarios —</span>';
+  const has = v => v!=null && String(v).trim()!=='' && String(v).trim()!=='—';
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Autorización — ${esc(ld.nombre||'Macrolote')}</title>
+  // Precio total calculado (si tenemos precio/m² y superficie numérica)
+  let precioTotalCalc = '';
+  if(has(ld._precioVendedor) && ld.sup_num>0){ precioTotalCalc = '$'+Math.round(ld._precioVendedor*ld.sup_num).toLocaleString('es-MX')+' MXN'; }
+
+  // Generales del terreno — lo más específico posible (solo lo que tenga dato)
+  const generales = [
+    ['Nombre / Lote', ld.nombre],
+    ['Desarrollo', ld.desarrollo],
+    ['Ciudad', ld.ciudad],
+    ['Estado', ld.estado],
+    ['Superficie', ld.superficie],
+    ['Uso de suelo', ld.uso_suelo],
+    ['COS (ocupación)', ld.cos],
+    ['CUS (utilización)', ld.cus],
+    ['Niveles permitidos', ld.niveles],
+    ['Altura máxima', ld.altura_max],
+    ['Densidad', ld.densidad],
+    ['Área libre', ld.area_libre],
+    ['Infraestructura', ld.infraestructura],
+    ['Topografía', ld.topografia],
+    ['Situación jurídica', ld.estatus_juridico],
+    ['Precio del vendedor', has(ld._precioVendedor)?'$'+Number(ld._precioVendedor).toLocaleString('es-MX')+'/m²':''],
+    ['Precio unitario', ld.precio_m2],
+    ['Precio total', has(ld.precio_total)?ld.precio_total:precioTotalCalc],
+    ['Coordenadas GPS', (lat&&lon)?lat.toFixed(5)+', '+lon.toFixed(5):''],
+    ['Cliente / referencia', ld._cliente]
+  ].filter(([l,v])=>has(v));
+  const genRows = generales.map(([l,v])=>`<div class="gitem"><span class="gl">${esc(l)}</span><span class="gv">${esc(v)}</span></div>`).join('');
+  const mapsUrl = (lat&&lon) ? `https://www.google.com/maps?q=${lat},${lon}` : '';
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Autorización ${folio} — ${esc(ld.nombre||'Macrolote')}</title>
 <style>
-  *{box-sizing:border-box;} body{font-family:'Helvetica Neue',Arial,sans-serif;color:#1a1a1a;max-width:780px;margin:0 auto;padding:40px 36px;line-height:1.5;}
-  .brand{font-size:22px;font-weight:800;letter-spacing:.5px;} .brand span{color:#c9890f;}
+  *{box-sizing:border-box;} body{font-family:'Helvetica Neue',Arial,sans-serif;color:#1a1a1a;max-width:800px;margin:0 auto;padding:38px 40px;line-height:1.5;}
+  .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #c9890f;padding-bottom:16px;margin-bottom:20px;}
+  .logo{height:52px;width:auto;display:block;margin-bottom:6px;}
   .tag{font-size:10px;letter-spacing:2px;color:#888;text-transform:uppercase;}
-  .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #c9890f;padding-bottom:14px;margin-bottom:22px;}
-  h1{font-size:19px;margin:6px 0 2px;} .meta{font-size:12px;color:#666;text-align:right;}
-  .banner{border:3px solid ${color};background:${colorSoft};border-radius:14px;text-align:center;padding:30px 20px;margin:6px 0 26px;}
-  .banner .est{font-size:52px;font-weight:900;letter-spacing:2px;color:${color};line-height:1.05;}
-  .banner .ic{font-size:40px;color:${color};display:block;margin-bottom:6px;}
+  h1{font-size:18px;margin:4px 0 2px;}
+  .meta{font-size:11.5px;color:#666;text-align:right;line-height:1.7;}
+  .meta .folio{font-family:monospace;font-weight:700;color:#222;font-size:12px;}
+  .banner{border:3px solid ${color};background:${colorSoft};border-radius:14px;text-align:center;padding:26px 20px;margin:4px 0 24px;}
+  .banner .est{font-size:50px;font-weight:900;letter-spacing:2px;color:${color};line-height:1.05;}
+  .banner .ic{font-size:38px;color:${color};display:block;margin-bottom:4px;}
   .banner .sub{font-size:12px;color:#555;margin-top:8px;letter-spacing:1px;text-transform:uppercase;}
-  .sec{font-size:13px;font-weight:800;margin:22px 0 8px;padding:5px 10px;border-radius:6px;color:#fff;background:#444;}
-  .lote{background:#faf6ec;border:1px solid #e7d9b0;border-radius:8px;padding:14px 18px;font-size:13px;}
-  .lote b{color:#222;} .grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin-top:8px;font-size:12px;color:#444;}
-  .coment{border:1px solid #ddd;border-radius:8px;padding:16px 18px;font-size:13px;min-height:90px;color:#333;background:#fcfcfc;white-space:normal;}
-  .firmas{display:flex;gap:40px;margin-top:44px;}
-  .firma{flex:1;text-align:center;} .firma .line{border-top:1.5px solid #333;margin-top:44px;padding-top:6px;font-size:11px;color:#555;}
-  .foot{margin-top:34px;border-top:1px solid #ddd;padding-top:12px;font-size:11px;color:#888;display:flex;justify-content:space-between;}
-  @media print{body{padding:22px;}}
+  .sec{font-size:12.5px;font-weight:800;margin:22px 0 10px;padding:5px 12px;border-radius:6px;color:#fff;background:#c9890f;letter-spacing:.5px;}
+  .generales{display:grid;grid-template-columns:1fr 1fr;gap:0 32px;border:1px solid #e7d9b0;border-radius:8px;padding:4px 18px;background:#faf6ec;}
+  .gitem{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #eee4c8;font-size:12px;}
+  .gl{color:#7a6f52;} .gv{font-weight:700;color:#222;text-align:right;}
+  .coment{border:1px solid #ddd;border-radius:8px;padding:16px 18px;font-size:13px;min-height:110px;color:#333;background:#fcfcfc;}
+  .cond{font-size:11px;color:#666;background:#f7f7f7;border-left:3px solid #c9890f;padding:11px 15px;border-radius:0 6px 6px 0;margin-top:16px;}
+  .firmas{display:flex;gap:48px;margin-top:56px;}
+  .firma{flex:1;text-align:center;} .firma .line{border-top:1.5px solid #333;padding-top:8px;}
+  .firma .name{font-weight:800;font-size:13.5px;color:#111;text-transform:uppercase;letter-spacing:.5px;}
+  .firma .role{font-size:10.5px;color:#777;margin-top:3px;}
+  .firma .lbl{font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;}
+  .foot{margin-top:34px;border-top:1px solid #ddd;padding-top:12px;font-size:10.5px;color:#888;display:flex;justify-content:space-between;}
+  a{color:#c9890f;text-decoration:none;}
+  @media print{body{padding:22px;} .firmas{margin-top:44px;}}
 </style></head><body>
   <div class="head">
-    <div><div class="brand">GUÍA<span>LOTES</span>™</div><div class="tag">Intelligence Platform</div><h1>Autorización de Ingreso al Inventario</h1></div>
-    <div class="meta">${hoy}${asesor?'<br>Dirigido a: <b>'+esc(asesor)+'</b>':''}</div>
+    <div>
+      <img class="logo" src="data:${LOGO_MACROLOTES}" alt="Grupo Guía Macrolotes">
+      <div class="tag">Intelligence Platform · Autorización de Inventario</div>
+      <h1>Autorización de Ingreso al Inventario</h1>
+    </div>
+    <div class="meta">
+      <div class="folio">Folio: ${folio}</div>
+      ${hoy}<br>
+      ${asesor?'Dirigido a: <b>'+esc(asesor)+'</b>':''}
+    </div>
   </div>
 
   <div class="banner">
@@ -4841,28 +4891,21 @@ function generateAutorizacionPDF(){
     <div class="sub">${autorizado?'El macrolote SÍ se acepta e ingresa al inventario':'El macrolote NO se acepta / no ingresa al inventario'}</div>
   </div>
 
-  <div class="sec">MACROLOTE</div>
-  <div class="lote">
-    <b>${esc(ld.nombre||'Macrolote')}</b> · ${esc(ld.ciudad||'')}${ld.estado?', '+esc(ld.estado):''}
-    <div class="grid2">
-      <div>Superficie: <b>${esc(ld.superficie||'—')}</b></div>
-      <div>Uso de suelo: <b>${esc(ld.uso_suelo||'—')}</b></div>
-      <div>CUS: <b>${esc(ld.cus||'—')}</b> · COS: <b>${esc(ld.cos||'—')}</b></div>
-      <div>Coordenadas: <b>${lat&&lon?lat.toFixed(5)+', '+lon.toFixed(5):'—'}</b></div>
-      ${ld._precioVendedor?`<div>Vendedor solicita: <b>$${Number(ld._precioVendedor).toLocaleString('es-MX')}/m²</b></div>`:''}
-      <div>Situación jurídica: <b>${esc(ld.estatus_juridico||'—')}</b></div>
-    </div>
-  </div>
+  <div class="sec">GENERALES DEL TERRENO</div>
+  <div class="generales">${genRows||'<div class="gitem"><span class="gl">Sin datos capturados</span><span class="gv">—</span></div>'}</div>
+  ${mapsUrl?`<div style="font-size:11px;margin-top:6px;">📍 Ubicación en mapa: <a href="${mapsUrl}">${mapsUrl}</a></div>`:''}
 
   <div class="sec">COMENTARIOS · MOTIVO DE LA DECISIÓN</div>
   <div class="coment">${comentHTML}</div>
 
+  <div class="cond">Esta autorización es emitida por la Dirección de Grupo Guía Macrolotes con base en la información disponible del terreno al momento de su evaluación. ${autorizado?'El ingreso definitivo al inventario queda sujeto a la verificación documental (registro público de propiedad, uso de suelo vigente y situación jurídica).':'La presente resolución podrá reconsiderarse si el asesor presenta información adicional que modifique las condiciones evaluadas.'}</div>
+
   <div class="firmas">
-    <div class="firma"><div class="line">Autoriza — Grupo Guía Macrolotes</div></div>
-    <div class="firma"><div class="line">Recibe — ${asesor?esc(asesor):'Asesor'}</div></div>
+    <div class="firma"><div class="line"><div class="lbl">Autoriza</div><div class="name">Sergio González Guerra G</div><div class="role">Dirección · Grupo Guía Macrolotes</div></div></div>
+    <div class="firma"><div class="line"><div class="lbl">Recibe</div><div class="name">${asesor?esc(asesor):'Asesor Responsable'}</div><div class="role">Asesor que opciona el terreno</div></div></div>
   </div>
 
-  <div class="foot"><span>sergio@grupoguia.mx · macrolotes.grupoguia.mx</span><span>GUÍA LOTES™ Intelligence · Documento de Autorización</span></div>
+  <div class="foot"><span>sergio@grupoguia.mx · macrolotes.grupoguia.mx</span><span>GUÍA LOTES™ Intelligence · Documento de Autorización · ${folio}</span></div>
 </body></html>`;
 
   // ── Guardar el registro para la estadística ──
