@@ -7370,23 +7370,38 @@ function MacroProMatcher({ sessionEmail } = {}) {
 
       const guardarCambios=()=>{
         setSaving(true);
-        const prospActualizado={...p,nombre:nombreEdit&&nombreEdit.trim()?nombreEdit.trim():p.nombre,temperatura:tempEdit||p.temperatura,asesor:asesorEdit,nota:notaEdit,giro:giroEdit,canal:canalEdit,ciudad:ciudadEdit||undefined};
-        if(loteEdit!==lot.id){
-          // Mover prospecto al nuevo lote
-          const prospOrigen=[...(crm.prospectos||[])];
-          prospOrigen.splice(prospectoIdx,1);
-          updateCRM(lot.id,{prospectos:prospOrigen});
-          const crmDestino=crmData[loteEdit]||{pipeline:"Prospecto",interacciones:[],prospectos:[]};
-          const prospDestino=[...(crmDestino.prospectos||[]),prospActualizado];
-          updateCRM(loteEdit,{prospectos:prospDestino,pipeline:crmDestino.pipeline==="Disponible"?"Prospecto":crmDestino.pipeline});
-          setShowQuickProspModal(false);
-          toast("✅ Prospecto movido al nuevo terreno");
-        } else {
-          const prospectos=[...(crm.prospectos||[])];
-          prospectos[prospectoIdx]=prospActualizado;
-          updateCRM(lot.id,{prospectos});
-          toast("✅ Prospecto actualizado");
-        }
+        const oldName=(p.nombre||"").trim();
+        const newName=(nombreEdit&&nombreEdit.trim())?nombreEdit.trim():oldName;
+        const nameChanged = !!(newName && oldName && newName.toLowerCase()!==oldName.toLowerCase());
+        const oldL=oldName.toLowerCase();
+        const prospActualizado={...p,nombre:newName,temperatura:tempEdit||p.temperatura,asesor:asesorEdit,nota:notaEdit,giro:giroEdit,canal:canalEdit,ciudad:ciudadEdit||undefined,updatedAt:new Date().toISOString()};
+        const movio=(loteEdit!==lot.id);
+        setCrmData(prev=>{
+          const out={...(prev||{})};
+          // 1) Editar el prospecto actual (o moverlo de terreno)
+          if(movio){
+            const origen=[...((out[lot.id]||{}).prospectos||[])]; origen.splice(prospectoIdx,1);
+            out[lot.id]={...(out[lot.id]||{pipeline:"Disponible",interacciones:[],prospectos:[]}),prospectos:origen};
+            const dest=out[loteEdit]||{pipeline:"Prospecto",interacciones:[],prospectos:[]};
+            out[loteEdit]={...dest,prospectos:[...(dest.prospectos||[]),prospActualizado],pipeline:dest.pipeline==="Disponible"?"Prospecto":dest.pipeline};
+          } else {
+            const arr=[...((out[lot.id]||{}).prospectos||[])]; arr[prospectoIdx]=prospActualizado;
+            out[lot.id]={...(out[lot.id]||{pipeline:"Disponible",interacciones:[],prospectos:[]}),prospectos:arr};
+          }
+          // 2) Si cambió el nombre, propagarlo a TODOS sus otros terrenos e interacciones
+          if(nameChanged){
+            Object.keys(out).forEach(lid=>{
+              const e=out[lid]||{};
+              const pr=(e.prospectos||[]).map(pp=> (pp&&pp.nombre&&pp.nombre.toLowerCase().trim()===oldL) ? {...pp,nombre:newName,updatedAt:new Date().toISOString()} : pp);
+              const it=(e.interacciones||[]).map(x=>{ const nm=(x&&(x.prospecto||x.prospectoNombre)||"").toLowerCase().trim(); return nm===oldL ? {...x,prospecto:newName} : x; });
+              out[lid]={...e,prospectos:pr,interacciones:it};
+            });
+          }
+          saveCRM(out); try{crmSnapRef.current=JSON.stringify(out);}catch(e){}
+          return out;
+        });
+        toast(nameChanged?("✅ Guardado · nombre actualizado en todos sus terrenos"):(movio?"✅ Prospecto movido al nuevo terreno":"✅ Prospecto actualizado"));
+        if(movio) setShowQuickProspModal(false);
         setSaving(false);
       };
       const registrarInteraccion=()=>{
