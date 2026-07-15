@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA LOTES™ Intelligence v62</title>
+<title>GUÍA LOTES™ Intelligence v63</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -463,6 +463,21 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
 .summary-label { font-size:10px; color:var(--muted2); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:6px; }
 .summary-value { font-size:14px; font-weight:500; line-height:1.3; }
 .summary-value.gold { color:var(--gold); }
+.lote-edit { background:var(--surface); border:1px solid var(--border2); border-radius:12px; margin:-8px 0 24px; overflow:hidden; }
+.lote-edit-head { display:flex; justify-content:space-between; align-items:center; padding:12px 18px; font-size:13px; font-weight:600; color:var(--gold3); cursor:pointer; user-select:none; }
+.lote-edit-head:hover { background:var(--surface2); }
+.lote-edit-toggle { font-size:12px; color:var(--muted2); }
+.lote-edit-body { padding:0 18px 16px; }
+.lote-edit-sub { font-size:11.5px; color:var(--muted2); line-height:1.6; margin-bottom:14px; }
+.lote-edit-sub b { color:var(--gold3); }
+.lote-edit-grid { display:grid; grid-template-columns:repeat(4,1fr) auto; gap:10px; align-items:end; }
+.le-field-wide { grid-column:span 2; }
+.le-field label { display:block; font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted2); margin-bottom:5px; }
+.le-field input { width:100%; background:var(--surface2); border:1px solid var(--border2); border-radius:8px; padding:9px 11px; color:var(--text); font-size:13px; }
+.le-field input:focus { outline:none; border-color:var(--gold3); }
+.le-apply { background:linear-gradient(135deg,var(--gold),#d08b10); color:#000; font-weight:700; border:none; border-radius:8px; padding:10px 16px; cursor:pointer; font-size:12px; white-space:nowrap; }
+.le-apply:hover { filter:brightness(1.08); }
+@media(max-width:720px){ .lote-edit-grid{ grid-template-columns:1fr 1fr; } .le-field-wide{ grid-column:span 2; } }
 .outputs-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
 .output-card { background:var(--surface); border:1px solid var(--border2); border-radius:16px; overflow:hidden; }
 .output-card.full-width { grid-column:1/-1; }
@@ -773,7 +788,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
 
 /* ── PRINT ── */
 @media print {
-  .header,.hero,.inventario-section,.upload-zone,.files-loaded,.toggle-manual,.manual-form,.btn-analyze,.progress-section,.chat-section,.toast,.btn-print,.btn-reset,.btn-autoriza,.btn-pptx,.btn-analizar-inventario { display:none!important; }
+  .header,.hero,.inventario-section,.upload-zone,.files-loaded,.toggle-manual,.manual-form,.btn-analyze,.progress-section,.chat-section,.toast,.btn-print,.btn-reset,.btn-autoriza,.btn-pptx,.btn-analizar-inventario,.lote-edit { display:none!important; }
   body { background:#fff; color:#000; }
   .output-card,.lote-summary,.results-header { break-inside:avoid; }
   .results-section.visible { display:block!important; }
@@ -801,7 +816,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
     </div>
   </div>
   <div class="header-right">
-    <span class="v-badge">v62</span>
+    <span class="v-badge">v63</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -1072,6 +1087,25 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
       <div class="summary-item"><div class="summary-label">Ubicación</div><div class="summary-value" id="sum-ubicacion">—</div></div>
       <div class="summary-item"><div class="summary-label">Superficie</div><div class="summary-value gold" id="sum-sup">—</div></div>
       <div class="summary-item"><div class="summary-label">Uso de Suelo</div><div class="summary-value" id="sum-uso">—</div></div>
+    </div>
+
+    <!-- ── CORRECCIÓN / COMPLEMENTO MANUAL DE DATOS ── -->
+    <div class="lote-edit" id="lote-edit">
+      <div class="lote-edit-head" onclick="toggleLoteEdit()">
+        <span>✏️ Corregir o completar datos del terreno</span>
+        <span class="lote-edit-toggle" id="lote-edit-toggle">▾</span>
+      </div>
+      <div class="lote-edit-body" id="lote-edit-body" style="display:none;">
+        <div class="lote-edit-sub">Si la IA no leyó bien la <b>superficie</b>, el <b>CUS</b> o el <b>COS</b>, o si el terreno son <b>2 fracciones</b> que hay que sumar, escribe los valores correctos y recalcula. Esto mejora la valoración (valor residual, mejor uso y opinión de valor).</div>
+        <div class="lote-edit-grid">
+          <div class="le-field"><label>Superficie total (m²)</label><input type="text" id="edit-sup" placeholder="ej. 6,934.44"></div>
+          <div class="le-field"><label>CUS (utilización)</label><input type="text" id="edit-cus" placeholder="ej. 3.0"></div>
+          <div class="le-field"><label>COS (ocupación)</label><input type="text" id="edit-cos" placeholder="ej. 0.6"></div>
+          <div class="le-field"><label>Niveles máx.</label><input type="text" id="edit-niveles" placeholder="ej. 5"></div>
+          <div class="le-field le-field-wide"><label>Uso de suelo</label><input type="text" id="edit-uso" placeholder="ej. Comercial / Mixto"></div>
+          <button class="le-apply" onclick="applyManualLoteData()">✓ Aplicar y recalcular</button>
+        </div>
+      </div>
     </div>
 
     <div class="outputs-grid">
@@ -4034,10 +4068,14 @@ async function callClaude(prompt, docsContent, maxTokens=1500) {
 
 // ── PASOS DE ANÁLISIS ─────────────────────────────────────────────────────────
 async function extractLoteData(docsContent) {
-  const prompt = `Lee el documento y responde SOLO con este JSON (sin texto extra, sin markdown):
-{"n":"NOMBRE_LOTE","d":"DESARROLLO","c":"CIUDAD","e":"ESTADO","s":"SUPERFICIE","p":"PRECIO_TOTAL","m":"PRECIO_M2_TERRENO","u":"USO_SUELO","r":"RESUMEN_1_ORACION","lat":"LATITUD_DECIMAL_O_GUION","lon":"LONGITUD_DECIMAL_O_GUION"}
-Sustituye cada valor con el dato real. lat/lon son coordenadas GPS decimales si aparecen en el documento. Si no existe un dato pon un guion.`;
-  const raw = await callClaude(prompt, docsContent, 500);
+  const prompt = `Lee el documento (puede ser una escritura, un Dictamen de Trazos, Usos y Destinos "DTU", o similar) y responde SOLO con este JSON (sin texto extra, sin markdown):
+{"n":"NOMBRE_LOTE","d":"DESARROLLO","c":"CIUDAD","e":"ESTADO","s":"SUPERFICIE_M2","p":"PRECIO_TOTAL","m":"PRECIO_M2_TERRENO","u":"USO_SUELO","cos":"COS","cus":"CUS","niveles":"NIVELES_MAX","j":"ESTATUS_JURIDICO","r":"RESUMEN_1_ORACION","lat":"LATITUD_DECIMAL_O_GUION","lon":"LONGITUD_DECIMAL_O_GUION"}
+Reglas:
+- Sustituye cada valor con el dato real. Si no existe un dato pon un guion "-".
+- COS (Coeficiente de Ocupación del Suelo) suele aparecer como "C.O.S.", "COS" o "Coef. de ocupación" con un valor decimal (ej. 0.6, 0.8). CUS (Coeficiente de Utilización del Suelo) como "C.U.S.", "CUS" o "Coef. de utilización" (ej. 1.5, 3.0). Extráelos con su valor numérico exacto tal como aparecen en el dictamen.
+- SUPERFICIE_M2: el área del predio en metros cuadrados. Si el documento describe VARIAS fracciones o polígonos del MISMO predio, SUMA sus superficies y reporta el total.
+- lat/lon son coordenadas GPS decimales si aparecen en el documento.`;
+  const raw = await callClaude(prompt, docsContent, 700);
   console.log('[extractLoteData] raw:', raw);
   let parsed;
   try { parsed = parseJSON(raw); } catch(e) { throw new Error('JSON incompleto en la respuesta'); }
@@ -4271,12 +4309,65 @@ function renderResults(data) {
   document.getElementById('sum-ubicacion').textContent = [loteData.ciudad,loteData.estado].filter(x=>x&&x!=='—').join(', ')||'—';
   document.getElementById('sum-sup').textContent = loteData.superficie||'—';
   document.getElementById('sum-uso').textContent = loteData.uso_suelo||'—';
+  prefillLoteEdit(loteData);
   renderSemaforo(semaforo);
   renderBuyers(buyers);
   renderArgumentario(argumentario);
   renderROI(roiParams, loteData);
   if (opinionValor) renderOpinionValor(opinionValor, loteData);
   initChat(loteData, semaforo, buyers, argumentario, roiParams);
+}
+
+// ── CORRECCIÓN / COMPLEMENTO MANUAL DE DATOS ──────────────────────────────
+function toggleLoteEdit(){
+  const b=document.getElementById('lote-edit-body'), t=document.getElementById('lote-edit-toggle');
+  if(!b) return;
+  const open = b.style.display!=='none';
+  b.style.display = open?'none':'block';
+  if(t) t.textContent = open?'▾':'▴';
+}
+
+function prefillLoteEdit(loteData){
+  const set=(id,val)=>{ const el=document.getElementById(id); if(el) el.value=val; };
+  const clean=v=>(v==null||v==='—'||v==='-'||/no especificado/i.test(String(v)))?'':String(v);
+  const supNum = loteData.sup_num>0 ? loteData.sup_num : parseNumLoose(loteData.superficie);
+  set('edit-sup', supNum>0 ? supNum.toLocaleString('es-MX') : '');
+  set('edit-cus', clean(loteData.cus));
+  set('edit-cos', clean(loteData.cos));
+  set('edit-niveles', clean(loteData.niveles));
+  set('edit-uso', clean(loteData.uso_suelo));
+}
+
+function applyManualLoteData(){
+  const ld = window._lastLoteData || (typeof analysisData!=='undefined' && analysisData && analysisData.loteData);
+  if(!ld){ showToast('Primero analiza un lote','error'); return; }
+  const gv=id=>{ const el=document.getElementById(id); return el?el.value.trim():''; };
+  const sup=gv('edit-sup'), cus=gv('edit-cus'), cos=gv('edit-cos'), niveles=gv('edit-niveles'), uso=gv('edit-uso');
+  let cambios=0;
+  if(sup){
+    const n=parseNumLoose(sup);
+    if(n>0){ ld.sup_num=n; ld.superficie=n.toLocaleString('es-MX')+' m²'; cambios++; }
+  }
+  if(cus){ ld.cus=cus; cambios++; }
+  if(cos){ ld.cos=cos; cambios++; }
+  if(niveles){ ld.niveles=niveles; cambios++; }
+  if(uso){ ld.uso_suelo=uso; cambios++; }
+  if(!cambios){ showToast('Escribe al menos un dato para actualizar','error'); return; }
+
+  // Propagar a todos los contextos que usan el lote
+  window._lastLoteData = ld;
+  if(typeof analysisData!=='undefined' && analysisData){ analysisData.loteData = ld; }
+  if(window._miCtx){ window._miCtx.loteData = ld; }
+
+  // Reflejar en las tarjetas de resumen
+  const s=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
+  s('sum-sup', ld.superficie||'—');
+  s('sum-uso', ld.uso_suelo||'—');
+
+  // Recalcular la inteligencia de mercado (valor residual, mejor uso, pro forma, confiabilidad)
+  try { renderMarketIntel(ld); } catch(e){ console.warn('recalc MI:', e.message); }
+
+  showToast('✓ Datos actualizados. Se recalculó la valoración. Para refrescar la Opinión de Valor, vuelve a generarla.','');
 }
 
 function renderSemaforo(semaforo) {
