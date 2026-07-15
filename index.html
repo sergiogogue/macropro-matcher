@@ -2095,6 +2095,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const parseJ=v=>{ try{ return v?JSON.parse(JSON.stringify(v)):[]; }catch(e){ return []; } };
     const tick=async()=>{
       if(stop||!window.sb) return;
+      // No jalar de la nube mientras el usuario tiene una ficha abierta escribiendo
+      // (evita que el modal se remonte y se pierda lo no guardado).
+      if(modalOpenRef.current) return;
       if(typeof navigator!=="undefined" && navigator.onLine===false){ mpSyncEvt("offline"); return; }
       mpSyncEvt("pulling");
       try{
@@ -2506,6 +2509,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [showQuickProspModal, setShowQuickProspModal] = React.useState(false);
   const [quickProspData, setQuickProspData] = React.useState(null); // {lot, p, prospectoIdx, crm}
   const [quickProspInitTab, setQuickProspInitTab] = React.useState("acciones");
+  // Mientras haya una ficha/drawer abierto, PAUSAMOS el jalón automático para que
+  // una actualización de la nube NO remonte el modal y borre lo que estás escribiendo.
+  const modalOpenRef = React.useRef(false);
+  React.useEffect(()=>{ modalOpenRef.current = !!(showQuickProspModal || semaforoDrawer); },[showQuickProspModal, semaforoDrawer]);
   const [showLotDetailModal, setShowLotDetailModal] = React.useState(false);
   const [showFichaModal, setShowFichaModal] = React.useState(false);
   const [selectedFichaItem, setSelectedFichaItem] = React.useState(null);
