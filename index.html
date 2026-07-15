@@ -14039,6 +14039,7 @@ Respuesta: [respuesta exacta, conversacional]
                           onMouseLeave={e=>{e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="0 1px 3px rgba(0,0,0,0.05)";}}>
                           <div style={{fontSize:13, fontWeight:800, color:B.navy, marginBottom:2}}>{c.propietario||"Propietario sin nombre"}</div>
                           <div style={{fontSize:10, color:B.grey4, marginBottom:6}}>{c.contacto?c.contacto:""}{c.telefono?(c.contacto?" · ":"")+c.telefono:""}</div>
+                          <div style={{display:"inline-flex", alignItems:"center", gap:4, fontSize:10, fontWeight:800, color:c.asesorResponsableGG?"#0f6b3f":"#b45309", background:c.asesorResponsableGG?"#dcfce7":"#fef3c7", border:"1px solid "+(c.asesorResponsableGG?"#86efac":"#fde68a"), borderRadius:6, padding:"3px 8px", marginBottom:7}}>👤 {c.asesorResponsableGG||"Sin asesor asignado"}</div>
                           {vb&&<div style={{display:"inline-block", fontSize:9, fontWeight:800, color:vb.color, background:vb.bg, borderRadius:6, padding:"2px 7px", marginBottom:6}}>{c.viabilidad}</div>}
                           <div style={{fontSize:10, color:B.grey4, lineHeight:1.6}}>
                             {(c.zona||c.ciudad)&&<div>📍 {c.zona?c.zona+", ":""}{c.ciudad}{c.estado?", "+c.estado:""}</div>}
