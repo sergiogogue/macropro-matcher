@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA LOTES™ Intelligence v63</title>
+<title>GUÍA LOTES™ Intelligence v64</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -816,7 +816,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
     </div>
   </div>
   <div class="header-right">
-    <span class="v-badge">v63</span>
+    <span class="v-badge">v64</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -4338,7 +4338,7 @@ function prefillLoteEdit(loteData){
   set('edit-uso', clean(loteData.uso_suelo));
 }
 
-function applyManualLoteData(){
+async function applyManualLoteData(){
   const ld = window._lastLoteData || (typeof analysisData!=='undefined' && analysisData && analysisData.loteData);
   if(!ld){ showToast('Primero analiza un lote','error'); return; }
   const gv=id=>{ const el=document.getElementById(id); return el?el.value.trim():''; };
@@ -4364,10 +4364,36 @@ function applyManualLoteData(){
   s('sum-sup', ld.superficie||'—');
   s('sum-uso', ld.uso_suelo||'—');
 
-  // Recalcular la inteligencia de mercado (valor residual, mejor uso, pro forma, confiabilidad)
+  const btn=document.querySelector('.le-apply');
+  const btnTxt=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Recalculando…'; }
+
+  // 1) Recalcular la inteligencia de mercado (valor residual, mejor uso, pro forma, confiabilidad) — inmediato y gratis
   try { renderMarketIntel(ld); } catch(e){ console.warn('recalc MI:', e.message); }
 
-  showToast('✓ Datos actualizados. Se recalculó la valoración. Para refrescar la Opinión de Valor, vuelve a generarla.','');
+  // 2) Regenerar la Opinión de Valor con IA usando los datos corregidos (aquí está el precio recomendado)
+  let ovOk=false;
+  if(apiKey){
+    try{
+      showToast('🔄 Recalculando la valoración con los nuevos datos…','');
+      const ov = await generateOpinionValor(ld, window._allDocs || []);
+      if(ov){
+        renderOpinionValor(ov, ld);
+        if(typeof analysisData!=='undefined' && analysisData){ analysisData.opinionValor = ov; }
+        if(window._miCtx){ window._miCtx.opinionValor = ov; }
+        ovOk=true;
+      }
+    }catch(e){ console.warn('recalc OV:', e.message); }
+  }
+
+  if(btn){ btn.disabled=false; btn.textContent=btnTxt||'✓ Aplicar y recalcular'; }
+
+  // Llevar la vista a los resultados para que se vea el cambio
+  try { document.getElementById('valor-body')?.scrollIntoView({behavior:'smooth',block:'center'}); } catch(e){}
+
+  if(ovOk) showToast('✓ Valoración actualizada con los datos corregidos (superficie/CUS/COS).','success');
+  else if(!apiKey) showToast('✓ Datos actualizados y valor residual recalculado. Configura tu API Key para regenerar la Opinión de Valor.','');
+  else showToast('✓ Datos y valor residual actualizados. La Opinión de Valor no se pudo regenerar automáticamente — genérala de nuevo desde su panel.','');
 }
 
 function renderSemaforo(semaforo) {
