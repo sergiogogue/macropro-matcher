@@ -2512,7 +2512,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // Mientras haya una ficha/drawer abierto, PAUSAMOS el jalón automático para que
   // una actualización de la nube NO remonte el modal y borre lo que estás escribiendo.
   const modalOpenRef = React.useRef(false);
-  React.useEffect(()=>{ modalOpenRef.current = !!(showQuickProspModal || semaforoDrawer); },[showQuickProspModal, semaforoDrawer]);
+  React.useEffect(()=>{ modalOpenRef.current = !!(showQuickProspModal || semaforoDrawer || showCaptacionModal); },[showQuickProspModal, semaforoDrawer, showCaptacionModal]);
   const [showLotDetailModal, setShowLotDetailModal] = React.useState(false);
   const [showFichaModal, setShowFichaModal] = React.useState(false);
   const [selectedFichaItem, setSelectedFichaItem] = React.useState(null);
@@ -16578,7 +16578,7 @@ Respuesta: [respuesta exacta, conversacional]
                     <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>💰 Comercial / acuerdo</div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
                       <div><span style={lbStyle}>Precio que pide el dueño ($)</span><input type="text" inputMode="decimal" style={inStyle} value={agruparNum(f.precioDueno)} onChange={e=>setF({precioDueno:crudoNum(e.target.value)})} placeholder="0"/></div>
-                      <div><span style={lbStyle}>Precio por m² ($) <span style={{color:"#dc2626"}}>*</span></span><input type="text" inputMode="decimal" style={inStyle} value={agruparNum(f.precioM2)} onChange={e=>setF({precioM2:crudoNum(e.target.value)})} placeholder="0"/></div>
+                      <div><span style={lbStyle}>Precio por m² ($) <span style={{fontSize:9,color:"#15803d",fontWeight:700}}>· automático</span></span><input type="text" readOnly title="Se calcula solo: precio del dueño ÷ superficie" style={{...inStyle,background:"#eef7f0",color:"#15803d",fontWeight:700,cursor:"default"}} value={(()=>{ const pd=parseFloat(crudoNum(f.precioDueno))||0, sup=parseFloat(crudoNum(f.superficie))||0; const v=(pd>0&&sup>0)?Math.round(pd/sup):0; return v>0?("$"+v.toLocaleString("es-MX")):"—"; })()}/></div>
                       <div><span style={lbStyle}>Comisión acordada</span><input style={inStyle} value={f.comision||""} onChange={e=>setF({comision:e.target.value})} placeholder="Ej. 5%"/></div>
                       <div><span style={lbStyle}>Tipo de acuerdo</span>
                         <select style={inStyle} value={f.tipoAcuerdo||""} onChange={e=>setF({tipoAcuerdo:e.target.value})}>
@@ -16605,14 +16605,10 @@ Respuesta: [respuesta exacta, conversacional]
                     <button onClick={()=>setShowCaptacionModal(false)} style={{padding:"10px 18px",borderRadius:8,border:"1px solid "+B.grey1,background:"#fff",color:B.grey4,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancelar</button>
                     <button onClick={()=>{
                       if(!(f.propietario||f.zona||f.ciudad)){ toast("⚠ Pon al menos propietario, zona o ciudad"); return; }
-                      let ff=f;
-                      // Precio por m² obligatorio: si viene vacío, se calcula de precio ÷ superficie
-                      let pm2=parseFloat(crudoNum(f.precioM2))||0;
-                      if(!(pm2>0)){
-                        const pd=parseFloat(crudoNum(f.precioDueno))||0, sup=parseFloat(crudoNum(f.superficie))||0;
-                        if(pd>0&&sup>0){ pm2=Math.round(pd/sup); ff={...f, precioM2:String(pm2)}; setF({precioM2:String(pm2)}); }
-                      }
-                      if(!(pm2>0)){ toast("⚠ El precio por m² es obligatorio (o captura precio del dueño y superficie para calcularlo)"); return; }
+                      // Precio por m² AUTOMÁTICO: precio del dueño ÷ superficie (no bloquea si falta alguno)
+                      const pd=parseFloat(crudoNum(f.precioDueno))||0, sup=parseFloat(crudoNum(f.superficie))||0;
+                      const pm2=(pd>0&&sup>0)?Math.round(pd/sup):0;
+                      const ff={...f, precioM2: pm2>0?String(pm2):""};
                       upsertCaptacion(ff); setShowCaptacionModal(false); toast("✅ Terreno guardado");
                     }} style={{padding:"10px 20px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>💾 Guardar</button>
                   </div>
