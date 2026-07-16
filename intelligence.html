@@ -3,7 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA LOTES™ Intelligence v64</title>
+<title>GUÍA LOTES™ Intelligence v66</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDEgMTNsMTEtNC00IDEyeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMxIiB5PSI0NiIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjQyIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5HPC90ZXh0Pjwvc3ZnPg==">
+<link rel="alternate icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDEgMTNsMTEtNC00IDEyeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMxIiB5PSI0NiIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjQyIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5HPC90ZXh0Pjwvc3ZnPg==">
+<meta name="theme-color" content="#D21F1F">
+<meta name="apple-mobile-web-app-title" content="GUÍA LOTES">
+<meta name="application-name" content="GUÍA LOTES">
+<meta property="og:title" content="GUÍA LOTES™ Intelligence">
+<meta property="og:site_name" content="GUÍA LOTES">
+<meta property="og:type" content="website">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDEgMTNsMTEtNC00IDEyeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMxIiB5PSI0NiIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjQyIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5HPC90ZXh0Pjwvc3ZnPg==">
+
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -145,6 +155,9 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
 .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); }
 .dot.active { background:var(--green); box-shadow:0 0 8px var(--green); }
 .v-badge { font-size:10px; color:var(--gold3); border:1px solid var(--gold3); border-radius:10px; padding:2px 8px; letter-spacing:1px; }
+.hdr-btn { background:none; border:1px solid var(--border2); border-radius:8px; padding:6px 12px; font-size:11.5px; color:var(--muted2); cursor:pointer; font-weight:600; white-space:nowrap; }
+.hdr-btn:hover { border-color:var(--gold3); color:var(--gold3); }
+@media(max-width:820px){ .hdr-btn span.lbl{ display:none; } .hdr-btn{ padding:6px 9px; } }
 
 /* ── CONTAINER ── */
 .container { max-width:780px; margin:0 auto; padding:32px 24px 60px; position:relative; z-index:1; }
@@ -816,7 +829,9 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
     </div>
   </div>
   <div class="header-right">
-    <span class="v-badge">v64</span>
+    <button class="hdr-btn" onclick="openEstudios()" title="Estudios guardados">📚 <span class="lbl">Estudios</span></button>
+    <button class="hdr-btn" onclick="openAutorizStats()" title="Estadística de autorizaciones">📊 <span class="lbl">Autorizaciones</span></button>
+    <span class="v-badge">v66</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -856,7 +871,6 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
         <h3>Cargar Excel</h3>
         <p>Inventario de lotes + Base de clientes para matching automático</p>
       </div>
-      <button class="inv-filter" style="margin-left:auto;padding:9px 16px;font-weight:600;" onclick="openAutorizStats()">📊 Estadística de Autorizaciones</button>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
@@ -1391,6 +1405,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
             <button class="mi-btn-secondary" onclick="generateMIBuyerPitches()">Generar Pitches de Compradores</button>
             <button class="mi-btn-primary" id="mi-btn-vendor-pitch" onclick="generateVendorPitch()" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);border:none;">📋 Pitch para el Vendedor</button>
             <button class="btn-save-crm" id="mi-btn-save-crm" onclick="saveLoteFromAnalysis()">📁 Guardar en CRM</button>
+            <button class="btn-save-crm" onclick="openGuardarEstudio()">💾 Guardar estudio</button>
             <button class="mi-btn-primary" onclick="downloadOVReport()" style="background:linear-gradient(135deg,var(--gold),#d08b10);border:none;color:#000;">⬇ Descargar Reporte PDF</button>
             <button class="mi-btn-secondary" onclick="document.getElementById('mi-ov-result').style.display='none';document.getElementById('mi-ov-idle').style.display='block';" style="font-size:12px;">Regenerar</button>
           </div>
@@ -4748,9 +4763,9 @@ function downloadDocChecklist() {
 // Reporte profesional de Opinión de Valor en PDF (vía impresión del navegador).
 // Reúne: datos del lote, confiabilidad, mejor uso, valor residual, comparables,
 // y la Opinión de Valor generada por IA (si existe).
-async function downloadOVReport(){
-  const ld = window._lastLoteData || (window._miCtx && window._miCtx.loteData) || {};
-  const ov = (window._miCtx && window._miCtx.opinionValor) || null;
+async function downloadOVReport(ldArg, ovArg){
+  const ld = ldArg || window._lastLoteData || (window._miCtx && window._miCtx.loteData) || {};
+  const ov = ovArg || (window._miCtx && window._miCtx.opinionValor) || null;
   try {
     if (parseFloat(ld.lat) && parseFloat(ld.long)) {
       showToast('📄 Generando reporte completo…','');
@@ -4884,6 +4899,8 @@ function openAutorizacion(){
   const inputs = document.querySelectorAll('input[name="autoriza-estado"]'); inputs.forEach(i=>i.checked=false);
   // prefill
   document.getElementById('autoriza-asesor').value = ld._asesor || '';
+  const _cliEl=document.getElementById('autoriza-cliente'); if(_cliEl) _cliEl.value = ld._cliente || '';
+  const _dirEl=document.getElementById('autoriza-direccion'); if(_dirEl) _dirEl.value = [ld.ciudad,ld.estado].filter(x=>x&&x!=='—').join(', ');
   document.getElementById('autoriza-comentarios').value = '';
   const lat=parseFloat(ld.lat), lon=parseFloat(ld.long);
   document.getElementById('autoriza-lote-info').innerHTML =
@@ -4913,18 +4930,57 @@ function setAutorizaEstado(estado){
   }
 }
 
-function generateAutorizacionPDF(){
-  if(!_autorizaEstado){ showToast('Selecciona AUTORIZADO o NO AUTORIZADO','error'); return; }
+// Recolecta los datos capturados en el modal + los del lote analizado
+function _collectAutorizData(){
+  if(!_autorizaEstado){ showToast('Selecciona AUTORIZADO o NO AUTORIZADO','error'); return null; }
   const ld = window._lastLoteData || (window._miCtx && window._miCtx.loteData) || {};
   const estado = _autorizaEstado;
   const autorizado = estado==='AUTORIZADO';
-  const comentarios = (document.getElementById('autoriza-comentarios').value||'').trim();
-  const asesor = (document.getElementById('autoriza-asesor').value||'').trim();
+  const gv=id=>{ const el=document.getElementById(id); return el?(el.value||'').trim():''; };
+  const comentarios = gv('autoriza-comentarios');
+  const asesor = gv('autoriza-asesor');
+  const cliente = gv('autoriza-cliente');
+  const direccion = gv('autoriza-direccion') || [ld.ciudad,ld.estado].filter(x=>x&&x!=='—').join(', ');
   const _hoy = new Date();
-  const hoy = _hoy.toLocaleDateString('es-MX',{year:'numeric',month:'long',day:'numeric'});
   const pad = n => String(n).padStart(2,'0');
   const folio = `GG-AUT-${_hoy.getFullYear()}${pad(_hoy.getMonth()+1)}${pad(_hoy.getDate())}-${pad(_hoy.getHours())}${pad(_hoy.getMinutes())}`;
   const lat=parseFloat(ld.lat), lon=parseFloat(ld.long);
+  let precioStr = (ld.precio_total && ld.precio_total!=='—') ? ld.precio_total : '';
+  if(!precioStr && ld._precioVendedor) precioStr = '$'+Number(ld._precioVendedor).toLocaleString('es-MX')+'/m²';
+  return { ld, estado, autorizado, comentarios, asesor, cliente, direccion, folio, lat, lon, precioStr, _hoy };
+}
+
+// Guarda el registro en la estadística de aprobaciones (localStorage)
+function _saveAutorizRecord(d){
+  try {
+    const KEY='guia_autorizaciones';
+    let regs=[]; try{ regs=JSON.parse(localStorage.getItem(KEY)||'[]'); }catch(e){ regs=[]; }
+    regs.push({
+      fecha: new Date().toISOString(),
+      folio: d.folio,
+      nombre: d.ld.nombre || 'Macrolote',
+      direccion: d.direccion || '',
+      ciudad: d.ld.ciudad || '',
+      estadoGeo: d.ld.estado || '',
+      uso: d.ld.uso_suelo || '',
+      superficie: d.ld.superficie || '',
+      precio: d.precioStr || '',
+      precioVendedor: d.ld._precioVendedor || null,
+      lat: d.lat||null, lon: d.lon||null,
+      decision: d.estado,          // 'AUTORIZADO' | 'NO AUTORIZADO'
+      comentarios: d.comentarios,
+      asesor: d.asesor,
+      cliente: d.cliente
+    });
+    localStorage.setItem(KEY, JSON.stringify(regs));
+    return true;
+  } catch(e){ console.warn('No se pudo guardar la autorización:', e.message); return false; }
+}
+
+// Construye el HTML del PDF de Autorización
+function _autorizHTML(d){
+  const { ld, estado, autorizado, comentarios, asesor, cliente, direccion, folio, lat, lon, precioStr } = d;
+  const hoy = d._hoy.toLocaleDateString('es-MX',{year:'numeric',month:'long',day:'numeric'});
   const color = autorizado ? '#22a34a' : '#d64545';
   const colorSoft = autorizado ? '#eaf7ee' : '#fbeaea';
   const icon = autorizado ? '✔' : '✕';
@@ -4932,30 +4988,22 @@ function generateAutorizacionPDF(){
   const comentHTML = comentarios ? esc(comentarios).replace(/\n/g,'<br>') : '<span style="color:#aaa;">— Sin comentarios —</span>';
   const has = v => v!=null && String(v).trim()!=='' && String(v).trim()!=='—';
 
-  // Generales del terreno — lo más específico posible (solo lo que tenga dato, sin precios)
   const generales = [
     ['Nombre / Lote', ld.nombre],
-    ['Desarrollo', ld.desarrollo],
-    ['Ciudad', ld.ciudad],
-    ['Estado', ld.estado],
+    ['Cliente / propietario', cliente],
+    ['Dirección', direccion],
     ['Superficie', ld.superficie],
     ['Uso de suelo', ld.uso_suelo],
     ['COS (ocupación)', ld.cos],
     ['CUS (utilización)', ld.cus],
     ['Niveles permitidos', ld.niveles],
-    ['Altura máxima', ld.altura_max],
-    ['Densidad', ld.densidad],
-    ['Área libre', ld.area_libre],
-    ['Infraestructura', ld.infraestructura],
-    ['Topografía', ld.topografia],
     ['Situación jurídica', ld.estatus_juridico],
-    ['Coordenadas GPS', (lat&&lon)?lat.toFixed(5)+', '+lon.toFixed(5):''],
-    ['Cliente / referencia', ld._cliente]
+    ['Coordenadas GPS', (lat&&lon)?lat.toFixed(5)+', '+lon.toFixed(5):'']
   ].filter(([l,v])=>has(v));
   const genRows = generales.map(([l,v])=>`<div class="gitem"><span class="gl">${esc(l)}</span><span class="gv">${esc(v)}</span></div>`).join('');
   const mapsUrl = (lat&&lon) ? `https://www.google.com/maps?q=${lat},${lon}` : '';
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Autorización ${folio} — ${esc(ld.nombre||'Macrolote')}</title>
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Autorización ${folio} — ${esc(ld.nombre||'Macrolote')}</title>
 <style>
   *{box-sizing:border-box;}
   html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
@@ -5020,33 +5068,26 @@ function generateAutorizacionPDF(){
 
   <div class="foot"><span>sergio@grupoguia.mx · macrolotes.grupoguia.mx</span><span>GUÍA LOTES™ Intelligence · Documento de Autorización · ${folio}</span></div>
 </body></html>`;
-
-  // ── Guardar el registro para la estadística ──
-  try {
-    const AUTORIZ_KEY = 'guia_autorizaciones';
-    let regs = []; try { regs = JSON.parse(localStorage.getItem(AUTORIZ_KEY) || '[]'); } catch(e){ regs = []; }
-    regs.push({
-      fecha: new Date().toISOString(),
-      nombre: ld.nombre || 'Macrolote',
-      ciudad: ld.ciudad || '',
-      estadoGeo: ld.estado || '',
-      uso: ld.uso_suelo || '',
-      superficie: ld.superficie || '',
-      precioVendedor: ld._precioVendedor || null,
-      lat: lat||null, lon: lon||null,
-      decision: estado,            // 'AUTORIZADO' | 'NO AUTORIZADO'
-      comentarios: comentarios,
-      asesor: asesor
-    });
-    localStorage.setItem(AUTORIZ_KEY, JSON.stringify(regs));
-  } catch(e){ console.warn('No se pudo guardar la autorización:', e.message); }
-
-  const w = window.open('', '_blank');
-  if(!w){ showToast('Permite las ventanas emergentes para descargar el PDF','error'); return; }
-  w.document.open(); w.document.write(html); w.document.close();
-  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
-  closeAutorizacion();
 }
+
+// Guarda en la estadística de aprobaciones y (opcional) imprime el PDF
+function saveAutorizacion(alsoPrint){
+  const d = _collectAutorizData();
+  if(!d) return;
+  const ok = _saveAutorizRecord(d);
+  if(alsoPrint){
+    const html = _autorizHTML(d);
+    const w = window.open('', '_blank');
+    if(!w){ showToast('Permite las ventanas emergentes para imprimir el PDF','error'); }
+    else { w.document.open(); w.document.write(html); w.document.close(); setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400); }
+  }
+  closeAutorizacion();
+  if(ok) showToast(alsoPrint ? '✓ Guardado en la estadística — imprimiendo PDF…' : '✓ Guardado en la estadística de aprobaciones','success');
+  else showToast('No se pudo guardar el registro','error');
+}
+
+// Compatibilidad: el botón anterior seguía llamando a generateAutorizacionPDF
+function generateAutorizacionPDF(){ saveAutorizacion(true); }
 
 /* ══════════════ ESTADÍSTICA DE AUTORIZACIONES ══════════════ */
 function _loadAutoriz(){
@@ -5072,6 +5113,18 @@ function openAutorizStats(){
     return `<tr><td>${esc(k)}</td><td style="text-align:center;color:#22a34a;font-weight:700">${v.si}</td><td style="text-align:center;color:#d64545;font-weight:700">${v.no}</td><td style="text-align:right;color:var(--muted2)">${p}% acept.</td></tr>`;
   }).join('') || '<tr><td colspan="4" style="color:var(--muted2)">Sin datos</td></tr>';
 
+  // Actividad por asesor: ordenado por más activos (más evaluaciones) y su % de autorización
+  const asesorRows = groupBy('asesor').map(([k,v])=>{
+    const t=v.si+v.no, p=t?Math.round(v.si/t*100):0;
+    return `<tr>
+      <td><b>${esc(k)}</b></td>
+      <td style="text-align:center;font-weight:700;color:var(--gold3)">${t}</td>
+      <td style="text-align:center;color:#22a34a;font-weight:700">${v.si}</td>
+      <td style="text-align:center;color:#d64545;font-weight:700">${v.no}</td>
+      <td style="text-align:right;font-weight:700;color:${p>=50?'#22a34a':'#d64545'}">${p}%</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" style="color:var(--muted2)">Sin asesores registrados</td></tr>';
+
   // Lista de registros (más recientes primero)
   const listRows = [...regs].reverse().map((r,idx)=>{
     const i = regs.length-1-idx; // índice real en el arreglo original
@@ -5081,12 +5134,13 @@ function openAutorizStats(){
       : '<span style="background:rgba(214,69,69,.18);color:#e08787;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;white-space:nowrap">✕ NO</span>';
     return `<tr>
       <td style="white-space:nowrap;color:var(--muted2);font-size:11px">${fecha}</td>
-      <td><b>${esc(r.nombre)}</b>${r.ciudad?`<br><span style="color:var(--muted2);font-size:11px">${esc(r.ciudad)}</span>`:''}</td>
+      <td><b>${esc(r.nombre)}</b>${r.direccion||r.ciudad?`<br><span style="color:var(--muted2);font-size:11px">${esc(r.direccion||r.ciudad)}</span>`:''}</td>
+      <td style="font-size:11.5px">${r.asesor?esc(r.asesor):'<span style="color:var(--muted2)">—</span>'}${r.cliente?`<br><span style="color:var(--muted2);font-size:10.5px">Cliente: ${esc(r.cliente)}</span>`:''}</td>
       <td>${badge}</td>
-      <td style="font-size:11px;color:var(--muted2);max-width:220px">${esc(r.comentarios||'—').slice(0,160)}</td>
+      <td style="font-size:11px;color:var(--muted2);max-width:200px">${esc(r.comentarios||'—').slice(0,140)}</td>
       <td style="text-align:center"><button class="inv-filter" style="padding:3px 8px;font-size:11px;" onclick="deleteAutoriz(${i})" title="Eliminar registro">🗑</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="5" style="color:var(--muted2);padding:16px;text-align:center">Aún no hay autorizaciones registradas. Genera un PDF de Autorización desde el análisis de un lote.</td></tr>';
+  }).join('') || '<tr><td colspan="6" style="color:var(--muted2);padding:16px;text-align:center">Aún no hay autorizaciones registradas. Marca AUTORIZADO o NO AUTORIZADO desde el análisis de un lote y da Guardar.</td></tr>';
 
   const body = document.getElementById('autoriz-stats-body');
   body.innerHTML = `
@@ -5104,6 +5158,12 @@ function openAutorizStats(){
     ${total?`<div style="height:12px;border-radius:8px;overflow:hidden;background:rgba(214,69,69,.25);display:flex;margin-bottom:22px;">
       <div style="width:${pct}%;background:#22a34a;"></div></div>`:''}
 
+    <div class="crm-section-title" style="margin-bottom:8px;">🏆 Actividad por asesor</div>
+    <table class="autoriz-tbl" style="margin-bottom:22px;">
+      <thead><tr><th>Asesor</th><th style="text-align:center">Evaluados</th><th style="text-align:center">Autorizados</th><th style="text-align:center">No autoriz.</th><th style="text-align:right">% Autoriz.</th></tr></thead>
+      ${asesorRows}
+    </table>
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:22px;">
       <div>
         <div class="crm-section-title" style="margin-bottom:8px;">Por ciudad</div>
@@ -5117,7 +5177,7 @@ function openAutorizStats(){
 
     <div class="crm-section-title" style="margin-bottom:8px;">Historial de decisiones</div>
     <table class="autoriz-tbl">
-      <thead><tr><th>Fecha</th><th>Macrolote</th><th>Decisión</th><th>Motivo</th><th></th></tr></thead>
+      <thead><tr><th>Fecha</th><th>Macrolote</th><th>Asesor / Cliente</th><th>Decisión</th><th>Motivo</th><th></th></tr></thead>
       ${listRows}
     </table>
 
@@ -5152,8 +5212,8 @@ function clearAutoriz(){
 function exportAutorizCSV(){
   const regs = _loadAutoriz();
   if(!regs.length){ showToast('No hay registros para exportar','error'); return; }
-  const cols = ['fecha','nombre','ciudad','estadoGeo','uso','superficie','precioVendedor','decision','asesor','comentarios'];
-  const head = ['Fecha','Macrolote','Ciudad','Estado','Uso de suelo','Superficie','Precio vendedor','Decisión','Asesor','Comentarios'];
+  const cols = ['fecha','folio','nombre','direccion','ciudad','estadoGeo','uso','superficie','precio','decision','asesor','cliente','comentarios'];
+  const head = ['Fecha','Folio','Macrolote','Dirección','Ciudad','Estado','Uso de suelo','Superficie','Precio','Decisión','Asesor','Cliente','Motivo'];
   const q = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
   const rows = regs.map(r=>cols.map(c=> c==='fecha' ? q(new Date(r[c]).toLocaleDateString('es-MX')) : q(r[c])).join(','));
   const csv = '﻿'+[head.map(q).join(','), ...rows].join('\r\n');
@@ -5161,6 +5221,92 @@ function exportAutorizCSV(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href=url; a.download='autorizaciones-guia-lotes.csv'; a.click();
   URL.revokeObjectURL(url);
+}
+
+/* ══════════════ ESTUDIOS GUARDADOS (análisis + reporte reabrible) ══════════════ */
+const ESTUDIOS_KEY = 'guia_estudios';
+function _loadEstudios(){ try{ return JSON.parse(localStorage.getItem(ESTUDIOS_KEY)||'[]'); }catch(e){ return []; } }
+function _saveEstudios(a){ try{ localStorage.setItem(ESTUDIOS_KEY, JSON.stringify(a)); return true; }catch(e){ showToast('No se pudo guardar (memoria del navegador llena). Borra estudios viejos.','error'); return false; } }
+
+function openGuardarEstudio(){
+  const ld = window._lastLoteData || (window._miCtx && window._miCtx.loteData) || null;
+  if(!ld || !ld.nombre){ showToast('Primero analiza un lote para guardar su estudio','error'); return; }
+  document.getElementById('estudio-asesor').value = ld._asesor || '';
+  document.getElementById('estudio-cliente').value = ld._cliente || '';
+  document.getElementById('estudio-nota').value = '';
+  document.getElementById('estudio-info').innerHTML =
+    `<b style="color:var(--gold);">${ld.nombre||'Macrolote'}</b> · ${ld.ciudad||''}${ld.estado?', '+ld.estado:''}<br>`+
+    `Superficie: <b>${ld.superficie||'—'}</b> · Uso: <b>${ld.uso_suelo||'—'}</b>`;
+  document.getElementById('guardar-estudio-overlay').classList.add('open');
+}
+function closeGuardarEstudio(e){ if(e && e.target!==document.getElementById('guardar-estudio-overlay')) return; document.getElementById('guardar-estudio-overlay').classList.remove('open'); }
+
+function confirmGuardarEstudio(){
+  const ld = window._lastLoteData || (window._miCtx && window._miCtx.loteData) || null;
+  if(!ld){ showToast('No hay análisis activo','error'); return; }
+  const ov = (window._miCtx && window._miCtx.opinionValor) || (typeof analysisData!=='undefined' && analysisData && analysisData.opinionValor) || null;
+  const asesor=(document.getElementById('estudio-asesor').value||'').trim();
+  const cliente=(document.getElementById('estudio-cliente').value||'').trim();
+  const nota=(document.getElementById('estudio-nota').value||'').trim();
+  if(asesor) ld._asesor=asesor;
+  if(cliente) ld._cliente=cliente;
+  const estudios=_loadEstudios();
+  estudios.push({
+    id: Date.now(),
+    fecha: new Date().toISOString(),
+    nombreTerreno: ld.nombre||'Macrolote',
+    ciudad: ld.ciudad||'',
+    direccion: [ld.ciudad,ld.estado].filter(x=>x&&x!=='—').join(', '),
+    asesor, cliente, nota,
+    superficie: ld.superficie||'',
+    uso: ld.uso_suelo||'',
+    precio: (ld.precio_total&&ld.precio_total!=='—')?ld.precio_total:(ld._precioVendedor?'$'+Number(ld._precioVendedor).toLocaleString('es-MX')+'/m²':''),
+    veredicto: ov?(ov.veredicto||''):'',
+    score: ov?(ov.score||''):'',
+    loteData: ld,
+    opinionValor: ov
+  });
+  if(_saveEstudios(estudios)){
+    closeGuardarEstudio();
+    showToast('✓ Estudio guardado. Lo puedes reabrir en "📚 Estudios guardados" (arriba).','success');
+  }
+}
+
+function openEstudios(){
+  const estudios=_loadEstudios();
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const rows=[...estudios].reverse().map(r=>{
+    const fecha=new Date(r.fecha).toLocaleDateString('es-MX',{year:'2-digit',month:'short',day:'numeric'});
+    const ver=(r.veredicto||'').toLowerCase();
+    const verColor = ver==='comprar'?'rgba(58,157,78,.18);color:#5ec27a':ver==='negociar'?'rgba(232,180,76,.18);color:#E8B44C':'rgba(214,69,69,.18);color:#e08787';
+    const verBadge=ver?`<span style="font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700;background:${verColor}">${esc(r.veredicto.toUpperCase())}${r.score?' · '+r.score:''}</span>`:'<span style="color:var(--muted2);font-size:11px">—</span>';
+    return `<tr>
+      <td style="white-space:nowrap;color:var(--muted2);font-size:11px">${fecha}</td>
+      <td><b>${esc(r.nombreTerreno)}</b>${r.ciudad?`<br><span style="color:var(--muted2);font-size:11px">${esc(r.ciudad)}</span>`:''}</td>
+      <td style="font-size:11.5px">${r.asesor?esc(r.asesor):'<span style="color:var(--muted2)">—</span>'}${r.cliente?`<br><span style="color:var(--muted2);font-size:10.5px">Cliente: ${esc(r.cliente)}</span>`:''}</td>
+      <td>${verBadge}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="inv-filter" style="padding:4px 10px;font-size:11px;" onclick="verEstudioPDF(${r.id})">📄 Ver PDF</button>
+        <button class="inv-filter" style="padding:4px 8px;font-size:11px;" onclick="deleteEstudio(${r.id})" title="Eliminar">🗑</button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" style="color:var(--muted2);padding:16px;text-align:center">Aún no hay estudios guardados. En el análisis de un lote, usa el botón "💾 Guardar estudio".</td></tr>';
+  document.getElementById('estudios-body').innerHTML =
+    `<table class="autoriz-tbl"><thead><tr><th>Fecha</th><th>Terreno</th><th>Asesor / Cliente</th><th>Veredicto</th><th></th></tr></thead>${rows}</table>`;
+  document.getElementById('estudios-overlay').classList.add('open');
+}
+function closeEstudios(e){ if(e && e.target!==document.getElementById('estudios-overlay')) return; document.getElementById('estudios-overlay').classList.remove('open'); }
+
+function verEstudioPDF(id){
+  const r=_loadEstudios().find(x=>String(x.id)===String(id));
+  if(!r){ showToast('Estudio no encontrado','error'); return; }
+  showToast('📄 Abriendo el reporte del estudio…','');
+  try { downloadOVReport(r.loteData, r.opinionValor); } catch(e){ showToast('Error al abrir: '+(e.message||'desconocido'),'error'); }
+}
+function deleteEstudio(id){
+  if(!confirm('¿Eliminar este estudio guardado?')) return;
+  _saveEstudios(_loadEstudios().filter(x=>String(x.id)!==String(id)));
+  openEstudios();
 }
 
 function resetApp() {
@@ -6564,9 +6710,19 @@ function showToast(msg, type='') {
       </label>
     </div>
 
-    <div class="crm-field">
-      <label>Asesor que está opcionando (destinatario)</label>
-      <input type="text" id="autoriza-asesor" placeholder="Nombre del asesor">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="crm-field">
+        <label>Asesor que está opcionando</label>
+        <input type="text" id="autoriza-asesor" placeholder="Nombre del asesor">
+      </div>
+      <div class="crm-field">
+        <label>Cliente / propietario</label>
+        <input type="text" id="autoriza-cliente" placeholder="Nombre del cliente o dueño">
+      </div>
+    </div>
+    <div class="crm-field" style="margin-top:12px;">
+      <label>Dirección del terreno</label>
+      <input type="text" id="autoriza-direccion" placeholder="Calle, colonia, ciudad…">
     </div>
     <div class="crm-field" style="margin-top:12px;">
       <label>Comentarios — motivo de la decisión (por qué sí / por qué no)</label>
@@ -6575,8 +6731,36 @@ function showToast(msg, type='') {
 
     <div class="crm-modal-footer">
       <button class="btn-print" onclick="closeAutorizacion()">Cancelar</button>
-      <button class="btn-autoriza" style="border-color:#3a9d4e;color:#7ed99a;font-weight:700;" onclick="generateAutorizacionPDF()">📄 Generar PDF de Autorización</button>
+      <button class="btn-autoriza" style="border-color:#3a9d4e;color:#7ed99a;font-weight:700;" onclick="saveAutorizacion(false)">✓ Guardar en estadística</button>
+      <button class="btn-autoriza" style="border-color:#E8B44C;color:#E8B44C;font-weight:700;" onclick="saveAutorizacion(true)">🖨️ Guardar e imprimir PDF</button>
     </div>
+  </div>
+</div>
+
+<!-- ── GUARDAR ESTUDIO MODAL ── -->
+<div class="crm-modal-overlay" id="guardar-estudio-overlay" onclick="closeGuardarEstudio(event)">
+  <div class="crm-modal" style="width:520px;">
+    <h3>💾 Guardar estudio del terreno</h3>
+    <div class="cm-sub">Guarda el análisis completo con cliente y asesor para volver a consultarlo y reabrir su PDF cuando quieras.</div>
+    <div id="estudio-info" style="background:var(--surface2,rgba(255,255,255,.03));border:1px solid var(--border2);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--text,#eee);margin-bottom:18px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="crm-field"><label>Asesor</label><input type="text" id="estudio-asesor" placeholder="Nombre del asesor"></div>
+      <div class="crm-field"><label>Cliente / propietario</label><input type="text" id="estudio-cliente" placeholder="Nombre del cliente"></div>
+    </div>
+    <div class="crm-field" style="margin-top:12px;"><label>Nota (opcional)</label><input type="text" id="estudio-nota" placeholder="Ej. Pendiente verificar CUS en el municipio"></div>
+    <div class="crm-modal-footer">
+      <button class="btn-print" onclick="closeGuardarEstudio()">Cancelar</button>
+      <button class="btn-autoriza" style="border-color:#3a9d4e;color:#7ed99a;font-weight:700;" onclick="confirmGuardarEstudio()">✓ Guardar estudio</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ESTUDIOS GUARDADOS MODAL ── -->
+<div class="crm-modal-overlay" id="estudios-overlay" onclick="closeEstudios(event)">
+  <div class="crm-modal" style="width:760px;max-width:94vw;">
+    <h3>📚 Estudios guardados</h3>
+    <div class="cm-sub">Análisis completos que guardaste. Da clic en "📄 Ver PDF" para reabrir el reporte del estudio.</div>
+    <div id="estudios-body"></div>
   </div>
 </div>
 
