@@ -13546,6 +13546,18 @@ Respuesta: [respuesta exacta, conversacional]
             <div style={{fontSize:12, color:B.grey4, marginTop:6}}>Brokers / intermediarios que traen requerimientos de sus clientes finales</div>
           </div>
           <div style={{display:"flex", gap:10, flexWrap:"wrap"}}>
+            <button onClick={()=>{
+                const url="https://sergiogogue.github.io/macropro-matcher/buscar.html";
+                const msg="🔎 *Solicitud de macrolote · Grupo Guía*\n\n¿Buscas un terreno para un cliente? Llena esta solicitud (especifica dónde y para qué uso):\n"+url;
+                window.open("https://wa.me/?text="+encodeURIComponent(msg),"_blank");
+              }} title="Enviar por WhatsApp la liga del formulario de solicitud a un asesor/broker"
+              style={{padding:"12px 18px", borderRadius:10, border:"none", background:"#25d366", color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", display:"inline-flex", alignItems:"center", gap:7, boxShadow:"0 4px 12px rgba(37,211,102,0.35)"}}>
+              🔎 Solicitud <span style={{fontSize:14}}>📱 WhatsApp</span>
+            </button>
+            <button onClick={descargarInstruccionesSolicitudPDF} title="Descarga un PDF con las instrucciones y la liga del formulario de solicitud"
+              style={{padding:"12px 18px", borderRadius:10, border:"1.5px solid "+B.navy, background:"#fff", color:B.navy, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", display:"inline-flex", alignItems:"center", gap:6}}>
+              📄 Instrucciones (PDF)
+            </button>
             <button onClick={()=>setShowInformeDemanda(true)}
               style={{padding:"12px 18px", borderRadius:10, border:"1px solid "+B.gold, background:"#fff", color:B.navy, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", display:"flex", alignItems:"center", gap:7}}>
               📊 Informe de demanda
@@ -13825,6 +13837,57 @@ Respuesta: [respuesta exacta, conversacional]
     doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,43,73); doc.text("Grupo Guía · Macrolotes",MX,286);
     doc.setFont("helvetica","normal"); doc.setTextColor(150,150,150); doc.text(CAPTAR_URL,PW-MX,286,{align:"right"});
     doc.save("Semaforo_para_Opcion_GrupoGuia.pdf");
+    toast("✅ PDF descargado");
+  };
+
+  const BUSCAR_URL = "https://sergiogogue.github.io/macropro-matcher/buscar.html";
+  const descargarInstruccionesSolicitudPDF = async () => {
+    if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
+    toast("📄 Generando PDF…");
+    const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+    const PW=210, MX=18; let y=0;
+    doc.setFillColor(0,43,73); doc.rect(0,0,PW,46,"F");
+    const logo = await cargarImg(LOGO_MACROLOTES);
+    if(logo && logo.w){ const h=20, w=Math.min(70, h*(logo.w/logo.h)); try{ doc.addImage(logo.data,"PNG",MX,13,w,h); }catch(e){} }
+    else { doc.setTextColor(245,179,53); doc.setFont("helvetica","bold"); doc.setFontSize(20); doc.text("MACROLOTES GUÍA",MX,26); }
+    doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.text("Solicitud de macrolote",PW-MX,20,{align:"right"});
+    doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(200,215,230);
+    doc.text("Demanda de terrenos (asesores / brokers)",PW-MX,26,{align:"right"});
+    y=60;
+    doc.setTextColor(0,43,73); doc.setFont("helvetica","bold"); doc.setFontSize(17);
+    doc.text("¿Buscas un terreno para un cliente?",MX,y);
+    y+=8; doc.setFont("helvetica","normal"); doc.setFontSize(11); doc.setTextColor(70,80,95);
+    const intro = doc.splitTextToSize("Dinos qué necesitas con la siguiente liga. Tu solicitud llega directo a Grupo Guía y buscamos opciones que empaten. Entre más claro seas, más rápido te cuadramos terrenos.", PW-2*MX);
+    doc.text(intro,MX,y); y+=intro.length*5.6+6;
+    doc.setFillColor(245,247,250); doc.setDrawColor(210,216,226); doc.roundedRect(MX,y,PW-2*MX,20,3,3,"FD");
+    doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(0,43,73);
+    doc.text("Liga para solicitar:",MX+6,y+8);
+    doc.setTextColor(20,90,160); doc.setFontSize(11);
+    doc.text(BUSCAR_URL,MX+6,y+15);
+    const qr = await cargarImg("https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=0&data="+encodeURIComponent(BUSCAR_URL));
+    if(qr && qr.data){ try{ doc.addImage(qr.data,"PNG",PW-MX-20,y+2,16,16); }catch(e){} }
+    y+=30;
+    doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.setTextColor(0,43,73); doc.text("Cómo llenarla",MX,y); y+=7;
+    doc.setFont("helvetica","normal"); doc.setFontSize(11); doc.setTextColor(45,55,70);
+    const pasos=[
+      "1. Abre la liga (o escanea el QR) desde tu celular o computadora.",
+      "2. Pon tus datos como asesor (nombre, y empresa/broker si no eres de Grupo Guía) y tu contacto.",
+      "3. Describe al cliente final y QUÉ busca: uso de suelo, superficie y presupuesto.",
+      "4. Presiona \"Enviar solicitud\". La fecha se registra automáticamente."
+    ];
+    pasos.forEach(p=>{ const t=doc.splitTextToSize(p,PW-2*MX); doc.text(t,MX,y); y+=t.length*5.6+2; });
+    y+=6;
+    doc.setFillColor(240,249,255); doc.setDrawColor(186,230,253); doc.roundedRect(MX,y,PW-2*MX,40,3,3,"FD");
+    doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.setTextColor(3,105,161); doc.text("Muy importante para ayudarte rápido",MX+6,y+9);
+    doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(45,55,70);
+    const clave=doc.splitTextToSize("Especifica lo más posible DÓNDE quiere el terreno (ciudad, zona, cruces o referencias) y PARA QUÉ USO o proyecto. En \"Notas\" detalla requisitos indispensables, tiempos y cualquier dato que ayude a cuadrar la opción correcta.", PW-2*MX-12);
+    doc.text(clave,MX+6,y+17);
+    y+=48;
+    doc.setDrawColor(210,216,226); doc.line(MX,280,PW-MX,280);
+    doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,43,73); doc.text("Grupo Guía · Macrolotes",MX,286);
+    doc.setFont("helvetica","normal"); doc.setTextColor(150,150,150); doc.text(BUSCAR_URL,PW-MX,286,{align:"right"});
+    doc.save("Solicitud_de_Macrolote_GrupoGuia.pdf");
     toast("✅ PDF descargado");
   };
 
@@ -17051,8 +17114,8 @@ Respuesta: [respuesta exacta, conversacional]
                 <div>
                   <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>👔 Asesor externo</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                    <div><span style={lbStyle}>Nombre</span><input style={inStyle} value={f.asesorNombre||""} onChange={e=>setF({asesorNombre:e.target.value})} placeholder="Nombre del asesor"/></div>
-                    <div><span style={lbStyle}>Empresa / Broker</span><input style={inStyle} value={f.asesorEmpresa||""} onChange={e=>setF({asesorEmpresa:e.target.value})} placeholder="Independiente"/></div>
+                    <div><span style={lbStyle}>Asesor</span><input style={inStyle} value={f.asesorNombre||""} onChange={e=>setF({asesorNombre:e.target.value})} placeholder="Nombre del asesor"/></div>
+                    <div><span style={lbStyle}>Empresa / Broker <span style={{fontWeight:600,color:B.grey3,textTransform:"none",letterSpacing:0}}>(si no es de Grupo Guía)</span></span><input style={inStyle} value={f.asesorEmpresa||""} onChange={e=>setF({asesorEmpresa:e.target.value})} placeholder="Independiente"/></div>
                     <div><span style={lbStyle}>Teléfono</span><input style={inStyle} value={f.asesorTelefono||""} onChange={e=>setF({asesorTelefono:e.target.value})}/></div>
                     <div><span style={lbStyle}>Email</span><input style={inStyle} value={f.asesorEmail||""} onChange={e=>setF({asesorEmail:e.target.value})}/></div>
                   </div>
@@ -17114,7 +17177,7 @@ Respuesta: [respuesta exacta, conversacional]
                 </div>
                 <div>
                   <span style={lbStyle}>Notas</span>
-                  <textarea style={{...inStyle,minHeight:62,resize:"vertical"}} value={f.notas||""} onChange={e=>setF({notas:e.target.value})}/>
+                  <textarea style={{...inStyle,minHeight:62,resize:"vertical"}} value={f.notas||""} onChange={e=>setF({notas:e.target.value})} placeholder="Favor de especificar más detalladamente la necesidad: dónde exactamente quiere el terreno, para qué uso/proyecto, requisitos, tiempos…"/>
                 </div>
               </div>
               <div style={{padding:"16px 26px",borderTop:"1px solid "+B.grey1,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>

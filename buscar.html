@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solicitud de macrolote · Grupo Guía</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔎</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{ --navy:#002B49; --navy2:#0a3d5c; --gold:#F5B335; --goldD:#d4952a; --blue:#2563AC; --bg:#eef1f5; --ink:#1f2a37; --mut:#6b7280; --line:#e2e6ee; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ font-family:'DM Sans',system-ui,sans-serif; background:var(--bg); color:var(--ink); padding:0 0 60px; }
+  header{ background:linear-gradient(135deg,var(--navy),var(--blue)); color:#fff; padding:26px 20px 30px; text-align:center; }
+  header .kicker{ font-size:11px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:var(--gold); }
+  header h1{ font-size:23px; font-weight:800; margin-top:4px; letter-spacing:.5px; }
+  header p{ font-size:13px; color:#c7d4e3; margin-top:6px; max-width:520px; margin-left:auto; margin-right:auto; }
+  .wrap{ max-width:640px; margin:-16px auto 0; padding:0 16px; }
+  .card{ background:#fff; border:1px solid var(--line); border-radius:16px; box-shadow:0 12px 40px rgba(0,43,73,.10); overflow:hidden; }
+  .body{ padding:20px 20px 8px; }
+  .sect{ font-size:11px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; color:var(--blue); margin:16px 0 10px; display:flex; align-items:center; gap:8px; }
+  .sect:first-child{ margin-top:0; }
+  .sect::after{ content:""; flex:1; height:1px; background:var(--line); }
+  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .full{ grid-column:1 / -1; }
+  label{ display:block; font-size:12px; font-weight:700; color:var(--navy); margin-bottom:5px; }
+  label .req{ color:#dc2626; }
+  label .opt{ color:var(--mut); font-weight:600; }
+  input,select,textarea{ width:100%; padding:11px 12px; border:1.5px solid var(--line); border-radius:10px; font-size:14px; font-family:inherit; color:var(--ink); outline:none; background:#fff; }
+  input:focus,select:focus,textarea:focus{ border-color:var(--blue); }
+  textarea{ resize:vertical; min-height:90px; }
+  .hint{ font-size:11px; color:var(--mut); margin-top:4px; }
+  .tip{ background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px; padding:12px 14px; font-size:12px; color:#1e3a5f; line-height:1.5; margin-top:4px; }
+  .tip b{ color:var(--navy); }
+  .foot{ padding:16px 20px 22px; }
+  .btn{ width:100%; padding:15px; border:none; border-radius:12px; background:linear-gradient(135deg,var(--blue),#1d4ed8); color:#fff; font-size:16px; font-weight:800; cursor:pointer; font-family:inherit; box-shadow:0 6px 20px rgba(37,99,172,.4); }
+  .btn:disabled{ opacity:.6; cursor:default; }
+  .msg{ margin:0 20px 16px; padding:12px 14px; border-radius:10px; font-size:13px; font-weight:600; display:none; }
+  .msg.err{ display:block; background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
+  .ok-screen{ display:none; text-align:center; padding:40px 24px; }
+  .ok-screen .big{ font-size:56px; }
+  .ok-screen h2{ font-size:22px; color:var(--navy); margin-top:10px; }
+  .ok-screen p{ font-size:14px; color:var(--mut); margin-top:8px; }
+  .ok-screen button{ margin-top:20px; padding:12px 24px; border:1.5px solid var(--navy); background:#fff; color:var(--navy); border-radius:10px; font-weight:700; cursor:pointer; font-family:inherit; font-size:14px; }
+  .note{ text-align:center; font-size:11px; color:var(--mut); margin-top:16px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="kicker">Grupo Guía · Macrolotes</div>
+  <h1>🔎 SOLICITUD DE MACROLOTE</h1>
+  <p>¿Buscas un terreno o macrolote para un cliente? Dinos qué necesitas y nuestro equipo busca opciones y te contacta.</p>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <div id="msg" class="msg"></div>
+    <form id="form" class="body">
+      <div class="tip">📝 <b>Entre más claro, mejor te ayudamos.</b> Especifica <b>dónde</b> quieres el terreno (ciudad y zona) y <b>para qué uso</b> (giro / tipo de proyecto). Mientras más detalle, más rápido cuadramos opciones.</div>
+
+      <div class="sect">👤 Asesor</div>
+      <div class="grid">
+        <div class="full"><label>Fecha de solicitud <span class="opt">(automática)</span></label><input id="fechaSol" readonly tabindex="-1" style="background:#f1f5f9;color:var(--navy);font-weight:700;cursor:default"></div>
+        <div><label>Asesor <span class="req">*</span></label><input name="asesor_nombre" required placeholder="Tu nombre"></div>
+        <div><label>Empresa / Broker <span class="opt">(si no eres de Grupo Guía)</span></label><input name="asesor_empresa" placeholder="Independiente / nombre del broker"></div>
+        <div><label>Teléfono <span class="req">*</span></label><input name="asesor_telefono" required inputmode="tel" placeholder="10 dígitos"></div>
+        <div><label>Correo <span class="req">*</span></label><input name="asesor_email" type="email" required placeholder="correo@ejemplo.com"></div>
+      </div>
+
+      <div class="sect">🧑‍💼 Cliente final</div>
+      <div class="grid">
+        <div class="full"><label>Nombre / Empresa <span class="opt">(opcional)</span></label><input name="cliente_nombre" placeholder="A quién representas"></div>
+        <div><label>Giro <span class="opt">(opcional)</span></label><input name="cliente_giro" placeholder="Ej. Minisuper, gasolinera"></div>
+        <div><label>Tipo <span class="opt">(opcional)</span></label>
+          <select name="cliente_tipo">
+            <option value="">Selecciona…</option>
+            <option>Retailer</option>
+            <option>Inversionista</option>
+            <option>Desarrollador</option>
+            <option>Usuario final</option>
+            <option>Otro</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="sect">🧭 Qué busca</div>
+      <div class="grid">
+        <div class="full"><label>Uso de suelo <span class="req">*</span></label>
+          <select name="uso_suelo" required>
+            <option value="">Selecciona…</option>
+            <option>Comercial</option>
+            <option>Habitacional Vertical</option>
+            <option>Habitacional Horizontal</option>
+            <option>Industrial</option>
+            <option>Mixto</option>
+            <option>Servicios / Oficinas</option>
+            <option>Hotel / Hospitality</option>
+            <option>Hospital / Clínica</option>
+            <option>Gasolinera</option>
+            <option>Otros</option>
+          </select>
+        </div>
+        <div><label>Estado <span class="req">*</span></label><input name="estado" required placeholder="Ej. Jalisco"></div>
+        <div><label>Ciudad / zona <span class="req">*</span></label><input name="ciudad" required placeholder="Ej. Zapopan, sur"></div>
+        <div><label>Superficie mín (m²) <span class="opt">(opcional)</span></label><input name="superficie_min" class="money" inputmode="decimal" placeholder="Ej. 1,000"></div>
+        <div><label>Superficie máx (m²) <span class="opt">(opcional)</span></label><input name="superficie_max" class="money" inputmode="decimal" placeholder="Ej. 5,000"></div>
+        <div class="full"><label>Frente mínimo (m) <span class="opt">(opcional)</span></label><input name="frente_minimo" inputmode="decimal" placeholder="Ej. 30"></div>
+      </div>
+
+      <div class="sect">💰 Comercial</div>
+      <div class="grid">
+        <div><label>Precio máximo ($) <span class="opt">(opcional)</span></label><input name="precio_maximo" class="money" inputmode="decimal" placeholder="Ej. 30,000,000"></div>
+        <div><label>Forma de pago <span class="opt">(opcional)</span></label>
+          <select name="forma_pago">
+            <option value="">Selecciona…</option>
+            <option>Contado</option>
+            <option>Crédito</option>
+            <option>Mixto</option>
+            <option>Por definir</option>
+          </select>
+        </div>
+        <div class="full"><label>Plazo de decisión <span class="opt">(opcional)</span></label><input name="plazo_decision" placeholder="Ej. 30 días, inmediato"></div>
+      </div>
+
+      <div class="sect">🗒️ Detalle de la necesidad</div>
+      <div class="grid">
+        <div class="full"><label>Notas <span class="req">*</span></label><textarea name="notas" required placeholder="Favor de especificar más detalladamente la necesidad: dónde exactamente quiere el terreno, para qué uso/proyecto, requisitos indispensables, tiempos, etc."></textarea></div>
+      </div>
+    </form>
+    <div class="foot">
+      <button id="submit" class="btn" type="button">Enviar solicitud →</button>
+    </div>
+  </div>
+
+  <div class="card ok-screen" id="ok">
+    <div class="big">✅</div>
+    <h2>¡Recibido, gracias!</h2>
+    <p>Tu solicitud ya llegó a Grupo Guía. Nuestro equipo buscará opciones y te contactará.</p>
+    <button id="another" type="button">Enviar otra solicitud</button>
+  </div>
+
+  <p class="note">Grupo Guía · MacroPro — Solicitud de macrolote</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://xugrrabebphdelgwqnwc.supabase.co";
+const SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
+let sb = null;
+try{ if(window.supabase) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY); }catch(e){}
+
+const $ = s => document.querySelector(s);
+const form = $("#form"), btn = $("#submit"), msg = $("#msg");
+try{ $("#fechaSol").value = new Date().toLocaleDateString("es-MX",{weekday:"long",day:"2-digit",month:"long",year:"numeric"}); }catch(e){}
+const numOrNull = v => { const n = parseFloat(String(v||"").replace(/[$,\s]/g,"")); return isFinite(n) ? n : null; };
+function fmtMiles(raw){
+  raw = String(raw).replace(/[^\d.]/g,"").replace(/(\..*)\./g,"$1");
+  if(raw==="") return "";
+  const p = raw.split("."); const i = p[0].replace(/^0+(?=\d)/,"");
+  const gi = i ? Number(i).toLocaleString("es-MX") : (p.length>1?"0":"");
+  return p.length>1 ? gi+"."+p.slice(1).join("") : gi;
+}
+document.querySelectorAll("input.money").forEach(inp=>{ inp.addEventListener("input", ()=>{ inp.value = fmtMiles(inp.value); }); });
+const showErr = t => { msg.textContent = t; msg.className = "msg err"; msg.scrollIntoView({behavior:"smooth",block:"center"}); };
+
+btn.addEventListener("click", async () => {
+  msg.className = "msg";
+  if(!form.reportValidity()) return;
+  if(!sb){ showErr("No se pudo conectar. Revisa tu internet e intenta de nuevo."); return; }
+  const d = Object.fromEntries(new FormData(form).entries());
+  btn.disabled = true; btn.textContent = "Enviando…";
+  const now = new Date().toISOString();
+  const id = "sol-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,8);
+  const row = {
+    id, pipeline: "Nueva solicitud",
+    fecha_creacion: now, fecha_ultima_actividad: now,
+    asesor_nombre: (d.asesor_nombre||"").trim() || null,
+    asesor_empresa: (d.asesor_empresa||"").trim() || null,
+    asesor_telefono: (d.asesor_telefono||"").trim() || null,
+    asesor_email: (d.asesor_email||"").trim() || null,
+    cliente_nombre: (d.cliente_nombre||"").trim() || null,
+    cliente_giro: (d.cliente_giro||"").trim() || null,
+    cliente_tipo: (d.cliente_tipo||"").trim() || null,
+    uso_suelo: (d.uso_suelo||"").trim() || null,
+    estado: (d.estado||"").trim() || null,
+    ciudad: (d.ciudad||"").trim() || null,
+    superficie_min: numOrNull(d.superficie_min),
+    superficie_max: numOrNull(d.superficie_max),
+    frente_minimo: numOrNull(d.frente_minimo),
+    precio_maximo: numOrNull(d.precio_maximo),
+    forma_pago: (d.forma_pago||"").trim() || null,
+    plazo_decision: (d.plazo_decision||"").trim() || null,
+    notas: (d.notas||"").trim() || null,
+    eliminado: false, updated_at: now
+  };
+  try{
+    const { error } = await sb.from("solicitudes_asesor").insert([row]);
+    if(error) throw error;
+    document.querySelector(".card:not(.ok-screen)").style.display = "none";
+    $("#ok").style.display = "block";
+    window.scrollTo({top:0,behavior:"smooth"});
+  }catch(e){
+    btn.disabled = false; btn.textContent = "Enviar solicitud →";
+    showErr("No se pudo enviar: " + ((e&&e.message)||e) + ". Intenta de nuevo o avísanos.");
+  }
+});
+
+$("#another").addEventListener("click", () => {
+  form.reset();
+  try{ $("#fechaSol").value = new Date().toLocaleDateString("es-MX",{weekday:"long",day:"2-digit",month:"long",year:"numeric"}); }catch(e){}
+  document.querySelector(".card:not(.ok-screen)").style.display = "";
+  $("#ok").style.display = "none";
+  btn.disabled = false; btn.textContent = "Enviar solicitud →";
+  window.scrollTo({top:0,behavior:"smooth"});
+});
+</script>
+</body>
+</html>
