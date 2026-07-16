@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA LOTES™ Intelligence v66</title>
+<title>GUÍA LOTES™ Intelligence v68</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDEgMTNsMTEtNC00IDEyeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMxIiB5PSI0NiIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjQyIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5HPC90ZXh0Pjwvc3ZnPg==">
 <link rel="alternate icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDEgMTNsMTEtNC00IDEyeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMxIiB5PSI0NiIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjQyIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5HPC90ZXh0Pjwvc3ZnPg==">
 <meta name="theme-color" content="#D21F1F">
@@ -831,7 +831,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
   <div class="header-right">
     <button class="hdr-btn" onclick="openEstudios()" title="Estudios guardados">📚 <span class="lbl">Estudios</span></button>
     <button class="hdr-btn" onclick="openAutorizStats()" title="Estadística de autorizaciones">📊 <span class="lbl">Autorizaciones</span></button>
-    <span class="v-badge">v66</span>
+    <span class="v-badge">v68</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -2544,6 +2544,7 @@ async function generateMIOpinionValor(){
     let ov={};
     try{ ov = parseJSON(d.content[0].text); }
     catch(pe){ console.warn('OV JSON fail:', d.content[0].text.slice(0,200)); throw new Error('JSON invalido. Intenta de nuevo.'); }
+    fixOVTotals(ov, (ctx && ctx.sup) ? ctx.sup : parseNumLoose(ctx&&ctx.loteData&&ctx.loteData.superficie));
 
     const scoreNivel=(ov.score_nivel||'medio').toLowerCase();
     const veredicto=(ov.veredicto||'negociar').toLowerCase();
@@ -4269,19 +4270,42 @@ function buildOVPrompt(loteData) {
     + 'Infraestructura: '+(loteData.infraestructura||'—')+'. Estatus legal: '+(loteData.estatus_juridico||'—')+'. '
     + 'Resumen: '+(loteData.resumen||'—') + pvLine
     + mercadoBlock + '\n\n'
+    + 'REGLA DE TOTAL (OBLIGATORIA): la superficie exacta es '+(parseNumLoose(loteData.superficie)||'?')+' m2. '
+    + 'Cada precio total = (precio por m2) × '+(parseNumLoose(loteData.superficie)||'la superficie')+'. Multiplica EXACTO, sin agregar ni quitar ceros. '
+    + 'Ej.: si precio_minimo_m2 = $4,000/m2 y superficie = 134.81 m2, entonces precio_minimo = $539,240 MXN (no millones). Verifica que el total sea coherente con el precio por m2.\n\n'
     + 'Responde SOLO con JSON valido sin texto extra:\n'
     + '{"score":85,"score_nivel":"alto","score_titulo":"Titulo corto","score_resumen":"2 oraciones",'
-    + '"precio_minimo":"$XX,000,000 MXN","precio_cierre":"$XX,000,000 MXN","precio_lista":"$XX,000,000 MXN",'
-    + '"precio_minimo_m2":"$X,000/m2","precio_cierre_m2":"$X,000/m2","precio_lista_m2":"$X,000/m2",'
+    + '"precio_minimo":"$MONTO MXN","precio_cierre":"$MONTO MXN","precio_lista":"$MONTO MXN",'
+    + '"precio_minimo_m2":"$X/m2","precio_cierre_m2":"$X/m2","precio_lista_m2":"$X/m2",'
     + '"factores":[{"nombre":"Uso de Suelo","score":80,"nivel":"alto"},{"nombre":"Infraestructura","score":70,"nivel":"medio"},{"nombre":"Situacion Legal","score":60,"nivel":"medio"},{"nombre":"Topografia","score":75,"nivel":"alto"},{"nombre":"Ubicacion","score":85,"nivel":"alto"},{"nombre":"Precio vs Mercado","score":65,"nivel":"medio"}],'
     + '"comparables":"texto corto sobre comparables","veredicto":"negociar","veredicto_texto":"1-2 oraciones"}\n'
     + 'score_nivel: alto(70-100), medio(40-69), bajo(0-39). veredicto: comprar, negociar, o descartar.';
 }
 
+// Recalcula los TOTALES de la Opinión de Valor a partir del precio/m² × superficie.
+// La IA a veces yerra la aritmética del total (agrega/quita ceros); el precio/m²
+// es el ancla confiable, así que el total siempre se deriva de él para que cuadre.
+function fixOVTotals(ov, sup){
+  if(!ov) return ov;
+  const supN = (typeof sup==='number' && sup>0) ? sup : 0;
+  if(!supN) return ov;
+  // Toma SOLO el primer número (evita capturar el "2" de "/m2" o "m²")
+  const num = s => { const mt = String(s==null?'':s).replace(/,/g,'').match(/[\d.]+/); return mt?parseFloat(mt[0]):0; };
+  const fmt = n => '$'+Math.round(n).toLocaleString('es-MX')+' MXN';
+  [['precio_minimo','precio_minimo_m2'],['precio_cierre','precio_cierre_m2'],['precio_lista','precio_lista_m2']].forEach(([tot,m2])=>{
+    const v = num(ov[m2]);
+    if(v>0) ov[tot] = fmt(v*supN);
+  });
+  return ov;
+}
+
 async function generateOpinionValor(loteData, docsContent) {
   const prompt = buildOVPrompt(loteData);
   const raw = await callClaude(prompt, docsContent, 1000);
-  try { return parseJSON(raw); } catch(e) {
+  try {
+    const ov = parseJSON(raw);
+    return fixOVTotals(ov, parseNumLoose(loteData.superficie));
+  } catch(e) {
     console.warn('Valor JSON fail:', raw.slice(0,100));
     return null; // opinión de valor es opcional, no bloquea
   }
@@ -4464,6 +4488,7 @@ function renderROI(params, loteData) {
 function renderOpinionValor(ov, loteData) {
   const body = document.getElementById('valor-body');
   if (!body||!ov) return;
+  fixOVTotals(ov, parseNumLoose(loteData&&loteData.superficie));
   const scoreNivel = (ov.score_nivel||'medio').toLowerCase();
   const veredicto = (ov.veredicto||'negociar').toLowerCase();
   const veredictoIcon = veredicto==='comprar'?'✅':veredicto==='negociar'?'⚡':'🚫';
@@ -4895,13 +4920,14 @@ function openAutorizacion(){
   if(!ld || !ld.nombre){ showToast('Primero analiza un lote para poder autorizarlo','error'); return; }
   _autorizaEstado = null;
   // reset selection styles
-  ['opt-si','opt-no'].forEach(id=>{ const el=document.getElementById(id); el.style.borderColor='var(--border2)'; el.style.color='var(--muted2)'; el.style.background='none'; });
+  ['opt-si','opt-rev','opt-no'].forEach(id=>{ const el=document.getElementById(id); if(el){ el.style.borderColor='var(--border2)'; el.style.color='var(--muted2)'; el.style.background='none'; } });
   const inputs = document.querySelectorAll('input[name="autoriza-estado"]'); inputs.forEach(i=>i.checked=false);
   // prefill
   document.getElementById('autoriza-asesor').value = ld._asesor || '';
   const _cliEl=document.getElementById('autoriza-cliente'); if(_cliEl) _cliEl.value = ld._cliente || '';
   const _dirEl=document.getElementById('autoriza-direccion'); if(_dirEl) _dirEl.value = [ld.ciudad,ld.estado].filter(x=>x&&x!=='—').join(', ');
   document.getElementById('autoriza-comentarios').value = '';
+  _clearAutorizaFoto();
   const lat=parseFloat(ld.lat), lon=parseFloat(ld.long);
   document.getElementById('autoriza-lote-info').innerHTML =
     `<b style="color:var(--gold);">${ld.nombre||'Macrolote'}</b><br>`+
@@ -4918,21 +4944,56 @@ function closeAutorizacion(e){
 
 function setAutorizaEstado(estado){
   _autorizaEstado = estado;
-  const si = document.getElementById('opt-si'), no = document.getElementById('opt-no');
-  if(estado==='AUTORIZADO'){
-    si.style.borderColor='#3a9d4e'; si.style.color='#fff'; si.style.background='rgba(58,157,78,.18)';
-    no.style.borderColor='var(--border2)'; no.style.color='var(--muted2)'; no.style.background='none';
-    document.querySelector('input[name="autoriza-estado"][value="AUTORIZADO"]').checked=true;
-  } else {
-    no.style.borderColor='#d64545'; no.style.color='#fff'; no.style.background='rgba(214,69,69,.18)';
-    si.style.borderColor='var(--border2)'; si.style.color='var(--muted2)'; si.style.background='none';
-    document.querySelector('input[name="autoriza-estado"][value="NO AUTORIZADO"]').checked=true;
-  }
+  const map = { 'AUTORIZADO':{id:'opt-si',bc:'#3a9d4e',bg:'rgba(58,157,78,.18)'}, 'REVISAR':{id:'opt-rev',bc:'#d99211',bg:'rgba(217,146,17,.18)'}, 'NO AUTORIZADO':{id:'opt-no',bc:'#d64545',bg:'rgba(214,69,69,.18)'} };
+  // reset todos
+  Object.values(map).forEach(m=>{ const el=document.getElementById(m.id); if(el){ el.style.borderColor='var(--border2)'; el.style.color='var(--muted2)'; el.style.background='none'; } });
+  const sel=map[estado];
+  if(sel){ const el=document.getElementById(sel.id); if(el){ el.style.borderColor=sel.bc; el.style.color='#fff'; el.style.background=sel.bg; } }
+  const inp=document.querySelector('input[name="autoriza-estado"][value="'+estado+'"]'); if(inp) inp.checked=true;
 }
+
+// ── Foto / captura de evidencia para la autorización ──
+let _autorizaFotoData = null;
+function _imgFileToData(file, cb){
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const img=new Image();
+    img.onload=()=>{
+      const maxW=1100; let w=img.width||maxW, h=img.height||maxW;
+      if(w>maxW){ h=Math.round(h*maxW/w); w=maxW; }
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      try{ cb(c.toDataURL('image/jpeg',0.72)); }catch(e){ cb(ev.target.result); }
+    };
+    img.onerror=()=>cb(ev.target.result);
+    img.src=ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function _onAutorizaFoto(e){
+  const f=e.target.files && e.target.files[0];
+  if(!f) return;
+  if(!/^image\//.test(f.type)){ showToast('Selecciona un archivo de imagen','error'); return; }
+  _imgFileToData(f, data=>{ _autorizaFotoData=data; _renderAutorizaFotoPrev(); });
+}
+function _renderAutorizaFotoPrev(){
+  const el=document.getElementById('autoriza-foto-prev'); if(!el) return;
+  el.innerHTML = _autorizaFotoData
+    ? `<div style="position:relative;display:inline-block;"><img src="${_autorizaFotoData}" style="max-width:100%;max-height:170px;border-radius:8px;border:1px solid var(--border2);"><button type="button" onclick="_clearAutorizaFoto()" title="Quitar foto" style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,.65);color:#fff;border:none;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:12px;">✕</button></div>`
+    : '';
+}
+function _clearAutorizaFoto(){ _autorizaFotoData=null; const fi=document.getElementById('autoriza-foto'); if(fi) fi.value=''; _renderAutorizaFotoPrev(); }
+// Pegar captura con Ctrl+V mientras el modal está abierto
+document.addEventListener('paste', function(ev){
+  const ov=document.getElementById('autoriza-overlay');
+  if(!ov || !ov.classList.contains('open')) return;
+  const items=(ev.clipboardData||{}).items||[];
+  for(const it of items){ if(it.type && it.type.indexOf('image')===0){ const f=it.getAsFile(); if(f){ _imgFileToData(f, data=>{ _autorizaFotoData=data; _renderAutorizaFotoPrev(); showToast('✓ Captura pegada','success'); }); ev.preventDefault(); break; } } }
+});
 
 // Recolecta los datos capturados en el modal + los del lote analizado
 function _collectAutorizData(){
-  if(!_autorizaEstado){ showToast('Selecciona AUTORIZADO o NO AUTORIZADO','error'); return null; }
+  if(!_autorizaEstado){ showToast('Selecciona AUTORIZADO, REVISAR o NO AUTORIZADO','error'); return null; }
   const ld = window._lastLoteData || (window._miCtx && window._miCtx.loteData) || {};
   const estado = _autorizaEstado;
   const autorizado = estado==='AUTORIZADO';
@@ -4947,7 +5008,7 @@ function _collectAutorizData(){
   const lat=parseFloat(ld.lat), lon=parseFloat(ld.long);
   let precioStr = (ld.precio_total && ld.precio_total!=='—') ? ld.precio_total : '';
   if(!precioStr && ld._precioVendedor) precioStr = '$'+Number(ld._precioVendedor).toLocaleString('es-MX')+'/m²';
-  return { ld, estado, autorizado, comentarios, asesor, cliente, direccion, folio, lat, lon, precioStr, _hoy };
+  return { ld, estado, autorizado, comentarios, asesor, cliente, direccion, folio, lat, lon, precioStr, foto:_autorizaFotoData, _hoy };
 }
 
 // Guarda el registro en la estadística de aprobaciones (localStorage)
@@ -4967,10 +5028,11 @@ function _saveAutorizRecord(d){
       precio: d.precioStr || '',
       precioVendedor: d.ld._precioVendedor || null,
       lat: d.lat||null, lon: d.lon||null,
-      decision: d.estado,          // 'AUTORIZADO' | 'NO AUTORIZADO'
+      decision: d.estado,          // 'AUTORIZADO' | 'REVISAR' | 'NO AUTORIZADO'
       comentarios: d.comentarios,
       asesor: d.asesor,
-      cliente: d.cliente
+      cliente: d.cliente,
+      foto: d.foto || ''
     });
     localStorage.setItem(KEY, JSON.stringify(regs));
     return true;
@@ -4979,11 +5041,18 @@ function _saveAutorizRecord(d){
 
 // Construye el HTML del PDF de Autorización
 function _autorizHTML(d){
-  const { ld, estado, autorizado, comentarios, asesor, cliente, direccion, folio, lat, lon, precioStr } = d;
+  const { ld, estado, comentarios, asesor, cliente, direccion, folio, lat, lon, precioStr } = d;
   const hoy = d._hoy.toLocaleDateString('es-MX',{year:'numeric',month:'long',day:'numeric'});
-  const color = autorizado ? '#22a34a' : '#d64545';
-  const colorSoft = autorizado ? '#eaf7ee' : '#fbeaea';
-  const icon = autorizado ? '✔' : '✕';
+  const isSi = estado==='AUTORIZADO', isRev = estado==='REVISAR';
+  const color = isSi ? '#22a34a' : isRev ? '#C98A00' : '#d64545';
+  const colorSoft = isSi ? '#eaf7ee' : isRev ? '#fff6e0' : '#fbeaea';
+  const icon = isSi ? '✔' : isRev ? '⚡' : '✕';
+  const subTxt = isSi ? 'El macrolote SÍ se acepta e ingresa al inventario'
+    : isRev ? 'El macrolote queda EN REVISIÓN — sujeto a validar las observaciones (precio u otros puntos)'
+    : 'El macrolote NO se acepta / no ingresa al inventario';
+  const condTxt = isSi ? 'El ingreso definitivo al inventario queda sujeto a la verificación documental (registro público de propiedad, uso de suelo vigente y situación jurídica).'
+    : isRev ? 'El macrolote no se rechaza: se mantiene EN REVISIÓN para validar los puntos indicados en los comentarios (por ejemplo, negociación de precio u otra condición) antes de resolver su ingreso.'
+    : 'La presente resolución podrá reconsiderarse si el asesor presenta información adicional que modifique las condiciones evaluadas.';
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const comentHTML = comentarios ? esc(comentarios).replace(/\n/g,'<br>') : '<span style="color:#aaa;">— Sin comentarios —</span>';
   const has = v => v!=null && String(v).trim()!=='' && String(v).trim()!=='—';
@@ -5049,7 +5118,7 @@ function _autorizHTML(d){
   <div class="banner">
     <span class="ic">${icon}</span>
     <div class="est">${estado}</div>
-    <div class="sub">${autorizado?'El macrolote SÍ se acepta e ingresa al inventario':'El macrolote NO se acepta / no ingresa al inventario'}</div>
+    <div class="sub">${subTxt}</div>
   </div>
 
   <div class="sec">GENERALES DEL TERRENO</div>
@@ -5058,8 +5127,9 @@ function _autorizHTML(d){
 
   <div class="sec">COMENTARIOS · MOTIVO DE LA DECISIÓN</div>
   <div class="coment">${comentHTML}</div>
+  ${d.foto?`<div class="sec">EVIDENCIA / CAPTURA</div><div style="text-align:center;"><img src="${d.foto}" style="max-width:100%;max-height:360px;border:1px solid #ddd;border-radius:8px;"></div>`:''}
 
-  <div class="cond">Esta autorización es emitida por la Dirección de Grupo Guía Macrolotes con base en la información disponible del terreno al momento de su evaluación. ${autorizado?'El ingreso definitivo al inventario queda sujeto a la verificación documental (registro público de propiedad, uso de suelo vigente y situación jurídica).':'La presente resolución podrá reconsiderarse si el asesor presenta información adicional que modifique las condiciones evaluadas.'}</div>
+  <div class="cond">Esta resolución es emitida por la Dirección de Grupo Guía Macrolotes con base en la información disponible del terreno al momento de su evaluación. ${condTxt}</div>
 
   <div class="firmas">
     <div class="firma"><div class="line"><div class="lbl">Autoriza</div><div class="name">Sergio González Guerra G</div><div class="role">Dirección · Grupo Guía Macrolotes</div></div></div>
@@ -5098,32 +5168,35 @@ function openAutorizStats(){
   const regs = _loadAutoriz();
   const total = regs.length;
   const si = regs.filter(r=>r.decision==='AUTORIZADO').length;
-  const no = total - si;
+  const rev = regs.filter(r=>r.decision==='REVISAR').length;
+  const no = regs.filter(r=>r.decision==='NO AUTORIZADO').length;
   const pct = total ? Math.round(si/total*100) : 0;
+  const pctRev = total ? Math.round(rev/total*100) : 0;
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-  // Agrupar por ciudad y por uso de suelo
+  // Agrupar por ciudad, uso o asesor (cuenta los 3 estados)
   const groupBy = (key)=>{
     const m = {};
-    regs.forEach(r=>{ const k=(r[key]||'—').toString().trim()||'—'; if(!m[k])m[k]={si:0,no:0}; if(r.decision==='AUTORIZADO')m[k].si++; else m[k].no++; });
-    return Object.entries(m).sort((a,b)=>(b[1].si+b[1].no)-(a[1].si+a[1].no));
+    regs.forEach(r=>{ const k=(r[key]||'—').toString().trim()||'—'; if(!m[k])m[k]={si:0,rev:0,no:0}; if(r.decision==='AUTORIZADO')m[k].si++; else if(r.decision==='REVISAR')m[k].rev++; else m[k].no++; });
+    return Object.entries(m).sort((a,b)=>(b[1].si+b[1].rev+b[1].no)-(a[1].si+a[1].rev+a[1].no));
   };
   const grpRows = (arr)=> arr.map(([k,v])=>{
-    const t=v.si+v.no, p=t?Math.round(v.si/t*100):0;
-    return `<tr><td>${esc(k)}</td><td style="text-align:center;color:#22a34a;font-weight:700">${v.si}</td><td style="text-align:center;color:#d64545;font-weight:700">${v.no}</td><td style="text-align:right;color:var(--muted2)">${p}% acept.</td></tr>`;
-  }).join('') || '<tr><td colspan="4" style="color:var(--muted2)">Sin datos</td></tr>';
+    const t=v.si+v.rev+v.no, p=t?Math.round(v.si/t*100):0;
+    return `<tr><td>${esc(k)}</td><td style="text-align:center;color:#22a34a;font-weight:700">${v.si}</td><td style="text-align:center;color:#d99211;font-weight:700">${v.rev}</td><td style="text-align:center;color:#d64545;font-weight:700">${v.no}</td><td style="text-align:right;color:var(--muted2)">${p}% acept.</td></tr>`;
+  }).join('') || '<tr><td colspan="5" style="color:var(--muted2)">Sin datos</td></tr>';
 
   // Actividad por asesor: ordenado por más activos (más evaluaciones) y su % de autorización
   const asesorRows = groupBy('asesor').map(([k,v])=>{
-    const t=v.si+v.no, p=t?Math.round(v.si/t*100):0;
+    const t=v.si+v.rev+v.no, p=t?Math.round(v.si/t*100):0;
     return `<tr>
       <td><b>${esc(k)}</b></td>
       <td style="text-align:center;font-weight:700;color:var(--gold3)">${t}</td>
       <td style="text-align:center;color:#22a34a;font-weight:700">${v.si}</td>
+      <td style="text-align:center;color:#d99211;font-weight:700">${v.rev}</td>
       <td style="text-align:center;color:#d64545;font-weight:700">${v.no}</td>
       <td style="text-align:right;font-weight:700;color:${p>=50?'#22a34a':'#d64545'}">${p}%</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="5" style="color:var(--muted2)">Sin asesores registrados</td></tr>';
+  }).join('') || '<tr><td colspan="6" style="color:var(--muted2)">Sin asesores registrados</td></tr>';
 
   // Lista de registros (más recientes primero)
   const listRows = [...regs].reverse().map((r,idx)=>{
@@ -5131,36 +5204,40 @@ function openAutorizStats(){
     const fecha = new Date(r.fecha).toLocaleDateString('es-MX',{year:'2-digit',month:'short',day:'numeric'});
     const badge = r.decision==='AUTORIZADO'
       ? '<span style="background:rgba(58,157,78,.18);color:#5ec27a;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;white-space:nowrap">✔ SÍ</span>'
+      : r.decision==='REVISAR'
+      ? '<span style="background:rgba(217,146,17,.18);color:#e0b04a;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;white-space:nowrap">⚡ REVISAR</span>'
       : '<span style="background:rgba(214,69,69,.18);color:#e08787;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;white-space:nowrap">✕ NO</span>';
     return `<tr>
       <td style="white-space:nowrap;color:var(--muted2);font-size:11px">${fecha}</td>
       <td><b>${esc(r.nombre)}</b>${r.direccion||r.ciudad?`<br><span style="color:var(--muted2);font-size:11px">${esc(r.direccion||r.ciudad)}</span>`:''}</td>
       <td style="font-size:11.5px">${r.asesor?esc(r.asesor):'<span style="color:var(--muted2)">—</span>'}${r.cliente?`<br><span style="color:var(--muted2);font-size:10.5px">Cliente: ${esc(r.cliente)}</span>`:''}</td>
       <td>${badge}</td>
-      <td style="font-size:11px;color:var(--muted2);max-width:200px">${esc(r.comentarios||'—').slice(0,140)}</td>
+      <td style="font-size:11px;color:var(--muted2);max-width:200px">${r.foto?`<a href="${r.foto}" target="_blank" title="Ver foto/captura" style="text-decoration:none">📷</a> `:''}${esc(r.comentarios||'—').slice(0,140)}</td>
       <td style="text-align:center"><button class="inv-filter" style="padding:3px 8px;font-size:11px;" onclick="deleteAutoriz(${i})" title="Eliminar registro">🗑</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="color:var(--muted2);padding:16px;text-align:center">Aún no hay autorizaciones registradas. Marca AUTORIZADO o NO AUTORIZADO desde el análisis de un lote y da Guardar.</td></tr>';
 
   const body = document.getElementById('autoriz-stats-body');
   body.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
-      <div style="background:var(--surface2,rgba(255,255,255,.03));border:1px solid var(--border2);border-radius:12px;padding:16px;text-align:center;">
-        <div style="font-size:30px;font-weight:800;color:var(--gold);">${total}</div><div style="font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;">Total evaluados</div></div>
-      <div style="background:rgba(58,157,78,.10);border:1px solid rgba(58,157,78,.35);border-radius:12px;padding:16px;text-align:center;">
-        <div style="font-size:30px;font-weight:800;color:#22a34a;">${si}</div><div style="font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;">Autorizados</div></div>
-      <div style="background:rgba(214,69,69,.10);border:1px solid rgba(214,69,69,.35);border-radius:12px;padding:16px;text-align:center;">
-        <div style="font-size:30px;font-weight:800;color:#d64545;">${no}</div><div style="font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;">No autorizados</div></div>
-      <div style="background:var(--surface2,rgba(255,255,255,.03));border:1px solid var(--border2);border-radius:12px;padding:16px;text-align:center;">
-        <div style="font-size:30px;font-weight:800;color:var(--text);">${pct}%</div><div style="font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;">Tasa de aceptación</div></div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px;">
+      <div style="background:var(--surface2,rgba(255,255,255,.03));border:1px solid var(--border2);border-radius:12px;padding:16px 10px;text-align:center;">
+        <div style="font-size:28px;font-weight:800;color:var(--gold);">${total}</div><div style="font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;">Total evaluados</div></div>
+      <div style="background:rgba(58,157,78,.10);border:1px solid rgba(58,157,78,.35);border-radius:12px;padding:16px 10px;text-align:center;">
+        <div style="font-size:28px;font-weight:800;color:#22a34a;">${si}</div><div style="font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;">Autorizados</div></div>
+      <div style="background:rgba(217,146,17,.10);border:1px solid rgba(217,146,17,.35);border-radius:12px;padding:16px 10px;text-align:center;">
+        <div style="font-size:28px;font-weight:800;color:#d99211;">${rev}</div><div style="font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;">En revisión</div></div>
+      <div style="background:rgba(214,69,69,.10);border:1px solid rgba(214,69,69,.35);border-radius:12px;padding:16px 10px;text-align:center;">
+        <div style="font-size:28px;font-weight:800;color:#d64545;">${no}</div><div style="font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;">No autorizados</div></div>
+      <div style="background:var(--surface2,rgba(255,255,255,.03));border:1px solid var(--border2);border-radius:12px;padding:16px 10px;text-align:center;">
+        <div style="font-size:28px;font-weight:800;color:var(--text);">${pct}%</div><div style="font-size:10.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;">Tasa de aceptación</div></div>
     </div>
 
     ${total?`<div style="height:12px;border-radius:8px;overflow:hidden;background:rgba(214,69,69,.25);display:flex;margin-bottom:22px;">
-      <div style="width:${pct}%;background:#22a34a;"></div></div>`:''}
+      <div style="width:${pct}%;background:#22a34a;"></div><div style="width:${pctRev}%;background:#d99211;"></div></div>`:''}
 
     <div class="crm-section-title" style="margin-bottom:8px;">🏆 Actividad por asesor</div>
     <table class="autoriz-tbl" style="margin-bottom:22px;">
-      <thead><tr><th>Asesor</th><th style="text-align:center">Evaluados</th><th style="text-align:center">Autorizados</th><th style="text-align:center">No autoriz.</th><th style="text-align:right">% Autoriz.</th></tr></thead>
+      <thead><tr><th>Asesor</th><th style="text-align:center">Evaluados</th><th style="text-align:center">Autoriz.</th><th style="text-align:center">Revisión</th><th style="text-align:center">No autoriz.</th><th style="text-align:right">% Autoriz.</th></tr></thead>
       ${asesorRows}
     </table>
 
@@ -5212,10 +5289,10 @@ function clearAutoriz(){
 function exportAutorizCSV(){
   const regs = _loadAutoriz();
   if(!regs.length){ showToast('No hay registros para exportar','error'); return; }
-  const cols = ['fecha','folio','nombre','direccion','ciudad','estadoGeo','uso','superficie','precio','decision','asesor','cliente','comentarios'];
-  const head = ['Fecha','Folio','Macrolote','Dirección','Ciudad','Estado','Uso de suelo','Superficie','Precio','Decisión','Asesor','Cliente','Motivo'];
+  const cols = ['fecha','folio','nombre','direccion','ciudad','estadoGeo','uso','superficie','precio','decision','asesor','cliente','comentarios','foto'];
+  const head = ['Fecha','Folio','Macrolote','Dirección','Ciudad','Estado','Uso de suelo','Superficie','Precio','Decisión','Asesor','Cliente','Motivo','Foto'];
   const q = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const rows = regs.map(r=>cols.map(c=> c==='fecha' ? q(new Date(r[c]).toLocaleDateString('es-MX')) : q(r[c])).join(','));
+  const rows = regs.map(r=>cols.map(c=> c==='fecha' ? q(new Date(r[c]).toLocaleDateString('es-MX')) : c==='foto' ? q(r.foto?'Sí':'No') : q(r[c])).join(','));
   const csv = '﻿'+[head.map(q).join(','), ...rows].join('\r\n');
   const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
@@ -6701,11 +6778,14 @@ function showToast(msg, type='') {
     <div id="autoriza-lote-info" style="background:var(--surface2,rgba(255,255,255,.03));border:1px solid var(--border2);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--text,#eee);margin-bottom:18px;"></div>
 
     <div class="crm-section-title" style="margin-bottom:10px;">Decisión</div>
-    <div style="display:flex;gap:12px;margin-bottom:18px;">
-      <label id="opt-si" onclick="setAutorizaEstado('AUTORIZADO')" style="flex:1;cursor:pointer;border:2px solid var(--border2);border-radius:12px;padding:16px;text-align:center;font-weight:800;font-size:15px;transition:all .15s;color:var(--muted2);">
+    <div style="display:flex;gap:10px;margin-bottom:18px;">
+      <label id="opt-si" onclick="setAutorizaEstado('AUTORIZADO')" style="flex:1;cursor:pointer;border:2px solid var(--border2);border-radius:12px;padding:14px 8px;text-align:center;font-weight:800;font-size:13px;transition:all .15s;color:var(--muted2);">
         <input type="radio" name="autoriza-estado" value="AUTORIZADO" style="display:none;"> ✔ AUTORIZADO
       </label>
-      <label id="opt-no" onclick="setAutorizaEstado('NO AUTORIZADO')" style="flex:1;cursor:pointer;border:2px solid var(--border2);border-radius:12px;padding:16px;text-align:center;font-weight:800;font-size:15px;transition:all .15s;color:var(--muted2);">
+      <label id="opt-rev" onclick="setAutorizaEstado('REVISAR')" style="flex:1;cursor:pointer;border:2px solid var(--border2);border-radius:12px;padding:14px 8px;text-align:center;font-weight:800;font-size:13px;transition:all .15s;color:var(--muted2);">
+        <input type="radio" name="autoriza-estado" value="REVISAR" style="display:none;"> ⚡ REVISAR
+      </label>
+      <label id="opt-no" onclick="setAutorizaEstado('NO AUTORIZADO')" style="flex:1;cursor:pointer;border:2px solid var(--border2);border-radius:12px;padding:14px 8px;text-align:center;font-weight:800;font-size:13px;transition:all .15s;color:var(--muted2);">
         <input type="radio" name="autoriza-estado" value="NO AUTORIZADO" style="display:none;"> ✕ NO AUTORIZADO
       </label>
     </div>
@@ -6726,7 +6806,13 @@ function showToast(msg, type='') {
     </div>
     <div class="crm-field" style="margin-top:12px;">
       <label>Comentarios — motivo de la decisión (por qué sí / por qué no)</label>
-      <textarea id="autoriza-comentarios" rows="4" placeholder="Escribe aquí el motivo por el cual se autoriza o no se autoriza el ingreso del macrolote al inventario…" style="width:100%;resize:vertical;"></textarea>
+      <textarea id="autoriza-comentarios" rows="4" placeholder="Escribe aquí el motivo por el cual se autoriza, se revisa o no se autoriza el ingreso del macrolote al inventario…" style="width:100%;resize:vertical;"></textarea>
+    </div>
+    <div class="crm-field" style="margin-top:12px;">
+      <label>Foto / captura (opcional) — evidencia del motivo (precio, plano, mapa, etc.)</label>
+      <input type="file" id="autoriza-foto" accept="image/*" onchange="_onAutorizaFoto(event)" style="font-size:12px;">
+      <div style="font-size:10.5px;color:var(--muted2);margin-top:4px;">Puedes subir una imagen o pegar una captura con Ctrl+V estando aquí.</div>
+      <div id="autoriza-foto-prev" style="margin-top:8px;"></div>
     </div>
 
     <div class="crm-modal-footer">
