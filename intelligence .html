@@ -3,7 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA LOTES™ Intelligence v65</title>
+<title>GUÍA LOTES™ Intelligence v66</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDEgMTNsMTEtNC00IDEyeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMxIiB5PSI0NiIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjQyIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5HPC90ZXh0Pjwvc3ZnPg==">
+<link rel="alternate icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDEgMTNsMTEtNC00IDEyeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMxIiB5PSI0NiIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjQyIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5HPC90ZXh0Pjwvc3ZnPg==">
+<meta name="theme-color" content="#D21F1F">
+<meta name="apple-mobile-web-app-title" content="GUÍA LOTES">
+<meta name="application-name" content="GUÍA LOTES">
+<meta property="og:title" content="GUÍA LOTES™ Intelligence">
+<meta property="og:site_name" content="GUÍA LOTES">
+<meta property="og:type" content="website">
+<link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDEgMTNsMTEtNC00IDEyeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMxIiB5PSI0NiIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjQyIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5HPC90ZXh0Pjwvc3ZnPg==">
+
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -145,6 +155,9 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
 .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); }
 .dot.active { background:var(--green); box-shadow:0 0 8px var(--green); }
 .v-badge { font-size:10px; color:var(--gold3); border:1px solid var(--gold3); border-radius:10px; padding:2px 8px; letter-spacing:1px; }
+.hdr-btn { background:none; border:1px solid var(--border2); border-radius:8px; padding:6px 12px; font-size:11.5px; color:var(--muted2); cursor:pointer; font-weight:600; white-space:nowrap; }
+.hdr-btn:hover { border-color:var(--gold3); color:var(--gold3); }
+@media(max-width:820px){ .hdr-btn span.lbl{ display:none; } .hdr-btn{ padding:6px 9px; } }
 
 /* ── CONTAINER ── */
 .container { max-width:780px; margin:0 auto; padding:32px 24px 60px; position:relative; z-index:1; }
@@ -816,7 +829,9 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
     </div>
   </div>
   <div class="header-right">
-    <span class="v-badge">v65</span>
+    <button class="hdr-btn" onclick="openEstudios()" title="Estudios guardados">📚 <span class="lbl">Estudios</span></button>
+    <button class="hdr-btn" onclick="openAutorizStats()" title="Estadística de autorizaciones">📊 <span class="lbl">Autorizaciones</span></button>
+    <span class="v-badge">v66</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -856,7 +871,6 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
         <h3>Cargar Excel</h3>
         <p>Inventario de lotes + Base de clientes para matching automático</p>
       </div>
-      <button class="inv-filter" style="margin-left:auto;padding:9px 16px;font-weight:600;" onclick="openAutorizStats()">📊 Estadística de Autorizaciones</button>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
@@ -1391,6 +1405,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
             <button class="mi-btn-secondary" onclick="generateMIBuyerPitches()">Generar Pitches de Compradores</button>
             <button class="mi-btn-primary" id="mi-btn-vendor-pitch" onclick="generateVendorPitch()" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);border:none;">📋 Pitch para el Vendedor</button>
             <button class="btn-save-crm" id="mi-btn-save-crm" onclick="saveLoteFromAnalysis()">📁 Guardar en CRM</button>
+            <button class="btn-save-crm" onclick="openGuardarEstudio()">💾 Guardar estudio</button>
             <button class="mi-btn-primary" onclick="downloadOVReport()" style="background:linear-gradient(135deg,var(--gold),#d08b10);border:none;color:#000;">⬇ Descargar Reporte PDF</button>
             <button class="mi-btn-secondary" onclick="document.getElementById('mi-ov-result').style.display='none';document.getElementById('mi-ov-idle').style.display='block';" style="font-size:12px;">Regenerar</button>
           </div>
@@ -4748,9 +4763,9 @@ function downloadDocChecklist() {
 // Reporte profesional de Opinión de Valor en PDF (vía impresión del navegador).
 // Reúne: datos del lote, confiabilidad, mejor uso, valor residual, comparables,
 // y la Opinión de Valor generada por IA (si existe).
-async function downloadOVReport(){
-  const ld = window._lastLoteData || (window._miCtx && window._miCtx.loteData) || {};
-  const ov = (window._miCtx && window._miCtx.opinionValor) || null;
+async function downloadOVReport(ldArg, ovArg){
+  const ld = ldArg || window._lastLoteData || (window._miCtx && window._miCtx.loteData) || {};
+  const ov = ovArg || (window._miCtx && window._miCtx.opinionValor) || null;
   try {
     if (parseFloat(ld.lat) && parseFloat(ld.long)) {
       showToast('📄 Generando reporte completo…','');
@@ -5206,6 +5221,92 @@ function exportAutorizCSV(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href=url; a.download='autorizaciones-guia-lotes.csv'; a.click();
   URL.revokeObjectURL(url);
+}
+
+/* ══════════════ ESTUDIOS GUARDADOS (análisis + reporte reabrible) ══════════════ */
+const ESTUDIOS_KEY = 'guia_estudios';
+function _loadEstudios(){ try{ return JSON.parse(localStorage.getItem(ESTUDIOS_KEY)||'[]'); }catch(e){ return []; } }
+function _saveEstudios(a){ try{ localStorage.setItem(ESTUDIOS_KEY, JSON.stringify(a)); return true; }catch(e){ showToast('No se pudo guardar (memoria del navegador llena). Borra estudios viejos.','error'); return false; } }
+
+function openGuardarEstudio(){
+  const ld = window._lastLoteData || (window._miCtx && window._miCtx.loteData) || null;
+  if(!ld || !ld.nombre){ showToast('Primero analiza un lote para guardar su estudio','error'); return; }
+  document.getElementById('estudio-asesor').value = ld._asesor || '';
+  document.getElementById('estudio-cliente').value = ld._cliente || '';
+  document.getElementById('estudio-nota').value = '';
+  document.getElementById('estudio-info').innerHTML =
+    `<b style="color:var(--gold);">${ld.nombre||'Macrolote'}</b> · ${ld.ciudad||''}${ld.estado?', '+ld.estado:''}<br>`+
+    `Superficie: <b>${ld.superficie||'—'}</b> · Uso: <b>${ld.uso_suelo||'—'}</b>`;
+  document.getElementById('guardar-estudio-overlay').classList.add('open');
+}
+function closeGuardarEstudio(e){ if(e && e.target!==document.getElementById('guardar-estudio-overlay')) return; document.getElementById('guardar-estudio-overlay').classList.remove('open'); }
+
+function confirmGuardarEstudio(){
+  const ld = window._lastLoteData || (window._miCtx && window._miCtx.loteData) || null;
+  if(!ld){ showToast('No hay análisis activo','error'); return; }
+  const ov = (window._miCtx && window._miCtx.opinionValor) || (typeof analysisData!=='undefined' && analysisData && analysisData.opinionValor) || null;
+  const asesor=(document.getElementById('estudio-asesor').value||'').trim();
+  const cliente=(document.getElementById('estudio-cliente').value||'').trim();
+  const nota=(document.getElementById('estudio-nota').value||'').trim();
+  if(asesor) ld._asesor=asesor;
+  if(cliente) ld._cliente=cliente;
+  const estudios=_loadEstudios();
+  estudios.push({
+    id: Date.now(),
+    fecha: new Date().toISOString(),
+    nombreTerreno: ld.nombre||'Macrolote',
+    ciudad: ld.ciudad||'',
+    direccion: [ld.ciudad,ld.estado].filter(x=>x&&x!=='—').join(', '),
+    asesor, cliente, nota,
+    superficie: ld.superficie||'',
+    uso: ld.uso_suelo||'',
+    precio: (ld.precio_total&&ld.precio_total!=='—')?ld.precio_total:(ld._precioVendedor?'$'+Number(ld._precioVendedor).toLocaleString('es-MX')+'/m²':''),
+    veredicto: ov?(ov.veredicto||''):'',
+    score: ov?(ov.score||''):'',
+    loteData: ld,
+    opinionValor: ov
+  });
+  if(_saveEstudios(estudios)){
+    closeGuardarEstudio();
+    showToast('✓ Estudio guardado. Lo puedes reabrir en "📚 Estudios guardados" (arriba).','success');
+  }
+}
+
+function openEstudios(){
+  const estudios=_loadEstudios();
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const rows=[...estudios].reverse().map(r=>{
+    const fecha=new Date(r.fecha).toLocaleDateString('es-MX',{year:'2-digit',month:'short',day:'numeric'});
+    const ver=(r.veredicto||'').toLowerCase();
+    const verColor = ver==='comprar'?'rgba(58,157,78,.18);color:#5ec27a':ver==='negociar'?'rgba(232,180,76,.18);color:#E8B44C':'rgba(214,69,69,.18);color:#e08787';
+    const verBadge=ver?`<span style="font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700;background:${verColor}">${esc(r.veredicto.toUpperCase())}${r.score?' · '+r.score:''}</span>`:'<span style="color:var(--muted2);font-size:11px">—</span>';
+    return `<tr>
+      <td style="white-space:nowrap;color:var(--muted2);font-size:11px">${fecha}</td>
+      <td><b>${esc(r.nombreTerreno)}</b>${r.ciudad?`<br><span style="color:var(--muted2);font-size:11px">${esc(r.ciudad)}</span>`:''}</td>
+      <td style="font-size:11.5px">${r.asesor?esc(r.asesor):'<span style="color:var(--muted2)">—</span>'}${r.cliente?`<br><span style="color:var(--muted2);font-size:10.5px">Cliente: ${esc(r.cliente)}</span>`:''}</td>
+      <td>${verBadge}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="inv-filter" style="padding:4px 10px;font-size:11px;" onclick="verEstudioPDF(${r.id})">📄 Ver PDF</button>
+        <button class="inv-filter" style="padding:4px 8px;font-size:11px;" onclick="deleteEstudio(${r.id})" title="Eliminar">🗑</button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" style="color:var(--muted2);padding:16px;text-align:center">Aún no hay estudios guardados. En el análisis de un lote, usa el botón "💾 Guardar estudio".</td></tr>';
+  document.getElementById('estudios-body').innerHTML =
+    `<table class="autoriz-tbl"><thead><tr><th>Fecha</th><th>Terreno</th><th>Asesor / Cliente</th><th>Veredicto</th><th></th></tr></thead>${rows}</table>`;
+  document.getElementById('estudios-overlay').classList.add('open');
+}
+function closeEstudios(e){ if(e && e.target!==document.getElementById('estudios-overlay')) return; document.getElementById('estudios-overlay').classList.remove('open'); }
+
+function verEstudioPDF(id){
+  const r=_loadEstudios().find(x=>String(x.id)===String(id));
+  if(!r){ showToast('Estudio no encontrado','error'); return; }
+  showToast('📄 Abriendo el reporte del estudio…','');
+  try { downloadOVReport(r.loteData, r.opinionValor); } catch(e){ showToast('Error al abrir: '+(e.message||'desconocido'),'error'); }
+}
+function deleteEstudio(id){
+  if(!confirm('¿Eliminar este estudio guardado?')) return;
+  _saveEstudios(_loadEstudios().filter(x=>String(x.id)!==String(id)));
+  openEstudios();
 }
 
 function resetApp() {
@@ -6633,6 +6734,33 @@ function showToast(msg, type='') {
       <button class="btn-autoriza" style="border-color:#3a9d4e;color:#7ed99a;font-weight:700;" onclick="saveAutorizacion(false)">✓ Guardar en estadística</button>
       <button class="btn-autoriza" style="border-color:#E8B44C;color:#E8B44C;font-weight:700;" onclick="saveAutorizacion(true)">🖨️ Guardar e imprimir PDF</button>
     </div>
+  </div>
+</div>
+
+<!-- ── GUARDAR ESTUDIO MODAL ── -->
+<div class="crm-modal-overlay" id="guardar-estudio-overlay" onclick="closeGuardarEstudio(event)">
+  <div class="crm-modal" style="width:520px;">
+    <h3>💾 Guardar estudio del terreno</h3>
+    <div class="cm-sub">Guarda el análisis completo con cliente y asesor para volver a consultarlo y reabrir su PDF cuando quieras.</div>
+    <div id="estudio-info" style="background:var(--surface2,rgba(255,255,255,.03));border:1px solid var(--border2);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--text,#eee);margin-bottom:18px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="crm-field"><label>Asesor</label><input type="text" id="estudio-asesor" placeholder="Nombre del asesor"></div>
+      <div class="crm-field"><label>Cliente / propietario</label><input type="text" id="estudio-cliente" placeholder="Nombre del cliente"></div>
+    </div>
+    <div class="crm-field" style="margin-top:12px;"><label>Nota (opcional)</label><input type="text" id="estudio-nota" placeholder="Ej. Pendiente verificar CUS en el municipio"></div>
+    <div class="crm-modal-footer">
+      <button class="btn-print" onclick="closeGuardarEstudio()">Cancelar</button>
+      <button class="btn-autoriza" style="border-color:#3a9d4e;color:#7ed99a;font-weight:700;" onclick="confirmGuardarEstudio()">✓ Guardar estudio</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ESTUDIOS GUARDADOS MODAL ── -->
+<div class="crm-modal-overlay" id="estudios-overlay" onclick="closeEstudios(event)">
+  <div class="crm-modal" style="width:760px;max-width:94vw;">
+    <h3>📚 Estudios guardados</h3>
+    <div class="cm-sub">Análisis completos que guardaste. Da clic en "📄 Ver PDF" para reabrir el reporte del estudio.</div>
+    <div id="estudios-body"></div>
   </div>
 </div>
 
