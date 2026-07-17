@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA LOTES™ Intelligence v69</title>
+<title>GUÍA LOTES™ Intelligence v70</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDEgMTNsMTEtNC00IDEyeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMxIiB5PSI0NiIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjQyIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5HPC90ZXh0Pjwvc3ZnPg==">
 <link rel="alternate icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDEgMTNsMTEtNC00IDEyeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMxIiB5PSI0NiIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjQyIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5HPC90ZXh0Pjwvc3ZnPg==">
 <meta name="theme-color" content="#D21F1F">
@@ -831,7 +831,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
   <div class="header-right">
     <button class="hdr-btn" onclick="openEstudios()" title="Estudios guardados">📚 <span class="lbl">Estudios</span></button>
     <button class="hdr-btn" onclick="openAutorizStats()" title="Estadística de autorizaciones">📊 <span class="lbl">Autorizaciones</span></button>
-    <span class="v-badge">v69</span>
+    <span class="v-badge">v70</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -4794,6 +4794,7 @@ function downloadDocChecklist() {
 async function downloadOVReport(ldArg, ovArg){
   const ld = ldArg || window._lastLoteData || (window._miCtx && window._miCtx.loteData) || {};
   const ov = ovArg || (window._miCtx && window._miCtx.opinionValor) || null;
+  if (ov) fixOVTotals(ov, parseNumLoose(ld.superficie)); // asegurar totales coherentes con el m²
   try {
     if (parseFloat(ld.lat) && parseFloat(ld.long)) {
       showToast('📄 Generando reporte completo…','');
@@ -5468,6 +5469,7 @@ async function exportPDF() {
   const d = analysisData;
   const l = d.loteData;
   const ov = d.opinionValor;
+  if (ov) fixOVTotals(ov, parseNumLoose(l.superficie)); // asegurar totales coherentes con el m²
 
   // Precargar datos externos (entorno/DENUE/demografía) si aún no están, para que el PDF salga completo
   try {
@@ -5514,6 +5516,14 @@ async function exportPDF() {
     const _vf = _rl.valorTierra * Math.pow(1+_infl/100, _pf.horizonte);
     miHtml += `<div class="stitle">📊 PRO FORMA · CASO DE INVERSIÓN (costo tierra: ${_pf.fuenteTierra})</div>
       <div class="snota">TIR aprox. <b>${_pf.tirPct.toFixed(1)}%</b> (${_pf.horizonte} años) · ROI ${_pf.roiPct.toFixed(0)}% · Margen ${_pf.margenPct.toFixed(0)}% · Utilidad ${_fmtM(_pf.utilidad)}. Inversión total ${_fmtM(_pf.inversionTotal)}, ingresos ${_fmtM(_pf.ingresos)}. Tierra proyectada a ${_pf.horizonte} años (+${_infl}%/año): <b>${_fmtM(_vf)}</b>.</div>`;
+  }
+  if(_mc && _mc.comps && _mc.comps.length){
+    const _compRows = _mc.comps.slice(0,10).map(dd=>`<tr><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0">${dd.desarrollo||'—'}</td><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0">${dd.desarrollador||'—'}</td><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0;text-align:right">${_fmt(dd[_mc.pf]||0)}/m²</td><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0;text-align:right">${dd.dist!=null?dd.dist.toFixed(1)+' km':'—'}</td></tr>`).join('');
+    miHtml += `<div class="stitle">🏘 COMPETENCIA CERCANA · ${_mc.comps.length} desarrollos en el radio</div>
+      <table style="width:100%;border-collapse:collapse;font-size:9px;margin-bottom:10px">
+        <tr style="font-weight:700"><td style="padding:3px 6px;border-bottom:1px solid #cbd5e1">Desarrollo</td><td style="padding:3px 6px;border-bottom:1px solid #cbd5e1">Desarrollador</td><td style="padding:3px 6px;border-bottom:1px solid #cbd5e1;text-align:right">Precio/m²</td><td style="padding:3px 6px;border-bottom:1px solid #cbd5e1;text-align:right">Distancia</td></tr>
+        ${_compRows}
+      </table>`;
   }
 
   const scoreColor = ov ? (ov.score >= 70 ? '#15803d' : ov.score >= 40 ? '#b45309' : '#b91c1c') : '#64748b';
