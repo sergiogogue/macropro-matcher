@@ -14111,12 +14111,21 @@ Respuesta: [respuesta exacta, conversacional]
                             const sinResp = (c.pipeline==="Nueva opción");
                             const sla = dcre==null?B.grey3 : dcre<2?"#15803d" : dcre<4?"#b45309" : "#dc2626";
                             const respDias = (c.fechaCreacion&&c.fechaUltimaActividad)?Math.max(0,Math.round((new Date(c.fechaUltimaActividad)-new Date(c.fechaCreacion))/(1000*60*60*24))):null;
+                            const dLabel = dcre==null?"—":(dcre===0?"Hoy":(dcre===1?"1 día":dcre+" días"));
                             return (
-                              <div style={{display:"flex", flexWrap:"wrap", gap:6, alignItems:"center", marginBottom:7}}>
-                                <span style={{fontSize:9, fontWeight:700, color:B.grey4, background:B.offW, border:"1px solid "+B.grey1, borderRadius:6, padding:"2px 7px"}}>📥 Recibido {recib}</span>
+                              <div style={{marginBottom:8, borderRadius:8, overflow:"hidden", border:"1px solid "+(sinResp?sla+"55":"#e5e7eb")}}>
+                                <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, padding:"5px 9px", background:B.offW}}>
+                                  <span style={{fontSize:10, fontWeight:700, color:B.grey4}}>📥 Recibido</span>
+                                  <span style={{fontSize:11, fontWeight:800, color:B.navy}}>{recib}</span>
+                                </div>
                                 {sinResp
-                                  ? <span title="Días esperando la primera respuesta" style={{fontSize:9, fontWeight:800, color:"#fff", background:sla, borderRadius:6, padding:"2px 7px"}}>⏱ {dcre==null?"—":dcre+" d"} esperando respuesta</span>
-                                  : (c.pipeline!=="Descartado" ? <span style={{fontSize:9, fontWeight:800, color:"#15803d", background:"#dcfce7", border:"1px solid #86efac", borderRadius:6, padding:"2px 7px"}}>✓ Respondido{respDias!=null?" en "+respDias+" d":""}</span> : null)
+                                  ? <div title="Días esperando la primera respuesta" style={{display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"6px 9px", background:sla, color:"#fff"}}>
+                                      <span style={{fontSize:13}}>⏱</span>
+                                      <span style={{fontSize:12, fontWeight:800, letterSpacing:0.3}}>{dLabel} esperando respuesta</span>
+                                    </div>
+                                  : (c.pipeline!=="Descartado"
+                                      ? <div style={{display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"6px 9px", background:"#dcfce7", color:"#15803d"}}><span style={{fontSize:12,fontWeight:800}}>✓ Respondido{respDias!=null?" en "+respDias+(respDias===1?" día":" días"):""}</span></div>
+                                      : <div style={{display:"flex", alignItems:"center", justifyContent:"center", padding:"6px 9px", background:"#f1f5f9", color:B.grey4}}><span style={{fontSize:11,fontWeight:700}}>Descartado</span></div>)
                                 }
                               </div>
                             );
