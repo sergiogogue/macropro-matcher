@@ -9424,22 +9424,45 @@ Devuelve SOLO el texto (sin markdown, sin títulos), en 2 o 3 párrafos cortos e
     const VistaOportunidades = () => {
       const HOT = ["Cotización","En negociación","Propuesta","Apartado","Contrato"];
       const stageRank = (s)=>PIPELINE_STAGES.indexOf(s);
-      // 🔥 Calientes: prospectos en etapas avanzadas (a punto de cerrar)
-      const calientes = allProspectos.filter(x=>HOT.includes(x.pipeline))
-        .sort((a,b)=>stageRank(b.pipeline)-stageRank(a.pipeline));
-      // 🧊 Se enfrían: prospectos activos (no en cierre) con semáforo rojo o amarillo (sin movimiento reciente)
-      const enfriando = allProspectos.filter(x=> x.pipeline!=="Descartado" && x.pipeline!=="Disponible" && !HOT.includes(x.pipeline) && (x.semaforo==="red"||x.semaforo==="yellow"))
-        .sort((a,b)=> (b.diasSinContacto||0)-(a.diasSinContacto||0));
-      // 💤 Sin ofrecer: lotes del inventario que nadie está trabajando (sin prospecto activo). Ordenados por valor.
+      const norm2 = s=>(s||"").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+      const ZMG=["guadalajara","zapopan","tlajomulco","tonala","tlaquepaque","el salto","san pedro","zmg","gdl"];
+      const cityMatch=(lc,arr)=>{ if(!arr||!arr.length) return true; const l2=norm2(lc); if(!l2) return false; return arr.some(b=>{const b2=norm2(b); if(!b2)return false; if(l2===b2||l2.includes(b2)||b2.includes(l2))return true; return ZMG.some(z=>l2.includes(z))&&ZMG.some(z=>b2.includes(z));}); };
+      const usoMatch=(lotUsos,demUsos)=>{ if(!demUsos||!demUsos.length) return true; if(!lotUsos||!lotUsos.length) return true; return demUsos.some(u=>lotUsos.some(l=>norm2(l)===norm2(u))); };
+      const lotUsosDe = (l)=> (l.usos_todos&&l.usos_todos.length)?l.usos_todos:[l.uso].filter(Boolean);
+      // Match ESTRICTO cliente ↔ lote (uso + ciudad + presupuesto + superficie)
+      const clienteEmpata=(l,c)=>{
+        const lu=lotUsosDe(l), cu=Array.isArray(c.uso_interes)?c.uso_interes.filter(Boolean):[];
+        if(cu.length && lu.length && !usoMatch(lu,cu)) return false;
+        if((c.ciudad_interes||[]).length && !cityMatch(l.ciudad,c.ciudad_interes)) return false;
+        if(c.presupuesto_max && l.precio_total && parseFloat(c.presupuesto_max) < l.precio_total) return false;
+        const sup=l.sup_m2||0; if(sup){ if(c.sup_min && sup < c.sup_min*0.9) return false; if(c.sup_max && sup > c.sup_max*1.1) return false; }
+        return (cu.length>0)||((c.ciudad_interes||[]).length>0)||!!c.presupuesto_max||!!c.sup_max; // exige al menos un criterio real
+      };
+      // Match ESTRICTO solicitud (Buscando) ↔ lote
+      const solicitudEmpata=(l,s)=>{
+        const lu=lotUsosDe(l), su=s.usoSuelo?[s.usoSuelo]:[];
+        if(su.length && lu.length && !usoMatch(lu,su)) return false;
+        const sc=[s.ciudad,s.estado].filter(Boolean);
+        if(sc.length && !cityMatch(l.ciudad,sc)) return false;
+        if(s.precioMaximo && l.precio_total && parseFloat(s.precioMaximo) < l.precio_total) return false;
+        const sup=l.sup_m2||0; if(sup){ if(s.superficieMin && sup < parseFloat(s.superficieMin)*0.9) return false; if(s.superficieMax && sup > parseFloat(s.superficieMax)*1.1) return false; }
+        return su.length>0||sc.length>0||!!s.precioMaximo||!!s.superficieMax;
+      };
+      const clientesSrc = (clients&&clients.length)?clients:[];
+      const solSrc = (solicitudesAsesor||[]).filter(s=>s&&s.pipeline!=="Descartado"&&!s.convertidoAProspecto);
+      // 🔥 Calientes: prospectos en etapas de cierre
+      const calientes = allProspectos.filter(x=>HOT.includes(x.pipeline)).sort((a,b)=>stageRank(b.pipeline)-stageRank(a.pipeline));
+      // 🧊 Se enfrían: prospectos activos (no cierre) con semáforo rojo/amarillo
+      const enfriando = allProspectos.filter(x=> x.pipeline!=="Descartado" && x.pipeline!=="Disponible" && !HOT.includes(x.pipeline) && (x.semaforo==="red"||x.semaforo==="yellow")).sort((a,b)=>(b.diasSinContacto||0)-(a.diasSinContacto||0));
+      // 🎯 Con demanda sin trabajar: lotes sin prospecto activo que TIENEN clientes/solicitudes que empatan
       const conProsp = new Set(allProspectos.filter(x=>x.pipeline!=="Descartado"&&x.pipeline!=="Disponible").map(x=>normLoteId(x.lotId)));
-      const sinOfrecer = srcInvFiltrado.filter(l=>!conProsp.has(normLoteId(l.id)))
-        .map(l=>({lot:l, dias:getDiasEnInventario(l)}))
-        .sort((a,b)=> ((b.lot.precio_total||0)-(a.lot.precio_total||0)) );
-      const SIN_TOPE = 40;
-      const sinOfrecerTop = sinOfrecer.slice(0, SIN_TOPE);
+      const oportunidades = srcInvFiltrado.filter(l=>!conProsp.has(normLoteId(l.id))).map(l=>{
+        const cli = clientesSrc.filter(c=>clienteEmpata(l,c));
+        const sol = solSrc.filter(s=>solicitudEmpata(l,s));
+        return { lot:l, cli, sol, n: cli.length+sol.length };
+      }).filter(o=>o.n>0).sort((a,b)=> (b.n-a.n) || ((b.lot.precio_total||0)-(a.lot.precio_total||0)) );
       const valorCaliente = calientes.reduce((s,x)=>s+((x.lot&&x.lot.precio_total)||0),0);
-      const valorEnfriando = enfriando.reduce((s,x)=>s+((x.lot&&x.lot.precio_total)||0),0);
-      const valorSinOfrecer = sinOfrecer.reduce((s,x)=>s+((x.lot&&x.lot.precio_total)||0),0);
+      const valorOp = oportunidades.reduce((s,x)=>s+((x.lot&&x.lot.precio_total)||0),0);
       const recomCaliente = (p)=>{
         if(p==="Contrato") return "En contrato: cierra la firma esta semana, revisa documentación y define fecha.";
         if(p==="Apartado") return "Apartado: asegura anticipo y calendario de pago; no lo dejes enfriar.";
@@ -9453,19 +9476,19 @@ Devuelve SOLO el texto (sin markdown, sin títulos), en 2 o 3 párrafos cortos e
       const fmtMoney2 = (n)=>{ const x=parseFloat(n)||0; return x>0?("$"+(x/1e6).toFixed(1)+" MDP"):"—"; };
       return (
         <div style={{maxWidth:1100,margin:"0 auto"}}>
-          <div style={{marginBottom:16}}>
+          <div style={{marginBottom:14}}>
             <div style={{fontSize:11,fontWeight:700,color:B.gold,letterSpacing:1.5,textTransform:"uppercase"}}>🎯 Análisis de oportunidades</div>
-            <div style={{fontSize:22,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif",marginTop:2}}>Calientes para cerrar y fríos por reactivar</div>
-            <div style={{fontSize:12,color:B.grey4,marginTop:4}}>Enfócate: cierra lo caliente y reactiva lo que no se mueve sugiriéndole clientes.</div>
+            <div style={{fontSize:22,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif",marginTop:2}}>Dónde hay dinero sobre la mesa</div>
+            <div style={{fontSize:12,color:B.grey4,marginTop:4}}>Solo lo accionable: cierra lo caliente, reactiva lo que se enfría y ataca los lotes que <b>ya tienen demanda</b> y nadie trabaja.</div>
           </div>
           <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:18}}>
             <div style={{flex:"1 1 160px",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:12,padding:"12px 14px"}}><div style={{fontSize:9,fontWeight:800,color:"#c2410c",textTransform:"uppercase",letterSpacing:0.6}}>🔥 Calientes</div><div style={{fontSize:24,fontWeight:800,color:"#c2410c",fontFamily:"'Playfair Display',serif"}}>{calientes.length}</div><div style={{fontSize:9,color:B.grey4}}>{fmtMoney2(valorCaliente)} en juego</div></div>
+            <div style={{flex:"1 1 160px",background:"#ecfdf5",border:"1px solid #6ee7b7",borderRadius:12,padding:"12px 14px"}}><div style={{fontSize:9,fontWeight:800,color:"#047857",textTransform:"uppercase",letterSpacing:0.6}}>🎯 Con demanda</div><div style={{fontSize:24,fontWeight:800,color:"#047857",fontFamily:"'Playfair Display',serif"}}>{oportunidades.length}</div><div style={{fontSize:9,color:B.grey4}}>lotes con clientes que empatan</div></div>
             <div style={{flex:"1 1 160px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:12,padding:"12px 14px"}}><div style={{fontSize:9,fontWeight:800,color:"#1d4ed8",textTransform:"uppercase",letterSpacing:0.6}}>🧊 Se enfrían</div><div style={{fontSize:24,fontWeight:800,color:"#1d4ed8",fontFamily:"'Playfair Display',serif"}}>{enfriando.length}</div><div style={{fontSize:9,color:B.grey4}}>con cliente, sin movimiento</div></div>
-            <div style={{flex:"1 1 160px",background:"#f5f3ff",border:"1px solid #ddd6fe",borderRadius:12,padding:"12px 14px"}}><div style={{fontSize:9,fontWeight:800,color:"#6d28d9",textTransform:"uppercase",letterSpacing:0.6}}>💤 Sin ofrecer</div><div style={{fontSize:24,fontWeight:800,color:"#6d28d9",fontFamily:"'Playfair Display',serif"}}>{sinOfrecer.length}</div><div style={{fontSize:9,color:B.grey4}}>{fmtMoney2(valorSinOfrecer)} sin trabajar</div></div>
           </div>
 
           <div style={{fontSize:14,fontWeight:800,color:"#c2410c",marginBottom:10,fontFamily:"'Playfair Display',serif"}}>🔥 Calientes — cierra ya ({calientes.length})</div>
-          {calientes.length===0 && <div style={{fontSize:12,color:B.grey3,fontStyle:"italic",marginBottom:18}}>No hay prospectos en etapas de cierre por ahora.</div>}
+          {calientes.length===0 && <div style={{fontSize:12,color:B.grey3,fontStyle:"italic",marginBottom:16}}>No hay prospectos en etapas de cierre por ahora.</div>}
           {calientes.map((x,i)=> card(<div key={i}>
             <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
               <div style={{minWidth:0}}>
@@ -9480,37 +9503,36 @@ Devuelve SOLO el texto (sin markdown, sin títulos), en 2 o 3 párrafos cortos e
             </div>
           </div>, "#f97316", "hot"+i))}
 
-          <div style={{fontSize:14,fontWeight:800,color:"#1d4ed8",margin:"18px 0 10px",fontFamily:"'Playfair Display',serif"}}>🧊 Se enfrían — reactiva ({enfriando.length})</div>
-          {enfriando.length===0 && <div style={{fontSize:12,color:B.grey3,fontStyle:"italic",marginBottom:8}}>Ningún prospecto activo se está enfriando. 👍</div>}
-          {enfriando.map((x,i)=> card(<div key={i}>
+          <div style={{fontSize:14,fontWeight:800,color:"#047857",margin:"18px 0 10px",fontFamily:"'Playfair Display',serif"}}>🎯 Con demanda — lotes que YA tienen quién los compre ({oportunidades.length})</div>
+          {oportunidades.length===0 && <div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>Ningún lote sin trabajar empata con clientes/solicitudes actuales. Captura más clientes o afina sus requerimientos (uso, ciudad, superficie, presupuesto).</div>}
+          {oportunidades.slice(0,40).map((x,i)=>{ const nombres=[...x.cli.map(c=>c.nombre),...x.sol.map(s=>s.clienteNombre||s.asesorNombre||"Solicitud")].filter(Boolean).slice(0,3).join(", "); return card(<div key={i}>
             <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
               <div style={{minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{(x.prospecto&&x.prospecto.nombre)||"(Sin nombre)"} <span style={{fontSize:10,fontWeight:700,background:(PIPELINE_COLORS[x.pipeline]||B.grey3)+"22",color:PIPELINE_COLORS[x.pipeline]||B.grey3,borderRadius:8,padding:"1px 8px",marginLeft:4}}>{x.pipeline}</span> {x.semaforo==="red"?<span style={{fontSize:10,marginLeft:4}}>🔴</span>:<span style={{fontSize:10,marginLeft:4}}>🟡</span>}</div>
-                <div style={{fontSize:11,color:B.grey4,marginTop:2}}>{x.lot.nombre} · {x.lot.desarrollo}{x.lot.precio_total?(" · "+fmtMoney2(x.lot.precio_total)):""}{x.diasSinContacto!=null?(" · "+x.diasSinContacto+"d sin contacto"):""}</div>
-                <div style={{fontSize:11,color:"#1e40af",marginTop:5,fontWeight:600}}>💡 {x.diasSinContacto!=null&&x.diasSinContacto>60?"Lleva frío: llámale hoy, ofrece algo nuevo (precio/condición) o sugiere otro terreno.":"Se está enfriando: dale seguimiento esta semana antes de perderlo."}</div>
+                <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{x.lot.nombre} <span style={{fontSize:10,color:B.grey4,fontWeight:600}}>· {x.lot.desarrollo}</span> <span style={{fontSize:10,fontWeight:800,background:"#dcfce7",color:"#047857",borderRadius:8,padding:"1px 8px",marginLeft:4}}>{x.n} empata{x.n!==1?"n":""}</span></div>
+                <div style={{fontSize:11,color:B.grey4,marginTop:2}}>{x.lot.ciudad||""}{x.lot.precio_total?(" · "+fmtMoney2(x.lot.precio_total)):""}{x.lot.sup_m2?(" · "+(x.lot.sup_m2).toLocaleString("es-MX")+" m²"):""}{lotUsosDe(x.lot).length?(" · "+lotUsosDe(x.lot).join("/")):""}</div>
+                <div style={{fontSize:11,color:"#065f46",marginTop:5,fontWeight:600}}>💡 {x.cli.length+" cliente"+(x.cli.length!==1?"s":"")}{x.sol.length?(" y "+x.sol.length+" solicitud"+(x.sol.length!==1?"es":"")):""} empatan{nombres?(": "+nombres):""}. Ofrécelo ya.</div>
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"flex-start"}}>
+                {btn("👥 Ver quién empata",B.navy,B.gold,()=>{setSelectedLot(x.lot);setView("matchLot");})}
+                {btn("👤 Trabajar",B.offW,"#047857",()=>{setSelectedLotCRM(x.lot);setActiveTab("kanban");},"1px solid #6ee7b7")}
+              </div>
+            </div>
+          </div>, "#10b981", "op"+i); })}
+
+          <div style={{fontSize:14,fontWeight:800,color:"#1d4ed8",margin:"18px 0 10px",fontFamily:"'Playfair Display',serif"}}>🧊 Se enfrían — reactiva ({enfriando.length})</div>
+          {enfriando.length===0 && <div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>Ningún prospecto activo se está enfriando. 👍</div>}
+          {enfriando.slice(0,30).map((x,i)=> card(<div key={i}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{(x.prospecto&&x.prospecto.nombre)||"(Sin nombre)"} <span style={{fontSize:10,fontWeight:700,background:(PIPELINE_COLORS[x.pipeline]||B.grey3)+"22",color:PIPELINE_COLORS[x.pipeline]||B.grey3,borderRadius:8,padding:"1px 8px",marginLeft:4}}>{x.pipeline}</span> {x.semaforo==="red"?"🔴":"🟡"}</div>
+                <div style={{fontSize:11,color:B.grey4,marginTop:2}}>{x.lot.nombre} · {x.lot.desarrollo}{x.diasSinContacto!=null?(" · "+x.diasSinContacto+"d sin contacto"):""}</div>
+                <div style={{fontSize:11,color:"#1e40af",marginTop:5,fontWeight:600}}>💡 {x.diasSinContacto!=null&&x.diasSinContacto>60?"Lleva frío: llámale hoy, ofrece algo nuevo o sugiere otro terreno.":"Se está enfriando: dale seguimiento esta semana."}</div>
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"flex-start"}}>
                 {btn("👤 Abrir ficha","#eff6ff","#1d4ed8",()=>{setQuickProspInitTab("acciones");setQuickProspData({lot:x.lot,p:x.prospecto,prospectoIdx:x.prospectoIdx,crm:crmData[x.lotId]||{},cli:x.cli||null});setShowQuickProspModal(true);},"1px solid #bfdbfe")}
-                {btn("📋 Kanban",B.offW,B.grey4,()=>{setSelectedLotCRM(x.lot);setActiveTab("kanban");},"1px solid "+B.grey1)}
               </div>
             </div>
           </div>, "#3b82f6", "cool"+i))}
-
-          <div style={{fontSize:14,fontWeight:800,color:"#6d28d9",margin:"18px 0 10px",fontFamily:"'Playfair Display',serif"}}>💤 Sin ofrecer — oportunidad ({sinOfrecer.length}{sinOfrecer.length>SIN_TOPE?(" · mostrando top "+SIN_TOPE+" por valor"):""})</div>
-          {sinOfrecer.length===0 && <div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>Todos los lotes ya tienen cliente asignado. 🎉</div>}
-          {sinOfrecerTop.map((x,i)=> card(<div key={i}>
-            <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-              <div style={{minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{x.lot.nombre} <span style={{fontSize:10,color:B.grey4,fontWeight:600}}>· {x.lot.desarrollo}</span></div>
-                <div style={{fontSize:11,color:B.grey4,marginTop:2}}>{x.lot.ciudad||""}{x.lot.precio_total?(" · "+fmtMoney2(x.lot.precio_total)):""}{x.lot.sup_m2?(" · "+(x.lot.sup_m2).toLocaleString("es-MX")+" m²"):""}{x.dias!=null?(" · "+x.dias+" días en inventario"):""}</div>
-                <div style={{fontSize:11,color:"#6d28d9",marginTop:5,fontWeight:600}}>💡 Nadie lo está trabajando: sugiérele clientes que empaten y asígnalo a un asesor.</div>
-              </div>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"flex-start"}}>
-                {btn("👥 Sugerir clientes",B.navy,B.gold,()=>{setSelectedLot(x.lot);setView("matchLot");})}
-                {btn("👤 Asignar / seguir",B.offW,"#6d28d9",()=>{setSelectedLotCRM(x.lot);setActiveTab("kanban");},"1px solid #ddd6fe")}
-              </div>
-            </div>
-          </div>, "#8b5cf6", "no"+i))}
         </div>
       );
     };
