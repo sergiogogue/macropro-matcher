@@ -13893,65 +13893,76 @@ Respuesta: [respuesta exacta, conversacional]
     toast("✅ PDF descargado");
   };
 
-  // ── Dictamen imprimible: AUTORIZACIÓN o NEGACIÓN de la opción (según viabilidad) ──
+  // ── Dictamen imprimible (diseño oficial estilo Guía-Intelligence): AUTORIZADO / REVISAR / NO AUTORIZADO ──
   const generarDictamenCaptacionPDF = async (c) => {
-    if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
-    if(!c){ return; }
+    if(!c) return;
     const v = c.viabilidad||"";
-    if(!v){ toast("⚠ Primero define la Viabilidad (🟢/🟡/🔴) para imprimir el dictamen"); return; }
-    const esVerde = v.indexOf("🟢")>=0, esRojo = v.indexOf("🔴")>=0;
-    const titulo = esVerde ? "AUTORIZACIÓN DE OPCIÓN" : (esRojo ? "DICTAMEN: NO PROCEDE" : "OPCIÓN CON RESERVAS");
-    const col = esVerde ? [21,128,61] : (esRojo ? [185,28,28] : [133,77,14]);
-    toast("📄 Generando dictamen…");
-    const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
-    const PW=210, MX=18; let y=0;
-    doc.setFillColor(0,43,73); doc.rect(0,0,PW,42,"F");
-    const logo=await cargarImg(LOGO_MACROLOTES);
-    if(logo&&logo.w){ const h=18,w=Math.min(64,h*(logo.w/logo.h)); try{doc.addImage(logo.data,"PNG",MX,12,w,h);}catch(e){} }
-    else { doc.setTextColor(245,179,53); doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.text("MACROLOTES GUÍA",MX,24); }
-    doc.setTextColor(255,255,255); doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(200,215,230);
-    doc.text("Dictamen de opción · Captación",PW-MX,24,{align:"right"});
-    y=56;
-    // Franja del veredicto
-    doc.setFillColor(col[0],col[1],col[2]); doc.roundedRect(MX,y,PW-2*MX,14,2,2,"F");
-    doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.text(titulo,PW/2,y+9,{align:"center"});
-    y+=24;
-    const fmtMon2=(n)=>{ const x=parseFloat(n)||0; return x>0?("$"+x.toLocaleString("es-MX")):"—"; };
+    if(!v){ toast("⚠ Primero define la Viabilidad (🟢/🟡/🔴) para emitir el dictamen"); return; }
+    const estado = v.indexOf("🟢")>=0 ? "AUTORIZADO" : (v.indexOf("🔴")>=0 ? "NO AUTORIZADO" : "REVISAR");
+    let comentarios = c.notas||"";
+    try{ const r = window.prompt("Comentarios · motivo de la decisión (opcional):", comentarios); if(r!==null) comentarios = r; }catch(e){}
+    const isSi = estado==="AUTORIZADO", isRev = estado==="REVISAR";
+    const color = isSi ? "#22a34a" : isRev ? "#C98A00" : "#d64545";
+    const colorSoft = isSi ? "#eaf7ee" : isRev ? "#fff6e0" : "#fbeaea";
+    const icon = isSi ? "✔" : isRev ? "⚡" : "✕";
+    const subTxt = isSi ? "El macrolote SÍ se acepta e ingresa al inventario" : isRev ? "El macrolote queda EN REVISIÓN — sujeto a validar las observaciones (precio u otros puntos)" : "El macrolote NO se acepta / no ingresa al inventario";
+    const condTxt = isSi ? "El ingreso definitivo al inventario queda sujeto a la verificación documental (registro público de propiedad, uso de suelo vigente y situación jurídica)." : isRev ? "El macrolote no se rechaza: se mantiene EN REVISIÓN para validar los puntos indicados en los comentarios antes de resolver su ingreso." : "La presente resolución podrá reconsiderarse si el asesor presenta información adicional que modifique las condiciones evaluadas.";
+    const _hoy = new Date(); const pad=n=>String(n).padStart(2,"0");
+    const folio = "GG-AUT-"+_hoy.getFullYear()+pad(_hoy.getMonth()+1)+pad(_hoy.getDate())+"-"+pad(_hoy.getHours())+pad(_hoy.getMinutes());
+    const hoy = _hoy.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
+    const esc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const has = x => x!=null && String(x).trim()!=="" && String(x).trim()!=="—";
     const sup=parseFloat(c.superficie)||0, pd=parseFloat(c.precioDueno)||0, pm2=(pd>0&&sup>0)?Math.round(pd/sup):(parseFloat(c.precioM2)||0);
-    const filas=[
-      ["Propietario / opcionador", c.propietario||"—"],
-      ["Contacto", (c.contacto||"—")+(c.telefono?(" · "+c.telefono):"")],
-      ["Ubicación", [c.zona,c.ciudad,c.estado].filter(Boolean).join(", ")||"—"],
-      ["Uso de suelo", c.usoSuelo||"—"],
-      ["Superficie", sup>0?(sup.toLocaleString("es-MX")+" m²"):"—"],
-      ["Precio del dueño", fmtMon2(pd)],
-      ["Precio por m²", pm2>0?("$"+pm2.toLocaleString("es-MX")):"—"],
-      ["Tipo de acuerdo", c.tipoAcuerdo||"—"],
-      ["Comisión", c.comision||"—"],
-      ["Viabilidad", v],
-      ["Asesor responsable (Grupo Guía)", c.asesorResponsableGG||"—"],
-    ];
-    doc.setFontSize(11);
-    filas.forEach(([k,val])=>{
-      doc.setFont("helvetica","bold"); doc.setTextColor(0,43,73); doc.text(k+":",MX,y);
-      doc.setFont("helvetica","normal"); doc.setTextColor(45,55,70);
-      const t=doc.splitTextToSize(String(val),PW-2*MX-62); doc.text(t,MX+62,y); y+=Math.max(6.4, t.length*5.6);
-    });
-    y+=4;
-    if(c.notas){ doc.setFont("helvetica","bold"); doc.setTextColor(0,43,73); doc.text("Observaciones:",MX,y); y+=6; doc.setFont("helvetica","normal"); doc.setTextColor(45,55,70); const nt=doc.splitTextToSize(String(c.notas),PW-2*MX); doc.text(nt,MX,y); y+=nt.length*5.6+4; }
-    // Fecha + firma
-    y=Math.max(y,236);
-    doc.setDrawColor(210,216,226); doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(70,80,95);
-    const hoy=new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"});
-    doc.text("Fecha de dictamen: "+hoy, MX, y); y+=20;
-    doc.line(MX, y, MX+70, y); doc.line(PW-MX-70, y, PW-MX, y); y+=5;
-    doc.setFontSize(9); doc.setTextColor(90,100,115);
-    doc.text("Autoriza / Grupo Guía", MX, y); doc.text("Recibe / propietario", PW-MX-70, y);
-    doc.setDrawColor(210,216,226); doc.line(MX,286,PW-MX,286);
-    doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,43,73); doc.text("Grupo Guía · Macrolotes",MX,291);
-    const fn = (esVerde?"Autorizacion":(esRojo?"Negacion":"Dictamen"))+"_Opcion_"+((c.propietario||"terreno").replace(/[^a-zA-Z0-9]/g,"_").slice(0,30))+".pdf";
-    doc.save(fn);
-    toast("✅ Dictamen descargado");
+    const asesor = c.asesorResponsableGG||"";
+    const nombreLote = c.zona||c.ubicacion||c.propietario||"Terreno en opción";
+    const direccion = [c.zona,c.ciudad,c.estado].filter(has).join(", ");
+    const generales = [["Nombre / Lote", nombreLote],["Cliente / propietario", c.propietario],["Contacto", (c.contacto||"")+(c.telefono?(" · "+c.telefono):"")],["Dirección", direccion],["Superficie", sup>0?(sup.toLocaleString("es-MX")+" m²"):""],["Uso de suelo", c.usoSuelo],["Precio del dueño", pd>0?("$"+pd.toLocaleString("es-MX")):""],["Precio por m²", pm2>0?("$"+pm2.toLocaleString("es-MX")):""],["Tipo de acuerdo", c.tipoAcuerdo],["Comisión", c.comision]].filter(function(p){return has(p[1]);});
+    const genRows = generales.map(function(p){return '<div class="gitem"><span class="gl">'+esc(p[0])+'</span><span class="gv">'+esc(p[1])+'</span></div>';}).join("");
+    const mapsUrl = (c.ligaMaps&&/^https?:/.test(c.ligaMaps)) ? c.ligaMaps : "";
+    const comentHTML = comentarios ? esc(comentarios).replace(/\n/g,"<br>") : '<span style="color:#aaa;">— Sin comentarios —</span>';
+    const html = '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Autorización '+folio+' — '+esc(nombreLote)+'</title>'
+      + '<style>'
+      + '*{box-sizing:border-box;} html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+      + "body{font-family:'Helvetica Neue',Arial,sans-serif;color:#1a1a1a;max-width:780px;margin:0 auto;padding:16px 18px;line-height:1.4;font-size:12px;}"
+      + '.topband{background:#10294A;border-radius:12px;padding:18px 24px 15px;color:#fff;}'
+      + '.topband .logo{height:38px;width:auto;display:block;}'
+      + '.topband .bar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-top:13px;}'
+      + '.topband h1{font-size:16px;margin:0;font-weight:700;color:#fff;}'
+      + '.topband .meta{font-size:10.5px;color:#c7d2e0;text-align:right;line-height:1.6;}'
+      + '.topband .folio{font-family:monospace;font-weight:700;color:#E8B44C;font-size:11.5px;}'
+      + '.banner{border:3px solid '+color+';background:'+colorSoft+';border-radius:12px;text-align:center;padding:15px 18px;margin:16px 0 13px;}'
+      + '.banner .est{font-size:42px;font-weight:900;letter-spacing:2px;color:'+color+';line-height:1.02;}'
+      + '.banner .ic{font-size:28px;color:'+color+';display:block;margin-bottom:2px;}'
+      + '.banner .sub{font-size:11px;color:#555;margin-top:6px;letter-spacing:.5px;text-transform:uppercase;}'
+      + '.sec{font-size:11.5px;font-weight:800;margin:14px 0 7px;padding:5px 11px;border-radius:5px;color:#fff;background:#10294A;letter-spacing:.5px;}'
+      + '.generales{display:grid;grid-template-columns:1fr 1fr;gap:0 30px;border:1px solid #dfe4ea;border-radius:8px;padding:2px 16px;background:#f7f9fb;}'
+      + '.gitem{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid #e6ebf1;font-size:11px;}'
+      + '.gl{color:#63708a;} .gv{font-weight:700;color:#10294A;text-align:right;}'
+      + '.maps{font-size:10.5px;margin-top:5px;color:#555;}'
+      + '.coment{border:1px solid #ddd;border-radius:8px;padding:12px 16px;font-size:12px;min-height:60px;color:#333;background:#fcfcfc;}'
+      + '.cond{font-size:10px;color:#666;background:#f7f7f7;border-left:3px solid #E8B44C;padding:9px 13px;border-radius:0 6px 6px 0;margin-top:12px;line-height:1.5;}'
+      + '.firmas{display:flex;gap:44px;margin-top:34px;} .firma{flex:1;text-align:center;} .firma .line{border-top:1.5px solid #333;padding-top:7px;}'
+      + '.firma .name{font-weight:800;font-size:12.5px;color:#10294A;text-transform:uppercase;letter-spacing:.5px;} .firma .role{font-size:9.5px;color:#777;margin-top:2px;} .firma .lbl{font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;}'
+      + '.foot{margin-top:20px;border-top:1px solid #ddd;padding-top:9px;font-size:9.5px;color:#888;display:flex;justify-content:space-between;} a{color:#b8860b;text-decoration:none;}'
+      + '@page{size:A4 portrait;margin:10mm;} @media print{body{padding:0;max-width:100%;}}'
+      + '</style></head><body>'
+      + '<div class="topband"><img class="logo" src="'+LOGO_MACROLOTES+'" alt="guia macrolotes"><div class="bar"><h1>Autorización de Ingreso al Inventario</h1><div class="meta"><div class="folio">Folio: '+folio+'</div>'+hoy+(asesor?('<br>Dirigido a: <b style="color:#fff">'+esc(asesor)+'</b>'):'')+'</div></div></div>'
+      + '<div class="banner"><span class="ic">'+icon+'</span><div class="est">'+estado+'</div><div class="sub">'+subTxt+'</div></div>'
+      + '<div class="sec">GENERALES DEL TERRENO</div><div class="generales">'+(genRows||'<div class="gitem"><span class="gl">Sin datos</span><span class="gv">—</span></div>')+'</div>'
+      + (mapsUrl?('<div class="maps">📍 Ubicación en mapa: <a href="'+mapsUrl+'">'+mapsUrl+'</a></div>'):'')
+      + '<div class="sec">COMENTARIOS · MOTIVO DE LA DECISIÓN</div><div class="coment">'+comentHTML+'</div>'
+      + '<div class="cond">Esta resolución es emitida por la Dirección de Grupo Guía Macrolotes con base en la información disponible del terreno al momento de su evaluación. '+condTxt+'</div>'
+      + '<div class="firmas"><div class="firma"><div class="line"><div class="lbl">Autoriza</div><div class="name">Sergio González Guerra G</div><div class="role">Dirección · Grupo Guía Macrolotes</div></div></div>'
+      + '<div class="firma"><div class="line"><div class="lbl">Recibe</div><div class="name">'+(asesor?esc(asesor):"Asesor Responsable")+'</div><div class="role">Asesor que opciona el terreno</div></div></div></div>'
+      + '<div class="foot"><span>sergio@grupoguia.mx · macrolotes.grupoguia.mx</span><span>GUÍA LOTES · Documento de Autorización · '+folio+'</span></div>'
+      + '</body></html>';
+    try{
+      const w = window.open("", "_blank");
+      if(!w){ toast("⚠ Permite las ventanas emergentes para imprimir"); return; }
+      w.document.open(); w.document.write(html); w.document.close();
+      setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 400);
+      toast("🖨️ Dictamen "+estado+" generado");
+    }catch(e){ toast("⚠ No se pudo generar el dictamen"); }
   };
 
   // ── Reporte / estadístico de captación (recibidos, aceptados, descartados, tiempos) ──
