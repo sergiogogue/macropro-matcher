@@ -13893,6 +13893,67 @@ Respuesta: [respuesta exacta, conversacional]
     toast("✅ PDF descargado");
   };
 
+  // ── Dictamen imprimible: AUTORIZACIÓN o NEGACIÓN de la opción (según viabilidad) ──
+  const generarDictamenCaptacionPDF = async (c) => {
+    if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
+    if(!c){ return; }
+    const v = c.viabilidad||"";
+    if(!v){ toast("⚠ Primero define la Viabilidad (🟢/🟡/🔴) para imprimir el dictamen"); return; }
+    const esVerde = v.indexOf("🟢")>=0, esRojo = v.indexOf("🔴")>=0;
+    const titulo = esVerde ? "AUTORIZACIÓN DE OPCIÓN" : (esRojo ? "DICTAMEN: NO PROCEDE" : "OPCIÓN CON RESERVAS");
+    const col = esVerde ? [21,128,61] : (esRojo ? [185,28,28] : [133,77,14]);
+    toast("📄 Generando dictamen…");
+    const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+    const PW=210, MX=18; let y=0;
+    doc.setFillColor(0,43,73); doc.rect(0,0,PW,42,"F");
+    const logo=await cargarImg(LOGO_MACROLOTES);
+    if(logo&&logo.w){ const h=18,w=Math.min(64,h*(logo.w/logo.h)); try{doc.addImage(logo.data,"PNG",MX,12,w,h);}catch(e){} }
+    else { doc.setTextColor(245,179,53); doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.text("MACROLOTES GUÍA",MX,24); }
+    doc.setTextColor(255,255,255); doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(200,215,230);
+    doc.text("Dictamen de opción · Captación",PW-MX,24,{align:"right"});
+    y=56;
+    // Franja del veredicto
+    doc.setFillColor(col[0],col[1],col[2]); doc.roundedRect(MX,y,PW-2*MX,14,2,2,"F");
+    doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.text(titulo,PW/2,y+9,{align:"center"});
+    y+=24;
+    const fmtMon2=(n)=>{ const x=parseFloat(n)||0; return x>0?("$"+x.toLocaleString("es-MX")):"—"; };
+    const sup=parseFloat(c.superficie)||0, pd=parseFloat(c.precioDueno)||0, pm2=(pd>0&&sup>0)?Math.round(pd/sup):(parseFloat(c.precioM2)||0);
+    const filas=[
+      ["Propietario / opcionador", c.propietario||"—"],
+      ["Contacto", (c.contacto||"—")+(c.telefono?(" · "+c.telefono):"")],
+      ["Ubicación", [c.zona,c.ciudad,c.estado].filter(Boolean).join(", ")||"—"],
+      ["Uso de suelo", c.usoSuelo||"—"],
+      ["Superficie", sup>0?(sup.toLocaleString("es-MX")+" m²"):"—"],
+      ["Precio del dueño", fmtMon2(pd)],
+      ["Precio por m²", pm2>0?("$"+pm2.toLocaleString("es-MX")):"—"],
+      ["Tipo de acuerdo", c.tipoAcuerdo||"—"],
+      ["Comisión", c.comision||"—"],
+      ["Viabilidad", v],
+      ["Asesor responsable (Grupo Guía)", c.asesorResponsableGG||"—"],
+    ];
+    doc.setFontSize(11);
+    filas.forEach(([k,val])=>{
+      doc.setFont("helvetica","bold"); doc.setTextColor(0,43,73); doc.text(k+":",MX,y);
+      doc.setFont("helvetica","normal"); doc.setTextColor(45,55,70);
+      const t=doc.splitTextToSize(String(val),PW-2*MX-62); doc.text(t,MX+62,y); y+=Math.max(6.4, t.length*5.6);
+    });
+    y+=4;
+    if(c.notas){ doc.setFont("helvetica","bold"); doc.setTextColor(0,43,73); doc.text("Observaciones:",MX,y); y+=6; doc.setFont("helvetica","normal"); doc.setTextColor(45,55,70); const nt=doc.splitTextToSize(String(c.notas),PW-2*MX); doc.text(nt,MX,y); y+=nt.length*5.6+4; }
+    // Fecha + firma
+    y=Math.max(y,236);
+    doc.setDrawColor(210,216,226); doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(70,80,95);
+    const hoy=new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"});
+    doc.text("Fecha de dictamen: "+hoy, MX, y); y+=20;
+    doc.line(MX, y, MX+70, y); doc.line(PW-MX-70, y, PW-MX, y); y+=5;
+    doc.setFontSize(9); doc.setTextColor(90,100,115);
+    doc.text("Autoriza / Grupo Guía", MX, y); doc.text("Recibe / propietario", PW-MX-70, y);
+    doc.setDrawColor(210,216,226); doc.line(MX,286,PW-MX,286);
+    doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,43,73); doc.text("Grupo Guía · Macrolotes",MX,291);
+    const fn = (esVerde?"Autorizacion":(esRojo?"Negacion":"Dictamen"))+"_Opcion_"+((c.propietario||"terreno").replace(/[^a-zA-Z0-9]/g,"_").slice(0,30))+".pdf";
+    doc.save(fn);
+    toast("✅ Dictamen descargado");
+  };
+
   // ── Reporte / estadístico de captación (recibidos, aceptados, descartados, tiempos) ──
   const computeReporteCaptacion = () => {
     const arr = captaciones||[];
@@ -16701,6 +16762,7 @@ Respuesta: [respuesta exacta, conversacional]
                 <div style={{padding:"16px 26px",borderTop:"1px solid "+B.grey1,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                   <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                     {!esNueva && <button onClick={()=>{ if(window.confirm("¿Eliminar este terreno de captación?")){ removeCaptacion(f.id); setShowCaptacionModal(false);} }} style={{padding:"10px 16px",borderRadius:8,border:"1px solid #fecaca",background:"#fef2f2",color:"#dc2626",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗑 Eliminar</button>}
+                    <button onClick={()=>generarDictamenCaptacionPDF(f)} title="Imprime la AUTORIZACIÓN (🟢) o NEGACIÓN (🔴) según la viabilidad" style={{padding:"10px 16px",borderRadius:8,border:"1px solid "+B.navy,background:"#eef4fb",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🖨️ Autorización / Negación</button>
                     <button onClick={()=>setCruceCaptacion(f)} style={{padding:"10px 16px",borderRadius:8,border:"1px solid "+B.gold,background:"#fffaf0",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>⚡ Cruzar con clientes</button>
                     {!f.loteInventarioId && <button onClick={()=>{ if(!(f.propietario||f.zona)){ toast("⚠ Pon al menos propietario o zona"); return; } pasarCaptacionAInventario(f); setShowCaptacionModal(false); }} style={{padding:"10px 16px",borderRadius:8,border:"none",background:B.navy,color:B.gold,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📦 Pasar a inventario</button>}
                   </div>
