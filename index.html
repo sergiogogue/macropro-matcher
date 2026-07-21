@@ -498,9 +498,12 @@ function loteToSupabase(lote) {
 }
 
 // Transforma un cliente del localStorage al formato de la tabla Supabase 'clientes'
-function clienteToSupabase(cliente) {
+function clienteToSupabase(cliente, asesorEmailMap) {
   // Leer correo de cualquiera de los campos (los clientes importados usan 'correo', no 'email')
   const email = (cliente.email || cliente.correo || "").toString().trim().toLowerCase();
+  // Correo del asesor dueño (para routing en la landing): del mapa nombre→correo si se provee
+  const _an = (cliente.asesor||"").toString().trim().toLowerCase();
+  const asesorEmail = (asesorEmailMap && _an && asesorEmailMap[_an]) ? asesorEmailMap[_an] : (cliente.asesor_email||null);
   // Clave única estable: id explícito → correo → determinística por nombre+teléfono.
   // Así un cliente SIN correo también sincroniza y NO se duplica (misma clave en las 3 compus).
   let idc = (cliente.id || cliente.id_cliente || "").toString().trim() || email;
@@ -517,6 +520,7 @@ function clienteToSupabase(cliente) {
     empresa: cliente.empresa || null,
     telefono: cliente.telefono ? cliente.telefono.toString() : null,
     asesor: cliente.asesor || null,
+    asesor_email: asesorEmail,
     tipo_comprador: cliente.tipo_comprador || null,
     ciudad_interes: Array.isArray(cliente.ciudad_interes) ? cliente.ciudad_interes : [],
     telefono: cliente.telefono || "",
@@ -629,12 +633,12 @@ async function migrarLotesASupabase(lotes, onProgress) {
 }
 
 // Subir clientes en batch a Supabase — upsert por email
-async function migrarClientesASupabase(clientes, onProgress) {
+async function migrarClientesASupabase(clientes, onProgress, asesorEmailMap) {
   const ok = await waitForSupabase();
   if (!ok) return { success: false, count: 0, errors: ['Supabase no disponible'], message: 'Timeout esperando Supabase' };
-  
+
   const BATCH_SIZE = 50;
-  const rows = clientes.map(clienteToSupabase).filter(r => r !== null);
+  const rows = clientes.map(c=>clienteToSupabase(c, asesorEmailMap)).filter(r => r !== null);
   const skipped = clientes.length - rows.length;
   let uploaded = 0;
   const errors = [];
@@ -2055,7 +2059,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const crmFila=(key,e)=>({ lote_id: loteKey({id:key}), pipeline: e.pipeline||"Disponible", asesor_asignado: e.asesorResponsable||null, prospectos: e.prospectos||[], interacciones: e.interacciones||[], dev_feedback: e.devFeedback||[], seguimientos_asesor: e.seguimientosAsesor||(e.seguimientoAsesor?[e.seguimientoAsesor]:[]), updated_at:new Date().toISOString() });
   const subirCRMLoteCloud=async(key,e)=>{ if(!window.sb||!key||!e) return; try{ await window.sb.from('crm_lotes').upsert(crmFila(key,e),{onConflict:'lote_id'}); }catch(err){ console.warn('subir crm lote:',err&&err.message); } };
   // Subida de UN cliente (clave = id_cliente; sin id ni correo no se sube para evitar duplicados)
-  const subirClienteCloud=async(c)=>{ if(!window.sb||!c) return; const row=clienteToSupabase(c); if(!row) return; try{ await window.sb.from('clientes').upsert(row,{onConflict:'id_cliente'}); }catch(err){ console.warn('subir cliente:',err&&err.message); } };
+  // Mapa nombre(asesor) → correo, desde el catálogo de asesores (para poblar asesor_email al subir)
+  const asesorEmailMap=()=>{ const m={}; (asesoresCatalog||[]).forEach(a=>{ if(a&&a.nombre&&a.email) m[a.nombre.toString().trim().toLowerCase()]=a.email.toString().trim().toLowerCase(); }); return m; };
+  const subirClienteCloud=async(c)=>{ if(!window.sb||!c) return; const row=clienteToSupabase(c, asesorEmailMap()); if(!row) return; try{ await window.sb.from('clientes').upsert(row,{onConflict:'id_cliente'}); }catch(err){ console.warn('subir cliente:',err&&err.message); } };
   // Clave de identidad de un cliente para snapshot/dedupe: correo → id → nombre+teléfono
   const normTxt=s=>String(s||"").trim().toLowerCase().replace(/\s+/g," ");
   const cliKey=(c)=>{ const e=normTxt(c&&(c.email||c.correo)); if(e) return "e:"+e; const n=normTxt(c&&c.nombre), t=String((c&&c.telefono)||"").replace(/\D/g,""); if(n||t) return "n:"+n+"|"+t; const id=String((c&&(c.id||c.id_cliente))||"").trim(); return id?("id:"+id):""; };
@@ -2853,7 +2859,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     try {
       const result = await window.sbHelpers.migrarClientes(clients, (cur, tot) => {
         setMigrateState(s => ({ ...s, progress: { current: cur, total: tot } }));
-      });
+      }, asesorEmailMap());
       setMigrateState(s => ({ ...s, running: false, stage: null, results: { ...(s.results || {}), clientes: result } }));
       toast(result.message);
       return result;
@@ -2938,7 +2944,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     try {
       // 1) SUBIR lo local (por registro) — mis cambios ganan su registro
       if(window.sbHelpers){
-        if(clients && clients.length)              await window.sbHelpers.migrarClientes(clients, ()=>{});
+        if(clients && clients.length)              await window.sbHelpers.migrarClientes(clients, ()=>{}, asesorEmailMap());
         if(crmData && Object.keys(crmData).length) await window.sbHelpers.migrarCRM(crmData, ()=>{});
       }
       // 2) BAJAR (fusión) — clientes + CRM
@@ -3208,7 +3214,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
       try{
         if(window.sbHelpers){
           let cN=0, kN=0;
-          if(clients && clients.length){ const r=await window.sbHelpers.migrarClientes(clients, ()=>{}); cN=(r&&r.count)||0; }
+          if(clients && clients.length){ const r=await window.sbHelpers.migrarClientes(clients, ()=>{}, asesorEmailMap()); cN=(r&&r.count)||0; }
           if(crmData && Object.keys(crmData).length){ const r=await window.sbHelpers.migrarCRM(crmData, ()=>{}); kN=(r&&r.count)||0; }
           try{ toast("☁️ Sincronizado a la nube ("+cN+" clientes · "+kN+" CRM)"); }catch(_){}
         }
