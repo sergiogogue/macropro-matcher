@@ -14771,21 +14771,31 @@ Respuesta: [respuesta exacta, conversacional]
       e.target.value="";
     };
 
+    // Resuelve la clave REAL del lote en crmData (agnóstica a may/min/separadores)
+    const _crmKeyDrawer = () => { const cur=crmData||{}; return (cur[f.lotId]!==undefined)?f.lotId:(Object.keys(cur).find(k=>normLoteId(k)===normLoteId(f.lotId))||f.lotId); };
     const cambiarEtapa = (etapa) => {
       setNuevaEtapa(etapa);
-      const crm=crmData[f.lotId]||{};
+      const key=_crmKeyDrawer(); const crm=crmData[key]||{};
       const prospectos=(crm.prospectos||[]).map((p,idx)=>idx===f.prospectoIdx?{...p,pipeline:etapa,updatedAt:new Date().toISOString()}:p);
-      updateCRM(f.lotId,{prospectos});
+      updateCRM(key,{prospectos});
+      setSemaforoDrawer(sd=> (sd&&sd.f)?{f:{...sd.f,etapa:etapa}}:sd);
       toast("✅ Etapa → "+etapa);
     };
 
     const guardarComentario = () => {
       if(!nuevoComentario.trim()) return;
       setGuardando(true);
-      const crm=crmData[f.lotId]||{};
-      const prospectos=(crm.prospectos||[]).map((p,idx)=>idx===f.prospectoIdx?{...p,nota:nuevoComentario.trim(),updatedAt:new Date().toISOString()}:p);
-      updateCRM(f.lotId,{prospectos});
-      setTimeout(()=>{setGuardando(false);setNuevoComentario("");toast("✅ Guardado");setSemaforoDrawer(null);},300);
+      const txt=nuevoComentario.trim(); const hoy=new Date().toISOString().slice(0,10);
+      const key=_crmKeyDrawer(); const crm=crmData[key]||{pipeline:"Disponible",interacciones:[],prospectos:[]};
+      const prosp=(crm.prospectos||[])[f.prospectoIdx];
+      const nombreP = prosp ? (prosp.nombre||"") : "";
+      // Guardar como INTERACCIÓN (así aparece como "último comentario") + reflejar sin cerrar
+      const inter={tipo:"Nota",canal:"Nota",nota:txt,fecha:hoy,prospecto:nombreP,updatedAt:new Date().toISOString()};
+      const interacciones=[...(crm.interacciones||[]),inter];
+      updateCRM(key,{interacciones,lastContact:hoy});
+      setSemaforoDrawer(sd=> (sd&&sd.f)?{f:{...sd.f,ultComentario:txt,ultFecha:hoy}}:sd);
+      setNuevoComentario(""); setGuardando(false);
+      toast("✅ Comentario guardado");
     };
 
     const abrirModalCompleto = () => {
@@ -14867,6 +14877,14 @@ Respuesta: [respuesta exacta, conversacional]
                       ))}
                     </div>
                     {(()=>{const lot=inventory.find(l=>l.id===f.lotId)||{};return (lot.cos||lot.cus||lot.niveles)&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{lot.cos&&<span style={{fontSize:9,background:"#f0fdf4",color:"#15803d",borderRadius:5,padding:"2px 7px",fontWeight:600}}>COS {lot.cos}</span>}{lot.cus&&<span style={{fontSize:9,background:"#eff6ff",color:"#1d4ed8",borderRadius:5,padding:"2px 7px",fontWeight:600}}>CUS {lot.cus}</span>}{lot.niveles&&<span style={{fontSize:9,background:"#fef3c7",color:"#92400e",borderRadius:5,padding:"2px 7px",fontWeight:600}}>{lot.niveles} niveles</span>}</div>;})()}
+                  </div>
+
+                  {/* Etapa del negocio — cambiable desde Información */}
+                  <div>
+                    <div style={{fontSize:9,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Etapa del negocio</div>
+                    <select value={nuevaEtapa} onChange={e=>cambiarEtapa(e.target.value)} style={{width:"100%",borderRadius:8,border:"1.5px solid "+eCol+"55",padding:"9px 11px",fontSize:12,fontWeight:800,color:"#002B49",background:eCol+"12",fontFamily:"'DM Sans',sans-serif",outline:"none",cursor:"pointer"}}>
+                      {PIPELINE_STAGES.map(s=><option key={s} value={s}>{s}</option>)}
+                    </select>
                   </div>
 
                   <div style={{height:1,background:"#f1f5f9"}}/>
