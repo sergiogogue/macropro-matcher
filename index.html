@@ -2605,6 +2605,38 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const saveAsesores=(arr)=>{try{localStorage.setItem(ASESORES_KEY,JSON.stringify(arr));}catch(e){}};
   const [asesoresCatalog,setAsesoresCatalog]=React.useState(()=>loadAsesores());
   const updateAsesoresCatalog=(arr)=>{setAsesoresCatalog(arr);saveAsesores(arr);};
+  // ── A3 · Catálogo de asesores consistente con Supabase (mismo correo que el login).
+  //    El cotizador y la landing comparten la tabla public.asesores (id, nombre, email,
+  //    telefono, activo). Al abrir, FUSIONAMOS esa tabla en el catálogo local: los de la
+  //    nube actualizan/agregan por correo; nunca borramos los locales que no estén en nube.
+  const asesoresSyncRef = React.useRef(false);
+  React.useEffect(()=>{
+    if(asesoresSyncRef.current || !sb) return;
+    asesoresSyncRef.current=true;
+    let alive=true;
+    (async()=>{
+      try{
+        const { data, error } = await sb.from('asesores').select('id,nombre,email,telefono,activo');
+        if(!alive || error || !Array.isArray(data) || !data.length) return;
+        setAsesoresCatalog(prev=>{
+          const local=Array.isArray(prev)?prev.slice():[];
+          const norm=s=>((s||"")+"").trim().toLowerCase();
+          const byEmail={}, byName={};
+          local.forEach((a,i)=>{ if(a&&a.email) byEmail[norm(a.email)]=i; if(a&&a.nombre) byName[norm(a.nombre)]=i; });
+          data.forEach(r=>{
+            const em=norm(r.email), nm=norm(r.nombre);
+            let idx=(em&&byEmail[em]!=null)?byEmail[em]:((nm&&byName[nm]!=null)?byName[nm]:-1);
+            const cloud={ id:r.id||(idx>=0?local[idx].id:undefined)||("asr-"+(nm||em)), nombre:r.nombre||(idx>=0?local[idx].nombre:""), email:(r.email||"").toString().trim().toLowerCase()||(idx>=0?local[idx].email:""), telefono:r.telefono||(idx>=0?local[idx].telefono:"")||"", activo:(r.activo!=null?r.activo:(idx>=0?local[idx].activo:true)) };
+            if(idx>=0){ local[idx]={...local[idx],...cloud}; }
+            else { local.push(cloud); if(em) byEmail[em]=local.length-1; if(nm) byName[nm]=local.length-1; }
+          });
+          saveAsesores(local);
+          return local;
+        });
+      }catch(e){}
+    })();
+    return ()=>{ alive=false; };
+  },[sb]);
   // ── Identidad del usuario logueado → su asesor (por correo). Sirve para que "Mi día"
   //    abra mostrando SOLO lo de cada colaborador (puede cambiar a "Todos" cuando quiera). ──
   const miAsesor = React.useMemo(()=>{
@@ -3692,9 +3724,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const id=`CLI-${String(clients.length+1).padStart(3,"0")}`;
     const ciudadArr=newClient.ciudad_interes_raw?.split(",").map(s=>s.trim()).filter(Boolean)||[];
     const usoArr=newClient.uso_interes_raw?.split(",").map(s=>s.trim()).filter(Boolean)||[];
-    const nc={...newClient,id,ciudad_interes:ciudadArr,uso_interes:usoArr,presupuesto_min:parseFloat(newClient.presupuesto_min)*1000000||0,presupuesto_max:parseFloat(newClient.presupuesto_max)*1000000||0,sup_min:parseFloat(newClient.sup_min)||0,sup_max:parseFloat(newClient.sup_max)||0,fecha_contacto:new Date().toISOString().slice(0,10)};
+    const nc={...newClient,id,email:(newClient.email||"").toString().trim().toLowerCase(),telefono:(newClient.telefono||"").toString().trim(),ciudad_interes:ciudadArr,uso_interes:usoArr,presupuesto_min:parseFloat(newClient.presupuesto_min)*1000000||0,presupuesto_max:parseFloat(newClient.presupuesto_max)*1000000||0,sup_min:parseFloat(newClient.sup_min)||0,sup_max:parseFloat(newClient.sup_max)||0,fecha_contacto:new Date().toISOString().slice(0,10)};
     setClients(prev=>[...prev,nc]);
-    setNewClient({nombre:"",empresa:"",asesor:"",ciudad_interes_raw:"",uso_interes_raw:"",presupuesto_min:"",presupuesto_max:"",sup_min:"",sup_max:"",status:"Prospecto nuevo",notas:""});
+    setNewClient({nombre:"",empresa:"",email:"",telefono:"",asesor:"",ciudad_interes_raw:"",uso_interes_raw:"",presupuesto_min:"",presupuesto_max:"",sup_min:"",sup_max:"",status:"Prospecto nuevo",notas:""});
     setShowAddClient(false);
     toast("✓ Cliente agregado correctamente");
   };
@@ -5277,17 +5309,23 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const [cots, setCots] = React.useState(null); // null = aún no cargado
     const [err, setErr] = React.useState(null);
     const cid = (cliente && cliente.sb_id) ? cliente.sb_id : null;
+    // El cotizador liga por cliente_email (minúsculas) o cliente_id. Buscamos por ambos.
+    const cem = (cliente && (cliente.email || cliente.correo) || "").toString().trim().toLowerCase();
     React.useEffect(() => {
       if (!open || cots !== null) return; // cargar una sola vez al abrir
-      if (!sb || !cid) { setCots([]); return; }
+      if (!sb || (!cid && !cem)) { setCots([]); return; }
       let alive = true;
       (async () => {
         try {
-          const { data, error } = await sb
+          let q = sb
             .from('cotizaciones')
-            .select('id, created_at, precio_lista, precio_final, estatus, nombre_asesor, plan_seleccionado, uuid_publico, desarrollos ( nombre ), lotes ( nombre_terreno )')
-            .eq('cliente_id', cid)
-            .order('created_at', { ascending: false });
+            .select('id, created_at, precio_lista, precio_final, estatus, nombre_asesor, cliente_email, plan_seleccionado, uuid_publico, desarrollos ( nombre ), lotes ( nombre_terreno )');
+          // Enlazar por cliente_email O cliente_id (según lo que tengamos del cliente)
+          const ors = [];
+          if (cid) ors.push('cliente_id.eq.' + cid);
+          if (cem) ors.push('cliente_email.eq.' + cem);
+          q = (ors.length > 1) ? q.or(ors.join(',')) : (cid ? q.eq('cliente_id', cid) : q.eq('cliente_email', cem));
+          const { data, error } = await q.order('created_at', { ascending: false });
           if (!alive) return;
           if (error) { setErr(error.message); setCots([]); }
           else setCots(Array.isArray(data) ? data : []);
@@ -5309,8 +5347,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
         </button>
         {open && (
           <div style={{ marginTop: 8, background: "#fff", border: "1px solid " + B.grey1, borderRadius: 10, overflow: "hidden" }}>
-            {!cid ? (
-              <div style={{ padding: "12px 14px", fontSize: 12, color: B.grey3 }}>Este cliente no tiene id de nube. Usa <b>🔄 Sincronizar</b> para verlo cotizaciones.</div>
+            {(!cid && !cem) ? (
+              <div style={{ padding: "12px 14px", fontSize: 12, color: B.grey3 }}>Este cliente no tiene id de nube ni correo. Agrega su <b>email</b> o usa <b>🔄 Sincronizar</b> para ver sus cotizaciones.</div>
             ) : cots === null ? (
               <div style={{ padding: "12px 14px", fontSize: 12, color: B.grey3 }}>Cargando cotizaciones…</div>
             ) : err ? (
@@ -16458,7 +16496,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{fontSize:20,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>Nuevo Cliente</div>
           <button style={s.btn("ghost")} onClick={()=>setShowAddClient(false)}>✕</button>
         </div>
-        {[["Nombre completo ★","nombre","text","Ej: Martín Campos"],["Empresa / Fondo","empresa","text","Ej: Campos Desarrollos"],["Asesor responsable","asesor","text","Ej: Sergio González"],["Ciudades de interés (separadas por coma)","ciudad_interes_raw","text","Ej: Guadalajara, Cancún"],["Usos de interés (separados por coma)","uso_interes_raw","text","Ej: Habitacional Vertical, Comercial / Retail"],["Presupuesto mínimo (millones MXN)","presupuesto_min","number","Ej: 20"],["Presupuesto máximo (millones MXN)","presupuesto_max","number","Ej: 100"],["Superficie mínima (m²)","sup_min","number","Ej: 5000"],["Superficie máxima (m²)","sup_max","number","Ej: 20000"],["Notas / Perfil del cliente","notas","text","Descripción libre"]].map(([lbl,key,type,ph])=>(
+        {[["Nombre completo ★","nombre","text","Ej: Martín Campos"],["Empresa / Fondo","empresa","text","Ej: Campos Desarrollos"],["Correo (llave para el cotizador)","email","email","Ej: martin@campos.mx"],["Teléfono","telefono","text","Ej: 33 1234 5678"],["Asesor responsable","asesor","text","Ej: Sergio González"],["Ciudades de interés (separadas por coma)","ciudad_interes_raw","text","Ej: Guadalajara, Cancún"],["Usos de interés (separados por coma)","uso_interes_raw","text","Ej: Habitacional Vertical, Comercial / Retail"],["Presupuesto mínimo (millones MXN)","presupuesto_min","number","Ej: 20"],["Presupuesto máximo (millones MXN)","presupuesto_max","number","Ej: 100"],["Superficie mínima (m²)","sup_min","number","Ej: 5000"],["Superficie máxima (m²)","sup_max","number","Ej: 20000"],["Notas / Perfil del cliente","notas","text","Descripción libre"]].map(([lbl,key,type,ph])=>(
           <div key={key} style={{marginBottom:12}}>
             <div style={{fontSize:12,fontWeight:600,color:B.grey4,marginBottom:4}}>{lbl}</div>
             {key==="notas"?<textarea style={{...s.input,width:"100%",height:64,resize:"none",padding:"9px 12px"}} placeholder={ph} value={newClient[key]||""} onChange={e=>setNewClient({...newClient,[key]:e.target.value})}/>:<input style={{...s.input,width:"100%"}} type={type} placeholder={ph} value={newClient[key]||""} onChange={e=>setNewClient({...newClient,[key]:e.target.value})}/>}
