@@ -2060,7 +2060,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const subirCRMLoteCloud=async(key,e)=>{ if(!window.sb||!key||!e) return; try{ await window.sb.from('crm_lotes').upsert(crmFila(key,e),{onConflict:'lote_id'}); }catch(err){ console.warn('subir crm lote:',err&&err.message); } };
   // Subida de UN cliente (clave = id_cliente; sin id ni correo no se sube para evitar duplicados)
   // Mapa nombre(asesor) → correo, desde el catálogo de asesores (para poblar asesor_email al subir)
-  const asesorEmailMap=()=>{ const m={}; (asesoresCatalog||[]).forEach(a=>{ if(a&&a.nombre&&a.email) m[a.nombre.toString().trim().toLowerCase()]=a.email.toString().trim().toLowerCase(); }); return m; };
+  const asesorEmailMap=()=>{ const m={}; const add=a=>{ if(a&&a.nombre&&a.email) m[a.nombre.toString().trim().toLowerCase()]=a.email.toString().trim().toLowerCase(); }; (asesoresCatalog||[]).forEach(add); (asesoresCloud||[]).forEach(add); return m; };
   const subirClienteCloud=async(c)=>{ if(!window.sb||!c) return; const row=clienteToSupabase(c, asesorEmailMap()); if(!row) return; try{ await window.sb.from('clientes').upsert(row,{onConflict:'id_cliente'}); }catch(err){ console.warn('subir cliente:',err&&err.message); } };
   // Clave de identidad de un cliente para snapshot/dedupe: correo → id → nombre+teléfono
   const normTxt=s=>String(s||"").trim().toLowerCase().replace(/\s+/g," ");
@@ -2603,12 +2603,25 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const ASESORES_KEY="macropro_asesores_v1";
   const loadAsesores=()=>{try{return JSON.parse(localStorage.getItem(ASESORES_KEY)||"[]");}catch(e){return [];}};
   const saveAsesores=(arr)=>{try{localStorage.setItem(ASESORES_KEY,JSON.stringify(arr));}catch(e){}};
-  const [asesoresCatalog,setAsesoresCatalog]=React.useState(()=>loadAsesores());
+  // Limpieza: un deploy anterior copió TODA la tabla `asesores` de Supabase (cotizador/
+  // landing, con muchos nombres/variantes) dentro del catálogo local, inflando los
+  // desplegables. Los asesores agregados a mano usan id "AS-…"; los inyectados desde la
+  // nube NO. Quitamos esos para restaurar el catálogo (los reales siguen apareciendo por
+  // sus datos y su correo/login se resuelve desde la nube en memoria).
+  const loadAsesoresLimpio=()=>{
+    const arr=loadAsesores(); const src=Array.isArray(arr)?arr:[];
+    const limpio=src.filter(a=> a && typeof a.id==="string" && a.id.indexOf("AS-")===0);
+    if(limpio.length!==src.length){ saveAsesores(limpio); }
+    return limpio;
+  };
+  const [asesoresCatalog,setAsesoresCatalog]=React.useState(()=>loadAsesoresLimpio());
+  const [asesoresCloud,setAsesoresCloud]=React.useState([]); // solo memoria: correo/login
   const updateAsesoresCatalog=(arr)=>{setAsesoresCatalog(arr);saveAsesores(arr);};
-  // ── A3 · Catálogo de asesores consistente con Supabase (mismo correo que el login).
-  //    El cotizador y la landing comparten la tabla public.asesores (id, nombre, email,
-  //    telefono, activo). Al abrir, FUSIONAMOS esa tabla en el catálogo local: los de la
-  //    nube actualizan/agregan por correo; nunca borramos los locales que no estén en nube.
+  // ── A3 · Correo/identidad de asesores consistentes con Supabase, SIN contaminar el
+  //    catálogo. La tabla public.asesores (cotizador/landing) puede traer MUCHOS nombres y
+  //    variantes; NO se vuelcan al catálogo ni a los desplegables. Se guardan solo EN
+  //    MEMORIA para: (a) resolver asesor_email al subir clientes, (b) mapear el correo de
+  //    login → asesor. Así el ruteo por correo funciona sin inflar la UI ni duplicar.
   const asesoresSyncRef = React.useRef(false);
   React.useEffect(()=>{
     if(asesoresSyncRef.current || !sb) return;
@@ -2618,21 +2631,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
       try{
         const { data, error } = await sb.from('asesores').select('id,nombre,email,telefono,activo');
         if(!alive || error || !Array.isArray(data) || !data.length) return;
-        setAsesoresCatalog(prev=>{
-          const local=Array.isArray(prev)?prev.slice():[];
-          const norm=s=>((s||"")+"").trim().toLowerCase();
-          const byEmail={}, byName={};
-          local.forEach((a,i)=>{ if(a&&a.email) byEmail[norm(a.email)]=i; if(a&&a.nombre) byName[norm(a.nombre)]=i; });
-          data.forEach(r=>{
-            const em=norm(r.email), nm=norm(r.nombre);
-            let idx=(em&&byEmail[em]!=null)?byEmail[em]:((nm&&byName[nm]!=null)?byName[nm]:-1);
-            const cloud={ id:r.id||(idx>=0?local[idx].id:undefined)||("asr-"+(nm||em)), nombre:r.nombre||(idx>=0?local[idx].nombre:""), email:(r.email||"").toString().trim().toLowerCase()||(idx>=0?local[idx].email:""), telefono:r.telefono||(idx>=0?local[idx].telefono:"")||"", activo:(r.activo!=null?r.activo:(idx>=0?local[idx].activo:true)) };
-            if(idx>=0){ local[idx]={...local[idx],...cloud}; }
-            else { local.push(cloud); if(em) byEmail[em]=local.length-1; if(nm) byName[nm]=local.length-1; }
-          });
-          saveAsesores(local);
-          return local;
-        });
+        setAsesoresCloud(data.map(r=>({ id:r.id, nombre:r.nombre||"", email:(r.email||"").toString().trim().toLowerCase(), telefono:r.telefono||"", activo:(r.activo!=null?r.activo:true) })));
       }catch(e){}
     })();
     return ()=>{ alive=false; };
@@ -2644,15 +2643,17 @@ function MacroProMatcher({ sessionEmail } = {}) {
     let stored=""; try{ stored=(localStorage.getItem("macropro_mi_asesor")||"").trim(); }catch(e){}
     if(stored) return stored;
     const e=(sessionEmail||"").trim().toLowerCase(); if(!e) return "";
-    const hit=(asesoresCatalog||[]).find(a=>((a.email||"")+"").trim().toLowerCase()===e);
+    const buscar=arr=>(arr||[]).find(a=>((a.email||"")+"").trim().toLowerCase()===e);
+    const hit=buscar(asesoresCatalog)||buscar(asesoresCloud);
     return hit?hit.nombre:"";
-  },[sessionEmail, asesoresCatalog]);
+  },[sessionEmail, asesoresCatalog, asesoresCloud]);
   // Asesor SEGÚN EL CORREO de login (no la elección local): base del rol/bloqueo.
   const miAsesorPorCorreo = React.useMemo(()=>{
     const e=(sessionEmail||"").trim().toLowerCase(); if(!e) return "";
-    const hit=(asesoresCatalog||[]).find(a=>((a.email||"")+"").trim().toLowerCase()===e);
+    const buscar=arr=>(arr||[]).find(a=>((a.email||"")+"").trim().toLowerCase()===e);
+    const hit=buscar(asesoresCatalog)||buscar(asesoresCloud);
     return hit?hit.nombre:"";
-  },[sessionEmail, asesoresCatalog]);
+  },[sessionEmail, asesoresCatalog, asesoresCloud]);
   // ADMIN (ve todo y asigna) vs ASESOR (solo lo suyo, bloqueado).
   // Admin si: no hay login · correo en lista de admins · correo NO registrado como
   // asesor · o el asesor está marcado rol 'admin'. (Falla del lado seguro: ver todo.)
