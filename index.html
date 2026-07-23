@@ -1760,7 +1760,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [filterSemaforo, setFilterSemaforo] = React.useState("Todos");
   const [filterCanal, setFilterCanal] = React.useState("Todos");
   const [vistaKanban, setVistaKanban] = React.useState("board"); // "board" | "canales"
-  const [vistaMiDia, setVistaMiDia] = React.useState("lista"); // "lista" | "calendario"
+  // "Mi día" abre en Calendario por defecto (se recuerda la elección por dispositivo).
+  const [vistaMiDia, _setVistaMiDia] = React.useState(()=>{ try{ const v=localStorage.getItem("macropro_vista_midia"); return (v==="lista"||v==="calendario")?v:"calendario"; }catch(e){ return "calendario"; } }); // "lista" | "calendario"
+  const setVistaMiDia = (v)=>{ _setVistaMiDia(v); try{ localStorage.setItem("macropro_vista_midia", v); }catch(e){} };
   const [miDiaSearch, setMiDiaSearch] = React.useState(""); // buscador de cliente en Mi día
   const [vistaLots, setVistaLots] = React.useState("lista"); // "lista" | "analisis"
   const [dashDev, setDashDev] = React.useState("Todos"); // filtro desarrollador del Dashboard
