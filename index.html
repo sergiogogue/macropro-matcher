@@ -1796,7 +1796,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [dashDev, setDashDev] = React.useState("Todos"); // filtro desarrollador del Dashboard
   const [miDiaWeekOffset, setMiDiaWeekOffset] = React.useState(0); // semanas respecto a la actual
   const [miDiaMonthOffset, setMiDiaMonthOffset] = React.useState(0); // meses respecto al actual (vista mes)
-  const [miDiaCalMode, _setMiDiaCalMode] = React.useState(()=>{ try{ const v=localStorage.getItem("macropro_cal_mode"); return (v==="mes"||v==="semana")?v:"semana"; }catch(e){ return "semana"; } }); // "semana" | "mes"
+  const [miDiaDayOffset, setMiDiaDayOffset] = React.useState(0); // días respecto a hoy (vista día)
+  const [miDiaCalMode, _setMiDiaCalMode] = React.useState(()=>{ try{ const v=localStorage.getItem("macropro_cal_mode"); return (v==="mes"||v==="semana"||v==="dia")?v:"semana"; }catch(e){ return "semana"; } }); // "dia" | "semana" | "mes"
   const setMiDiaCalMode = (v)=>{ _setMiDiaCalMode(v); try{ localStorage.setItem("macropro_cal_mode", v); }catch(e){} };
   const [tabEjecutivoGlobal, setTabEjecutivoGlobal] = React.useState("ejecutivo");
   const [semaforoDrawer, setSemaforoDrawer] = React.useState(null);
@@ -9428,12 +9429,46 @@ function MacroProMatcher({ sessionEmail } = {}) {
             </div>
           );
         };
+        const modeBtn=(v,l)=>(<button onClick={()=>setMiDiaCalMode(v)} style={{padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:miDiaCalMode===v?B.navy:"transparent",color:miDiaCalMode===v?"#fff":B.grey4}}>{l}</button>);
         const modeToggle=(
           <div style={{display:"flex",gap:4,background:B.offW,borderRadius:8,padding:3,border:"1px solid "+B.grey1}}>
-            <button onClick={()=>setMiDiaCalMode("semana")} style={{padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:miDiaCalMode==="semana"?B.navy:"transparent",color:miDiaCalMode==="semana"?"#fff":B.grey4}}>Semana</button>
-            <button onClick={()=>setMiDiaCalMode("mes")} style={{padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",background:miDiaCalMode==="mes"?B.navy:"transparent",color:miDiaCalMode==="mes"?"#fff":B.grey4}}>Mes</button>
+            {modeBtn("dia","Día")}{modeBtn("semana","Semana")}{modeBtn("mes","Mes")}
           </div>
         );
+
+        // ── VISTA DÍA ──
+        if(miDiaCalMode==="dia"){
+          const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+miDiaDayOffset);
+          const dISO=isoLocal(d); const esHoy=dISO===hoyISO;
+          const NOMS_L=["lunes","martes","miércoles","jueves","viernes","sábado","domingo"];
+          const diaSemana=NOMS_L[(d.getDay()+6)%7];
+          const delDia=actsDelDia(dISO);
+          const titulo=`${diaSemana.charAt(0).toUpperCase()+diaSemana.slice(1)} ${d.getDate()} ${MESES_L[d.getMonth()]} ${d.getFullYear()}`;
+          return (
+            <div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,gap:10,flexWrap:"wrap"}}>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                  <button onClick={()=>setMiDiaDayOffset(miDiaDayOffset-1)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid "+B.grey1,background:B.white,cursor:"pointer",fontSize:13,fontWeight:700,color:B.navy}}>◀</button>
+                  <button onClick={()=>setMiDiaDayOffset(0)} style={{padding:"6px 14px",borderRadius:8,border:"1px solid "+B.grey1,background:miDiaDayOffset===0?B.navy:B.white,color:miDiaDayOffset===0?"#fff":B.navy,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>Hoy</button>
+                  <button onClick={()=>setMiDiaDayOffset(miDiaDayOffset+1)} style={{padding:"6px 12px",borderRadius:8,border:"1px solid "+B.grey1,background:B.white,cursor:"pointer",fontSize:13,fontWeight:700,color:B.navy}}>▶</button>
+                  {modeToggle}
+                </div>
+                <div style={{fontSize:15,fontWeight:800,color:esHoy?B.navy:B.grey4,fontFamily:"'Playfair Display',serif",textTransform:"capitalize"}}>{titulo}{esHoy?" · Hoy":""}</div>
+              </div>
+              <div style={{border:"1px solid "+(esHoy?B.navy:B.grey1),borderRadius:12,padding:14,background:esHoy?"#f8fbff":B.white,minHeight:160}}>
+                <div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>{delDia.length>0?(delDia.length+" actividad"+(delDia.length!==1?"es":"")):"Sin actividades"}</div>
+                {delDia.length===0?(
+                  <div style={{fontSize:12,color:B.grey3,textAlign:"center",padding:"24px 0",fontStyle:"italic"}}>Día libre 🌤️</div>
+                ):(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:10}}>
+                    {delDia.map(a=>chipAct(a,false))}
+                  </div>
+                )}
+              </div>
+              <div style={{fontSize:10,color:B.grey3,marginTop:8,textAlign:"center"}}>Clic en una actividad: pendiente → completar · completada → editar</div>
+            </div>
+          );
+        }
 
         // ── VISTA MES ──
         if(miDiaCalMode==="mes"){
