@@ -123,6 +123,18 @@ const APPS_FALLBACK = [
   {slug:"google-keep",nombre:"Google Keep",descripcion:"Notas y pendientes",icono:"💡",color:"#fbbc04",url:"https://keep.google.com/",grupo:"tool",recibe_desarrollo:false,integrada:true,orden:140},
 ];
 
+// Apps que se garantizan visibles aunque la tabla `apps` de Supabase aún no las tenga.
+// Se agregan si no existen ya (por slug o nombre); si luego se capturan en Supabase, manda Supabase.
+const APP_OVERRIDES = [
+  {slug:"notebooklm",nombre:"NotebookLM",descripcion:"Cuaderno de IA (Google)",icono:"📓",color:"#1a73e8",url:"https://notebooklm.google.com/",grupo:"tool",recibe_desarrollo:false,integrada:true,orden:130},
+];
+function aplicarAppOverrides(){
+  APP_OVERRIDES.forEach(o=>{
+    const i = APPS.findIndex(a=> norm(a.slug)===norm(o.slug) || norm(a.nombre)===norm(o.nombre));
+    if(i<0) APPS = APPS.concat([o]);
+  });
+}
+
 const DES_FALLBACK = [
   {slug:"kulkana",nombre:"Kulkana",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"Cancún",color_principal:"#1f5f3f",color_secundario:"#c9a961",plataforma_url:"https://armada.com.mx/sitio/clientes/tya/kulkana/macros/360/"},
   {slug:"graavalle",nombre:"Gran Valle",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#7d6654",color_secundario:"#b9a489"},
@@ -208,6 +220,7 @@ async function cargar(){
       if(!l.error && Array.isArray(l.data)) l.data.forEach(r=>{ const k=norm(r.desarrollo); if(k) COUNT[k]=(COUNT[k]||0)+1; }); }catch(e){}
   }
   if(!DES.length) DES = DES_FALLBACK;   // nunca queda vacío
+  aplicarAppOverrides();                // apps garantizadas (ej. NotebookLM) aunque no estén en Supabase
   aplicarPlatOverrides();               // plataformas 360 aún no capturadas en Supabase
   document.getElementById("src").textContent = online ? "✓ datos en vivo desde Supabase" : "⚠ mostrando datos de respaldo (sin conexión a Supabase)";
   renderApps(); renderDes(); renderVideos();
