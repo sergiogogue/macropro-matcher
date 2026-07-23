@@ -409,6 +409,35 @@ function mergeProspectosByName(mineArr, cloudArr){
 // Clave de MATCHING de lote: ignora mayúsculas, espacios, guiones y guiones bajos.
 // Así "KU-010", "ku-010", "ku_010" y "KU_010" se reconocen como EL MISMO lote.
 function superNormId(s){ return String(s||"").toLowerCase().replace(/[^a-z0-9]/g,""); }
+// ─── 🆕 «Nuevo lanzamiento» · MISMA regla que la landing (fuente: lotes.metadata, jsonb) ───
+// Un lote es lanzamiento si en su metadata existe una llave que contenga "lanzamiento"
+// (sin distinguir mayúsculas) cuyo valor, en minúsculas y sin acentos, sea uno de:
+// si · x · 1 · true · verdadero · nuevo.  (Equivalente exacto al predicado SQL de la landing.)
+function _lanzNorm(s){ return String(s==null?"":s).trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,""); }
+function metaEsLanzamiento(metadata){
+  if(!metadata || typeof metadata!=="object") return false;
+  const OK={si:1,x:1,"1":1,true:1,verdadero:1,nuevo:1};
+  for(const k in metadata){ if(!Object.prototype.hasOwnProperty.call(metadata,k)) continue;
+    if(String(k).toLowerCase().indexOf("lanzamiento")>=0 && OK[_lanzNorm(metadata[k])]) return true;
+  }
+  return false;
+}
+// Fecha de ingreso al inventario desde metadata (columna "* Fecha Ingreso Inventario").
+function metaFechaIngreso(metadata){
+  if(!metadata || typeof metadata!=="object") return null;
+  for(const k in metadata){ if(String(k).toLowerCase().indexOf("fecha ingreso inventario")>=0){ const d=new Date(metadata[k]); if(!isNaN(d.getTime())) return d; } }
+  return null;
+}
+// Vigencia 30 días: marcado Y (fecha de ingreso dentro de los últimos 30 días). Si no hay
+// fecha, se considera vigente (marcado) para no ocultar lanzamientos legítimos.
+function metaLanzamientoVigente(metadata, fallbackFecha){
+  if(!metaEsLanzamiento(metadata)) return false;
+  let f=metaFechaIngreso(metadata);
+  if(!f && fallbackFecha){ const d=new Date(fallbackFecha); if(!isNaN(d.getTime())) f=d; }
+  if(!f) return true;
+  const dias=(Date.now()-f.getTime())/(1000*60*60*24);
+  return dias>=0 && dias<=30;
+}
 // Orden de etapas para no regresar un lote a una etapa anterior al fusionar duplicados.
 const STAGE_ORD_MPM={"Disponible":0,"Prospecto":1,"Por Contactar":1.5,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociación":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10,"Descartado":-1};
 function stageRankMPM(s){ return (s in STAGE_ORD_MPM)?STAGE_ORD_MPM[s]:0; }
@@ -3323,6 +3352,39 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // 'KU-006' = 'ku_006' = 'ku 006'. Así crmOf empata cualquier variante con el inventario
   // y las variantes de un mismo lote NUNCA se ven como lotes distintos.
   const normLoteId=(s)=>superNormId(s);
+  // 🆕 «Nuevo lanzamiento»: se lee lotes.metadata (jsonb) de la base COMPARTIDA una vez al
+  // abrir, y se indexa por la clave canónica del lote (misma que usa la landing: id/clave_unica).
+  const [lanzamientosMap,setLanzamientosMap]=React.useState({}); // canonId -> metadata (jsonb)
+  const lanzSyncRef=React.useRef(false);
+  React.useEffect(()=>{
+    if(lanzSyncRef.current || !sb) return;
+    lanzSyncRef.current=true;
+    let alive=true;
+    (async()=>{
+      try{
+        const { data, error } = await sb.from('lotes').select('id, clave_unica, metadata');
+        if(!alive || error || !Array.isArray(data)) return;
+        const m={};
+        data.forEach(r=>{
+          if(!r || r.metadata==null) return;
+          let meta=r.metadata;
+          if(typeof meta==="string"){ try{ meta=JSON.parse(meta); }catch(e){ meta=null; } }
+          if(!meta || typeof meta!=="object") return;
+          if(r.clave_unica) m[superNormId(r.clave_unica)]=meta;
+          if(r.id) m[superNormId(r.id)]=meta;
+        });
+        if(alive) setLanzamientosMap(m);
+      }catch(e){}
+    })();
+    return ()=>{ alive=false; };
+  },[sb]);
+  // ¿Este lote (del inventario local) es «Nuevo lanzamiento» vigente? Empareja por clave canónica.
+  const loteEsLanzamiento=(lot)=>{
+    if(!lot) return false;
+    const meta=lanzamientosMap[superNormId(loteKey(lot))] || lanzamientosMap[superNormId(lot.id)];
+    if(!meta) return false;
+    return metaLanzamientoVigente(meta, lot.fecha_ingreso);
+  };
   const _crmKeyByNorm=(()=>{ const idx={}; Object.keys(crmData||{}).forEach(k=>{ const n=normLoteId(k); if(!(n in idx)) idx[n]=k; }); return idx; })();
   const crmKeyFor=(id)=> ((crmData&&crmData[id]!==undefined) ? id : (_crmKeyByNorm[normLoteId(id)]||id));
   const crmOf=(id)=> (crmData&&crmData[crmKeyFor(id)])||{};
@@ -6005,6 +6067,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
               <div style={{flex:1}}>
                 <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4,flexWrap:"wrap"}}>
                   <span style={{fontWeight:700,fontSize:14,color:B.navy}}>{lot.nombre}</span>
+                  {loteEsLanzamiento(lot)&&<span style={{fontSize:10,fontWeight:800,color:"#fff",background:"linear-gradient(135deg,#f59e0b,#ea580c)",borderRadius:6,padding:"2px 8px",letterSpacing:0.3,boxShadow:"0 2px 6px rgba(234,88,12,0.35)"}}>🆕 Nuevo lanzamiento</span>}
                   <>{(lot.usos_todos&&lot.usos_todos.length>0?lot.usos_todos:[lot.uso].filter(Boolean)).map((u,i)=><Tag key={i} label={u} color={i===0?B.navy:B.goldD} bg={i===0?B.blueL:"#FFF9EC"}/>)}</>
                   <Tag label={lot.ciudad} color={B.grey4} bg={B.grey1}/>
                   {lot.desarrollo&&<Tag label={lot.desarrollo} color={B.goldD} bg="#FFF9EC"/>}
@@ -16238,7 +16301,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{background:`linear-gradient(135deg,${B.navy},${B.navyL})`,borderRadius:"20px 20px 0 0",padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
               <div style={{fontSize:10,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Ficha Técnica · {lot.desarrollo||lot.id}</div>
-              <div style={{fontSize:24,fontWeight:800,color:B.white,fontFamily:"'Playfair Display',serif",marginBottom:4}}>{lot.nombre}</div>
+              <div style={{fontSize:24,fontWeight:800,color:B.white,fontFamily:"'Playfair Display',serif",marginBottom:4}}>{lot.nombre}{loteEsLanzamiento(lot)&&<span style={{fontSize:11,fontWeight:800,color:"#fff",background:"linear-gradient(135deg,#f59e0b,#ea580c)",borderRadius:6,padding:"3px 9px",letterSpacing:0.3,marginLeft:10,verticalAlign:"middle",boxShadow:"0 2px 6px rgba(234,88,12,0.4)"}}>🆕 Nuevo lanzamiento</span>}</div>
               <div style={{fontSize:13,color:B.grey2}}>{lot.ciudad}, {lot.estado} · {lot.uso}</div>
             </div>
             <div style={{display:"flex",gap:7,alignItems:"center"}}>
