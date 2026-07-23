@@ -1036,6 +1036,9 @@ function nuevaCaptacion(){
     precioDueno:"", precioM2:"", tipoAcuerdo:"", comision:"", vigencia:"",
     // Viabilidad (semáforo: se acepta o no)
     viabilidad:"",
+    // Autorización de la Dirección (SOLO admin edita): precio autorizado para comercializar + observaciones.
+    // El asesor opcionador lo ve cuando se le manda la Autorización/Negación.
+    precioAutorizado:"", observacionesAutorizacion:"",
     // Documentación / notas y seguimiento
     documentos:"", notas:"",
     // Vínculo al inventario (cuando se pasa a venta)
@@ -2332,7 +2335,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
     superficie:r.superficie==null?"":r.superficie, frente:r.frente==null?"":r.frente,
     precioDueno:r.precio_dueno==null?"":r.precio_dueno, precioM2:r.precio_m2==null?"":r.precio_m2,
     tipoAcuerdo:r.tipo_acuerdo||"", comision:r.comision||"", vigencia:r.vigencia||"",
-    viabilidad:r.viabilidad||"", documentos:r.documentos||"", notas:r.notas||"",
+    viabilidad:r.viabilidad||"",
+    precioAutorizado:r.precio_autorizado==null?"":r.precio_autorizado, observacionesAutorizacion:r.observaciones_autorizacion||"",
+    documentos:r.documentos||"", notas:r.notas||"",
     documentosUrls:(()=>{ const v=r.documentos_urls; if(Array.isArray(v)) return v; if(typeof v==="string"&&v){ try{ return JSON.parse(v); }catch(e){ return []; } } return []; })(),
     loteInventarioId:r.lote_inventario_id||""
   });
@@ -2346,15 +2351,28 @@ function MacroProMatcher({ sessionEmail } = {}) {
     superficie:_numCap(c.superficie), frente:_numCap(c.frente),
     precio_dueno:_numCap(c.precioDueno), precio_m2:_numCap(c.precioM2),
     tipo_acuerdo:c.tipoAcuerdo||null, comision:c.comision||null, vigencia:c.vigencia||null,
-    viabilidad:c.viabilidad||null, documentos:c.documentos||null, notas:c.notas||null,
+    viabilidad:c.viabilidad||null,
+    precio_autorizado:_numCap(c.precioAutorizado), observaciones_autorizacion:c.observacionesAutorizacion||null,
+    documentos:c.documentos||null, notas:c.notas||null,
     documentos_urls:Array.isArray(c.documentosUrls)?c.documentosUrls:[],
     lote_inventario_id:c.loteInventarioId||null,
     eliminado:false, updated_at:new Date().toISOString()
   });
   const subirCaptacionCloud = async (c)=>{
     if(!window.sb || !c || !c.id) return;
-    try{ await window.sb.from('captaciones').upsert(filaDeCaptacion(c), { onConflict:'id' }); }
-    catch(e){ console.warn('subir captación:', e&&e.message); }
+    const row = filaDeCaptacion(c);
+    try{
+      const { error } = await window.sb.from('captaciones').upsert(row, { onConflict:'id' });
+      if(error) throw error;
+    }catch(e){
+      // Reintento SIN las columnas de autorización (por si aún no se corre el SQL que las crea).
+      const msg = String((e&&e.message)||e||"");
+      if(/precio_autorizado|observaciones_autorizacion|schema cache|column|PGRST204/i.test(msg)){
+        const { precio_autorizado, observaciones_autorizacion, ...base } = row;
+        try{ await window.sb.from('captaciones').upsert(base, { onConflict:'id' }); }
+        catch(e2){ console.warn('subir captación (fallback):', e2&&e2.message); }
+      }else{ console.warn('subir captación:', msg); }
+    }
   };
   const borrarCaptacionCloud = async (id)=>{
     if(!window.sb || !id) return;
@@ -2375,7 +2393,13 @@ function MacroProMatcher({ sessionEmail } = {}) {
           if(!cancel && r && !r.error && Array.isArray(r.data)){
             setCaptaciones(prev=>{
               const byId={}; (prev||[]).forEach(s=>{ if(s&&s.id) byId[s.id]=s; });
-              r.data.forEach(row=>{ if(!row || !row.id || row.eliminado===true) return; byId[row.id]=captacionDeFila(row); });
+              r.data.forEach(row=>{ if(!row || !row.id || row.eliminado===true) return;
+                const local=byId[row.id]; const nc=captacionDeFila(row);
+                // Preserva la autorización local si la nube aún no la trae (antes de correr el SQL).
+                if((nc.precioAutorizado===""||nc.precioAutorizado==null) && local && local.precioAutorizado) nc.precioAutorizado=local.precioAutorizado;
+                if(!nc.observacionesAutorizacion && local && local.observacionesAutorizacion) nc.observacionesAutorizacion=local.observacionesAutorizacion;
+                byId[row.id]=nc;
+              });
               const arr=Object.values(byId);
               saveCaptaciones(arr); return arr;
             });
@@ -14060,8 +14084,9 @@ Respuesta: [respuesta exacta, conversacional]
     const v = c.viabilidad||"";
     if(!v){ toast("⚠ Primero define la Viabilidad (🟢/🟡/🔴) para emitir el dictamen"); return; }
     const estado = v.indexOf("🟢")>=0 ? "AUTORIZADO" : (v.indexOf("🔴")>=0 ? "NO AUTORIZADO" : "REVISAR");
-    let comentarios = c.notas||"";
+    let comentarios = c.observacionesAutorizacion||c.notas||"";
     try{ const r = window.prompt("Comentarios · motivo de la decisión (opcional):", comentarios); if(r!==null) comentarios = r; }catch(e){}
+    const precioAut = parseFloat(c.precioAutorizado)||0;
     const isSi = estado==="AUTORIZADO", isRev = estado==="REVISAR";
     const color = isSi ? "#22a34a" : isRev ? "#C98A00" : "#d64545";
     const colorSoft = isSi ? "#eaf7ee" : isRev ? "#fff6e0" : "#fbeaea";
@@ -14077,7 +14102,7 @@ Respuesta: [respuesta exacta, conversacional]
     const asesor = c.asesorResponsableGG||"";
     const nombreLote = c.zona||c.ubicacion||c.propietario||"Terreno en opción";
     const direccion = [c.zona,c.ciudad,c.estado].filter(has).join(", ");
-    const generales = [["Nombre / Lote", nombreLote],["Cliente / propietario", c.propietario],["Contacto", (c.contacto||"")+(c.telefono?(" · "+c.telefono):"")],["Dirección", direccion],["Superficie", sup>0?(sup.toLocaleString("es-MX")+" m²"):""],["Uso de suelo", c.usoSuelo],["Precio del dueño", pd>0?("$"+pd.toLocaleString("es-MX")):""],["Precio por m²", pm2>0?("$"+pm2.toLocaleString("es-MX")):""],["Tipo de acuerdo", c.tipoAcuerdo],["Comisión", c.comision]].filter(function(p){return has(p[1]);});
+    const generales = [["Nombre / Lote", nombreLote],["Cliente / propietario", c.propietario],["Contacto", (c.contacto||"")+(c.telefono?(" · "+c.telefono):"")],["Dirección", direccion],["Superficie", sup>0?(sup.toLocaleString("es-MX")+" m²"):""],["Uso de suelo", c.usoSuelo],["Precio del dueño", pd>0?("$"+pd.toLocaleString("es-MX")):""],["Precio por m²", pm2>0?("$"+pm2.toLocaleString("es-MX")):""],["Precio AUTORIZADO para comercializar", precioAut>0?("$"+precioAut.toLocaleString("es-MX")):""],["Tipo de acuerdo", c.tipoAcuerdo],["Comisión", c.comision]].filter(function(p){return has(p[1]);});
     const genRows = generales.map(function(p){return '<div class="gitem"><span class="gl">'+esc(p[0])+'</span><span class="gv">'+esc(p[1])+'</span></div>';}).join("");
     const mapsUrl = (c.ligaMaps&&/^https?:/.test(c.ligaMaps)) ? c.ligaMaps : "";
     const comentHTML = comentarios ? esc(comentarios).replace(/\n/g,"<br>") : '<span style="color:#aaa;">— Sin comentarios —</span>';
@@ -16927,6 +16952,23 @@ Respuesta: [respuesta exacta, conversacional]
                       <div><span style={lbStyle}>Vigencia del encargo</span><input style={inStyle} value={f.vigencia||""} onChange={e=>setF({vigencia:e.target.value})} placeholder="Ej. 6 meses"/></div>
                     </div>
                   </div>
+                  {esAdmin ? (
+                    <div style={{border:"1.5px solid "+B.gold, background:"#fffaf0", borderRadius:10, padding:"14px 16px"}}>
+                      <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:2,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>🔒 Autorización para comercializar <span style={{fontSize:9,fontWeight:800,color:"#a8893f",background:"#fff3d6",border:"1px solid #f0e0a8",borderRadius:6,padding:"2px 7px",textTransform:"uppercase",letterSpacing:0.5}}>Solo administrador</span></div>
+                      <div style={{fontSize:10.5,color:B.grey4,marginBottom:11}}>Lo define la Dirección. El asesor opcionador lo verá cuando se le mande la Autorización/Negación.</div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                        <div><span style={lbStyle}>Precio autorizado para comercializar ($)</span><input type="text" inputMode="decimal" style={inStyle} value={agruparNum(f.precioAutorizado)} onChange={e=>setF({precioAutorizado:crudoNum(e.target.value)})} placeholder="0"/></div>
+                        <div><span style={lbStyle}>Precio autorizado por m² <span style={{fontSize:9,color:"#15803d",fontWeight:700}}>· automático</span></span><input type="text" readOnly title="Precio autorizado ÷ superficie" style={{...inStyle,background:"#eef7f0",color:"#15803d",fontWeight:700,cursor:"default"}} value={(()=>{ const pa=parseFloat(crudoNum(f.precioAutorizado))||0, sup=parseFloat(crudoNum(f.superficie))||0; const v=(pa>0&&sup>0)?Math.round(pa/sup):0; return v>0?("$"+v.toLocaleString("es-MX")):"—"; })()}/></div>
+                      </div>
+                      <div style={{marginTop:10}}><span style={lbStyle}>Observaciones (para el asesor)</span><textarea style={{...inStyle,minHeight:64,resize:"vertical"}} value={f.observacionesAutorizacion||""} onChange={e=>setF({observacionesAutorizacion:e.target.value})} placeholder="Condiciones, ajuste de precio, puntos a validar…"/></div>
+                    </div>
+                  ) : ((f.precioAutorizado||f.observacionesAutorizacion) ? (
+                    <div style={{border:"1px solid #e6d9b0", background:"#fffaf0", borderRadius:10, padding:"12px 16px"}}>
+                      <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>🔒 Autorización de la Dirección</div>
+                      {f.precioAutorizado && <div style={{fontSize:13,color:B.navy,marginBottom:6}}><b>Precio autorizado:</b> ${Number(crudoNum(f.precioAutorizado)).toLocaleString("es-MX")}</div>}
+                      {f.observacionesAutorizacion && <div style={{fontSize:12,color:B.grey4,whiteSpace:"pre-wrap"}}><b>Observaciones:</b> {f.observacionesAutorizacion}</div>}
+                    </div>
+                  ) : null)}
                   <div>
                     <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>📄 Documentos y seguimiento</div>
                     <div><span style={lbStyle}>Documentos (escrituras, predial, etc.)</span><input style={inStyle} value={f.documentos||""} onChange={e=>setF({documentos:e.target.value})} placeholder="Qué tenemos / qué falta"/></div>
