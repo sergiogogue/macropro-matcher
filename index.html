@@ -1982,7 +1982,29 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [filterSupMax, setFilterSupMax] = useState("");
   const [filterPrecioMax, setFilterPrecioMax] = useState("");
   const [showAddClient, setShowAddClient] = useState(false);
+  const [editingClientId, setEditingClientId] = useState(null); // id del cliente en edición (null = alta)
   const [newClient, setNewClient] = useState({ nombre:"",empresa:"",asesor:"",ciudad_interes_raw:"",uso_interes_raw:"",presupuesto_min:"",presupuesto_max:"",sup_min:"",sup_max:"",status:"Prospecto nuevo",notas:"" });
+  // Abrir la ficha de un cliente existente para editar (rellena el formulario y abre el modal).
+  const abrirFichaCliente = (c) => {
+    if(!c) return;
+    const mill = v => (v||v===0) ? String((Number(v)||0)/1000000) : "";
+    setNewClient({
+      nombre:c.nombre||"", empresa:c.empresa||"", email:c.email||c.correo||"", telefono:c.telefono||"",
+      asesor:c.asesor||"",
+      ciudad_interes_raw:Array.isArray(c.ciudad_interes)?c.ciudad_interes.join(", "):(c.ciudad_interes||""),
+      uso_interes_raw:Array.isArray(c.uso_interes)?c.uso_interes.join(", "):(c.uso_interes||""),
+      presupuesto_min:mill(c.presupuesto_min), presupuesto_max:mill(c.presupuesto_max),
+      sup_min:(c.sup_min||c.sup_min===0)?String(c.sup_min):"", sup_max:(c.sup_max||c.sup_max===0)?String(c.sup_max):"",
+      status:c.status||"Prospecto nuevo", notas:c.notas||""
+    });
+    setEditingClientId(c.id);
+    setShowAddClient(true);
+  };
+  const abrirNuevoCliente = () => {
+    setEditingClientId(null);
+    setNewClient({nombre:"",empresa:"",email:"",telefono:"",asesor:"",ciudad_interes_raw:"",uso_interes_raw:"",presupuesto_min:"",presupuesto_max:"",sup_min:"",sup_max:"",status:"Prospecto nuevo",notas:""});
+    setShowAddClient(true);
+  };
   const [toastMsg, setToastMsg] = useState("");
 
   // ═══════════════════════════════════════════════════════════
@@ -3812,14 +3834,29 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // ── ADD CLIENT ────────────────────────────────────────────────────
   const addClient = () => {
     if(!newClient.nombre){toast("⚠ El nombre es obligatorio");return;}
-    const id=`CLI-${String(clients.length+1).padStart(3,"0")}`;
     const ciudadArr=newClient.ciudad_interes_raw?.split(",").map(s=>s.trim()).filter(Boolean)||[];
     const usoArr=newClient.uso_interes_raw?.split(",").map(s=>s.trim()).filter(Boolean)||[];
-    const nc={...newClient,id,email:(newClient.email||"").toString().trim().toLowerCase(),telefono:(newClient.telefono||"").toString().trim(),ciudad_interes:ciudadArr,uso_interes:usoArr,presupuesto_min:parseFloat(newClient.presupuesto_min)*1000000||0,presupuesto_max:parseFloat(newClient.presupuesto_max)*1000000||0,sup_min:parseFloat(newClient.sup_min)||0,sup_max:parseFloat(newClient.sup_max)||0,fecha_contacto:new Date().toISOString().slice(0,10)};
-    setClients(prev=>[...prev,nc]);
+    const campos={
+      nombre:newClient.nombre, empresa:newClient.empresa||"", asesor:newClient.asesor||"",
+      email:(newClient.email||"").toString().trim().toLowerCase(), telefono:(newClient.telefono||"").toString().trim(),
+      ciudad_interes:ciudadArr, uso_interes:usoArr,
+      presupuesto_min:parseFloat(newClient.presupuesto_min)*1000000||0, presupuesto_max:parseFloat(newClient.presupuesto_max)*1000000||0,
+      sup_min:parseFloat(newClient.sup_min)||0, sup_max:parseFloat(newClient.sup_max)||0,
+      status:newClient.status||"Prospecto nuevo", notas:newClient.notas||""
+    };
+    if(editingClientId){
+      // EDICIÓN: conserva los demás campos del cliente (sb_id, fecha_contacto, etc.) y solo actualiza estos.
+      setClients(prev=>prev.map(c=>c.id===editingClientId?{...c,...campos}:c));
+      toast("✓ Ficha del cliente actualizada");
+    } else {
+      const id=`CLI-${String(clients.length+1).padStart(3,"0")}`;
+      const nc={...campos,id,fecha_contacto:new Date().toISOString().slice(0,10)};
+      setClients(prev=>[...prev,nc]);
+      toast("✓ Cliente agregado correctamente");
+    }
     setNewClient({nombre:"",empresa:"",email:"",telefono:"",asesor:"",ciudad_interes_raw:"",uso_interes_raw:"",presupuesto_min:"",presupuesto_max:"",sup_min:"",sup_max:"",status:"Prospecto nuevo",notas:""});
+    setEditingClientId(null);
     setShowAddClient(false);
-    toast("✓ Cliente agregado correctamente");
   };
 
   // ── DELETE CLIENT / LOT ───────────────────────────────────────────
@@ -4335,7 +4372,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
           <div style={{marginLeft:"auto",display:"flex",gap:8}}>
             <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>clientFileRef.current?.click()}>📤 Cargar Clientes</button>
             <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleClientExcelUpload}/>
-            <button style={s.btn("primary")} onClick={()=>setShowAddClient(true)}>➕ Nuevo cliente</button>
+            <button style={s.btn("primary")} onClick={abrirNuevoCliente}>➕ Nuevo cliente</button>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18}}>
@@ -5809,7 +5846,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
           <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
             <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>clientFileRef.current?.click()}>📤 Cargar Excel</button>
             <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleClientExcelUpload}/>
-            <button style={s.btn("primary")} onClick={()=>setShowAddClient(true)}>➕ Nuevo cliente</button>
+            <button style={s.btn("primary")} onClick={abrirNuevoCliente}>➕ Nuevo cliente</button>
           </div>
         </div>
         <div style={s.filterBar}>
@@ -5847,6 +5884,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
                 })()}
               </div>
               <div style={{display:"flex",gap:7,flexShrink:0}}>
+                <button style={{...s.btn("sm"),background:B.gold,color:B.navy}} onClick={()=>abrirFichaCliente(c)}>📇 Ficha</button>
                 <button style={{...s.btn("sm"),background:B.navy,color:"#fff"}} onClick={()=>setHistorialCliente(c)}>📋 Historial</button>
                 <button style={s.btn("sm")} onClick={()=>{setSelectedClient(c);setView("matchClient");}}>🎯 Match</button>
                 {clients.length>0&&<button style={{...s.btn("sm"),background:B.redL,color:B.red}} onClick={()=>deleteClient(c.id)}>🗑 Eliminar</button>}
@@ -16843,12 +16881,13 @@ Respuesta: [respuesta exacta, conversacional]
   };
 
     // ─── MODAL ADD CLIENT ─────────────────────────────────────────────
+  const cerrarModalCliente=()=>{ setShowAddClient(false); setEditingClientId(null); };
   const ModalAddClient = showAddClient && (
-    <div style={s.overlay} onClick={e=>e.target===e.currentTarget&&setShowAddClient(false)}>
+    <div style={s.overlay} onClick={e=>e.target===e.currentTarget&&cerrarModalCliente()}>
       <div style={s.modal}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-          <div style={{fontSize:20,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>Nuevo Cliente</div>
-          <button style={s.btn("ghost")} onClick={()=>setShowAddClient(false)}>✕</button>
+          <div style={{fontSize:20,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{editingClientId?"Editar cliente":"Nuevo Cliente"}</div>
+          <button style={s.btn("ghost")} onClick={cerrarModalCliente}>✕</button>
         </div>
         {[["Nombre completo ★","nombre","text","Ej: Martín Campos"],["Empresa / Fondo","empresa","text","Ej: Campos Desarrollos"],["Correo (llave para el cotizador)","email","email","Ej: martin@campos.mx"],["Teléfono","telefono","text","Ej: 33 1234 5678"],["Asesor responsable","asesor","text","Ej: Sergio González"],["Ciudades de interés (separadas por coma)","ciudad_interes_raw","text","Ej: Guadalajara, Cancún"],["Usos de interés (separados por coma)","uso_interes_raw","text","Ej: Habitacional Vertical, Comercial / Retail"],["Presupuesto mínimo (millones MXN)","presupuesto_min","number","Ej: 20"],["Presupuesto máximo (millones MXN)","presupuesto_max","number","Ej: 100"],["Superficie mínima (m²)","sup_min","number","Ej: 5000"],["Superficie máxima (m²)","sup_max","number","Ej: 20000"],["Notas / Perfil del cliente","notas","text","Descripción libre"]].map(([lbl,key,type,ph])=>(
           <div key={key} style={{marginBottom:12}}>
@@ -16859,7 +16898,7 @@ Respuesta: [respuesta exacta, conversacional]
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
           <div><div style={{fontSize:12,fontWeight:600,color:B.grey4,marginBottom:4}}>Status</div><select style={{...s.select,width:"100%"}} value={newClient.status} onChange={e=>setNewClient({...newClient,status:e.target.value})}>{["Nuevo","Calificado","Presentación activa","Negociando","Cerrado"].map(st=><option key={st}>{st}</option>)}</select></div>
         </div>
-        <button style={{...s.btn("primary"),width:"100%",justifyContent:"center",padding:"13px"}} onClick={addClient}>➕ Agregar cliente</button>
+        <button style={{...s.btn("primary"),width:"100%",justifyContent:"center",padding:"13px"}} onClick={addClient}>{editingClientId?"💾 Guardar cambios":"➕ Agregar cliente"}</button>
       </div>
     </div>
   );
