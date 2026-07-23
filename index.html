@@ -1978,7 +1978,6 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [repFiltAsesor,setRepFiltAsesor]=useState("Todos");
   const [repVistaPorCanal,setRepVistaPorCanal]=useState(false);
   const [filterAsesor, setFilterAsesor] = useState("Todos");
-  const [searchProsp, setSearchProsp] = React.useState("");
   const [filterSupMin, setFilterSupMin] = useState("");
   const [filterSupMax, setFilterSupMax] = useState("");
   const [filterPrecioMax, setFilterPrecioMax] = useState("");
@@ -6118,6 +6117,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const [interProsp, setInterProsp] = React.useState(""); // prospecto (nombre) al que se etiqueta la interacción; "" = a nivel lote
     const [kanbanSearch, setKanbanSearch] = React.useState(""); // buscador de clientes (local: conserva foco al teclear)
     const [miDiaSearch, setMiDiaSearch] = React.useState(""); // buscador de Mi día (LOCAL a ViewCRM: conserva foco al teclear)
+    const [searchProsp, setSearchProsp] = React.useState(""); // buscador de Prospectos (LOCAL a ViewCRM: conserva foco al teclear)
     const [showNoteModal, setShowNoteModal] = React.useState(false);
     const [interForm, setInterForm] = React.useState({fecha:new Date().toISOString().slice(0,10),canal:"Llamada",contacto:"",reaccion:"Interesado",nota:""});
     const [noteText, setNoteText] = React.useState("");
