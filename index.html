@@ -5412,6 +5412,169 @@ function MacroProMatcher({ sessionEmail } = {}) {
     );
   };
 
+  // ─── 🌐 PERFIL LANDING: lee la ficha del cliente en la landing (misma base Supabase) ───
+  // Empareja por macropro_id (= clientes.id_cliente) o por email (minúsculas). Muestra el
+  // perfil (landing_clientes) y qué busca (landing_criterios). Permite editar los campos
+  // escalares del perfil escribiendo de vuelta SOLO valores no vacíos (coalesce: nunca pisa
+  // con vacío). No toca el esquema de la landing.
+  const PerfilLandingCliente = ({ cliente }) => {
+    const [open, setOpen] = React.useState(false);
+    const [row, setRow] = React.useState(undefined);   // undefined=no cargado · null=sin ficha
+    const [crit, setCrit] = React.useState(undefined);
+    const [err, setErr] = React.useState(null);
+    const [edit, setEdit] = React.useState(null);       // borrador de edición
+    const [saving, setSaving] = React.useState(false);
+    const em = (cliente && (cliente.email || cliente.correo) || "").toString().trim().toLowerCase();
+    const mid = (cliente && (cliente.sb_id || cliente.id_cliente || cliente.id) || "").toString().trim();
+    React.useEffect(() => {
+      if (!open || row !== undefined) return;
+      if (!sb || (!em && !mid)) { setRow(null); setCrit(null); return; }
+      let alive = true;
+      (async () => {
+        try {
+          let q = sb.from('landing_clientes').select('*');
+          const ors = [];
+          if (mid) ors.push('macropro_id.eq.' + mid);
+          if (em) ors.push('email.eq.' + em);
+          q = (ors.length > 1) ? q.or(ors.join(',')) : (mid ? q.eq('macropro_id', mid) : q.eq('email', em));
+          const { data, error } = await q.limit(1);
+          if (!alive) return;
+          if (error) { setErr(error.message); setRow(null); setCrit(null); return; }
+          const r = (Array.isArray(data) && data.length) ? data[0] : null;
+          setRow(r);
+          if (r && r.id) {
+            const cr = await sb.from('landing_criterios').select('*').eq('cliente_id', r.id).limit(1);
+            if (!alive) return;
+            setCrit((cr && !cr.error && Array.isArray(cr.data) && cr.data.length) ? cr.data[0] : null);
+          } else setCrit(null);
+        } catch (e) { if (alive) { setErr(String((e && e.message) || e)); setRow(null); setCrit(null); } }
+      })();
+      return () => { alive = false; };
+    }, [open]);
+    const fArr = a => (Array.isArray(a) && a.length) ? a.join(", ") : "—";
+    const fVal = v => (v || v === 0) ? String(v) : "—";
+    const fBool = v => v === true ? "Sí" : v === false ? "No" : "—";
+    const fMoney = v => (v || v === 0) ? "$" + Number(v).toLocaleString("es-MX", { maximumFractionDigits: 0 }) : "—";
+    const fUsos = u => { try { const a = Array.isArray(u) ? u : (typeof u === "string" ? JSON.parse(u) : []); if (!a.length) return "—"; return a.map(x => (x.uso || "") + (x.sub_uso ? (" · " + x.sub_uso) : "") + ((x.m2_min || x.m2_max) ? (" (" + (x.m2_min || 0).toLocaleString() + "–" + (x.m2_max || 0).toLocaleString() + " m²)") : "")).join(" | "); } catch (e) { return "—"; } };
+    const lb = { fontSize: 10, fontWeight: 700, color: B.grey4, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2, display: "block" };
+    const inp = { width: "100%", padding: "7px 9px", borderRadius: 7, border: "1px solid " + B.grey1, fontSize: 12, color: B.navy, background: B.offW, outline: "none", fontFamily: "'DM Sans',sans-serif" };
+    const cellV = { fontSize: 12, color: B.navy, fontWeight: 700 };
+    const Campo = ({ l, v }) => (<div><span style={lb}>{l}</span><div style={cellV}>{v}</div></div>);
+    const iniEdit = () => setEdit({
+      nombre_contacto: row.nombre_contacto || "", empresa: row.empresa || "", telefono: row.telefono || "",
+      ciudad: row.ciudad || "", direccion: row.direccion || "", giro: row.giro || "",
+      proxima_accion: row.proxima_accion || "", fecha_proxima_accion: row.fecha_proxima_accion || "",
+      tipo_cliente_raw: Array.isArray(row.tipo_cliente) ? row.tipo_cliente.join(", ") : ""
+    });
+    const guardar = async () => {
+      if (!sb || !row || !row.id) return;
+      setSaving(true);
+      const patch = {};
+      const put = (k, v) => { if (v != null && String(v).trim() !== "") patch[k] = String(v).trim(); };
+      put('nombre_contacto', edit.nombre_contacto); put('empresa', edit.empresa); put('telefono', edit.telefono);
+      put('ciudad', edit.ciudad); put('direccion', edit.direccion); put('giro', edit.giro);
+      put('proxima_accion', edit.proxima_accion);
+      if (edit.fecha_proxima_accion && String(edit.fecha_proxima_accion).trim()) patch.fecha_proxima_accion = edit.fecha_proxima_accion;
+      const tc = (edit.tipo_cliente_raw || "").split(",").map(s => s.trim()).filter(Boolean);
+      if (tc.length) patch.tipo_cliente = tc;
+      if (!Object.keys(patch).length) { setSaving(false); setEdit(null); return; }
+      try {
+        const { error } = await sb.from('landing_clientes').update(patch).eq('id', row.id);
+        if (error) throw error;
+        setRow(prev => ({ ...prev, ...patch }));
+        setEdit(null);
+        toast("✅ Ficha de landing actualizada");
+      } catch (e) { toast("⚠ No se pudo guardar en landing: " + ((e && e.message) || e)); }
+      setSaving(false);
+    };
+    return (
+      <div style={{ marginTop: 8 }}>
+        <button onClick={() => setOpen(o => !o)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px", background: open ? "#0f6b3f" : "#eafaf0", color: open ? "#fff" : "#0f6b3f", border: "none", borderRadius: 7, cursor: "pointer", fontSize: 11, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>
+          {open ? "▾" : "▸"} 🌐 Perfil landing
+          {row && row !== undefined && <span style={{ background: "#0f6b3f", color: "#fff", borderRadius: 9, padding: "0 7px", fontSize: 10, fontWeight: 800 }}>✓</span>}
+        </button>
+        {open && (
+          <div style={{ marginTop: 8, background: "#fff", border: "1px solid " + B.grey1, borderRadius: 10, padding: "12px 14px" }}>
+            {(!em && !mid) ? (
+              <div style={{ fontSize: 12, color: B.grey3 }}>Este cliente no tiene correo ni id de nube. Agrega su <b>email</b> para enlazar la ficha de la landing.</div>
+            ) : row === undefined ? (
+              <div style={{ fontSize: 12, color: B.grey3 }}>Cargando ficha de la landing…</div>
+            ) : err ? (
+              <div style={{ fontSize: 12, color: B.red }}>Error: {err}</div>
+            ) : row === null ? (
+              <div style={{ fontSize: 12, color: B.grey3 }}>Sin ficha en la landing para este cliente (por email/macropro_id).</div>
+            ) : (
+              <div>
+                {/* ── PERFIL ── */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#0f6b3f", textTransform: "uppercase", letterSpacing: 0.5 }}>👤 Perfil (landing)</div>
+                  {!edit ? <button onClick={iniEdit} style={{ padding: "4px 10px", borderRadius: 7, border: "1px solid " + B.grey1, background: B.white, color: B.navy, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>✏️ Editar</button> : null}
+                </div>
+                {!edit ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 6 }}>
+                    <Campo l="Contacto" v={fVal(row.nombre_contacto)} />
+                    <Campo l="Empresa" v={fVal(row.empresa)} />
+                    <Campo l="Email (llave)" v={fVal(row.email)} />
+                    <Campo l="Teléfono" v={fVal(row.telefono)} />
+                    <Campo l="Ciudad" v={fVal(row.ciudad)} />
+                    <Campo l="Dirección" v={fVal(row.direccion)} />
+                    <Campo l="Giro" v={fVal(row.giro)} />
+                    <Campo l="Tipo de cliente" v={fArr(row.tipo_cliente)} />
+                    <Campo l="Marca" v={fVal(row.marca)} />
+                    <Campo l="Origen del lead" v={fArr(row.origen_lead)} />
+                    <Campo l="Próxima acción" v={fVal(row.proxima_accion)} />
+                    <Campo l="Fecha próxima acción" v={fVal(row.fecha_proxima_accion)} />
+                    <Campo l="HubSpot ID" v={fVal(row.hubspot_contact_id)} />
+                    <Campo l="macropro_id" v={fVal(row.macropro_id)} />
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10 }}>
+                      <div><span style={lb}>Contacto</span><input style={inp} value={edit.nombre_contacto} onChange={e => setEdit({ ...edit, nombre_contacto: e.target.value })} /></div>
+                      <div><span style={lb}>Empresa</span><input style={inp} value={edit.empresa} onChange={e => setEdit({ ...edit, empresa: e.target.value })} /></div>
+                      <div><span style={lb}>Teléfono</span><input style={inp} value={edit.telefono} onChange={e => setEdit({ ...edit, telefono: e.target.value })} /></div>
+                      <div><span style={lb}>Ciudad</span><input style={inp} value={edit.ciudad} onChange={e => setEdit({ ...edit, ciudad: e.target.value })} /></div>
+                      <div style={{ gridColumn: "1 / -1" }}><span style={lb}>Dirección</span><input style={inp} value={edit.direccion} onChange={e => setEdit({ ...edit, direccion: e.target.value })} /></div>
+                      <div><span style={lb}>Giro</span><input style={inp} value={edit.giro} onChange={e => setEdit({ ...edit, giro: e.target.value })} /></div>
+                      <div><span style={lb}>Tipo de cliente (coma)</span><input style={inp} value={edit.tipo_cliente_raw} onChange={e => setEdit({ ...edit, tipo_cliente_raw: e.target.value })} placeholder="inversionista, broker…" /></div>
+                      <div><span style={lb}>Próxima acción</span><input style={inp} value={edit.proxima_accion} onChange={e => setEdit({ ...edit, proxima_accion: e.target.value })} /></div>
+                      <div><span style={lb}>Fecha próxima acción</span><input type="date" style={inp} value={(edit.fecha_proxima_accion || "").slice(0, 10)} onChange={e => setEdit({ ...edit, fecha_proxima_accion: e.target.value })} /></div>
+                    </div>
+                    <div style={{ fontSize: 10, color: B.grey4, margin: "8px 0" }}>Solo se guardan los campos con valor (no se pisa nada con vacío).</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button disabled={saving} onClick={guardar} style={{ padding: "7px 16px", borderRadius: 7, border: "none", background: "#0f6b3f", color: "#fff", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>{saving ? "Guardando…" : "💾 Guardar en landing"}</button>
+                      <button onClick={() => setEdit(null)} style={{ padding: "7px 14px", borderRadius: 7, border: "1px solid " + B.grey1, background: B.white, color: B.grey4, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>Cancelar</button>
+                    </div>
+                  </div>
+                )}
+                {/* ── QUÉ BUSCA (criterios) ── */}
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#0f6b3f", textTransform: "uppercase", letterSpacing: 0.5, margin: "14px 0 8px", borderTop: "1px dashed " + B.grey1, paddingTop: 10 }}>🎯 Qué busca (landing)</div>
+                {crit === undefined ? <div style={{ fontSize: 12, color: B.grey3 }}>Cargando…</div> : crit === null ? (
+                  <div style={{ fontSize: 12, color: B.grey3 }}>Sin criterios capturados en la landing.</div>
+                ) : (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
+                    <div style={{ gridColumn: "1 / -1" }}><Campo l="Usos primarios" v={fUsos(crit.usos_primarios)} /></div>
+                    <Campo l="Usos secundarios" v={fArr(crit.usos_secundarios)} />
+                    <Campo l="Ciudades" v={fArr(crit.ciudades)} />
+                    <Campo l="Estados" v={fArr(crit.estados)} />
+                    <Campo l="Presupuesto máx." v={fMoney(crit.presupuesto_max)} />
+                    <Campo l="Frente mínimo" v={fVal(crit.frente_min)} />
+                    <Campo l="Servicios" v={fArr(crit.servicios)} />
+                    <Campo l="Acceso vial" v={fArr(crit.acceso_vial)} />
+                    <Campo l="¿Requiere esquina?" v={fBool(crit.requiere_esquina)} />
+                    <Campo l="¿Cambio de uso OK?" v={fBool(crit.cambio_uso_ok)} />
+                    <Campo l="Proyectos de interés" v={fArr(crit.proyectos_interes)} />
+                    <div style={{ gridColumn: "1 / -1" }}><Campo l="Notas (entrada libre)" v={fVal(crit.entrada_libre)} /></div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // ─── ⚙️ ADMINISTRADOR: edita la tabla canónica `desarrollos` (escribe a Supabase) ───
   // Lee la tabla, edita un desarrollo a la vez y guarda con UPDATE por id (PK). Nunca
   // inserta/borra. Tras guardar refresca la cache + el mapeo de desarrollador (Fase B).
@@ -5628,6 +5791,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
               </div>
             </div>
             <CotizacionesCliente cliente={c}/>
+            <PerfilLandingCliente cliente={c}/>
           </div>
         ))}
         {filtered.length===0&&<div style={{textAlign:"center",padding:40,color:B.grey3,fontSize:14}}>Sin clientes con estos filtros</div>}
@@ -7563,6 +7727,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
                 )}
                 {/* Cotizaciones del cliente (más recientes arriba) — arriba de todo */}
                 {cliQ&&<div style={{marginBottom:12}}><CotizacionesCliente cliente={cliQ}/></div>}
+                {cliQ&&<div style={{marginBottom:12}}><PerfilLandingCliente cliente={cliQ}/></div>}
                 {/* Próxima actividad */}
                 {proxAct&&(
                   <div style={{background:new Date(proxAct.fecha+"T12:00:00")<new Date()?"#fef2f2":"#f0fdf4",borderRadius:8,padding:"8px 12px",marginBottom:12,borderLeft:"3px solid "+(new Date(proxAct.fecha+"T12:00:00")<new Date()?"#dc2626":"#16a34a")}}>
