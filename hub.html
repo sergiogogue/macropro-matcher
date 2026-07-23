@@ -64,6 +64,10 @@
   .mbody{ padding:18px; } .stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; } .stat{ background:var(--bg); border-radius:12px; padding:12px; text-align:center; } .stat b{ font-size:18px; display:block; } .stat span{ font-size:11px; color:var(--mut); }
   .macts{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
   .x{ float:right; cursor:pointer; color:#fff; font-size:22px; font-weight:700; line-height:1; text-shadow:0 1px 4px rgba(0,0,0,.4); }
+  .videos{ display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:18px; }
+  .vcard{ background:#fff; border:1px solid var(--line); border-radius:16px; overflow:hidden; display:flex; flex-direction:column; transition:.18s; } .vcard:hover{ box-shadow:0 12px 30px rgba(10,37,64,.12); transform:translateY(-3px); }
+  .vframe{ position:relative; width:100%; padding-top:56.25%; background:#000; } .vframe iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; }
+  .vbody{ padding:12px 16px 14px; } .vbody b{ font-size:14px; display:block; } .vbody small{ color:var(--mut); font-size:11px; }
   .note{ text-align:center; color:var(--mut); font-size:11px; margin-top:30px; } .note b{ color:var(--goldD); }
   .src{ text-align:center; font-size:10px; color:#9aa3af; margin-top:6px; }
 </style>
@@ -80,6 +84,8 @@
   <div class="apps" id="core"></div>
   <div class="sect">🧰 Herramientas Grupo Guía</div>
   <div class="apps" id="tools"></div>
+  <div class="sect">🎥 Videos y tutoriales</div>
+  <div class="videos" id="videos"></div>
   <div class="sect">🌐 Plataformas Macros 360</div>
   <div class="filters" id="filters"></div>
   <div class="grid" id="grid"></div>
@@ -144,6 +150,23 @@ function aplicarPlatOverrides(){
     else { DES.push({...o}); }
   });
 }
+// Videos y tutoriales (YouTube). Para agregar más: copia una línea con el id del
+// video (lo que va después de youtu.be/ o de watch?v=). El título y la descripción
+// son opcionales (el reproductor de YouTube ya muestra su propio título).
+const VIDEOS = [
+  {yt:"_gL14lxODDc", titulo:"Video tutorial 1", desc:"Grupo Guía"},
+  {yt:"yKlWnYqfUlo", titulo:"Video tutorial 2", desc:"Grupo Guía"},
+];
+function renderVideos(){
+  const cont = document.getElementById("videos");
+  if(!cont) return;
+  if(!VIDEOS.length){ cont.innerHTML=""; return; }
+  cont.innerHTML = VIDEOS.map(v=>`
+    <div class="vcard">
+      <div class="vframe"><iframe src="https://www.youtube-nocookie.com/embed/${v.yt}" title="${(v.titulo||'Video').replace(/"/g,'&quot;')}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
+      <div class="vbody"><b>${v.titulo||"Video"}</b>${v.desc?`<small>${v.desc}</small>`:""}</div>
+    </div>`).join("");
+}
 const norm = s => (s||"").toString().trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
 const inic = n => (n||"?").split(/\s+/).slice(0,2).map(w=>w[0]).join("").toUpperCase();
 const urlValida = u => u && !/^PON_LA_URL/i.test(u);
@@ -166,7 +189,7 @@ async function cargar(){
   if(!DES.length) DES = DES_FALLBACK;   // nunca queda vacío
   aplicarPlatOverrides();               // plataformas 360 aún no capturadas en Supabase
   document.getElementById("src").textContent = online ? "✓ datos en vivo desde Supabase" : "⚠ mostrando datos de respaldo (sin conexión a Supabase)";
-  renderApps(); renderDes();
+  renderApps(); renderDes(); renderVideos();
 }
 
 function appEl(a){
