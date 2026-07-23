@@ -7238,8 +7238,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
       toast("✅ Actividad completada");
     };
     // Eliminar actividad
-    const deleteActivity=(lotId,prospectoIdx,actId)=>{
-      if(!window.confirm("¿Eliminar esta actividad?")) return;
+    const deleteActivity=(lotId,prospectoIdx,actId,skipConfirm)=>{
+      if(!skipConfirm && !window.confirm("¿Eliminar esta actividad?")) return;
       preserveScroll(()=>{
         setCrmData(prev=>{
           const entry=prev[lotId]||{pipeline:"Disponible",interacciones:[],prospectos:[],devFeedback:[]};
@@ -10779,6 +10779,7 @@ Respuesta: [respuesta exacta, conversacional]
                     };
                     return <button onClick={handleICS} title="Descargar como .ics (Google Calendar, Apple Calendar, Outlook)" style={{background:"#dbeafe",border:"1.5px solid #93c5fd",color:"#1e40af",borderRadius:8,padding:"10px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginRight:"auto"}}>📥 Calendar (.ics)</button>;
                   })()}
+                  {isEdit && actExisting && <button onClick={()=>{ if(window.confirm("¿Eliminar esta actividad? No se puede deshacer.")){ deleteActivity(showActivityModal.lotId,showActivityModal.prospectoIdx,actExisting.id,true); setShowActivityModal(null); toast("🗑 Actividad eliminada"); } }} style={{background:"#fef2f2",border:"1.5px solid #fecaca",color:"#dc2626",borderRadius:8,padding:"10px 16px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗑 Eliminar</button>}
                   <button onClick={()=>setShowActivityModal(null)} style={{background:B.white,border:"1.5px solid "+B.grey1,color:B.grey4,borderRadius:8,padding:"10px 18px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancelar</button>
                   <button onClick={()=>{
                     if(isComplete){
