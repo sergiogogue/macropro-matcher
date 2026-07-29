@@ -7798,19 +7798,25 @@ function MacroProMatcher({ sessionEmail } = {}) {
 
               {/* ── TAB: ACCIONES ── */}
               {tabQ==="acciones"&&(<>
-                {/* Todos los terrenos de este cliente (evita mover/editar por error) */}
-                {terrenosCliente.length>1&&(
+                {/* Todos los terrenos de este cliente (evita mover/editar por error) — cambia etapa aquí mismo */}
+                {terrenosCliente.length>=1&&(
                   <div style={{background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:8,padding:"10px 12px",marginBottom:12}}>
-                    <div style={{fontSize:10,fontWeight:800,color:"#b45309",marginBottom:6}}>🏗 ESTE CLIENTE TIENE {terrenosCliente.length} TERRENOS ASIGNADOS</div>
+                    <div style={{fontSize:10,fontWeight:800,color:"#b45309",marginBottom:6}}>🏗 {terrenosCliente.length>1?("ESTE CLIENTE TIENE "+terrenosCliente.length+" TERRENOS ASIGNADOS"):"TERRENO ASIGNADO"}</div>
                     {terrenosCliente.map((t,i)=>(
                       <div key={t.lotId+"_"+t.prospectoIdx+"_"+i}
                         onClick={()=>{ if(!t.esActual){ setQuickProspInitTab("acciones"); setQuickProspData({lot:t.lotObj,p:t.prospecto,prospectoIdx:t.prospectoIdx,crm:t.crm,cli:cliQ||null}); } }}
                         style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"7px 9px",borderRadius:6,marginBottom:5,background:t.esActual?"#fef3c7":"#fff",border:"1px solid "+(t.esActual?"#f59e0b":B.grey1),cursor:t.esActual?"default":"pointer"}}>
                         <div style={{minWidth:0}}>
-                          <div style={{fontSize:11,fontWeight:700,color:B.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.nombre} <span style={{fontWeight:400,color:B.grey4}}>· {t.desarrollo}</span></div>
+                          <div style={{fontSize:11,fontWeight:700,color:B.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.esActual?"● ":""}{t.nombre} <span style={{fontWeight:400,color:B.grey4}}>· {t.desarrollo}</span></div>
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                          <span style={{fontSize:9,fontWeight:700,background:(stageCol[t.pipeline]||B.grey3),color:"#fff",borderRadius:10,padding:"2px 8px",whiteSpace:"nowrap"}}>{t.esActual?"● aquí · ":""}{t.pipeline}</span>
+                          {/* Selector de etapa/columna del Kanban — cambia AQUÍ MISMO la etapa de ese terreno */}
+                          <select value={t.pipeline} title="Cambiar la etapa (columna del Kanban) de este terreno"
+                            onClick={e=>e.stopPropagation()}
+                            onChange={(e)=>{ e.stopPropagation(); updateProspectoPipeline(t.lotId, t.prospectoIdx, e.target.value); toast("✅ "+t.nombre+" → "+e.target.value); }}
+                            style={{fontSize:9,fontWeight:800,color:"#fff",background:(stageCol[t.pipeline]||B.grey3),border:"none",borderRadius:10,padding:"3px 7px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",outline:"none",maxWidth:132}}>
+                            {PIPELINE_STAGES.map(s=><option key={s} value={s} style={{color:"#111",background:"#fff"}}>{s}</option>)}
+                          </select>
                           <button title={"Quitar a "+(t.prospecto.nombre||"este cliente")+" de este terreno"}
                             onClick={(e)=>{ e.stopPropagation();
                               if(!window.confirm("¿Quitar a "+(t.prospecto.nombre||"este cliente")+" del terreno \""+t.nombre+"\"?\n\nSolo se desvincula de ESE terreno; el cliente y sus otros terrenos NO se tocan.")) return;
@@ -7824,7 +7830,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
                         </div>
                       </div>
                     ))}
-                    <div style={{fontSize:9,color:"#92400e",marginTop:2}}>Toca un terreno para abrir su ficha o cambiar su etapa/lote (pestaña Editar). 🗑 lo quita de ese terreno. Cada terreno tiene su propia etapa.</div>
+                    <div style={{fontSize:9,color:"#92400e",marginTop:2}}>Cambia la <b>etapa</b> (columna del Kanban) de cada terreno con el selector. Toca un terreno para abrir su ficha. 🗑 lo quita de ese terreno.</div>
                   </div>
                 )}
                 {/* Cotizaciones del cliente (más recientes arriba) — arriba de todo */}
@@ -8589,9 +8595,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
                     </div>
                   ))}
                   {(() => {
-                    // Agrupar por cliente + desarrollo dentro de la columna → una ficha con varios terrenos del mismo desarrollo
+                    // Agrupar SOLO por cliente dentro de la columna → UNA ficha por cliente con
+                    // TODOS sus terrenos de esa etapa (aunque sean de desarrollos distintos).
                     const grupos=new Map();
-                    stageProsps.forEach(x=>{ const k=(x.prospecto.nombre||"(sin nombre)").toLowerCase().trim()+"||"+((x.lot.desarrollo||"").toLowerCase().trim()); if(!grupos.has(k)) grupos.set(k,[]); grupos.get(k).push(x); });
+                    stageProsps.forEach(x=>{ const k=(x.prospecto.nombre||"(sin nombre)").toLowerCase().trim(); if(!grupos.has(k)) grupos.set(k,[]); grupos.get(k).push(x); });
                     return [...grupos.entries()].map(([gk,g])=>{
                       const x=g[0]; const p=x.prospecto; const cli=x.cli;
                       const asesor=p.asesor||(cli&&cli.asesor)||x.crm.asesorResponsable||null;
@@ -8611,14 +8618,16 @@ function MacroProMatcher({ sessionEmail } = {}) {
                           {p.giro&&<span style={{fontSize:9,background:"#f0f9ff",color:"#0369a1",borderRadius:4,padding:"1px 5px",fontWeight:600}}>{p.giro}</span>}
                           {p.canal&&(()=>{const cc=CANAL_COLORS[p.canal]||{bg:"#f1f5f9",color:"#475569"};return <span style={{fontSize:9,background:cc.bg,color:cc.color,borderRadius:4,padding:"1px 6px",fontWeight:700,border:"1px solid "+cc.color+"33"}}>🏷 {p.canal}</span>;})()}
                         </div>}
-                        {/* Desarrollo (una ficha por desarrollo) */}
-                        <div style={{fontSize:9,color:B.grey4,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:0.5}}>{x.lot.desarrollo}{g.length>1&&<span style={{color:B.gold,marginLeft:6}}>· {g.length} terrenos</span>}</div>
-                        {/* Terrenos del cliente en este desarrollo */}
+                        {/* Desarrollo(s) del cliente en esta etapa */}
+                        {(()=>{ const devs=[...new Set(g.map(it=>it.lot.desarrollo).filter(Boolean))];
+                          return <div style={{fontSize:9,color:B.grey4,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:0.5}}>{devs.length<=1?(devs[0]||"—"):(devs.length+" desarrollos")}{g.length>1&&<span style={{color:B.gold,marginLeft:6}}>· {g.length} terrenos</span>}</div>;
+                        })()}
+                        {/* Terrenos del cliente en esta etapa (con su desarrollo) */}
                         <div style={{marginBottom:5}}>
                           {g.map((it,ii)=>(
                             <div key={ii} style={{display:"flex",alignItems:"center",gap:5,marginBottom:2}}>
                               <Semaforo lotId={it.lotId} size={7}/>
-                              <span style={{fontSize:10,fontWeight:700,color:B.navy,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.lot.nombre}</span>
+                              <span style={{fontSize:10,fontWeight:700,color:B.navy,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.lot.nombre}{it.lot.desarrollo&&<span style={{color:B.grey4,fontWeight:600}}> · {it.lot.desarrollo}</span>}</span>
                               <button title={"Quitar a "+(p.nombre||"este cliente")+" del terreno "+it.lot.nombre}
                                 onClick={(e)=>{ e.stopPropagation();
                                   if(!window.confirm("¿Quitar a "+(p.nombre||"este cliente")+" del terreno \""+it.lot.nombre+"\"?\n\nSolo se desvincula de ESE terreno; sus otros terrenos NO se tocan.")) return;
