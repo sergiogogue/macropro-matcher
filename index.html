@@ -586,7 +586,7 @@ function loteFromSupabase(r) {
     precio_total: Number(r.precio_total) || 0,
     uso: r.uso || "",
     usos_todos: Array.isArray(r.usos_todos) ? r.usos_todos : [],
-    status: r.status_inventario || r.status || "Disponible",
+    status: r.status_inventario || r.disponibilidad || r.status || "Disponible",
     entrega: r.entrega || "",
     maps_url: r.maps_url || "",
     cos: Number(r.cos) || 0,
@@ -3421,8 +3421,11 @@ function MacroProMatcher({ sessionEmail } = {}) {
         .filter(r=> r && r.dado_baja_at==null && !esGen(r.id) && !esGen(r.clave_unica))
         .map(loteFromSupabase).filter(Boolean);
     try{
-      let res = await _sb.from('v_landing_lotes').select('*');
-      if(res.error){ res = await _sb.from('lotes').select('*'); }
+      // Fuente primaria: tabla `lotes` (trae desarrollador, metadata, status_inventario,
+      // clave_unica, tipo_inventario y corretaje — que MacroPro sí usa). La vista
+      // v_landing_lotes excluye corretaje/desarrollador, así que solo es respaldo.
+      let res = await _sb.from('lotes').select('*');
+      if(res.error){ res = await _sb.from('v_landing_lotes').select('*'); }
       if(res.error) throw res.error;
       const mapped = filtrarMapear(res.data);
       if(mapped.length){ setInventory(mapped); setInvCloudMsg(""); if(opts&&opts.manual) toast("✅ Inventario actualizado desde la nube ("+mapped.length+" lotes)"); }
