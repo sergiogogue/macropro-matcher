@@ -86,7 +86,7 @@ Deno.serve(async () => {
           { propertyName: "pipeline", operator: "IN", values: macroPipeIds },
           { propertyName: "createdate", operator: "GTE", value: cutoff },
         ] }],
-        properties, limit: 100, sorts: [{ propertyName: "createdate", direction: "DESCENDING" }],
+        properties, limit: 100,
       };
       if (after) body.after = after;
       const page = await hsPost("/crm/v3/objects/deals/search", body);
