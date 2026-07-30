@@ -1,8 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
 // Edge Function · Importa los deals de HubSpot de MACROLOTES → public.hubspot_deals.
-// "Macrolotes" se identifica por la(s) propiedad(es) de "Desarrollo de interés" cuyas
-// OPCIONES contienen "MACROLOTES" (ej. MACROLOTES CAPITAL NORTE, CORRETAJE MACROLOTES).
-// Todos los pipelines. El token vive AQUÍ. MacroPro solo LEE la tabla.
+// "Macrolotes" = la ETIQUETA de la opción de "Desarrollo de interés" contiene "MACROLOTES".
+// HubSpot devuelve el VALOR interno de la opción; aquí lo traducimos a su etiqueta usando
+// las opciones de la propiedad, y filtramos/guardamos por la etiqueta. Todos los pipelines.
+// El token vive AQUÍ. MacroPro solo LEE la tabla.
 // ════════════════════════════════════════════════════════════════════
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -23,17 +24,19 @@ Deno.serve(async () => {
   try {
     const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    // 1) Encontrar TODAS las propiedades cuyas OPCIONES contienen "macrolotes"
+    // 1) Propiedades cuyas OPCIONES contienen "macrolotes" + mapa valor→etiqueta de cada una.
     const devProps: string[] = [];
+    const optLabel: Record<string, Record<string, string>> = {};
     try {
       const props = await hs("/crm/v3/properties/deals");
       for (const p of (props.results || [])) {
         const opts = p.options || [];
-        if (opts.some((o: any) => norm(o.label).includes("macrolotes") || norm(o.value).includes("macrolotes"))) devProps.push(p.name);
-      }
-      if (!devProps.length) {
-        const hit = (props.results || []).find((p: any) => norm(p.label).includes("desarrollo de inter"));
-        if (hit) devProps.push(hit.name);
+        if (opts.some((o: any) => norm(o.label).includes("macrolotes") || norm(o.value).includes("macrolotes"))) {
+          devProps.push(p.name);
+          const m: Record<string, string> = {};
+          for (const o of opts) m[o.value] = o.label;
+          optLabel[p.name] = m;
+        }
       }
     } catch (_) {}
 
@@ -54,7 +57,7 @@ Deno.serve(async () => {
       } while (oa);
     } catch (_) {}
 
-    // 4) Deals → guardar SOLO los que tengan un "Desarrollo" que contenga "macrolotes"
+    // 4) Deals → guardar los que tengan un desarrollo cuya ETIQUETA contenga "macrolotes"
     const propList = ["dealname", "amount", "dealstage", "pipeline", "hubspot_owner_id", ...devProps];
     const props2 = [...new Set(propList)].join(",");
     let after = "";
@@ -65,7 +68,12 @@ Deno.serve(async () => {
       for (const d of (page.results || [])) {
         const pr = d.properties || {};
         let des = "";
-        for (const dp of devProps) { const v = (pr[dp] || "").toString(); if (norm(v).includes("macrolotes")) { des = v; break; } }
+        for (const dp of devProps) {
+          const raw = (pr[dp] || "").toString();
+          if (!raw) continue;
+          const label = (optLabel[dp] && optLabel[dp][raw]) || raw;
+          if (norm(label).includes("macrolotes")) { des = label; break; }
+        }
         if (!des) continue;
         rows.push({
           deal_id: String(d.id),
