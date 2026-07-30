@@ -135,8 +135,18 @@
         <label class="check"><input type="checkbox" name="doc" value="Avalúo (si tiene)"><span>Avalúo (si ya cuenta con uno, envíalo también)</span></label>
       </div>
 
-      <div class="sect">Adjuntar archivos <span class="opt" style="text-transform:none;letter-spacing:0;color:var(--mut);font-weight:600">(opcional)</span></div>
-      <div><label>Sube aquí los documentos (PDF o fotos) <span class="opt">— puedes subir varios</span></label>
+      <div class="sect">Documentos clave <span class="opt" style="text-transform:none;letter-spacing:0;color:var(--mut);font-weight:600">(PDF)</span></div>
+      <div><label>Dictamen de trazos de usos y destinos / visor urbano <span class="opt">(PDF)</span></label>
+        <input id="fileDictamen" type="file" accept=".pdf,image/*">
+        <div class="hint">Sube aquí el dictamen de trazos de usos y destinos (o el dictamen del visor urbano).</div>
+      </div>
+      <div style="margin-top:12px"><label>Boleta predial <span class="opt">(PDF)</span></label>
+        <input id="filePredial" type="file" accept=".pdf,image/*">
+        <div class="hint">Sube aquí la boleta predial del terreno.</div>
+      </div>
+
+      <div class="sect">Adjuntar otros archivos <span class="opt" style="text-transform:none;letter-spacing:0;color:var(--mut);font-weight:600">(opcional)</span></div>
+      <div><label>Sube aquí más documentos (PDF o fotos) <span class="opt">— puedes subir varios</span></label>
         <input id="files" type="file" multiple accept=".pdf,image/*,.jpg,.jpeg,.png">
         <div class="hint">Se envían junto con tu solicitud y el equipo los abre dentro del sistema. Recomendado: hasta ~10 MB por archivo.</div>
         <div id="fileList" style="margin-top:8px;font-size:12px;color:var(--mut)"></div>
@@ -195,21 +205,27 @@ btn.addEventListener("click", async () => {
   const id = "cap-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,8);
   // Subir archivos adjuntos (PDF/fotos) a Supabase Storage y guardar sus ligas
   let documentos_urls = [];
+  // Sube un archivo al bucket y devuelve {nombre,url,tipo}. `tipo` etiqueta el documento.
+  const subirArchivo = async (file, idx, tipo)=>{
+    if(!file) return;
+    const safe = (file.name||("archivo"+idx)).replace(/[^a-zA-Z0-9._-]/g,"_");
+    const path = id + "/" + Date.now() + "_" + idx + "_" + safe;
+    try{
+      const up = await sb.storage.from("captaciones-docs").upload(path, file, { upsert:true, contentType:file.type||undefined });
+      if(up.error) throw up.error;
+      const pu = sb.storage.from("captaciones-docs").getPublicUrl(path);
+      const url = pu && pu.data && pu.data.publicUrl;
+      if(url) documentos_urls.push(tipo ? { nombre:file.name, url, tipo } : { nombre:file.name, url });
+    }catch(e){ /* si un archivo falla, seguimos: no bloquea el envío */ }
+  };
+  const fDict = ($("#fileDictamen") && $("#fileDictamen").files) ? $("#fileDictamen").files[0] : null;
+  const fPred = ($("#filePredial") && $("#filePredial").files) ? $("#filePredial").files[0] : null;
   const files = ($("#files") && $("#files").files) ? $("#files").files : [];
-  if(files.length){
+  if(fDict||fPred||files.length){
     btn.textContent = "Subiendo archivos…";
-    for(let i=0;i<files.length;i++){
-      const file = files[i];
-      const safe = (file.name||("archivo"+i)).replace(/[^a-zA-Z0-9._-]/g,"_");
-      const path = id + "/" + Date.now() + "_" + i + "_" + safe;
-      try{
-        const up = await sb.storage.from("captaciones-docs").upload(path, file, { upsert:true, contentType:file.type||undefined });
-        if(up.error) throw up.error;
-        const pu = sb.storage.from("captaciones-docs").getPublicUrl(path);
-        const url = pu && pu.data && pu.data.publicUrl;
-        if(url) documentos_urls.push({ nombre:file.name, url });
-      }catch(e){ /* si un archivo falla, seguimos: no bloquea el envío */ }
-    }
+    if(fDict) await subirArchivo(fDict, "dict", "Dictamen de trazos de usos y destinos");
+    if(fPred) await subirArchivo(fPred, "pred", "Boleta predial");
+    for(let i=0;i<files.length;i++){ await subirArchivo(files[i], i, null); }
   }
   const row = {
     id, pipeline: "Ofrecido",
