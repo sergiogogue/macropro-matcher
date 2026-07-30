@@ -3498,6 +3498,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [quickSearchCriteria, setQuickSearchCriteria] = useState({ ciudad:"",desarrollo:"",uso:"",sup_min:"",sup_max:"",presupuesto_max:"",precio_m2_max:"" });
 
   const fileRef = useRef();
+  const altaDevFileRef = useRef(); // alta de desarrollo nuevo (Excel → RPC landing_import_lotes)
   const clientFileRef = useRef();
 
   const srcInv = inventory.length > 0 ? inventory : SAMPLE_INVENTORY;
@@ -3529,7 +3530,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
   };
 
   // ── EXCEL UPLOAD INVENTARIO ───────────────────────────────────────
-  const handleExcelUpload = (e) => {
+  // destino: 'local' (legacy, ya no se usa) | 'rpc' (alta de desarrollo NUEVO → escribe a
+  // la plataforma vía landing_import_lotes). El parser es el mismo.
+  const handleExcelUpload = (e, destino) => {
     const file = e.target.files[0];
     if(!file) return;
     const reader = new FileReader();
@@ -3701,19 +3704,56 @@ function MacroProMatcher({ sessionEmail } = {}) {
             };
           }).filter(l=>l.nombre&&l.nombre.trim()!==""&&l.nombre.trim()!=="0"&&String(l.nombre).length>1);
         if(mapped.length>0){
-          setInventory(mapped);
-          setFilterCity("Todas"); setFilterDesarrollo("Todos"); setFilterUso("Todos");
-          const conCoords=mapped.filter(l=>l.lat&&l.lng);
-          const devCoords={};
-          conCoords.forEach(l=>{if(!devCoords[l.desarrollo])devCoords[l.desarrollo]={lat:l.lat,lng:l.lng};});
-          const vi=devCoords["Valle Imperial"];
-          console.log("📍 COORDS:",devCoords);
-          toast(`✓ ${mapped.length} lotes · ${conCoords.length} con coords · Valle Imperial: ${vi?vi.lat.toFixed(4)+","+vi.lng.toFixed(4):"SIN COORDS"}`);
+          if(destino==='rpc'){
+            // Alta de desarrollo NUEVO → escribir a la plataforma (Supabase) vía RPC.
+            subirAltaDesarrolloRPC(mapped);
+          } else {
+            setInventory(mapped);
+            setFilterCity("Todas"); setFilterDesarrollo("Todos"); setFilterUso("Todos");
+            toast(`✓ ${mapped.length} lotes cargados`);
+          }
         } else toast("⚠ No se encontraron lotes. Verifica el formato del Excel.");
       } catch(err){ toast("⚠ Error al leer inventario: "+err.message); }
     };
     reader.readAsBinaryString(file);
     e.target.value="";
+  };
+
+  // Alta de un desarrollo NUEVO en la plataforma (tabla lotes) vía el RPC landing_import_lotes.
+  // Respeta validación/RLS de la plataforma. Tras subir, refresca el inventario en vivo.
+  const subirAltaDesarrolloRPC = async (mapped) => {
+    const _sb = window.sb || sb;
+    if(!_sb){ toast("⚠ Sin conexión a Supabase"); return; }
+    const devs=[...new Set((mapped||[]).map(l=>(l.desarrollo||"").trim()).filter(Boolean))];
+    const devTxt = devs.length ? devs.join(", ") : "(sin desarrollo)";
+    if(!window.confirm("Vas a dar de alta "+mapped.length+" lote(s) del desarrollo:\n"+devTxt+"\n\nSe escriben en la plataforma (tabla lotes) vía landing_import_lotes. ¿Continuar?")) return;
+    const rows = (mapped||[]).map(l=>{
+      const key = loteKey(l);
+      const usos = (Array.isArray(l.usos_todos)&&l.usos_todos.length) ? l.usos_todos : (l.uso?[l.uso]:[]);
+      const total = Number(l.precio_total)||0;
+      return {
+        id: key, clave_unica: (l.id||key),
+        tipo_inventario: String(l.tipo||"").toLowerCase().includes("corretaje")?"corretaje":"desarrollo",
+        desarrollo: l.desarrollo||null, desarrollador: l.desarrollador||null, asesor: l.asesor||null,
+        estado: l.estado||null, ciudad: l.ciudad||null, colonia: l.colonia||null, maps_url: l.maps_url||null,
+        superficie_m2: Number(l.sup_m2)||null, precio_m2: Number(l.precio_m2)||null, precio_total: total||null,
+        precio_pendiente: !(total>0), condiciones_pago: l.condiciones_pago||null,
+        uso: l.uso||null, usos_todos: usos, cos: Number(l.cos)||null, cus: Number(l.cus)||null,
+        niveles: l.niveles||null, viv_max: Number(l.viv_max)||null,
+        acceso: l.acceso||null, entrega: l.entrega||null, agua: l.agua||null, luz: l.luz||null, drenaje: l.drenaje||null,
+        fortaleza: l.fortaleza||null, atributos: l.atributos||null,
+        lat: (l.lat!=null?Number(l.lat):null), lng: (l.lng!=null?Number(l.lng):null),
+        status_inventario: l.status||"Disponible", origen: "macropro",
+        metadata: { nombre: l.nombre||"", comprador: l.comprador||"", observaciones: l.observaciones||"", fecha_ingreso: l.fecha_ingreso||"" }
+      };
+    });
+    toast("☁️ Subiendo "+rows.length+" lotes a la plataforma…");
+    try{
+      const { error } = await _sb.rpc('landing_import_lotes', { p_rows: rows });
+      if(error) throw error;
+      toast("✅ Alta enviada: "+rows.length+" lotes ("+devTxt+"). Actualizando inventario…");
+      setTimeout(()=>recargarInventarioCloud({manual:true}), 600);
+    }catch(e){ const m=(e&&e.message)||e; toast("⚠ No se pudo dar de alta: "+m); console.warn('landing_import_lotes',e); }
   };
 
   // ── EXCEL UPLOAD CLIENTES ─────────────────────────────────────────
@@ -5806,6 +5846,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
               <div style={{fontSize:10,color:B.grey4,marginBottom:8}}>El alta/edición de la ficha técnica se hace en la plataforma. MacroPro solo lo consulta en vivo.</div>
               <div style={{marginTop:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
                 <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>recargarInventarioCloud({manual:true})}>🔄 Actualizar</button>
+                {esAdmin&&<button style={{...s.btn("ghost"),fontSize:12}} onClick={()=>altaDevFileRef.current&&altaDevFileRef.current.click()} title="Alta de un desarrollo nuevo por Excel → plataforma">➕ Desarrollo (Excel)</button>}
                 <button style={{...s.btn("ghost"),fontSize:12}} onClick={()=>setView("lots")}>Ver</button>
               </div>
             </div>
@@ -5834,7 +5875,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
             </div>
           </div>
           <div style={{...s.sectionSub,marginTop:18,fontSize:12}}>💡 El <b>inventario</b> (ficha técnica) se administra en la <b>plataforma</b> (landing) y MacroPro lo lee en vivo — usa <b>🔄 Actualizar</b>. Los <b>clientes</b> se cargan por Excel y se suben a la nube. Los desarrollos se editan aquí mismo.</div>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleExcelUpload}/>
+          <input ref={altaDevFileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={e=>handleExcelUpload(e,'rpc')}/>
           <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleClientExcelUpload}/>
         </div>
       );
@@ -6120,6 +6161,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
           <button onClick={()=>setInformeDev("")} style={{padding:"7px 12px",borderRadius:8,border:"1px solid "+B.navy,background:"#fff",color:B.navy,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🏢 Informe desarrollador</button>
           <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
             <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>recargarInventarioCloud({manual:true})} title="El inventario es de la plataforma (landing); aquí solo se consulta. Trae los cambios más recientes.">🔄 Actualizar inventario</button>
+            {esAdmin&&<button style={{...s.btn("ghost"),fontSize:12,borderColor:B.gold,color:B.goldD}} onClick={()=>altaDevFileRef.current&&altaDevFileRef.current.click()} title="Dar de alta un DESARROLLO NUEVO desde Excel (se escribe en la plataforma vía landing_import_lotes)">➕ Alta de desarrollo (Excel)</button>}
+            <input ref={altaDevFileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={e=>handleExcelUpload(e,'rpc')}/>
             <span style={{fontSize:12,color:B.grey3,fontWeight:600}}>{srcInv.length} lotes</span>
           </div>
         </div>
