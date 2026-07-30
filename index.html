@@ -6297,7 +6297,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
             key:r.id, stage:(r.etapa_hubspot||"").toString().trim(), pipeline:(r.pipeline_hubspot||"").toString().trim(),
             title:r.nombre_contacto||r.empresa||r.email||"(sin nombre)", amount:null,
             owner:((r.asesor_id!=null&&colabs[r.asesor_id]&&colabs[r.asesor_id].nombre)||r.propietario_hubspot||""),
-            desarrollo:r.desarrollo_interes||"", pendiente:!!r.pendiente_perfilar
+            desarrollo:r.desarrollo_interes||"", pendiente:!!r.pendiente_perfilar,
+            email:(r.email||"").toString().trim().toLowerCase(), empresa:r.empresa||""
           }));
           fuente="landing_clientes";
         }
@@ -8267,8 +8268,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
       filt.forEach(r=>{ const e=(r.stage||"").trim(); if(porEtapa[e]) porEtapa[e].push(r); });
       const PAL=["#64748B","#f59e0b","#3B82F6","#0891b2","#0d9488","#6366f1","#a855f7","#f97316","#0284c7","#06B6D4","#22c55e","#94a3b8"];
       const colorDe=(st,i)=>{ for(const k in HUBSPOT_STAGE_COLORS){ if(_hsNorm(k)===_hsNorm(st)) return HUBSPOT_STAGE_COLORS[k]; } return PAL[i%PAL.length]; };
+      const abrirFichaDeal=(r)=>{ const em=(r.email||"").trim().toLowerCase(); if(em){ const cli=(clients||[]).find(c=>((c.email||c.correo||"").toString().trim().toLowerCase())===em); if(cli){ abrirFichaCliente(cli); return; } } toast("Este negocio vive en HubSpot/landing. Su etapa se administra allá."); };
       const card=(r,i)=>(
-        <div key={(r.key||i)} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:9,padding:"9px 10px",marginBottom:8,cursor:"default"}}>
+        <div key={(r.key||i)} onClick={()=>abrirFichaDeal(r)} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:9,padding:"9px 10px",marginBottom:8,cursor:"pointer"}}>
           <div style={{fontSize:11,fontWeight:800,color:B.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title||"(sin nombre)"}</div>
           {(r.amount||r.amount===0)&&<div style={{fontSize:11,fontWeight:800,color:"#0f6b3f",marginTop:2}}>{fMoney(r.amount)}</div>}
           {r.desarrollo&&<div style={{fontSize:9,color:"#0f6b3f",fontWeight:700,marginTop:3}}>📍 {r.desarrollo}</div>}
