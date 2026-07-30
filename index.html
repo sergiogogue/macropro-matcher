@@ -14670,6 +14670,82 @@ Respuesta: [respuesta exacta, conversacional]
     const conRespuesta = arr.filter(c=>Array.isArray(c.respuestas)&&c.respuestas.length>0).length;
     return { totalRecibidos, totalAceptados, totalDescartados, totalFirmados, tasaAcept, tRespProm, totalRespuestas, conRespuesta, rows };
   };
+  // Genera el DICTAMEN como PDF real (jsPDF) → devuelve {blob, folio, estado}. Mismo contenido
+  // que la impresión HTML (autorización/negación/revisión), para poder GUARDARLO en la ficha.
+  const generarDictamenBlob = async (c, comentarios) => {
+    if(!window.jspdf) return null;
+    const v=c.viabilidad||""; if(!v) return null;
+    const estado = v.indexOf("🟢")>=0?"AUTORIZADO":(v.indexOf("🔴")>=0?"NO AUTORIZADO":"EN REVISIÓN");
+    const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+    const PW=210, MX=16; let y=0;
+    const _hoy=new Date(); const pad=n=>String(n).padStart(2,"0");
+    const folio="GG-AUT-"+_hoy.getFullYear()+pad(_hoy.getMonth()+1)+pad(_hoy.getDate())+"-"+pad(_hoy.getHours())+pad(_hoy.getMinutes());
+    const hoyTxt=_hoy.toLocaleDateString("es-MX",{year:"numeric",month:"long",day:"numeric"});
+    doc.setFillColor(16,41,74); doc.rect(0,0,PW,30,"F");
+    const logo=await cargarImg(LOGO_MACROLOTES);
+    if(logo&&logo.w){ const h=13,w=Math.min(50,h*(logo.w/logo.h)); try{doc.addImage(logo.data,"PNG",MX,8,w,h);}catch(e){} }
+    doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.text("Autorización de Ingreso al Inventario",PW-MX,14,{align:"right"});
+    doc.setTextColor(232,180,76); doc.setFont("courier","bold"); doc.setFontSize(9); doc.text("Folio: "+folio,PW-MX,20,{align:"right"});
+    doc.setTextColor(200,210,224); doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.text(hoyTxt+(c.asesorResponsableGG?("  ·  Dirigido a: "+c.asesorResponsableGG):""),PW-MX,25,{align:"right"});
+    y=42;
+    const rgb = estado==="AUTORIZADO"?[34,163,74]:estado==="NO AUTORIZADO"?[214,69,69]:[201,138,0];
+    const soft = estado==="AUTORIZADO"?[234,247,238]:estado==="NO AUTORIZADO"?[251,234,234]:[255,246,224];
+    doc.setDrawColor(rgb[0],rgb[1],rgb[2]); doc.setLineWidth(0.8); doc.setFillColor(soft[0],soft[1],soft[2]);
+    doc.roundedRect(MX,y,PW-2*MX,20,3,3,"FD");
+    doc.setTextColor(rgb[0],rgb[1],rgb[2]); doc.setFont("helvetica","bold"); doc.setFontSize(20); doc.text(estado,PW/2,y+13,{align:"center"});
+    y+=30;
+    const sup=parseFloat(c.superficie)||0, pd=parseFloat(c.precioDueno)||0, pm2=(pd>0&&sup>0)?Math.round(pd/sup):(parseFloat(c.precioM2)||0), pa=parseFloat(c.precioAutorizado)||0;
+    const has=x=>x!=null&&String(x).trim()!==""&&String(x).trim()!=="—";
+    const nombreLote=c.zona||c.ubicacion||c.propietario||"Terreno en opción";
+    const generales=[["Nombre / Lote",nombreLote],["Propietario",c.propietario],["Contacto",(c.contacto||"")+(c.telefono?(" · "+c.telefono):"")],["Dirección",[c.zona,c.ciudad,c.estado].filter(has).join(", ")],["Superficie",sup>0?(sup.toLocaleString("es-MX")+" m²"):""],["Uso de suelo",c.usoSuelo],["Precio del dueño",pd>0?("$"+pd.toLocaleString("es-MX")):""],["Precio por m²",pm2>0?("$"+pm2.toLocaleString("es-MX")):""],["Precio AUTORIZADO para comercializar",pa>0?("$"+pa.toLocaleString("es-MX")):""],["Tipo de acuerdo",c.tipoAcuerdo],["Comisión",c.comision]].filter(p=>has(p[1]));
+    doc.setFillColor(16,41,74); doc.rect(MX,y,PW-2*MX,7,"F"); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.text("GENERALES DEL TERRENO",MX+3,y+4.8); y+=11;
+    generales.forEach(p=>{ doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(99,112,138); doc.text(String(p[0]),MX+2,y); doc.setFont("helvetica","bold"); doc.setTextColor(16,41,74); doc.text(String(p[1]),PW-MX-2,y,{align:"right"}); y+=6.5; });
+    y+=4;
+    doc.setFillColor(16,41,74); doc.rect(MX,y,PW-2*MX,7,"F"); doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.text("COMENTARIOS · MOTIVO DE LA DECISIÓN",MX+3,y+4.8); y+=11;
+    doc.setTextColor(50,50,50); doc.setFont("helvetica","normal"); doc.setFontSize(9);
+    const cText=(comentarios||c.observacionesAutorizacion||c.notas||"— Sin comentarios —");
+    const lines=doc.splitTextToSize(String(cText),PW-2*MX-4); doc.text(lines,MX+2,y); y+=lines.length*5+8;
+    y=Math.max(y,248);
+    doc.setDrawColor(60,60,60); doc.setLineWidth(0.4); doc.line(MX,y,MX+70,y); doc.line(PW-MX-70,y,PW-MX,y);
+    doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(16,41,74);
+    doc.text("Sergio González Guerra G",MX+35,y+5,{align:"center"}); doc.text(String(c.asesorResponsableGG||"Asesor Responsable"),PW-MX-35,y+5,{align:"center"});
+    doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(120,120,120);
+    doc.text("Dirección · Grupo Guía Macrolotes",MX+35,y+9,{align:"center"}); doc.text("Asesor que opciona el terreno",PW-MX-35,y+9,{align:"center"});
+    let blob=null; try{ blob=doc.output("blob"); }catch(e){}
+    return { blob, folio, estado };
+  };
+  // Genera el dictamen, lo SUBE a Storage (captaciones-docs) y lo guarda en la ficha
+  // (documentosUrls + respuestas). Si falla la subida, descarga el PDF localmente.
+  const subirYGuardarDictamen = async (c) => {
+    if(!c) return null;
+    const v=c.viabilidad||""; if(!v){ toast("⚠ Primero define la Viabilidad (🟢/🟡/🔴)"); return null; }
+    let comentarios=c.observacionesAutorizacion||c.notas||"";
+    try{ const r=window.prompt("Comentarios · motivo de la decisión (opcional):",comentarios); if(r!==null) comentarios=r; }catch(e){}
+    toast("📄 Generando dictamen…");
+    const gen=await generarDictamenBlob(c,comentarios);
+    if(!gen||!gen.blob){ toast("⚠ No se pudo generar el PDF"); return null; }
+    const nombre="Dictamen_"+gen.folio+".pdf";
+    let url="";
+    if(window.sb){
+      try{
+        const path=(c.id||("cap-"+Date.now()))+"/"+gen.folio+".pdf";
+        const up=await window.sb.storage.from("captaciones-docs").upload(path,gen.blob,{contentType:"application/pdf",upsert:true});
+        if(up.error) throw up.error;
+        const pu=window.sb.storage.from("captaciones-docs").getPublicUrl(path);
+        url=(pu&&pu.data&&pu.data.publicUrl)||"";
+      }catch(e){ console.warn("subir dictamen:",e&&e.message); }
+    }
+    if(!url){ try{ const a=document.createElement("a"); a.href=URL.createObjectURL(gen.blob); a.download=nombre; document.body.appendChild(a); a.click(); a.remove(); }catch(e){}
+      toast("⚠ No se pudo subir a la nube (revisa permisos de Storage para usuarios logueados). Se descargó el PDF localmente."); }
+    const nowISO=new Date().toISOString();
+    const docsPrev=Array.isArray(c.documentosUrls)?c.documentosUrls:[];
+    const docs = url ? [...docsPrev, {nombre, url, tipo:"Dictamen de autorización", fecha:nowISO}] : docsPrev;
+    const upd={...c, documentosUrls:docs, respuestas:[...(Array.isArray(c.respuestas)?c.respuestas:[]), {fecha:nowISO, canal:"archivo", tipo:"dictamen", estado:gen.estado, url:url||"", folio:gen.folio}]};
+    setEditingCaptacion(prev=> (prev&&prev.id===c.id)?upd:prev);
+    upsertCaptacion(upd);
+    if(url) toast("✅ Dictamen ("+gen.estado+") guardado en la ficha");
+    return url;
+  };
   const descargarReporteCaptacionPDF = async () => {
     if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
     toast("📄 Generando reporte…");
@@ -17474,7 +17550,9 @@ Respuesta: [respuesta exacta, conversacional]
                     const _v=f.viabilidad||"";
                     const _estado=_v.indexOf("🟢")>=0?"AUTORIZADO ✅":_v.indexOf("🔴")>=0?"NO AUTORIZADO ❌":_v.indexOf("🟡")>=0?"EN REVISIÓN ⚡":"";
                     const _pa=parseFloat(crudoNum(f.precioAutorizado))||0;
-                    const msgDictamen="🏢 Grupo Guía Macrolotes — Dictamen de opción\n\nTerreno: "+_terr+"\nResultado: "+(_estado||"(pendiente)")+(_pa>0?("\nPrecio autorizado para comercializar: $"+_pa.toLocaleString("es-MX")):"")+(f.observacionesAutorizacion?("\nObservaciones: "+f.observacionesAutorizacion):"");
+                    const dictDoc=(Array.isArray(f.documentosUrls)?f.documentosUrls:[]).filter(d=>d&&d.tipo==="Dictamen de autorización"&&d.url).slice(-1)[0];
+                    const dictUrl=dictDoc?dictDoc.url:"";
+                    const msgDictamen="🏢 Grupo Guía Macrolotes — Dictamen de opción\n\nTerreno: "+_terr+"\nResultado: "+(_estado||"(pendiente)")+(_pa>0?("\nPrecio autorizado para comercializar: $"+_pa.toLocaleString("es-MX")):"")+(f.observacionesAutorizacion?("\nObservaciones: "+f.observacionesAutorizacion):"")+(dictUrl?("\n\n📄 Dictamen (PDF): "+dictUrl):"");
                     const registrar=(canal,tipo,extra)=>{ const r={fecha:new Date().toISOString(),canal,tipo,...(extra||{})}; const upd={...f,respuestas:[...(f.respuestas||[]),r]}; setEditingCaptacion(upd); upsertCaptacion(upd); };
                     const enviarDictamen=(canal)=>{
                       if(!_v){ toast("⚠ Primero define la Viabilidad (🟢/🟡/🔴) para emitir el dictamen"); return; }
@@ -17501,6 +17579,10 @@ Respuesta: [respuesta exacta, conversacional]
                         <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:2}}>📨 Responder al asesor</div>
                         <div style={{fontSize:10.5,color:B.grey4,marginBottom:10}}>{asesorInfo?("Asesor: "+f.asesorResponsableGG+(asesorTel?(" · "+asesorTel):"")+(asesorMail?(" · "+asesorMail):"")):"Sin contacto del asesor en el catálogo — se abrirá WhatsApp/correo para que elijas el destinatario."}</div>
                         <div style={{fontSize:10,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}}>Dictamen (autorización / negación)</div>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+                          <button onClick={async()=>{ await subirYGuardarDictamen(f); }} title="Genera el PDF del dictamen, lo guarda en la ficha y (si se puede) lo sube a la nube" style={{padding:"8px 12px",borderRadius:8,border:"1.5px solid "+B.gold,background:"#fffaf0",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📄 Generar y guardar dictamen (PDF)</button>
+                        </div>
+                        {dictUrl&&<div style={{fontSize:10.5,marginBottom:8}}>✅ Dictamen guardado: <a href={dictUrl} target="_blank" rel="noopener noreferrer" style={{color:"#1d4ed8",fontWeight:700}}>abrir PDF ↗</a> <span style={{color:B.grey4}}>· se incluye la liga al enviar</span></div>}
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
                           <button onClick={()=>enviarDictamen("whatsapp")} style={btnW}>📱 Enviar por WhatsApp</button>
                           <button onClick={()=>enviarDictamen("email")} style={btnM}>📧 Enviar por Email</button>
