@@ -74,13 +74,20 @@ Deno.serve(async () => {
       } while (oa);
     } catch (_) {}
 
-    // 4) BÚSQUEDA por pipeline (con pausa entre páginas para no chocar con el rate limit)
+    // 4) BÚSQUEDA por pipeline + SOLO últimos 90 días (más liviano, sin rate-limit)
     const properties = [...new Set(["dealname", "amount", "dealstage", "pipeline", "hubspot_owner_id", ...devProps])];
+    const cutoff = String(Date.now() - 90 * 24 * 60 * 60 * 1000); // epoch ms · últimos 3 meses
     let after: string | undefined = undefined;
     const rows: Record<string, unknown>[] = [];
     let guard = 0;
     do {
-      const body: any = { filterGroups: [{ filters: [{ propertyName: "pipeline", operator: "IN", values: macroPipeIds }] }], properties, limit: 100 };
+      const body: any = {
+        filterGroups: [{ filters: [
+          { propertyName: "pipeline", operator: "IN", values: macroPipeIds },
+          { propertyName: "createdate", operator: "GTE", value: cutoff },
+        ] }],
+        properties, limit: 100, sorts: [{ propertyName: "createdate", direction: "DESCENDING" }],
+      };
       if (after) body.after = after;
       const page = await hsPost("/crm/v3/objects/deals/search", body);
       for (const d of (page.results || [])) {
