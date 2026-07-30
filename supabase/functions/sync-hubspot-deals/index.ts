@@ -1,31 +1,34 @@
 // ════════════════════════════════════════════════════════════════════
 // Edge Function · Importa los deals de HubSpot de MACROLOTES → public.hubspot_deals.
-// Usa la BÚSQUEDA de HubSpot filtrando por los PIPELINES de Macrolotes (Venta Desarrollo /
-// Venta Corretaje), así trae solo esos (cientos) sin escanear los 50k+ deals de la cuenta.
-// Guarda el "Desarrollo de interés" (etiqueta). El token vive AQUÍ. MacroPro solo LEE.
+// Búsqueda por PIPELINE (Venta Desarrollo / Venta Corretaje). Maneja rate-limit (429)
+// con reintentos + espera. El token vive AQUÍ. MacroPro solo LEE.
 // ════════════════════════════════════════════════════════════════════
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const HUBSPOT_TOKEN = Deno.env.get("HUBSPOT_TOKEN")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function hsGet(path: string) {
-  const r = await fetch("https://api.hubapi.com" + path, {
-    headers: { Authorization: "Bearer " + HUBSPOT_TOKEN, "Content-Type": "application/json" },
-  });
-  if (!r.ok) throw new Error("HubSpot GET " + path + " -> " + r.status + " " + (await r.text()));
-  return r.json();
+// fetch con reintento en 429 (rate limit) y 5xx
+async function hsFetch(path: string, init?: RequestInit): Promise<any> {
+  for (let attempt = 0; attempt < 7; attempt++) {
+    const r = await fetch("https://api.hubapi.com" + path, {
+      ...(init || {}),
+      headers: { Authorization: "Bearer " + HUBSPOT_TOKEN, "Content-Type": "application/json", ...((init && init.headers) || {}) },
+    });
+    if (r.status === 429 || r.status >= 500) {
+      const ra = Number(r.headers.get("Retry-After")) || (attempt + 1);
+      await sleep(ra * 1000);
+      continue;
+    }
+    if (!r.ok) throw new Error("HubSpot " + ((init && init.method) || "GET") + " " + path + " -> " + r.status + " " + (await r.text()));
+    return r.json();
+  }
+  throw new Error("HubSpot " + path + " -> demasiados 429 (rate limit). Reintenta en 1 minuto.");
 }
-async function hsPost(path: string, body: unknown) {
-  const r = await fetch("https://api.hubapi.com" + path, {
-    method: "POST",
-    headers: { Authorization: "Bearer " + HUBSPOT_TOKEN, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error("HubSpot POST " + path + " -> " + r.status + " " + (await r.text()));
-  return r.json();
-}
+const hsGet = (p: string) => hsFetch(p);
+const hsPost = (p: string, body: unknown) => hsFetch(p, { method: "POST", body: JSON.stringify(body) });
 const norm = (s: string) => (s || "").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
 Deno.serve(async () => {
@@ -48,7 +51,7 @@ Deno.serve(async () => {
       }
     } catch (_) {}
 
-    // 2) Pipelines de Macrolotes (Venta Desarrollo / Venta Corretaje) + labels
+    // 2) Pipelines de Macrolotes + labels
     const pl = await hsGet("/crm/v3/pipelines/deals");
     const stageLabel: Record<string, string> = {};
     const pipeLabel: Record<string, string> = {};
@@ -58,7 +61,7 @@ Deno.serve(async () => {
       for (const s of (p.stages || [])) stageLabel[s.id] = s.label;
       if (norm(p.label).includes("desarrollo") || norm(p.label).includes("corretaje")) macroPipeIds.push(p.id);
     }
-    if (!macroPipeIds.length) throw new Error("No encontré pipelines de Macrolotes (Venta Desarrollo / Venta Corretaje). Pipelines: " + Object.values(pipeLabel).join(", "));
+    if (!macroPipeIds.length) throw new Error("No encontré pipelines de Macrolotes. Pipelines: " + Object.values(pipeLabel).join(", "));
 
     // 3) Owners → nombre del asesor
     const ownerName: Record<string, string> = {};
@@ -71,16 +74,13 @@ Deno.serve(async () => {
       } while (oa);
     } catch (_) {}
 
-    // 4) BÚSQUEDA por pipeline → solo deals de Macrolotes
+    // 4) BÚSQUEDA por pipeline (con pausa entre páginas para no chocar con el rate limit)
     const properties = [...new Set(["dealname", "amount", "dealstage", "pipeline", "hubspot_owner_id", ...devProps])];
     let after: string | undefined = undefined;
     const rows: Record<string, unknown>[] = [];
     let guard = 0;
     do {
-      const body: any = {
-        filterGroups: [{ filters: [{ propertyName: "pipeline", operator: "IN", values: macroPipeIds }] }],
-        properties, limit: 100,
-      };
+      const body: any = { filterGroups: [{ filters: [{ propertyName: "pipeline", operator: "IN", values: macroPipeIds }] }], properties, limit: 100 };
       if (after) body.after = after;
       const page = await hsPost("/crm/v3/objects/deals/search", body);
       for (const d of (page.results || [])) {
@@ -108,6 +108,7 @@ Deno.serve(async () => {
         });
       }
       after = page.paging?.next?.after;
+      if (after) await sleep(350);
     } while (after && ++guard < 200);
 
     for (let i = 0; i < rows.length; i += 500) {
