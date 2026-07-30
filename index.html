@@ -8313,7 +8313,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
                       <span style={{fontSize:10,fontWeight:800,color:"#fff",background:col,borderRadius:9,padding:"1px 7px",flexShrink:0}}>{items.length}</span>
                     </div>
                     <div style={{padding:8,overflowY:"auto",flex:1}}>
-                      {items.length===0?<div style={{fontSize:10,color:B.grey3,textAlign:"center",padding:"14px 0",fontStyle:"italic"}}>—</div>:items.map(card)}
+                      {items.length===0?<div style={{fontSize:10,color:B.grey3,textAlign:"center",padding:"14px 0",fontStyle:"italic"}}>—</div>:items.slice(0,60).map(card)}
+                      {items.length>60&&<div style={{fontSize:10,color:B.grey3,textAlign:"center",padding:"6px 0",fontWeight:700}}>+{items.length-60} más</div>}
                     </div>
                   </div>
                 );
