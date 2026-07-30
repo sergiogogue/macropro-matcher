@@ -572,8 +572,9 @@ function clienteToSupabase(cliente, asesorEmailMap) {
 function loteFromSupabase(r) {
   if (!r) return null;
   return {
-    id: (r.id_macrolote || r.id || "").toString(),
-    nombre: r.nombre || r.nombre_terreno || "",
+    id: (r.id || r.clave_unica || r.id_macrolote || "").toString(),
+    clave_unica: (r.clave_unica || r.id || "").toString(),
+    nombre: r.nombre || r.nombre_terreno || r.clave_unica || r.id_macrolote || r.id || "",
     desarrollo: r.desarrollo || "",
     desarrollador: r.desarrollador || "",
     tipo: r.tipo || r.tipo_inventario || "",
@@ -598,6 +599,8 @@ function loteFromSupabase(r) {
     fortaleza: r.fortaleza || "", atributos: r.atributos || "", comprador: r.comprador || "",
     asesor: r.asesor || "", condiciones_pago: r.condiciones_pago || "", observaciones: r.observaciones || "",
     fecha_ingreso: r.fecha_ingreso || "",
+    metadata: (r.metadata && typeof r.metadata === "object") ? r.metadata : ((typeof r.metadata === "string" && r.metadata) ? (()=>{ try{ return JSON.parse(r.metadata); }catch(e){ return null; } })() : null),
+    dado_baja_at: r.dado_baja_at || null,
   };
 }
 function clienteFromSupabase(r) {
@@ -3343,15 +3346,14 @@ function MacroProMatcher({ sessionEmail } = {}) {
   }, [clients, crmData]);
 
   const runMigrationTodo = async () => {
-    // Orden obligatorio: lotes → clientes → crm (CRM depende de lotes existiendo)
+    // El INVENTARIO es fuente de verdad de la plataforma (landing): MacroPro NO lo sube
+    // (lo pisaría). Solo sube clientes + CRM.
     setMigrateState(s => ({ ...s, results: null, error: null }));
-    const r1 = await runMigrationLotes();
-    if (!r1.success) return;
     const r2 = await runMigrationClientes();
     if (!r2.success) return;
     const r3 = await runMigrationCRM();
     if (!r3.success) return;
-    toast("🎉 Migración completa: " + r1.count + " lotes, " + r2.count + " clientes, " + r3.count + " seguimientos CRM");
+    toast("🎉 Subido: " + r2.count + " clientes, " + r3.count + " seguimientos CRM (el inventario se administra en la plataforma)");
   };
   // ── Semáforo de tiempo en inventario ────────────────────────
   const INV_SEMAFORO=[
@@ -3406,6 +3408,36 @@ function MacroProMatcher({ sessionEmail } = {}) {
     })();
     return ()=>{ alive=false; };
   },[sb]);
+  // ─── 🌐 INVENTARIO EN VIVO desde Supabase (fuente de verdad = plataforma/landing) ───
+  // Lee v_landing_lotes (o lotes), EXCLUYE dados de baja (dado_baja_at) e ids que empiezan
+  // con GEN_. MacroPro ya no usa el Excel/almacén local como fuente: solo consume. Se conserva
+  // la copia local (localStorage) solo como respaldo offline si la nube no responde.
+  const [invCloudMsg, setInvCloudMsg] = React.useState("");
+  const recargarInventarioCloud = React.useCallback(async (opts)=>{
+    const _sb = window.sb || sb;
+    if(!_sb){ if(opts&&opts.manual) toast("⚠ Sin conexión a Supabase"); return; }
+    const esGen = v => String(v||"").trim().toLowerCase().indexOf("gen_")===0;
+    const filtrarMapear = (data)=> (Array.isArray(data)?data:[])
+        .filter(r=> r && r.dado_baja_at==null && !esGen(r.id) && !esGen(r.clave_unica))
+        .map(loteFromSupabase).filter(Boolean);
+    try{
+      let res = await _sb.from('v_landing_lotes').select('*');
+      if(res.error){ res = await _sb.from('lotes').select('*'); }
+      if(res.error) throw res.error;
+      const mapped = filtrarMapear(res.data);
+      if(mapped.length){ setInventory(mapped); setInvCloudMsg(""); if(opts&&opts.manual) toast("✅ Inventario actualizado desde la nube ("+mapped.length+" lotes)"); }
+      else { setInvCloudMsg("La nube no devolvió lotes (revisa RLS o si la tabla está vacía)."); if(opts&&opts.manual) toast("⚠ La nube no devolvió lotes"); }
+    }catch(e){ const m=(e&&e.message)||e; setInvCloudMsg("No se pudo leer el inventario de la nube: "+m); if(opts&&opts.manual) toast("⚠ "+m); }
+  },[]);
+  const invCloudRef = React.useRef(false);
+  React.useEffect(()=>{
+    let cancel=false;
+    const t=setInterval(()=>{
+      if(cancel){ clearInterval(t); return; }
+      if(window.sb && !invCloudRef.current){ invCloudRef.current=true; clearInterval(t); recargarInventarioCloud(); }
+    },400);
+    return ()=>{ cancel=true; clearInterval(t); };
+  },[]);
   // ¿Este lote (del inventario local) es «Nuevo lanzamiento» vigente? Empareja por clave canónica.
   const loteEsLanzamiento=(lot)=>{
     if(!lot) return false;
@@ -4347,11 +4379,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
       </div>
       <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4}}>
         <button style={{...s.btn("primary"),padding:"13px 26px",fontSize:14,boxShadow:`0 4px 20px ${B.gold}44`}} onClick={()=>setView("dashboard")}>📊 Dashboard Ejecutivo</button>
-        <button style={s.btn("ghost")} onClick={()=>fileRef.current?.click()}>📤 Cargar Inventario Excel</button>
+        <button style={s.btn("ghost")} onClick={()=>recargarInventarioCloud({manual:true})} title="El inventario vive en la plataforma (landing). Aquí solo se consulta.">🔄 Actualizar inventario</button>
         <button style={s.btn("ghost")} onClick={()=>setView("clients")}>👥 Gestionar Clientes</button>
         <button style={s.btn("ghost")} onClick={()=>setView("lots")}>📦 Ver Inventario</button>
         <button style={{...s.btn("ghost"),borderColor:B.gold,color:B.goldD}} onClick={()=>setView("admin")}>⚙️ Administrador</button>
-        <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleExcelUpload}/>
       </div>
       {(inventory.length===0||clients.length===0)&&(
         <div style={{marginTop:16,background:"#fff8e7",border:`1px solid ${B.gold}44`,borderRadius:10,padding:"12px 18px",fontSize:13,color:B.goldD}}>
@@ -5768,9 +5799,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:16}}>
             <div style={card}>
               <div style={{fontSize:26}}>📦</div><div style={cTit}>Inventario</div>
-              <div style={cNum}>{nLotes} lotes cargados</div>
+              <div style={cNum}>{nLotes} lotes · desde la plataforma (landing)</div>
+              <div style={{fontSize:10,color:B.grey4,marginBottom:8}}>El alta/edición de la ficha técnica se hace en la plataforma. MacroPro solo lo consulta en vivo.</div>
               <div style={{marginTop:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
-                <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>fileRef.current&&fileRef.current.click()}>📤 Cargar Excel</button>
+                <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>recargarInventarioCloud({manual:true})}>🔄 Actualizar</button>
                 <button style={{...s.btn("ghost"),fontSize:12}} onClick={()=>setView("lots")}>Ver</button>
               </div>
             </div>
@@ -5791,14 +5823,14 @@ function MacroProMatcher({ sessionEmail } = {}) {
             </div>
             <div style={card}>
               <div style={{fontSize:26}}>🔄</div><div style={cTit}>Sincronización</div>
-              <div style={cNum}>Sube todo (inventario completo + clientes) → todas las apps</div>
+              <div style={cNum}>Sube clientes + CRM → todas las apps (el inventario se administra en la plataforma)</div>
               <div style={{marginTop:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
                 <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>setShowMigrateModal(true)}>☁️ Subir a la nube</button>
                 <button style={{...s.btn("ghost"),fontSize:12}} disabled={sincronizando} onClick={()=>sincronizarTodo()}>{sincronizando?"…":"🔄 Sincronizar"}</button>
               </div>
             </div>
           </div>
-          <div style={{...s.sectionSub,marginTop:18,fontSize:12}}>💡 Flujo: <b>Cargar Excel</b> (inventario o clientes) → <b>Subir a la nube</b>. Los desarrollos se editan aquí mismo. Todo queda en Supabase y lo ven las demás apps al instante.</div>
+          <div style={{...s.sectionSub,marginTop:18,fontSize:12}}>💡 El <b>inventario</b> (ficha técnica) se administra en la <b>plataforma</b> (landing) y MacroPro lo lee en vivo — usa <b>🔄 Actualizar</b>. Los <b>clientes</b> se cargan por Excel y se suben a la nube. Los desarrollos se editan aquí mismo.</div>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleExcelUpload}/>
           <input ref={clientFileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleClientExcelUpload}/>
         </div>
@@ -6084,8 +6116,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
           </div>
           <button onClick={()=>setInformeDev("")} style={{padding:"7px 12px",borderRadius:8,border:"1px solid "+B.navy,background:"#fff",color:B.navy,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🏢 Informe desarrollador</button>
           <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
-            <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>fileRef.current?.click()}>📤 Cargar Inventario Excel</button>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={handleExcelUpload}/>
+            <button style={{...s.btn("navy"),fontSize:12}} onClick={()=>recargarInventarioCloud({manual:true})} title="El inventario es de la plataforma (landing); aquí solo se consulta. Trae los cambios más recientes.">🔄 Actualizar inventario</button>
             <span style={{fontSize:12,color:B.grey3,fontWeight:600}}>{srcInv.length} lotes</span>
           </div>
         </div>
@@ -17215,17 +17246,14 @@ Respuesta: [respuesta exacta, conversacional]
               boxShadow:(running||!sb)?"none":"0 4px 14px rgba(59,130,246,0.35)"
             }}
           >
-            {running ? "⏳ Migrando..." : "☁️ Migrar TODO a la nube"}
+            {running ? "⏳ Subiendo..." : "☁️ Subir clientes + CRM a la nube"}
           </button>
 
           {/* Botones granulares */}
           <div style={{fontSize:10,fontWeight:700,color:B.grey3,textTransform:"uppercase",letterSpacing:1,marginBottom:8,textAlign:"center"}}>
             — o migrar por partes —
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:18}}>
-            <button onClick={runMigrationLotes} disabled={running || !sb} style={{padding:"10px",background:(running||!sb)?B.grey1:"#fff",color:B.navy,border:"1.5px solid "+B.navy,borderRadius:9,cursor:(running||!sb)?"not-allowed":"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",opacity:(running||!sb)?0.5:1}}>
-              📦 Solo Lotes
-            </button>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:18}}>
             <button onClick={runMigrationClientes} disabled={running || !sb} style={{padding:"10px",background:(running||!sb)?B.grey1:"#fff",color:B.navy,border:"1.5px solid "+B.navy,borderRadius:9,cursor:(running||!sb)?"not-allowed":"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",opacity:(running||!sb)?0.5:1}}>
               👥 Solo Clientes
             </button>
