@@ -6276,10 +6276,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
         try{ const c=await _sb.from('landing_colaboradores').select('id,nombre,email'); if(c&&!c.error&&Array.isArray(c.data)) c.data.forEach(x=>{ if(x&&x.id!=null) colabs[x.id]={nombre:x.nombre||"",email:x.email||""}; }); }catch(e){}
         let rows=[]; let fuente=""; let leido=0;
         // Fuente A: tabla espejo hubspot_deals (mirror directo de HubSpot).
-        // SOLO negocios de Macrolotes: el "Desarrollo de interés" contiene "MACROLOTES"
-        // (cubre MACROLOTES <desarrollo> y CORRETAJE MACROLOTES).
+        // SOLO negocios de Macrolotes: la función guarda con `desarrollo` lleno solo los de
+        // los pipelines de Macrolotes; la basura vieja quedó con desarrollo NULL → la excluimos.
         try{
-          const d=await _sb.from('hubspot_deals').select('*').ilike('desarrollo','%MACROLOTES%');
+          const d=await _sb.from('hubspot_deals').select('*').not('desarrollo','is',null);
           if(!d.error && Array.isArray(d.data) && d.data.length){
             leido=d.data.length;
             rows=d.data.map(x=>({
