@@ -8269,7 +8269,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
               Esta vista lee <code>public.landing_clientes</code> y agrupa por <code>etapa_hubspot</code> (la landing espeja HubSpot ahí). Revisa que exista y con RLS de lectura para tu usuario.
             </div>
           ) : conEtapa.length===0 ? (
-            <div style={{padding:"30px",textAlign:"center",color:B.grey3,fontSize:13}}>Aún no hay clientes con etapa de HubSpot (<code>etapa_hubspot</code>).<br/><span style={{fontSize:11}}>La landing debe importar los negocios de HubSpot a <code>landing_clientes</code>.</span></div>
+            <div style={{padding:"30px",textAlign:"center",color:B.grey3,fontSize:13}}>Aún no hay clientes con etapa de HubSpot (<code>etapa_hubspot</code>).<br/>
+              <span style={{fontSize:11}}>Leí <b>{rows.length}</b> cliente(s) de <code>landing_clientes</code>; {rows.length>0?"ninguno trae etapa_hubspot — la landing debe POBLAR ese campo al importar los negocios de HubSpot.":"la tabla no devolvió filas para tu usuario (revisa RLS) o está vacía."}</span></div>
           ) : (
             <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:10}}>
               {cols.map((st,i)=>{ const col=colorDe(st,i); const items=porEtapa[st]||[];
