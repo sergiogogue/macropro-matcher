@@ -2742,18 +2742,11 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const hit=buscar(asesoresCatalog)||buscar(asesoresCloud);
     return hit?hit.nombre:"";
   },[sessionEmail, asesoresCatalog, asesoresCloud]);
-  // ADMIN (ve todo y asigna) vs ASESOR (solo lo suyo, bloqueado).
-  // Admin si: no hay login · correo en lista de admins · correo NO registrado como
-  // asesor · o el asesor está marcado rol 'admin'. (Falla del lado seguro: ver todo.)
+  // Decisión de producto (CLAUDE.md): son 3 usuarios de confianza y TODOS ven y editan TODO.
+  // Por eso todos son ADMIN: misma versión, misma velocidad y mismos resultados (sin candado
+  // de "solo lo mío"). No hay permisos por territorio.
   const ADMIN_EMAILS=["sergio@grupoguia.mx"];
-  const esAdmin = React.useMemo(()=>{
-    const e=(sessionEmail||"").trim().toLowerCase();
-    if(!e) return true;
-    if(ADMIN_EMAILS.indexOf(e)>=0) return true;
-    const hit=(asesoresCatalog||[]).find(a=>((a.email||"")+"").trim().toLowerCase()===e);
-    if(!hit) return true;
-    return hit.rol==="admin";
-  },[sessionEmail, asesoresCatalog]);
+  const esAdmin = React.useMemo(()=> true, [sessionEmail]);
   const autoAsesorRef = React.useRef(false);
   React.useEffect(()=>{
     if(autoAsesorRef.current) return;
