@@ -5,7 +5,7 @@
 // La versión nueva ESPERA a que el usuario toque "Actualizar" (mensaje
 // SKIP_WAITING) para no interrumpir el trabajo a medias.
 
-const CACHE_NAME = 'macropro-v3';
+const CACHE_NAME = 'macropro-v4';
 const URLS_TO_CACHE = [
   './',
   './index.html',
@@ -17,10 +17,13 @@ const URLS_TO_CACHE = [
   'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700;900&family=DM+Sans:wght@400;500;600;700;800&display=swap'
 ];
 
-// Al instalar: cachea todos los recursos críticos.
-// NO llamamos skipWaiting aquí: el SW nuevo queda "waiting" hasta que el
-// usuario toque "Actualizar" (así no se interrumpe el trabajo a medias).
+// Al instalar: cachea recursos críticos y ACTIVA de inmediato (skipWaiting).
+// Antes esperaba a que el usuario tocara "Actualizar" y eso dejaba a algunos
+// dispositivos (iPad/PWA) pegados en una versión vieja. Ahora la última versión
+// se aplica sola en la siguiente recarga; es network-first, así que no rompe el
+// trabajo en curso (la página abierta sigue con su código hasta recargar).
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(URLS_TO_CACHE).catch((err) => {
