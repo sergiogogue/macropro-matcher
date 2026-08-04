@@ -2209,9 +2209,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
         if(!stop&&clk!==null&&clk!==lastCliRef.current){ lastCliRef.current=clk;
           const cloud=CL.data.map(clienteFromSupabase).filter(Boolean);
           setClients(prev=>{
-            const used=new Set(); const out=[];
-            cloud.forEach(c=>{ const k=cliKey(c); if(k) used.add(k); out.push(c); }); // la nube manda
-            (prev||[]).forEach(c=>{ const k=cliKey(c); if(!k||!used.has(k)) out.push(c); }); // conserva locales que no están en la nube
+            const used=new Set(); const del=new Set(); const out=[];
+            cloud.forEach(c=>{ const k=cliKey(c); if(k) used.add(k); if(c.activo===false){ if(k) del.add(k); return; } out.push(c); }); // la nube manda · activo=false NO se agrega
+            (prev||[]).forEach(c=>{ const k=cliKey(c); if(k&&del.has(k)) return; if(!k||!used.has(k)) out.push(c); }); // no resucita borrados; conserva locales que no están en la nube
             if(JSON.stringify(out)===JSON.stringify(prev||[])) return prev;
             savePersisted(STORAGE_KEYS.clients, out);
             try{ cliSnapRef.current=JSON.stringify(cliSnap(out)); }catch(e){} // evita re-subir lo recién bajado
@@ -3120,7 +3120,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
       if(C.error) throw new Error('clientes: '+C.error.message);
       if(K.error) throw new Error('crm_lotes: '+K.error.message);
       if(Array.isArray(L.data) && L.data.length){ setInventory(L.data.map(loteFromSupabase).filter(Boolean)); }
-      if(Array.isArray(C.data) && C.data.length){ setClients(C.data.map(clienteFromSupabase).filter(Boolean)); }
+      if(Array.isArray(C.data) && C.data.length){ setClients(C.data.map(clienteFromSupabase).filter(Boolean).filter(c=>c.activo!==false)); }
       if(Array.isArray(K.data) && K.data.length){
         const parseJ=(v)=>{try{return v?JSON.parse(JSON.stringify(v)):[];}catch(e){return [];}};
         // Fusiona (nunca reemplaza) re-clavando al id real del inventario (agnóstico a may/min y separadores)
@@ -3953,7 +3953,14 @@ function MacroProMatcher({ sessionEmail } = {}) {
   };
 
   // ── DELETE CLIENT / LOT ───────────────────────────────────────────
-  const deleteClient = (id) => { if(window.confirm("¿Eliminar este cliente?")) { setClients(prev=>prev.filter(c=>c.id!==id)); toast("✓ Cliente eliminado"); } };
+  const deleteClient = (id) => { if(window.confirm("¿Eliminar este cliente?")) {
+    const c=(clients||[]).find(x=>x.id===id);
+    // Baja LÓGICA compartida: marca activo=false en la nube (public.clientes) para que el
+    // borrado se refleje entre sistemas y la bajada NO lo resucite. + updated_at (last-write-wins).
+    if(c){ try{ subirClienteCloud({...c, activo:false}); }catch(e){} }
+    setClients(prev=>prev.filter(x=>x.id!==id));
+    toast("✓ Cliente eliminado");
+  } };
   const deleteLot = (id) => { if(window.confirm("¿Eliminar este lote del inventario?")) { setInventory(prev=>prev.filter(l=>l.id!==id)); toast("✓ Lote eliminado"); } };
 
   // ── CLAUDE MATCH ENGINE ──────────────────────────────────────────
