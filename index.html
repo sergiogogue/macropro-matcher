@@ -561,7 +561,8 @@ function clienteToSupabase(cliente, asesorEmailMap) {
     status: cliente.status || null,
     plazo_cierre: cliente.plazo_cierre || null,
     deal_breakers: Array.isArray(cliente.deal_breakers) ? cliente.deal_breakers : [],
-    activo: cliente.activo !== false
+    activo: cliente.activo !== false,
+    updated_at: new Date().toISOString()  // sello para "gana el más reciente" (last-write-wins)
   };
 }
 
