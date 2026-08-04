@@ -1988,6 +1988,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [filterPrecioMax, setFilterPrecioMax] = useState("");
   const [showAddClient, setShowAddClient] = useState(false);
   const [editingClientId, setEditingClientId] = useState(null); // id del cliente en edición (null = alta)
+  const [fichaLandingId, setFichaLandingId] = useState(null); // cliente cuya ficha de la LANDING se abre
   const [newClient, setNewClient] = useState({ nombre:"",empresa:"",asesor:"",ciudad_interes_raw:"",uso_interes_raw:"",presupuesto_min:"",presupuesto_max:"",sup_min:"",sup_max:"",status:"Prospecto nuevo",notas:"" });
   // Abrir la ficha de un cliente existente para editar (rellena el formulario y abre el modal).
   const abrirFichaCliente = (c) => {
@@ -5606,8 +5607,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // perfil (landing_clientes) y qué busca (landing_criterios). Permite editar los campos
   // escalares del perfil escribiendo de vuelta SOLO valores no vacíos (coalesce: nunca pisa
   // con vacío). No toca el esquema de la landing.
-  const PerfilLandingCliente = ({ cliente }) => {
-    const [open, setOpen] = React.useState(false);
+  const PerfilLandingCliente = ({ cliente, forceOpen }) => {
+    const [open, setOpen] = React.useState(!!forceOpen);
+    React.useEffect(()=>{ if(forceOpen) setOpen(true); }, [forceOpen]);
     const [row, setRow] = React.useState(undefined);   // undefined=no cargado · null=sin ficha
     const [crit, setCrit] = React.useState(undefined);
     const [err, setErr] = React.useState(null);
@@ -5976,14 +5978,15 @@ function MacroProMatcher({ sessionEmail } = {}) {
                 })()}
               </div>
               <div style={{display:"flex",gap:7,flexShrink:0}}>
-                <button style={{...s.btn("sm"),background:B.gold,color:B.navy}} onClick={()=>abrirFichaCliente(c)}>📇 Ficha</button>
+                <button style={{...s.btn("sm"),background:B.gold,color:B.navy}} title="Ficha del cliente (la de la landing — sincroniza en ambos lados)" onClick={()=>setFichaLandingId(fichaLandingId===c.id?null:c.id)}>📇 Ficha</button>
+                <button style={{...s.btn("sm"),fontSize:11}} title="Datos internos de MacroPro / criterios de match" onClick={()=>abrirFichaCliente(c)}>⚙️ Match</button>
                 <button style={{...s.btn("sm"),background:B.navy,color:"#fff"}} onClick={()=>setHistorialCliente(c)}>📋 Historial</button>
                 <button style={s.btn("sm")} onClick={()=>{setSelectedClient(c);setView("matchClient");}}>🎯 Match</button>
                 {clients.length>0&&<button style={{...s.btn("sm"),background:B.redL,color:B.red}} onClick={()=>deleteClient(c.id)}>🗑 Eliminar</button>}
               </div>
             </div>
             <CotizacionesCliente cliente={c}/>
-            <PerfilLandingCliente cliente={c}/>
+            <PerfilLandingCliente cliente={c} forceOpen={fichaLandingId===c.id}/>
           </div>
         ))}
         {filtered.length===0&&<div style={{textAlign:"center",padding:40,color:B.grey3,fontSize:14}}>Sin clientes con estos filtros</div>}
