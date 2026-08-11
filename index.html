@@ -2301,6 +2301,13 @@ function MacroProMatcher({ sessionEmail } = {}) {
   },[notifActs.length]);
   // ── EJECUTIVO + METAS ────────────────────────────────────────────
   const [metasData, setMetasData] = React.useState(()=>loadMetas());
+  // Apartados del mes (captura manual por desarrollo en el Scorecard de Metas): unidades + monto $ (miles).
+  // Se guarda por AÑO-MES-desarrollo para que cada mes arranque limpio y no se pise el histórico.
+  // Valor = { u:unidades, m:monto en miles MXN }.
+  const [apartadosMes, setApartadosMes] = React.useState(()=>{ try{ return JSON.parse(localStorage.getItem("macropro_apartados_v1")||"{}")||{}; }catch(e){ return {}; } });
+  const apartadoKey = (nombre, mesIdx)=> (new Date().getFullYear())+"-"+String(mesIdx).padStart(2,"0")+"-"+(nombre||"");
+  const getApartado = (nombre, mesIdx, campo)=>{ const v=apartadosMes[apartadoKey(nombre,mesIdx)]||{}; const x=v[campo]; return (x===0||x)?x:""; };
+  const setApartado = (nombre, mesIdx, campo, val)=>{ setApartadosMes(prev=>{ const k=apartadoKey(nombre,mesIdx); const next={...prev, [k]:{...(prev[k]||{}), [campo]: val}}; try{ localStorage.setItem("macropro_apartados_v1", JSON.stringify(next)); }catch(e){} return next; }); };
   const [ejecFiltroDesarrollador, setEjecFiltroDesarrollador] = React.useState(()=>localStorage.getItem("macropro_ejec_filtro_dev")||"Todos");
   const [ejecFiltroDesarrollo, setEjecFiltroDesarrollo] = React.useState(()=>localStorage.getItem("macropro_ejec_filtro_desarrollo")||"Todos");
   const [ejecFiltroAsesor, setEjecFiltroAsesor] = React.useState(()=>localStorage.getItem("macropro_ejec_filtro_asesor")||"Todos");
@@ -13844,6 +13851,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Real $ <span style={{fontSize:8,opacity:0.7}}>(miles)</span></th>
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% Vta vs Meta</th>
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Estatus</th>
+                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Apartados del mes<div style={{fontSize:8, opacity:0.7, fontWeight:600, marginTop:2}}>Uds · $ (miles)</div></th>
                 </tr>
               </thead>
               <tbody>
@@ -13883,6 +13891,22 @@ Respuesta: [respuesta exacta, conversacional]
                       <td style={{padding:"11px 8px", textAlign:"center"}}>
                         <span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:est.bg, color:est.color, whiteSpace:"nowrap"}}>{est.icon} {est.label}</span>
                       </td>
+                      <td style={{padding:"8px", textAlign:"center"}}>
+                        {/* Captura manual: unidades + monto $ (miles). No controlado + commit onBlur para no perder el foco. */}
+                        <div style={{display:"flex", gap:6, justifyContent:"center", alignItems:"center"}}>
+                          <input type="number" min="0" placeholder="Uds" title="Apartados (unidades)"
+                            key={apartadoKey(d.nombre, mesActualIdx)+"-u"}
+                            defaultValue={getApartado(d.nombre, mesActualIdx, "u")}
+                            onBlur={e=>setApartado(d.nombre, mesActualIdx, "u", e.target.value===""?"":(Number(e.target.value)||0))}
+                            style={{width:48, padding:"6px 6px", borderRadius:8, border:"1px solid "+B.grey1, textAlign:"center", fontSize:12, fontWeight:700, color:B.navy, fontFamily:"'DM Sans',sans-serif", outline:"none"}}/>
+                          <span style={{color:B.grey3, fontWeight:700, fontSize:11}}>$</span>
+                          <input type="number" min="0" placeholder="Miles" title="Apartados (monto en miles MXN)"
+                            key={apartadoKey(d.nombre, mesActualIdx)+"-m"}
+                            defaultValue={getApartado(d.nombre, mesActualIdx, "m")}
+                            onBlur={e=>setApartado(d.nombre, mesActualIdx, "m", e.target.value===""?"":(Number(e.target.value)||0))}
+                            style={{width:72, padding:"6px 6px", borderRadius:8, border:"1px solid "+B.grey1, textAlign:"right", fontSize:12, fontWeight:700, color:B.navy, fontFamily:"'DM Sans',sans-serif", outline:"none"}}/>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -13906,6 +13930,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <td style={{padding:"12px 8px", textAlign:"center"}}>
                     <span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:estatusMonto.bg, color:estatusMonto.color}}>{estatusMonto.icon} {estatusMonto.label}</span>
                   </td>
+                  <td style={{padding:"12px 8px", textAlign:"center", color:B.gold}}>{(()=>{ const tU=resumen.porDesarrollo.reduce((a,d)=>a+(Number(getApartado(d.nombre, mesActualIdx,"u"))||0),0); const tM=resumen.porDesarrollo.reduce((a,d)=>a+(Number(getApartado(d.nombre, mesActualIdx,"m"))||0),0); return (tU>0||tM>0)?(tU+" · "+fmtMiles(tM)):"—"; })()}</td>
                 </tr>
               </tbody>
             </table>
