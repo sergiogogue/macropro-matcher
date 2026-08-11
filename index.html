@@ -3246,6 +3246,23 @@ function MacroProMatcher({ sessionEmail } = {}) {
     })();
   }, [catalogoReady, inventory]);
 
+  // Sube las metas a la nube (app_config/clave='metas_v1') para que PERSISTAN sin re-importar
+  // el Excel: al abrir se bajan solas (efecto de abajo) en cualquier equipo. Falla suave: si la
+  // nube no responde, queda el respaldo local y no rompe la importación.
+  const subirMetasCloud = async (metasObj)=>{
+    if(!window.sb || !metasObj || !Object.keys(metasObj).length) return {ok:false};
+    try{
+      // Actualiza si ya existe la fila; si no, la inserta (no depende de un índice único en 'clave').
+      const ex = await window.sb.from('app_config').select('clave').eq('clave','metas_v1').limit(1);
+      if(ex.error) throw ex.error;
+      const res = (ex.data && ex.data.length)
+        ? await window.sb.from('app_config').update({ datos: metasObj }).eq('clave','metas_v1')
+        : await window.sb.from('app_config').insert({ clave:'metas_v1', datos: metasObj });
+      if(res.error) throw res.error;
+      return {ok:true};
+    }catch(e){ console.warn('subir metas:', e&&e.message); return {ok:false, error:e&&e.message}; }
+  };
+
   // ═══ METAS desde la nube (Fase 2) ═══
   // Las metas se cargan en el Administrador → Supabase (app_config/clave='metas_v1').
   // Aquí se bajan y fusionan al abrir (la nube manda por desarrollo). Si no hay, queda lo local.
@@ -17498,17 +17515,19 @@ Respuesta: [respuesta exacta, conversacional]
       reader.readAsBinaryString(f);
     };
 
-    const confirmar = () => {
+    const confirmar = async () => {
       if(!preview) return;
       setImporting(true);
       try {
-        setMetasData(prev=>{
-          const updated = preview.replace ? {} : {...prev}; // Captura Ventas reemplaza (limpia duplicados stale)
-          Object.entries(preview.parsed).forEach(([nombre,d])=>{ updated[nombre]=d; });
-          saveMetas(updated);
-          return updated;
-        });
-        toast("✅ "+preview.count+" desarrollo(s) importados correctamente");
+        const updated = preview.replace ? {} : {...(metasData||{})}; // Captura Ventas reemplaza (limpia duplicados stale)
+        Object.entries(preview.parsed).forEach(([nombre,d])=>{ updated[nombre]=d; });
+        setMetasData(updated);
+        saveMetas(updated);
+        // Guardar en la nube para que no haya que re-subir el Excel (se baja solo al abrir)
+        const res = await subirMetasCloud(updated);
+        toast(res.ok
+          ? ("✅ "+preview.count+" desarrollo(s) importados y guardados en la nube")
+          : ("✅ "+preview.count+" importados (guardado local; la nube no respondió)"));
         setShowImportModal(false);
         setImportPreview(null);
       } catch(e){ setError("Error al importar: "+e.message); }
