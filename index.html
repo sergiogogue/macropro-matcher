@@ -2308,6 +2308,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const apartadoKey = (nombre, mesIdx)=> (new Date().getFullYear())+"-"+String(mesIdx).padStart(2,"0")+"-"+(nombre||"");
   const getApartado = (nombre, mesIdx, campo)=>{ const v=apartadosMes[apartadoKey(nombre,mesIdx)]||{}; const x=v[campo]; return (x===0||x)?x:""; };
   const setApartado = (nombre, mesIdx, campo, val)=>{ setApartadosMes(prev=>{ const k=apartadoKey(nombre,mesIdx); const next={...prev, [k]:{...(prev[k]||{}), [campo]: val}}; try{ localStorage.setItem("macropro_apartados_v1", JSON.stringify(next)); }catch(e){} return next; }); };
+  // Parsea un monto tecleado tolerando coma o punto como decimal y separadores de miles.
+  // "8749.55" · "8749,55" · "8,749.55" · "29,750" → número; "" → "" (vacío). Conserva decimales.
+  const parseMonto = (raw)=>{ let s=(raw==null?"":String(raw)).trim().replace(/\s|\$/g,""); if(s==="") return ""; const comas=(s.match(/,/g)||[]).length, puntos=(s.match(/\./g)||[]).length; if(comas&&puntos){ if(s.lastIndexOf(",")>s.lastIndexOf(".")) s=s.replace(/\./g,"").replace(/,/g,"."); else s=s.replace(/,/g,""); } else if(comas===1){ const dec=(s.split(",")[1]||""); s = dec.length===3 ? s.replace(",","") : s.replace(",","."); } else if(comas>1){ s=s.replace(/,/g,""); } const n=parseFloat(s); return isNaN(n)?"":n; };
   const [ejecFiltroDesarrollador, setEjecFiltroDesarrollador] = React.useState(()=>localStorage.getItem("macropro_ejec_filtro_dev")||"Todos");
   const [ejecFiltroDesarrollo, setEjecFiltroDesarrollo] = React.useState(()=>localStorage.getItem("macropro_ejec_filtro_desarrollo")||"Todos");
   const [ejecFiltroAsesor, setEjecFiltroAsesor] = React.useState(()=>localStorage.getItem("macropro_ejec_filtro_asesor")||"Todos");
@@ -14075,11 +14078,11 @@ Respuesta: [respuesta exacta, conversacional]
                           </div>
                           <div style={{display:"flex", flexDirection:"column", alignItems:"center", gap:2}}>
                             <span style={{fontSize:8, fontWeight:800, color:"#ea580c", textTransform:"uppercase", letterSpacing:0.5}}>$ Miles</span>
-                            <input type="text" inputMode="decimal" placeholder="0.00" title="Apartados (monto en miles MXN, admite decimales)"
+                            <input type="text" inputMode="decimal" placeholder="0.00" title="Apartados (monto en miles MXN, admite decimales — coma o punto)"
                               key={apartadoKey(d.nombre, mesActualIdx)+"-m"}
-                              defaultValue={(()=>{ const m=getApartado(d.nombre, mesActualIdx, "m"); return (m===""||m==null)?"":Number(m).toFixed(2); })()}
-                              onBlur={e=>{ const v=(e.target.value||"").toString().replace(/,/g,"").trim(); setApartado(d.nombre, mesActualIdx, "m", v===""?"":(Number(v)||0)); }}
-                              style={{width:96, padding:"7px 8px", borderRadius:8, border:"1px solid #fdba74", textAlign:"right", fontSize:12, fontWeight:800, color:"#ea580c", fontFamily:"'DM Sans',sans-serif", outline:"none", background:B.white}}/>
+                              defaultValue={(()=>{ const m=getApartado(d.nombre, mesActualIdx, "m"); return (m===""||m==null||m==="")?"":new Intl.NumberFormat("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(m)); })()}
+                              onBlur={e=>{ setApartado(d.nombre, mesActualIdx, "m", parseMonto(e.target.value)); }}
+                              style={{width:104, padding:"7px 8px", borderRadius:8, border:"1px solid #fdba74", textAlign:"right", fontSize:12, fontWeight:800, color:"#ea580c", fontFamily:"'DM Sans',sans-serif", outline:"none", background:B.white}}/>
                           </div>
                         </div>
                       </td>
