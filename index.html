@@ -13814,6 +13814,53 @@ Respuesta: [respuesta exacta, conversacional]
           <div class="kpi"><div class="kt">$/m² promedio</div><div class="kv">$${nMil(precio(tRMon,tRM2))}</div><div class="kf">plan $${nMil(precio(tPMon,tPM2))} · ${pctReal(precio(tRMon,tRM2),precio(tPMon,tPM2))}%</div></div>
           <div class="kpi"><div class="kt">Lotes vendidos</div><div class="kv">${tRU}</div><div class="kf">de ${tPU} plan · ${pctReal(tRU,tPU)}%</div></div>
         </div>`;
+      // ── Scorecard AL MES (meta acumulada Ene→mes) para la impresión ──
+      let mPU=0,mRU=0,mPM=0,mRM=0,mAptU=0,mAptM=0;
+      const filasMes = Object.entries(metasData).filter(([nombre,d])=>{
+        if(!d||!d.plan||!d.real) return false;
+        if(metasFiltroDesarrollador!=="Todos"&&d.desarrollador!==metasFiltroDesarrollador) return false;
+        if(metasFiltroDesarrollo!=="Todos"&&nombre!==metasFiltroDesarrollo) return false;
+        return true;
+      }).map(([nombre,d],i)=>{
+        const pu=calcularMetaAlMes(d.plan.uds||[],mesActualIdx), ru=calcularMetaAlMes(d.real.uds||[],mesActualIdx);
+        const pm=calcularMetaAlMes(d.plan.monto||[],mesActualIdx), rm=calcularMetaAlMes(d.real.monto||[],mesActualIdx);
+        mPU+=pu;mRU+=ru;mPM+=pm;mRM+=rm;
+        const cumU=pu>0?ru/pu:(ru>0?1.5:0), cumM=pm>0?rm/pm:(rm>0?1.5:0);
+        const est=getEstatusMeta(cumM,pm,rm);
+        const aU=Number(getApartado(nombre,mesActualIdx,"u"))||0, aM=Number(getApartado(nombre,mesActualIdx,"m"))||0;
+        mAptU+=aU; mAptM+=aM;
+        const apt=(aU>0||aM>0)?(aU+" uds · "+fMil2(aM)):"—";
+        return `<tr style="background:${i%2?"#f7f8fa":"#fff"}">
+          <td style="font-weight:800;color:#002B49">${esc(nombre)}</td>
+          <td>${esc(d.desarrollador||"")}</td>
+          <td class="c">${pu}</td><td class="c" style="font-weight:800">${ru}</td>
+          <td class="c">${pu===0?"—":(cumU*100).toFixed(0)+"%"}</td>
+          <td class="r">${fMil(pm)}</td><td class="r" style="font-weight:800">${fMil(rm)}</td>
+          <td class="c">${pm===0?"—":(cumM*100).toFixed(0)+"%"}</td>
+          <td class="c"><span class="tag" style="background:${est.bg};color:${est.color}">${est.icon} ${est.label}</span></td>
+          <td class="c apt">${apt}</td>
+        </tr>`;
+      }).join("");
+      const cumUM=mPU>0?mRU/mPU:(mRU>0?1.5:0), cumMM=mPM>0?mRM/mPM:(mRM>0?1.5:0);
+      const estM=getEstatusMeta(cumMM,mPM,mRM);
+      const totAptMes=(mAptU>0||mAptM>0)?(mAptU+" uds · "+fMil2(mAptM)):"—";
+      const scorecardMes = `<div class="pb"></div>
+        <h2 class="sec2">🎯 Scorecard al mes — avance vs meta a ${esc(mesActualNombre)}</h2>
+        <div class="secsub">Plan y Real acumulados de Enero a ${esc(mesActualNombre)} (no el año completo) — cómo vamos realmente al día.</div>
+        <table class="sc2"><thead><tr>
+          <th class="l">Desarrollo</th><th class="l">Desarrollador</th><th class="c">Meta U <span class="mut">(al mes)</span></th><th class="c">Real U</th><th class="c">% Uds</th>
+          <th class="r">Meta $ <span class="mut">(al mes)</span></th><th class="r">Real $ <span class="mut">(miles)</span></th><th class="c">% Vta</th><th class="c">Estatus</th>
+          <th class="c apt">🔖 Apartados del mes<br><span class="mut">(uds · $ miles)</span></th>
+        </tr></thead><tbody>
+          ${filasMes}
+          <tr class="tot">
+            <td>GRAN TOTAL</td><td>${esc(metasFiltroDesarrollador==="Todos"?"Todos":metasFiltroDesarrollador)}</td>
+            <td class="c">${mPU}</td><td class="c">${mRU}</td><td class="c">${mPU===0?"—":(cumUM*100).toFixed(0)+"%"}</td>
+            <td class="r">${fMil(mPM)}</td><td class="r">${fMil(mRM)}</td><td class="c">${mPM===0?"—":(cumMM*100).toFixed(0)+"%"}</td>
+            <td class="c">${estM.icon} ${estM.label}</td>
+            <td class="c apt">${totAptMes}</td>
+          </tr>
+        </tbody></table>`;
       const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
         <title>Reporte de Metas · ${esc(mesActualNombre)}</title>
         <style>
@@ -13823,7 +13870,11 @@ Respuesta: [respuesta exacta, conversacional]
           th{background:#002B49;color:#fff;padding:9px 7px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.5px}
           td{padding:8px 7px;border-bottom:1px solid #e6e9ee}
           td.c{text-align:center} td.r{text-align:right}
-          th.apt,td.apt{background:#fff5ec} td.apt{color:${APT};font-weight:800} th.apt{border-left:3px solid ${APT}}
+          td.apt{background:#fff5ec;color:${APT};font-weight:800;border-left:3px solid ${APT}}
+          th.apt{background:#08283e;color:#fdba74;border-left:3px solid ${APT}}
+          table.sc2 th{background:#7c2d12} table.sc2 th.apt{background:#5a1e0a;color:#fdba74}
+          table.sc2 tr.tot td{background:#7c2d12;color:#fdba74} table.sc2 tr.tot td.apt{background:#5a1e0a;color:${APT}}
+          .sec2{font-size:15px;color:#c2410c;margin:0 0 2px} .mut{font-size:8px;opacity:.7;font-weight:600}
           .tag{padding:2px 8px;border-radius:10px;font-size:9px;font-weight:800;white-space:nowrap}
           tr.tot td{background:#002B49;color:#F5B335;font-weight:800;border:none} tr.tot td.apt{background:#0a3a5c;color:${APT};border-left:3px solid ${APT}}
           .leg{margin-top:14px;font-size:10px;color:#5a6b76} .leg b{color:${APT}}
@@ -13873,6 +13924,7 @@ Respuesta: [respuesta exacta, conversacional]
           </tr>
         </tbody></table>
         <div class="leg">🔖 <b>Apartados</b>: unidades y monto en miles MXN apartados durante ${esc(mesActualNombre)} (captura manual, no contabilizan aún como venta real).</div>
+        ${scorecardMes}
         <div class="pb"></div>
         ${tendencia}
         <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
