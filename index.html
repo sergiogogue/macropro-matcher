@@ -13825,6 +13825,9 @@ Respuesta: [respuesta exacta, conversacional]
           <tr class="mm"><td class="l b">🔥 Momentum CRM</td>${rowMes(mom,v=>v||"—")}<td class="r tot">${tMom||"—"}</td></tr>
           <tr><td class="l b">⚡ Δ Real vs Plan</td>${rowDelta}<td class="r tot" style="color:${tRU-tPU>0?"#16a34a":tRU-tPU<0?"#dc2626":"#94a3b8"}">${tRU-tPU>0?"+"+(tRU-tPU):(tRU-tPU)}</td></tr>
         </tbody></table>
+        <h2 class="sec" style="margin-top:16px">📊 Ventas reales: monto y m² por mes</h2>
+        <div class="vrleg"><span class="sw mon"></span> Monto vendido &nbsp;&nbsp; <span class="sw m2"></span> m² vendidos <span style="color:#94a3b8">· cada serie a su propio máximo</span></div>
+        <div class="vr">${(()=>{ const mxN=Math.max(1,...rMon), mxM=Math.max(1,...rM2); return MES3.map((m,i)=>`<div class="vrcol"><div class="vrbars"><div class="vrbar mon" style="height:${rMon[i]>0?Math.max(3,Math.round(rMon[i]/mxN*100)):0}%"></div><div class="vrbar m2" style="height:${rM2[i]>0?Math.max(3,Math.round(rM2[i]/mxM*100)):0}%"></div></div><div class="vrlbl${i===mesActualIdx?" hoy":""}">${m}</div></div>`).join(""); })()}</div>
         <div class="kpis">
           <div class="kpi"><div class="kt">Monto vendido</div><div class="kv">${fMil(tRMon)}</div><div class="kf">de ${fMil(tPMon)} plan · ${pctReal(tRMon,tPMon)}%</div></div>
           <div class="kpi"><div class="kt">m² vendidos</div><div class="kv">${nMil(tRM2)} m²</div><div class="kf">de ${nMil(tPM2)} m² plan · ${pctReal(tRM2,tPM2)}%</div></div>
@@ -13861,8 +13864,7 @@ Respuesta: [respuesta exacta, conversacional]
       const cumUM=mPU>0?mRU/mPU:(mRU>0?1.5:0), cumMM=mPM>0?mRM/mPM:(mRM>0?1.5:0);
       const estM=getEstatusMeta(cumMM,mPM,mRM);
       const totAptMes=(mAptU>0||mAptM>0)?(mAptU+" uds · "+fMil2(mAptM)):"—";
-      const scorecardMes = `<div class="pb"></div>
-        <h2 class="sec2">🎯 Scorecard al mes — avance vs meta a ${esc(mesActualNombre)}</h2>
+      const scorecardMes = `<h2 class="sec2" style="margin-top:16px">🎯 Scorecard al mes — avance vs meta a ${esc(mesActualNombre)}</h2>
         <div class="secsub">Plan y Real acumulados de Enero a ${esc(mesActualNombre)} (no el año completo) — cómo vamos realmente al día.</div>
         <table class="sc2"><thead><tr>
           <th class="l">Desarrollo</th><th class="l">Desarrollador</th><th class="c">Meta U <span class="mut">(al mes)</span></th><th class="c">Real U</th><th class="c">% Uds</th>
@@ -13884,8 +13886,8 @@ Respuesta: [respuesta exacta, conversacional]
           *{box-sizing:border-box} body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#12222e;margin:28px}
           h1{font-size:20px;color:#002B49;margin:0} .sub{color:#5a6b76;font-size:12px;margin:4px 0 18px}
           table{width:100%;border-collapse:collapse;font-size:11px}
-          th{background:#002B49;color:#fff;padding:9px 7px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.5px}
-          td{padding:8px 7px;border-bottom:1px solid #e6e9ee}
+          th{background:#002B49;color:#fff;padding:7px 6px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.5px}
+          td{padding:5px 6px;border-bottom:1px solid #e6e9ee}
           td.c{text-align:center} td.r{text-align:right}
           td.apt{background:#fff5ec;color:${APT};font-weight:800;border-left:3px solid ${APT}}
           th.apt{background:#08283e;color:#fdba74;border-left:3px solid ${APT}}
@@ -13894,17 +13896,17 @@ Respuesta: [respuesta exacta, conversacional]
           .sec2{font-size:15px;color:#c2410c;margin:0 0 2px} .mut{font-size:8px;opacity:.7;font-weight:600}
           .tag{padding:2px 8px;border-radius:10px;font-size:9px;font-weight:800;white-space:nowrap}
           tr.tot td{background:#002B49;color:#F5B335;font-weight:800;border:none} tr.tot td.apt{background:#0a3a5c;color:${APT};border-left:3px solid ${APT}}
-          .leg{margin-top:14px;font-size:10px;color:#5a6b76} .leg b{color:${APT}}
-          .cards{display:flex;gap:10px;margin:0 0 16px}
-          .card{flex:1;border-radius:10px;padding:14px 15px;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+          .leg{margin-top:8px;font-size:10px;color:#5a6b76} .leg b{color:${APT}}
+          .cards{display:flex;gap:10px;margin:0 0 12px}
+          .card{flex:1;border-radius:10px;padding:11px 13px;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
           .card.navy{background:#002B49} .card.blue{background:#1e40af} .card.white{background:#fff;border:1px solid #e6e9ee;color:#12222e}
-          .card .ct{font-size:9px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;color:#F5B335}
+          .card .ct{font-size:9px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;color:#F5B335}
           .card.white .ct{color:#b8860b}
           .card .row{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
           .card .rt{text-align:right}
           .card .lbl{font-size:8px;text-transform:uppercase;letter-spacing:.5px;opacity:.75}
           .card.white .lbl{opacity:1;color:#5a6b76}
-          .card .big{font-size:26px;font-weight:800;line-height:1} .card .big.sm{font-size:18px}
+          .card .big{font-size:22px;font-weight:800;line-height:1} .card .big.sm{font-size:16px}
           .card .gold{color:#F5B335} .card .amber{color:#fde68a} .card .navytxt{color:#002B49}
           .card .foot{display:flex;justify-content:space-between;align-items:center;margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.18);font-size:10px}
           .card.white .foot{border-color:#e6e9ee}
@@ -13916,7 +13918,16 @@ Respuesta: [respuesta exacta, conversacional]
           table.tt td.l,table.tt th.l{text-align:left;white-space:nowrap} table.tt .b{font-weight:800;color:#12222e}
           table.tt .c{font-variant-numeric:tabular-nums} table.tt .hoy{background:#fff7e6}
           table.tt .hy{font-size:7px;color:#b8860b;font-weight:800} table.tt tr.ok{background:#f2fbf6} table.tt tr.mm{background:#fffbeb}
-          .kpis{display:flex;gap:10px;margin-top:14px} .kpi{flex:1;border:1px solid #e6e9ee;border-radius:9px;padding:11px 13px}
+          .kpis{display:flex;gap:10px;margin-top:12px} .kpi{flex:1;border:1px solid #e6e9ee;border-radius:9px;padding:10px 12px}
+          .vr{display:flex;gap:4px;align-items:flex-end;height:120px;border-bottom:1px solid #e6e9ee;margin:2px 0 0}
+          .vrcol{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+          .vrbars{display:flex;gap:2px;align-items:flex-end;height:104px}
+          .vrbar{width:8px;border-radius:2px 2px 0 0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+          .vrbar.mon{background:#eab308} .vrbar.m2{background:#0891b2}
+          .vrlbl{font-size:8px;color:#5a6b76;margin-top:3px} .vrlbl.hoy{color:#b8860b;font-weight:800}
+          .vrleg{font-size:9px;color:#5a6b76;margin:6px 0 2px}
+          .vrleg .sw{display:inline-block;width:8px;height:8px;border-radius:2px;vertical-align:middle;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+          .vrleg .sw.mon{background:#eab308} .vrleg .sw.m2{background:#0891b2}
           .kpi .kt{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#5a6b76;font-weight:700} .kpi .kv{font-size:18px;font-weight:800;color:#002B49;margin:3px 0} .kpi .kf{font-size:9px;color:#5a6b76}
           .pb{page-break-before:always}
           @media print{body{margin:12px 14px} table{page-break-inside:auto} tr{page-break-inside:avoid}}
@@ -13942,6 +13953,7 @@ Respuesta: [respuesta exacta, conversacional]
         </tbody></table>
         <div class="leg">🔖 <b>Apartados</b>: unidades y monto en miles MXN apartados durante ${esc(mesActualNombre)} (captura manual, no contabilizan aún como venta real).</div>
         ${scorecardMes}
+        <div class="pb"></div>
         ${tendencia}
         <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
         </body></html>`;
