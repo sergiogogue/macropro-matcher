@@ -13692,6 +13692,9 @@ Respuesta: [respuesta exacta, conversacional]
 
     const estatusUds = getEstatusMeta(resumen.cumplUds, resumen.planUdsTotal, resumen.realUdsTotal);
     const estatusMonto = getEstatusMeta(resumen.cumplMonto, resumen.planMontoTotal, resumen.realMontoTotal);
+    // Apartados del mes en curso (para mostrarlos junto al vendido en la tarjeta de meta)
+    const aptMesU = resumen.porDesarrollo.reduce((a,d)=>a+(Number(getApartado(d.nombre, mesActualIdx,"u"))||0),0);
+    const aptMesM = resumen.porDesarrollo.reduce((a,d)=>a+(Number(getApartado(d.nombre, mesActualIdx,"m"))||0),0);
 
     const limpiarFiltros = () => {
       setMetasFiltroDesarrollador("Todos");
@@ -13749,6 +13752,49 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
         </div>
       </div>`;
+      // ── Tendencia mensual (mismos cálculos que la pantalla): Plan/Real/m²/$·m²/Momentum/Δ por mes ──
+      const MES3 = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+      const pUds=Array(12).fill(0), rUds=Array(12).fill(0), pM2=Array(12).fill(0), rM2=Array(12).fill(0), pMon=Array(12).fill(0), rMon=Array(12).fill(0);
+      Object.entries(metasData).forEach(([nombre,d])=>{
+        if(!d||!d.plan||!d.real) return;
+        if(metasFiltroDesarrollador!=="Todos"&&d.desarrollador!==metasFiltroDesarrollador) return;
+        if(metasFiltroDesarrollo!=="Todos"&&nombre!==metasFiltroDesarrollo) return;
+        for(let i=0;i<12;i++){
+          pUds[i]+=((d.plan.uds||[])[i]||0); rUds[i]+=((d.real.uds||[])[i]||0);
+          pM2[i]+=((d.plan.m2||[])[i]||0); rM2[i]+=((d.real.m2||[])[i]||0);
+          pMon[i]+=((d.plan.monto||[])[i]||0); rMon[i]+=((d.real.monto||[])[i]||0);
+        }
+      });
+      let mom=Array(12).fill(0);
+      try{ const mk=calcularMomentumKanban(crmData, inventory.length>0?inventory:SAMPLE_INVENTORY, metasFiltroDesarrollador, metasFiltroDesarrollo); mom=(mk&&mk.totalUds)||Array(12).fill(0); }catch(e){}
+      const sum=a=>a.reduce((x,y)=>x+(y||0),0);
+      const nMil=(v)=>v?Math.round(v).toLocaleString("es-MX"):"—";
+      const precio=(mon,m2)=>m2>0?(mon*1000)/m2:0;
+      const hoyCls=(i)=>i===mesActualIdx?" hoy":"";
+      const rowMes=(arr,fmt)=>arr.map((v,i)=>`<td class="c${hoyCls(i)}">${fmt(v,i)}</td>`).join("");
+      const rowPrecio=MES3.map((m,i)=>`<td class="c${hoyCls(i)}">${rM2[i]>0?"$"+nMil(precio(rMon[i],rM2[i])):"—"}</td>`).join("");
+      const rowDelta=MES3.map((m,i)=>{const dlt=(rUds[i]||0)-(pUds[i]||0);const col=dlt>0?"#16a34a":dlt<0?"#dc2626":"#94a3b8";return `<td class="c${hoyCls(i)}" style="color:${col};font-weight:700">${dlt>0?"+"+dlt:dlt||"0"}</td>`;}).join("");
+      const tPU=sum(pUds),tRU=sum(rUds),tPM2=sum(pM2),tRM2=sum(rM2),tPMon=sum(pMon),tRMon=sum(rMon),tMom=sum(mom);
+      const pctReal=(r,p)=>p>0?Math.round(r/p*100):(r>0?100:0);
+      const tendencia = `<h2 class="sec">📈 Tendencia mensual con momentum del CRM</h2>
+        <div class="secsub">Plan (manual) + Real (cerrado) + Momentum (lotes en Apartado/Contrato del Kanban)</div>
+        <table class="tt"><thead><tr>
+          <th class="l">Concepto</th>${MES3.map((m,i)=>`<th class="c${hoyCls(i)}">${m}${i===mesActualIdx?"<br><span class='hy'>HOY</span>":""}</th>`).join("")}<th class="r tot">Total</th>
+        </tr></thead><tbody>
+          <tr><td class="l b">🎯 Plan</td>${rowMes(pUds,v=>v||"—")}<td class="r tot">${tPU}</td></tr>
+          <tr><td class="l">📐 m² a vender</td>${rowMes(pM2,v=>nMil(v))}<td class="r tot">${nMil(tPM2)} m²</td></tr>
+          <tr class="ok"><td class="l b">✅ Real</td>${rowMes(rUds,v=>v||"—")}<td class="r tot">${tRU}</td></tr>
+          <tr><td class="l">📐 m² vendidos</td>${rowMes(rM2,v=>nMil(v))}<td class="r tot">${nMil(tRM2)} m²</td></tr>
+          <tr><td class="l">💲 $/m² prom.</td>${rowPrecio}<td class="r tot">${tRM2>0?"$"+nMil(precio(tRMon,tRM2)):"—"}</td></tr>
+          <tr class="mm"><td class="l b">🔥 Momentum CRM</td>${rowMes(mom,v=>v||"—")}<td class="r tot">${tMom||"—"}</td></tr>
+          <tr><td class="l b">⚡ Δ Real vs Plan</td>${rowDelta}<td class="r tot" style="color:${tRU-tPU>0?"#16a34a":tRU-tPU<0?"#dc2626":"#94a3b8"}">${tRU-tPU>0?"+"+(tRU-tPU):(tRU-tPU)}</td></tr>
+        </tbody></table>
+        <div class="kpis">
+          <div class="kpi"><div class="kt">Monto vendido</div><div class="kv">${fMil(tRMon)}</div><div class="kf">de ${fMil(tPMon)} plan · ${pctReal(tRMon,tPMon)}%</div></div>
+          <div class="kpi"><div class="kt">m² vendidos</div><div class="kv">${nMil(tRM2)} m²</div><div class="kf">de ${nMil(tPM2)} m² plan · ${pctReal(tRM2,tPM2)}%</div></div>
+          <div class="kpi"><div class="kt">$/m² promedio</div><div class="kv">$${nMil(precio(tRMon,tRM2))}</div><div class="kf">plan $${nMil(precio(tPMon,tPM2))} · ${pctReal(precio(tRMon,tRM2),precio(tPMon,tPM2))}%</div></div>
+          <div class="kpi"><div class="kt">Lotes vendidos</div><div class="kv">${tRU}</div><div class="kf">de ${tPU} plan · ${pctReal(tRU,tPU)}%</div></div>
+        </div>`;
       const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
         <title>Reporte de Metas · ${esc(mesActualNombre)}</title>
         <style>
@@ -13777,6 +13823,15 @@ Respuesta: [respuesta exacta, conversacional]
           .card.white .foot{border-color:#e6e9ee}
           .card .diff{font-size:9px;opacity:.75;margin-top:6px} .card .sub2{font-size:9px;opacity:.85;margin-bottom:6px}
           .card .vs{font-size:9px;font-weight:700;margin-top:2px}
+          .sec{font-size:15px;color:#002B49;margin:0 0 2px} .secsub{font-size:11px;color:#5a6b76;margin:0 0 12px}
+          table.tt{font-size:10px} table.tt th,table.tt td{padding:6px 5px;text-align:center;border-bottom:1px solid #eef0f3}
+          table.tt th{background:#fff;color:#5a6b76;font-size:8px} table.tt th.tot,table.tt td.tot{color:#002B49;font-weight:800;border-left:1px solid #e6e9ee}
+          table.tt td.l,table.tt th.l{text-align:left;white-space:nowrap} table.tt .b{font-weight:800;color:#12222e}
+          table.tt .c{font-variant-numeric:tabular-nums} table.tt .hoy{background:#fff7e6}
+          table.tt .hy{font-size:7px;color:#b8860b;font-weight:800} table.tt tr.ok{background:#f2fbf6} table.tt tr.mm{background:#fffbeb}
+          .kpis{display:flex;gap:10px;margin-top:14px} .kpi{flex:1;border:1px solid #e6e9ee;border-radius:9px;padding:11px 13px}
+          .kpi .kt{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#5a6b76;font-weight:700} .kpi .kv{font-size:18px;font-weight:800;color:#002B49;margin:3px 0} .kpi .kf{font-size:9px;color:#5a6b76}
+          .pb{page-break-before:always}
           @media print{body{margin:12px 14px} table{page-break-inside:auto} tr{page-break-inside:avoid}}
         </style></head><body>
         <h1>🎯 Reporte de Metas — Scorecard por Desarrollo</h1>
@@ -13799,6 +13854,8 @@ Respuesta: [respuesta exacta, conversacional]
           </tr>
         </tbody></table>
         <div class="leg">🔖 <b>Apartados</b>: unidades y monto en miles MXN apartados durante ${esc(mesActualNombre)} (captura manual, no contabilizan aún como venta real).</div>
+        <div class="pb"></div>
+        ${tendencia}
         <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
         </body></html>`;
       const w = window.open("", "_blank");
@@ -13933,12 +13990,14 @@ Respuesta: [respuesta exacta, conversacional]
               <div>
                 <div style={{fontSize:10, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Uds</div>
                 <div style={{fontSize:24, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>{metaAlMesUds}</div>
-                <div style={{fontSize:10, color:resumen.realUdsTotal>=metaAlMesUds?"#16a34a":"#dc2626", fontWeight:700, marginTop:2}}>vs Real: {resumen.realUdsTotal} {resumen.realUdsTotal>=metaAlMesUds?"✓":"✗"}</div>
+                <div style={{fontSize:10, color:resumen.realUdsTotal>=metaAlMesUds?"#16a34a":"#dc2626", fontWeight:700, marginTop:2}}>Vendido: {resumen.realUdsTotal} {resumen.realUdsTotal>=metaAlMesUds?"✓":"✗"}</div>
+                {aptMesU>0 && <div style={{fontSize:10, color:"#ea580c", fontWeight:800, marginTop:2}}>🔖 Apartado: +{aptMesU}</div>}
               </div>
               <div style={{textAlign:"right"}}>
                 <div style={{fontSize:10, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Monto</div>
                 <div style={{fontSize:18, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>{fmtMiles(metaAlMesMonto)}</div>
-                <div style={{fontSize:10, color:resumen.realMontoTotal>=metaAlMesMonto?"#16a34a":"#dc2626", fontWeight:700, marginTop:2}}>vs Real: {fmtMiles(resumen.realMontoTotal)} {resumen.realMontoTotal>=metaAlMesMonto?"✓":"✗"}</div>
+                <div style={{fontSize:10, color:resumen.realMontoTotal>=metaAlMesMonto?"#16a34a":"#dc2626", fontWeight:700, marginTop:2}}>Vendido: {fmtMiles(resumen.realMontoTotal)} {resumen.realMontoTotal>=metaAlMesMonto?"✓":"✗"}</div>
+                {aptMesM>0 && <div style={{fontSize:10, color:"#ea580c", fontWeight:800, marginTop:2}}>🔖 Apartado: +{fmtMiles(aptMesM)}</div>}
               </div>
             </div>
           </div>
