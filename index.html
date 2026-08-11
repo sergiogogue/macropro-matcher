@@ -13726,6 +13726,29 @@ Respuesta: [respuesta exacta, conversacional]
         </tr>`;
       }).join("");
       const totApt = (tAptU>0||tAptM>0) ? (tAptU+" uds · "+fMil2(tAptM)) : "—";
+      const eU=estatusUds, eM=estatusMonto;
+      const cards = `<div class="cards">
+        <div class="card navy">
+          <div class="ct">🏗 Unidades</div>
+          <div class="row"><div><div class="lbl">Plan anual</div><div class="big">${resumen.planUdsTotal}</div></div><div class="rt"><div class="lbl">Real</div><div class="big gold">${resumen.realUdsTotal}</div></div></div>
+          <div class="foot"><span><b class="gold">${(resumen.cumplUds*100).toFixed(0)}%</b> cumplimiento</span><span class="tag" style="background:${eU.bg};color:${eU.color}">${eU.icon} ${eU.label}</span></div>
+          <div class="diff">Diferencia: ${resumen.realUdsTotal-resumen.planUdsTotal} unidades</div>
+        </div>
+        <div class="card blue">
+          <div class="ct">💰 Monto (miles MXN)</div>
+          <div class="row"><div><div class="lbl">Plan anual</div><div class="big sm">${fMil(resumen.planMontoTotal)}</div></div><div class="rt"><div class="lbl">Real</div><div class="big sm amber">${fMil(resumen.realMontoTotal)}</div></div></div>
+          <div class="foot"><span><b class="amber">${(resumen.cumplMonto*100).toFixed(0)}%</b> cumplimiento</span><span class="tag" style="background:${eM.bg};color:${eM.color}">${eM.icon} ${eM.label}</span></div>
+          <div class="diff">Diferencia: ${fMil(resumen.realMontoTotal-resumen.planMontoTotal)}</div>
+        </div>
+        <div class="card white">
+          <div class="ct">📅 Meta acumulada al mes</div>
+          <div class="sub2">Hasta <b>${esc(mesActualNombre)}</b></div>
+          <div class="row">
+            <div><div class="lbl">Uds</div><div class="big navytxt">${metaAlMesUds}</div><div class="vs" style="color:${resumen.realUdsTotal>=metaAlMesUds?"#16a34a":"#dc2626"}">vs Real: ${resumen.realUdsTotal} ${resumen.realUdsTotal>=metaAlMesUds?"✓":"✗"}</div></div>
+            <div class="rt"><div class="lbl">Monto</div><div class="big sm navytxt">${fMil(metaAlMesMonto)}</div><div class="vs" style="color:${resumen.realMontoTotal>=metaAlMesMonto?"#16a34a":"#dc2626"}">vs Real: ${fMil(resumen.realMontoTotal)} ${resumen.realMontoTotal>=metaAlMesMonto?"✓":"✗"}</div></div>
+          </div>
+        </div>
+      </div>`;
       const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
         <title>Reporte de Metas · ${esc(mesActualNombre)}</title>
         <style>
@@ -13739,10 +13762,26 @@ Respuesta: [respuesta exacta, conversacional]
           .tag{padding:2px 8px;border-radius:10px;font-size:9px;font-weight:800;white-space:nowrap}
           tr.tot td{background:#002B49;color:#F5B335;font-weight:800;border:none} tr.tot td.apt{background:#0a3a5c;color:${APT};border-left:3px solid ${APT}}
           .leg{margin-top:14px;font-size:10px;color:#5a6b76} .leg b{color:${APT}}
-          @media print{body{margin:0}}
+          .cards{display:flex;gap:10px;margin:0 0 16px}
+          .card{flex:1;border-radius:10px;padding:14px 15px;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+          .card.navy{background:#002B49} .card.blue{background:#1e40af} .card.white{background:#fff;border:1px solid #e6e9ee;color:#12222e}
+          .card .ct{font-size:9px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;color:#F5B335}
+          .card.white .ct{color:#b8860b}
+          .card .row{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+          .card .rt{text-align:right}
+          .card .lbl{font-size:8px;text-transform:uppercase;letter-spacing:.5px;opacity:.75}
+          .card.white .lbl{opacity:1;color:#5a6b76}
+          .card .big{font-size:26px;font-weight:800;line-height:1} .card .big.sm{font-size:18px}
+          .card .gold{color:#F5B335} .card .amber{color:#fde68a} .card .navytxt{color:#002B49}
+          .card .foot{display:flex;justify-content:space-between;align-items:center;margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.18);font-size:10px}
+          .card.white .foot{border-color:#e6e9ee}
+          .card .diff{font-size:9px;opacity:.75;margin-top:6px} .card .sub2{font-size:9px;opacity:.85;margin-bottom:6px}
+          .card .vs{font-size:9px;font-weight:700;margin-top:2px}
+          @media print{body{margin:12px 14px} table{page-break-inside:auto} tr{page-break-inside:avoid}}
         </style></head><body>
         <h1>🎯 Reporte de Metas — Scorecard por Desarrollo</h1>
         <div class="sub">Mes en curso: <strong>${esc(mesActualNombre)}</strong> · Desarrollador: <strong>${esc(metasFiltroDesarrollador)}</strong> · Generado ${esc(new Date().toLocaleString("es-MX"))}</div>
+        ${cards}
         <table><thead><tr>
           <th>Desarrollo</th><th>Desarrollador</th><th class="c">Plan U</th><th class="c">Real U</th><th class="c">% Uds</th>
           <th class="r">Plan $ (miles)</th><th class="r">Real $ (miles)</th><th class="c">% Vta</th><th class="c">Estatus</th>
