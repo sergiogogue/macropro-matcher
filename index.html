@@ -13977,10 +13977,10 @@ Respuesta: [respuesta exacta, conversacional]
                           </div>
                           <div style={{display:"flex", flexDirection:"column", alignItems:"center", gap:2}}>
                             <span style={{fontSize:8, fontWeight:800, color:"#ea580c", textTransform:"uppercase", letterSpacing:0.5}}>$ Miles</span>
-                            <input type="number" min="0" step="any" placeholder="0.00" title="Apartados (monto en miles MXN, admite decimales)"
+                            <input type="text" inputMode="decimal" placeholder="0.00" title="Apartados (monto en miles MXN, admite decimales)"
                               key={apartadoKey(d.nombre, mesActualIdx)+"-m"}
-                              defaultValue={getApartado(d.nombre, mesActualIdx, "m")}
-                              onBlur={e=>setApartado(d.nombre, mesActualIdx, "m", e.target.value===""?"":(Number(e.target.value)||0))}
+                              defaultValue={(()=>{ const m=getApartado(d.nombre, mesActualIdx, "m"); return (m===""||m==null)?"":Number(m).toFixed(2); })()}
+                              onBlur={e=>{ const v=(e.target.value||"").toString().replace(/,/g,"").trim(); setApartado(d.nombre, mesActualIdx, "m", v===""?"":(Number(v)||0)); }}
                               style={{width:96, padding:"7px 8px", borderRadius:8, border:"1px solid #fdba74", textAlign:"right", fontSize:12, fontWeight:800, color:"#ea580c", fontFamily:"'DM Sans',sans-serif", outline:"none", background:B.white}}/>
                           </div>
                         </div>
