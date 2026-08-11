@@ -13997,7 +13997,7 @@ Respuesta: [respuesta exacta, conversacional]
                 <div style={{fontSize:10, color:B.grey3, textTransform:"uppercase", letterSpacing:1}}>Monto</div>
                 <div style={{fontSize:18, fontWeight:800, color:B.navy, fontFamily:"'Playfair Display',serif"}}>{fmtMiles(metaAlMesMonto)}</div>
                 <div style={{fontSize:10, color:resumen.realMontoTotal>=metaAlMesMonto?"#16a34a":"#dc2626", fontWeight:700, marginTop:2}}>Vendido: {fmtMiles(resumen.realMontoTotal)} {resumen.realMontoTotal>=metaAlMesMonto?"✓":"✗"}</div>
-                {aptMesM>0 && <div style={{fontSize:10, color:"#ea580c", fontWeight:800, marginTop:2}}>🔖 Apartado: +{fmtMiles(aptMesM)}</div>}
+                {aptMesM>0 && <div style={{fontSize:10, color:"#ea580c", fontWeight:800, marginTop:2}}>🔖 Apartado: +${new Intl.NumberFormat("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2}).format(aptMesM)}</div>}
               </div>
             </div>
           </div>
