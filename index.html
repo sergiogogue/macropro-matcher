@@ -13851,7 +13851,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Real $ <span style={{fontSize:8,opacity:0.7}}>(miles)</span></th>
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% Vta vs Meta</th>
                   <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Estatus</th>
-                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Apartados del mes<div style={{fontSize:8, opacity:0.7, fontWeight:600, marginTop:2}}>Uds · $ (miles)</div></th>
+                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8, background:"#0a3a5c", borderLeft:"3px solid "+B.gold}}>Apartados del mes<div style={{fontSize:8, opacity:0.7, fontWeight:600, marginTop:2}}>Uds · $ (miles)</div></th>
                 </tr>
               </thead>
               <tbody>
@@ -13891,20 +13891,20 @@ Respuesta: [respuesta exacta, conversacional]
                       <td style={{padding:"11px 8px", textAlign:"center"}}>
                         <span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:est.bg, color:est.color, whiteSpace:"nowrap"}}>{est.icon} {est.label}</span>
                       </td>
-                      <td style={{padding:"8px", textAlign:"center"}}>
-                        {/* Captura manual: unidades + monto $ (miles). No controlado + commit onBlur para no perder el foco. */}
+                      <td style={{padding:"8px", textAlign:"center", background:"#eef4fc", borderLeft:"3px solid "+B.gold}}>
+                        {/* Captura manual: unidades + monto $ (miles, con decimales). No controlado + commit onBlur para no perder el foco. */}
                         <div style={{display:"flex", gap:6, justifyContent:"center", alignItems:"center"}}>
-                          <input type="number" min="0" placeholder="Uds" title="Apartados (unidades)"
+                          <input type="number" min="0" step="1" placeholder="Uds" title="Apartados (unidades)"
                             key={apartadoKey(d.nombre, mesActualIdx)+"-u"}
                             defaultValue={getApartado(d.nombre, mesActualIdx, "u")}
                             onBlur={e=>setApartado(d.nombre, mesActualIdx, "u", e.target.value===""?"":(Number(e.target.value)||0))}
-                            style={{width:48, padding:"6px 6px", borderRadius:8, border:"1px solid "+B.grey1, textAlign:"center", fontSize:12, fontWeight:700, color:B.navy, fontFamily:"'DM Sans',sans-serif", outline:"none"}}/>
+                            style={{width:48, padding:"6px 6px", borderRadius:8, border:"1px solid "+B.grey1, textAlign:"center", fontSize:12, fontWeight:700, color:B.navy, fontFamily:"'DM Sans',sans-serif", outline:"none", background:B.white}}/>
                           <span style={{color:B.grey3, fontWeight:700, fontSize:11}}>$</span>
-                          <input type="number" min="0" placeholder="Miles" title="Apartados (monto en miles MXN)"
+                          <input type="number" min="0" step="any" placeholder="Miles" title="Apartados (monto en miles MXN, admite decimales)"
                             key={apartadoKey(d.nombre, mesActualIdx)+"-m"}
                             defaultValue={getApartado(d.nombre, mesActualIdx, "m")}
                             onBlur={e=>setApartado(d.nombre, mesActualIdx, "m", e.target.value===""?"":(Number(e.target.value)||0))}
-                            style={{width:72, padding:"6px 6px", borderRadius:8, border:"1px solid "+B.grey1, textAlign:"right", fontSize:12, fontWeight:700, color:B.navy, fontFamily:"'DM Sans',sans-serif", outline:"none"}}/>
+                            style={{width:80, padding:"6px 6px", borderRadius:8, border:"1px solid "+B.grey1, textAlign:"right", fontSize:12, fontWeight:700, color:B.navy, fontFamily:"'DM Sans',sans-serif", outline:"none", background:B.white}}/>
                         </div>
                       </td>
                     </tr>
@@ -13930,7 +13930,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <td style={{padding:"12px 8px", textAlign:"center"}}>
                     <span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:estatusMonto.bg, color:estatusMonto.color}}>{estatusMonto.icon} {estatusMonto.label}</span>
                   </td>
-                  <td style={{padding:"12px 8px", textAlign:"center", color:B.gold}}>{(()=>{ const tU=resumen.porDesarrollo.reduce((a,d)=>a+(Number(getApartado(d.nombre, mesActualIdx,"u"))||0),0); const tM=resumen.porDesarrollo.reduce((a,d)=>a+(Number(getApartado(d.nombre, mesActualIdx,"m"))||0),0); return (tU>0||tM>0)?(tU+" · "+fmtMiles(tM)):"—"; })()}</td>
+                  <td style={{padding:"12px 8px", textAlign:"center", color:B.gold, background:"#0a3a5c", borderLeft:"3px solid "+B.gold}}>{(()=>{ const tU=resumen.porDesarrollo.reduce((a,d)=>a+(Number(getApartado(d.nombre, mesActualIdx,"u"))||0),0); const tM=resumen.porDesarrollo.reduce((a,d)=>a+(Number(getApartado(d.nombre, mesActualIdx,"m"))||0),0); const fM="$"+new Intl.NumberFormat("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2}).format(tM); return (tU>0||tM>0)?(tU+" · "+fM):"—"; })()}</td>
                 </tr>
               </tbody>
             </table>
