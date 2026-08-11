@@ -13683,6 +13683,22 @@ Respuesta: [respuesta exacta, conversacional]
     const resumen = calcularMetasResumen(metasData, metasFiltroDesarrollador, metasFiltroDesarrollo);
     const mesActualIdx = new Date().getMonth(); // 0-11
     const mesActualNombre = MESES_LARGO[mesActualIdx];
+    // Resumen "AL MES": mismo scorecard pero con la meta ACUMULADA al mes en curso (Ene→mes)
+    // — plan y real recortados a lo que va del año, para ver el avance real vs la meta al día.
+    const resumenAlMes = (()=>{
+      let pU=0,rU=0,pM=0,rM=0; const filas=[];
+      Object.entries(metasData).forEach(([nombre, d])=>{
+        if(!d||!d.plan||!d.real) return;
+        if(metasFiltroDesarrollador!=="Todos"&&d.desarrollador!==metasFiltroDesarrollador) return;
+        if(metasFiltroDesarrollo!=="Todos"&&nombre!==metasFiltroDesarrollo) return;
+        const puM=calcularMetaAlMes(d.plan.uds||[],mesActualIdx), ruM=calcularMetaAlMes(d.real.uds||[],mesActualIdx);
+        const pmM=calcularMetaAlMes(d.plan.monto||[],mesActualIdx), rmM=calcularMetaAlMes(d.real.monto||[],mesActualIdx);
+        pU+=puM;rU+=ruM;pM+=pmM;rM+=rmM;
+        filas.push({nombre,desarrollador:d.desarrollador,planUds:puM,realUds:ruM,planMonto:pmM,realMonto:rmM});
+      });
+      return {planUdsTotal:pU,realUdsTotal:rU,planMontoTotal:pM,realMontoTotal:rM,cumplUds:pU>0?rU/pU:(rU>0?1.5:0),cumplMonto:pM>0?rM/pM:(rM>0?1.5:0),porDesarrollo:filas};
+    })();
+    const estatusMontoAlMes = getEstatusMeta(resumenAlMes.cumplMonto, resumenAlMes.planMontoTotal, resumenAlMes.realMontoTotal);
 
     // Calcular meta acumulada al mes actual
     let metaAlMesUds=0, metaAlMesMonto=0;
@@ -14116,6 +14132,76 @@ Respuesta: [respuesta exacta, conversacional]
                       <span style={{fontVariantNumeric:"tabular-nums"}}><span style={{fontSize:9, opacity:0.8, fontWeight:700}}>$</span> {fM}</span>
                     </div>
                   ); })()}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Scorecard AL MES — meta acumulada al mes en curso (cómo vamos realmente al día) */}
+        <div style={{background:B.white, borderRadius:12, padding:"18px 20px", marginBottom:20, border:"2px solid #fed7aa", boxShadow:"0 2px 8px rgba(234,88,12,0.06)"}}>
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4}}>
+            <div style={{fontSize:13, fontWeight:800, color:"#c2410c", textTransform:"uppercase", letterSpacing:1}}>🎯 Scorecard al mes — avance vs meta a {mesActualNombre}</div>
+            <div style={{fontSize:11, color:B.grey3}}>{resumenAlMes.porDesarrollo.length} desarrollos</div>
+          </div>
+          <div style={{fontSize:11, color:B.grey4, marginBottom:14}}>Plan y Real acumulados de <strong>Enero a {mesActualNombre}</strong> (no el año completo) — para saber cómo vamos <strong>realmente</strong> contra la meta al día.</div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%", borderCollapse:"collapse", fontSize:12}}>
+              <thead>
+                <tr style={{background:"#7c2d12", color:B.white}}>
+                  <th style={{padding:"11px 8px", textAlign:"left", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Desarrollo</th>
+                  <th style={{padding:"11px 8px", textAlign:"left", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Desarrollador</th>
+                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Meta U <span style={{fontSize:8,opacity:0.7}}>(al mes)</span></th>
+                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Real U</th>
+                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% Uds</th>
+                  <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Meta $ <span style={{fontSize:8,opacity:0.7}}>(al mes, miles)</span></th>
+                  <th style={{padding:"11px 8px", textAlign:"right", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Real $ <span style={{fontSize:8,opacity:0.7}}>(miles)</span></th>
+                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>% Vta vs Meta</th>
+                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8}}>Estatus</th>
+                  <th style={{padding:"11px 8px", textAlign:"center", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8, background:"#5a1e0a", borderLeft:"3px solid #ea580c", color:"#fdba74"}}>🔖 Apartados del mes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumenAlMes.porDesarrollo.map((d,i)=>{
+                  const cumU=d.planUds>0?(d.realUds/d.planUds):(d.realUds>0?1.5:0);
+                  const cumM=d.planMonto>0?(d.realMonto/d.planMonto):(d.realMonto>0?1.5:0);
+                  const est=getEstatusMeta(cumM, d.planMonto, d.realMonto);
+                  const tagColors = {"TYA":{bg:"#dbeafe",color:"#1e40af"},"HITO":{bg:"#dcfce7",color:"#15803d"},"Corretaje":{bg:"#fef3c7",color:"#92400e"},"Garvi":{bg:"#fce7f3",color:"#be185d"},"Favier":{bg:"#e0e7ff",color:"#4338ca"},"GyG":{bg:"#ccfbf1",color:"#0f766e"}};
+                  const tag = tagColors[d.desarrollador]||{bg:B.grey1, color:B.grey4};
+                  const aU=Number(getApartado(d.nombre, mesActualIdx,"u"))||0, aM=Number(getApartado(d.nombre, mesActualIdx,"m"))||0;
+                  return (
+                    <tr key={d.nombre} style={{borderBottom:"1px solid "+B.grey1, background:i%2===0?B.white:B.offW}}>
+                      <td style={{padding:"11px 8px", fontWeight:800, color:B.navy}}>{d.nombre}</td>
+                      <td style={{padding:"11px 8px"}}><span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:tag.bg, color:tag.color, whiteSpace:"nowrap"}}>{d.desarrollador}</span></td>
+                      <td style={{padding:"11px 8px", textAlign:"center", fontWeight:700, color:B.navy}}>{d.planUds}</td>
+                      <td style={{padding:"11px 8px", textAlign:"center", fontWeight:800, color:d.realUds>=d.planUds&&d.planUds>0?"#16a34a":B.navy}}>{d.realUds}</td>
+                      <td style={{padding:"11px 8px", textAlign:"center", fontWeight:700, color:cumU>=1?"#16a34a":cumU>=0.85?"#1e40af":cumU>=0.5?"#b45309":"#b91c1c"}}>{d.planUds===0?"—":(cumU*100).toFixed(0)+"%"}</td>
+                      <td style={{padding:"11px 8px", textAlign:"right", color:B.grey4, fontSize:11}}>{fmtMiles(d.planMonto)}</td>
+                      <td style={{padding:"11px 8px", textAlign:"right", fontWeight:800, color:d.realMonto>=d.planMonto&&d.planMonto>0?"#16a34a":B.navy, fontSize:11}}>{fmtMiles(d.realMonto)}</td>
+                      <td style={{padding:"11px 8px", textAlign:"center"}}>
+                        {d.planMonto===0 ? <span style={{color:B.grey3,fontWeight:700}}>—</span> : (()=>{ const cVM=cumM>=1?"#16a34a":cumM>=0.85?"#1e40af":cumM>=0.5?"#b45309":"#b91c1c"; return (
+                          <div style={{minWidth:66, margin:"0 auto"}}>
+                            <div style={{fontWeight:800, color:cVM, fontSize:12, marginBottom:3}}>{(cumM*100).toFixed(0)}%</div>
+                            <div style={{height:5, background:B.grey1, borderRadius:3, overflow:"hidden"}}><div style={{height:"100%", width:Math.min(100,cumM*100)+"%", background:cVM, borderRadius:3}}/></div>
+                          </div>
+                        ); })()}
+                      </td>
+                      <td style={{padding:"11px 8px", textAlign:"center"}}><span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:est.bg, color:est.color, whiteSpace:"nowrap"}}>{est.icon} {est.label}</span></td>
+                      <td style={{padding:"11px 8px", textAlign:"center", background:"#fff5ec", borderLeft:"3px solid #ea580c"}}>{(aU>0||aM>0) ? <span style={{color:"#ea580c", fontWeight:800, fontSize:11, whiteSpace:"nowrap"}}>🔖 {aU} · ${new Intl.NumberFormat("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2}).format(aM)}</span> : <span style={{color:"#e5a06e"}}>—</span>}</td>
+                    </tr>
+                  );
+                })}
+                <tr style={{background:"#7c2d12", color:B.white, fontWeight:800}}>
+                  <td style={{padding:"12px 8px", textTransform:"uppercase", letterSpacing:1, fontSize:11}}>Gran total</td>
+                  <td style={{padding:"12px 8px", color:"#fdba74", fontSize:11}}>{metasFiltroDesarrollador==="Todos"?"Todos":metasFiltroDesarrollador}</td>
+                  <td style={{padding:"12px 8px", textAlign:"center", color:"#fdba74"}}>{resumenAlMes.planUdsTotal}</td>
+                  <td style={{padding:"12px 8px", textAlign:"center", color:"#fdba74"}}>{resumenAlMes.realUdsTotal}</td>
+                  <td style={{padding:"12px 8px", textAlign:"center", color:"#fdba74"}}>{resumenAlMes.planUdsTotal===0?"—":(resumenAlMes.cumplUds*100).toFixed(0)+"%"}</td>
+                  <td style={{padding:"12px 8px", textAlign:"right", color:"#fdba74", fontSize:11}}>{fmtMiles(resumenAlMes.planMontoTotal)}</td>
+                  <td style={{padding:"12px 8px", textAlign:"right", color:"#fdba74", fontSize:11}}>{fmtMiles(resumenAlMes.realMontoTotal)}</td>
+                  <td style={{padding:"12px 8px", textAlign:"center", color:"#fdba74"}}>{resumenAlMes.planMontoTotal===0?"—":(resumenAlMes.cumplMonto*100).toFixed(0)+"%"}</td>
+                  <td style={{padding:"12px 8px", textAlign:"center"}}><span style={{padding:"3px 10px", borderRadius:12, fontSize:10, fontWeight:800, background:estatusMontoAlMes.bg, color:estatusMontoAlMes.color}}>{estatusMontoAlMes.icon} {estatusMontoAlMes.label}</span></td>
+                  <td style={{padding:"12px 8px", textAlign:"center", color:"#fdba74", background:"#5a1e0a", borderLeft:"3px solid #ea580c"}}>{(()=>{ const tU=resumenAlMes.porDesarrollo.reduce((a,d)=>a+(Number(getApartado(d.nombre, mesActualIdx,"u"))||0),0); const tM=resumenAlMes.porDesarrollo.reduce((a,d)=>a+(Number(getApartado(d.nombre, mesActualIdx,"m"))||0),0); if(!(tU>0||tM>0)) return "—"; return "🔖 "+tU+" · $"+new Intl.NumberFormat("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2}).format(tM); })()}</td>
                 </tr>
               </tbody>
             </table>
