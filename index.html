@@ -2866,7 +2866,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const connectDrive = ()=>{
     const state=Math.random().toString(36).slice(2);
     localStorage.setItem("macropro_oauth_state",state);
-    const p=new URLSearchParams({client_id:DRIVE_CLIENT_ID,redirect_uri:"https://sergiogogue.github.io/macropro-matcher/",
+    const p=new URLSearchParams({client_id:DRIVE_CLIENT_ID,redirect_uri:"https://grupoguia-macrolotes.netlify.app/",
       response_type:"token",scope:DRIVE_SCOPE,state,prompt:"select_account"});
     window.location.href="https://accounts.google.com/o/oauth2/v2/auth?"+p.toString();
   };
