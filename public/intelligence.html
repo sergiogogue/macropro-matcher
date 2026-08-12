@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA LOTES™ Intelligence v71</title>
+<title>GUÍA LOTES™ Intelligence v72</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDMgMTJsMTAtNC00IDExeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMyIiB5PSI0NCIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjMxIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBsZXR0ZXItc3BhY2luZz0iLTEiPklOPC90ZXh0Pjwvc3ZnPg==">
 <link rel="alternate icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDMgMTJsMTAtNC00IDExeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMyIiB5PSI0NCIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjMxIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBsZXR0ZXItc3BhY2luZz0iLTEiPklOPC90ZXh0Pjwvc3ZnPg==">
 <meta name="theme-color" content="#D21F1F">
@@ -831,7 +831,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
   <div class="header-right">
     <button class="hdr-btn" onclick="openEstudios()" title="Estudios guardados">📚 <span class="lbl">Estudios</span></button>
     <button class="hdr-btn" onclick="openAutorizStats()" title="Estadística de autorizaciones">📊 <span class="lbl">Autorizaciones</span></button>
-    <span class="v-badge">v71</span>
+    <span class="v-badge">v72</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -2530,7 +2530,7 @@ async function generateMIOpinionValor(){
     const tid=setTimeout(()=>controller.abort(),45000);
     let r;
     try{
-      r=await fetch('https://api.anthropic.com/v1/messages',{
+      r=await fetch('/.netlify/functions/claude',{
         method:'POST',
         headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
         body:JSON.stringify({model:MODEL,max_tokens:1500,messages:[{role:'user',content:prompt}]}),
@@ -2631,7 +2631,7 @@ Responde SOLO con JSON (sin backticks, sin texto adicional):
 [{"idx":0,"pitch":"..."},{"idx":1,"pitch":"..."},{"idx":2,"pitch":"..."},{"idx":3,"pitch":"..."},{"idx":4,"pitch":"..."}]`;
 
   try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:MODEL,max_tokens:1000,messages:[{role:'user',content:prompt}]})});
+    const r=await fetch('/.netlify/functions/claude',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:MODEL,max_tokens:1000,messages:[{role:'user',content:prompt}]})});
     const d=await r.json();
     if(d.content&&d.content[0]){
       let pitches=[];
@@ -2714,7 +2714,7 @@ INSTRUCCIONES:
 Escribe en español, máximo 350 palabras, en formato de conversación natural — NO lista de puntos.`;
 
   try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{
+    const r=await fetch('/.netlify/functions/claude',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
       body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:900,messages:[{role:'user',content:prompt}]})
@@ -2779,7 +2779,7 @@ const LOGO_GM_OFICIAL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAESsAAAJ8C
 
 
 // ── STATE ──────────────────────────────────────────────────────────────────────
-let apiKey = localStorage.getItem('guia_lotes_api_key') || '';
+let apiKey = 'via-proxy'; // La IA pasa por /.netlify/functions/claude — ya NO se usa API Key en el navegador (CAMBIO 1 · A0)
 let uploadedFiles = [];
 let analysisData = null;
 let inventarioData = [];
@@ -2811,32 +2811,16 @@ window.onload = () => {
   }
 };
 
-// ── API KEY ────────────────────────────────────────────────────────────────────
+// ── API KEY — YA NO SE USA EN EL NAVEGADOR (la IA pasa por /.netlify/functions/claude) ──
 function toggleApiConfig(){
-  var current=localStorage.getItem('guia_lotes_api_key')||'';
-  var val=window.prompt('Ingresa tu API Key de Anthropic (sk-ant-...):',current);
-  if(val===null||val===undefined) return;
-  val=val.trim();
-  if(!val||val.length<20){window.alert('API Key invalida. Debe comenzar con sk-ant-...');return;}
-  apiKey=val;
-  localStorage.setItem('guia_lotes_api_key',apiKey);
-  document.getElementById('api-dot').classList.add('active');
-  document.getElementById('api-status-label').textContent='API Configurada ✓';
-  var b=document.getElementById('api-key-banner');if(b)b.style.display='none';
   var ov=document.getElementById('api-modal-overlay');if(ov)ov.style.display='none';
-  window.alert('✓ API Key guardada. Ya puedes analizar lotes.');
+  var b=document.getElementById('api-key-banner');if(b)b.style.display='none';
+  showToast('La IA usa el servidor seguro de Grupo Guía — no necesitas API Key.','');
 }
 function saveApiKey() {
-  var val=document.getElementById('api-key-input').value.trim();
-  if(!val||val.length<20){showToast('⚠️ Ingresa una API Key válida','error');return;}
-  apiKey = val;
-  localStorage.setItem('guia_lotes_api_key', apiKey);
-  document.getElementById('api-dot').classList.add('active');
-  document.getElementById('api-status-label').textContent = 'API Configurada ✓';
   var ov2=document.getElementById('api-modal-overlay');if(ov2)ov2.style.display='none';
   var b2=document.getElementById('api-key-banner');if(b2)b2.style.display='none';
-  showToast('✓ API Key guardada. Listo para analizar.','success');
-  updateAnalyzeBtn();
+  if(typeof updateAnalyzeBtn==='function') updateAnalyzeBtn();
 }
 
 // ── FILE HANDLING ──────────────────────────────────────────────────────────────
@@ -4053,7 +4037,7 @@ async function callClaude(prompt, docsContent, maxTokens=1500) {
   content.push({ type:'text', text:prompt });
 
   async function doFetch(retries=6) {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/.netlify/functions/claude', {
       method:'POST',
       headers:{
         'Content-Type':'application/json',
@@ -4325,7 +4309,7 @@ async function extractFromLargePDF(file) {
     { type: 'text', text: 'Lee este documento y extrae: propietario, superficie, escritura/notaria, fecha, gravamenes, descripcion del predio, restricciones. Responde en texto plano con los datos encontrados. Si el documento es imagen escaneada sin texto legible, responde exactamente: SIN_TEXTO' }
   ];
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/.netlify/functions/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
       body: JSON.stringify({ model: MODEL, max_tokens: 1000, messages: [{ role: 'user', content: msgContent }] })
@@ -4591,7 +4575,7 @@ async function sendChat() {
     ? [{ role:'user', content:firstMsg }]
     : [...chatHistory, { role:'user', content:q }];
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/.netlify/functions/claude', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'x-api-key':apiKey, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
       body:JSON.stringify({ model:MODEL, max_tokens:300, messages })
@@ -6073,7 +6057,7 @@ Responde SOLO con JSON válido sin texto extra:
 
 Incluye entre 5 y 8 comparables. Los precios deben ser realistas para el mercado mexicano actual (2024-2025). Si no tienes datos precisos de esta ciudad exacta, usa datos de ciudades comparables del mismo estado.`;
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch('/.netlify/functions/claude', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -6104,7 +6088,7 @@ Incluye entre 5 y 8 comparables. Los precios deben ser realistas para el mercado
     return parseJSON(rawText);
   } catch(e) {
     // Fallback: call without web search tool
-    const res2 = await fetch('https://api.anthropic.com/v1/messages', {
+    const res2 = await fetch('/.netlify/functions/claude', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
