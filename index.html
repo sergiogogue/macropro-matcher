@@ -2866,7 +2866,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const connectDrive = ()=>{
     const state=Math.random().toString(36).slice(2);
     localStorage.setItem("macropro_oauth_state",state);
-    const p=new URLSearchParams({client_id:DRIVE_CLIENT_ID,redirect_uri:"https://grupoguia-macrolotes.netlify.app/",
+    const p=new URLSearchParams({client_id:DRIVE_CLIENT_ID,redirect_uri:"https://sergiogogue.github.io/macropro-matcher/",
       response_type:"token",scope:DRIVE_SCOPE,state,prompt:"select_account"});
     window.location.href="https://accounts.google.com/o/oauth2/v2/auth?"+p.toString();
   };
@@ -14742,7 +14742,7 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
           <div style={{display:"flex", gap:10, flexWrap:"wrap"}}>
             <button onClick={()=>{
-                const url="https://grupoguia-macrolotes.netlify.app/buscar.html";
+                const url="https://sergiogogue.github.io/macropro-matcher/buscar.html";
                 const msg="🔎 *Solicitud de macrolote · Grupo Guía*\n\n¿Buscas un terreno para un cliente? Llena esta solicitud (especifica dónde y para qué uso):\n"+url;
                 window.open("https://wa.me/?text="+encodeURIComponent(msg),"_blank");
               }} title="Enviar por WhatsApp la liga del formulario de solicitud a un asesor/broker"
@@ -14969,7 +14969,7 @@ Respuesta: [respuesta exacta, conversacional]
 
   // ══════════════ CAPTACIÓN DE TERRENOS (opcionamiento) ══════════════
   // ── PDF de instrucciones para compartir la liga de captación (con logo Macrolotes Guía) ──
-  const CAPTAR_URL = "https://grupoguia-macrolotes.netlify.app/captar.html";
+  const CAPTAR_URL = "https://sergiogogue.github.io/macropro-matcher/captar.html";
   const LOGO_MACROLOTES = "https://xugrrabebphdelgwqnwc.supabase.co/storage/v1/object/public/logos-desarrollos/03ad3f32-7322-4e98-b653-8bdb970b68d5-1779665862554.png";
   const cargarImg = (url)=> new Promise((resolve)=>{
     try{
@@ -15035,7 +15035,7 @@ Respuesta: [respuesta exacta, conversacional]
     toast("✅ PDF descargado");
   };
 
-  const BUSCAR_URL = "https://grupoguia-macrolotes.netlify.app/buscar.html";
+  const BUSCAR_URL = "https://sergiogogue.github.io/macropro-matcher/buscar.html";
   const descargarInstruccionesSolicitudPDF = async () => {
     if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
     toast("📄 Generando PDF…");
@@ -15315,14 +15315,14 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
           <div style={{display:"flex", gap:10, flexWrap:"wrap"}}>
             <button onClick={()=>{
-                const url="https://grupoguia-macrolotes.netlify.app/guia-asesores.pdf";
+                const url="https://sergiogogue.github.io/macropro-matcher/guia-asesores.pdf";
                 const msg="📘 *Guía para asesores · Macrolotes Grupo Guía*\n\nDescárgala aquí:\n"+url;
                 window.open("https://wa.me/?text="+encodeURIComponent(msg),"_blank");
               }} title="Enviar la Guía para asesores por WhatsApp (abre WhatsApp con el enlace listo)"
               style={{padding:"12px 18px", borderRadius:10, border:"none", background:"#25d366", color:"#fff", fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", display:"inline-flex", alignItems:"center", gap:7, boxShadow:"0 4px 12px rgba(37,211,102,0.35)"}}>
               📘 Guía para asesores <span style={{fontSize:14}}>📱 WhatsApp</span>
             </button>
-            <button onClick={()=>window.open("https://grupoguia-macrolotes.netlify.app/guia-asesores.pdf","_blank")}
+            <button onClick={()=>window.open("https://sergiogogue.github.io/macropro-matcher/guia-asesores.pdf","_blank")}
               title="Abrir / descargar el instructivo real para asesores (PDF)"
               style={{padding:"12px 18px", borderRadius:10, border:"1.5px solid "+B.navy, background:B.white, color:B.navy, fontSize:13, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
               📄 Instrucciones (PDF)

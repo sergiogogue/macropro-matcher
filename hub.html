@@ -107,9 +107,9 @@ const SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
 
 // Fallback (si la tabla `apps` aún no existe o no hay red) — el Hub nunca queda vacío.
 const APPS_FALLBACK = [
-  {slug:"macropro",nombre:"MacroPro",descripcion:"Inventario y matching",icono:"📊",color:"#0a2540",url:"https://grupoguia-macrolotes.netlify.app/",grupo:"core",recibe_desarrollo:true,integrada:true,orden:10},
+  {slug:"macropro",nombre:"MacroPro",descripcion:"Inventario y matching",icono:"📊",color:"#0a2540",url:"https://sergiogogue.github.io/macropro-matcher/",grupo:"core",recibe_desarrollo:true,integrada:true,orden:10},
   {slug:"macrocotizador",nombre:"MacroCotizador",descripcion:"Cotizaciones",icono:"🧮",color:"#a8893f",url:"https://macrocotizador.vercel.app",grupo:"core",recibe_desarrollo:true,integrada:true,orden:20},
-  {slug:"guia-intelligence",nombre:"Guia-Intelligence",descripcion:"Analítica y metas",icono:"🧠",color:"#1f5f3f",url:"https://grupoguia-macrolotes.netlify.app/intelligence.html",grupo:"core",recibe_desarrollo:true,integrada:true,orden:30},
+  {slug:"guia-intelligence",nombre:"Guia-Intelligence",descripcion:"Analítica y metas",icono:"🧠",color:"#1f5f3f",url:"https://sergiogogue.github.io/macropro-matcher/intelligence.html",grupo:"core",recibe_desarrollo:true,integrada:true,orden:30},
   {slug:"landing-macrolotes",nombre:"Landing Macrolotes",descripcion:"Sitio público de macrolotes",icono:"🌱",color:"#0f6b3f",url:"https://grupoguia-macrolotes.netlify.app",grupo:"core",recibe_desarrollo:false,integrada:true,orden:40},
   {slug:"dashboard-acciones",nombre:"Dashboard de acciones",descripcion:"Seguimiento de acciones (asesores)",icono:"📋",color:"#0a2540",url:"https://grupoguia-macrolotes.netlify.app/asesores?tab=dashboard",grupo:"core",recibe_desarrollo:false,integrada:true,orden:45},
   {slug:"control-proyectos",nombre:"Control de Proyectos",descripcion:"Mi Día, calendario y seguimiento",icono:"✅",color:"#c9a961",url:"https://grupoguia-macrolotes.netlify.app/control",grupo:"core",recibe_desarrollo:false,integrada:true,orden:12},
@@ -156,7 +156,7 @@ const DES_FALLBACK = [
 // Plataformas Macros 360 que aún no están capturadas en Supabase (tabla 'desarrollos').
 // Se reflejan aquí hasta que se les ponga 'plataforma_url' en la base; entonces manda Supabase.
 const PLAT_OVERRIDES = [
-  {slug:"las-rosas-square",nombre:"Las Rosas Square",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#1b2c44",color_secundario:"#34507a",logo_url:"https://grupoguia-macrolotes.netlify.app/las-rosas-square.svg",plataforma_url:"https://armada.com.mx/sitio/clientes/tya/las-rosas-square/piloto/360/"},
+  {slug:"las-rosas-square",nombre:"Las Rosas Square",desarrollador:"TYA",tipo:"Desarrollo",ciudad:"ZMGDL",color_principal:"#1b2c44",color_secundario:"#34507a",logo_url:"https://sergiogogue.github.io/macropro-matcher/las-rosas-square.svg",plataforma_url:"https://armada.com.mx/sitio/clientes/tya/las-rosas-square/piloto/360/"},
 ];
 function aplicarPlatOverrides(){
   PLAT_OVERRIDES.forEach(o=>{
