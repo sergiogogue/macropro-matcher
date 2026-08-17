@@ -17912,6 +17912,67 @@ Respuesta: [respuesta exacta, conversacional]
     const n=src.filter(l=>{const p=crmData[l.id]&&crmData[l.id].pipeline;return p&&p!=="Disponible"&&p!=="Descartado";}).length;
     return n>0?" ("+n+")":"";
   })();
+  // ─── CENTRO DE DOCUMENTOS (reposicionamiento: un solo lugar por audiencia) ──
+  // Aditivo: organiza los generadores de PDF/PPTX que YA existen, agrupados por
+  // "para quién es el documento", y lleva a la pantalla donde se produce cada uno.
+  const ViewDocumentos = () => {
+    const GRUPOS = [
+      { grupo:"Para una junta", icon:"🗓️", color:"#002B49", items:[
+        {t:"Seguimiento semanal", d:"Semáforo por canal, último comentario y fichas de clientes.", fmt:"PDF", to:"ejecutivo", cta:"Exportar PDF"},
+        {t:"Reporte de dirección (CEO / Cliente)", d:"Tablero ejecutivo en modo CEO o Cliente.", fmt:"PDF", to:"dashboard", cta:"Generar reporte"},
+        {t:"Cierre de mes · Metas", d:"Scorecard anual y al mes, apartados y tendencia (2 hojas).", fmt:"PDF", to:"metas", cta:"Imprimir / PDF"},
+      ]},
+      { grupo:"Para un desarrollador", icon:"🏢", color:"#1f5f3f", items:[
+        {t:"Informe por desarrollador", d:"Desempeño de su desarrollo para la junta (TYA).", fmt:"PDF", to:"corretaje", cta:"Generar informe"},
+        {t:"Match de clientes para su inventario", d:"Los mejores clientes para sus lotes.", fmt:"PPTX", to:"matchLot", cta:"Elegir lote → PPTX"},
+      ]},
+      { grupo:"Para un cliente", icon:"🤝", color:"#a8893f", items:[
+        {t:"Ficha técnica del lote", d:"Presentación del lote en diapositivas.", fmt:"PPTX", to:"lots", cta:"Elegir lote → PPTX"},
+        {t:"Presentación de opciones (Match)", d:"Los mejores lotes para el cliente.", fmt:"PPTX", to:"matchClient", cta:"Elegir cliente → PPTX"},
+        {t:"Entorno del terreno (DENUE)", d:"Servicios y entorno alrededor del lote.", fmt:"PDF", to:"lots", cta:"Abrir lote → Entorno"},
+      ]},
+      { grupo:"Para captación", icon:"🌱", color:"#0f6b3f", items:[
+        {t:"Demanda por zona y uso", d:"Qué buscan los clientes, por ciudad y uso de suelo.", fmt:"PDF", to:"corretaje", cta:"Generar demanda"},
+        {t:"Reporte de captaciones", d:"Terrenos captados / en opción.", fmt:"PDF", to:"captacion", cta:"Generar reporte"},
+      ]},
+    ];
+    return (
+      <div style={{padding:"20px 24px",maxWidth:1200,margin:"0 auto"}}>
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:11,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase"}}>📄 Centro de documentos</div>
+          <div style={{fontSize:28,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif",marginTop:2}}>¿Qué necesitas presentar?</div>
+          <div style={{fontSize:13,color:B.grey4,marginTop:4}}>Elige por audiencia. Te llevo a la pantalla donde se genera el PDF o PPTX.</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:16}}>
+          {GRUPOS.map(g=>(
+            <div key={g.grupo} style={{background:B.white,borderRadius:14,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.05)",overflow:"hidden"}}>
+              <div style={{background:g.color,padding:"12px 16px",display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:16}}>{g.icon}</span>
+                <span style={{fontSize:13,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:0.8}}>{g.grupo}</span>
+              </div>
+              <div style={{padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
+                {g.items.map(it=>(
+                  <button key={it.t} onClick={()=>setView(it.to)} title={"Ir a "+it.cta}
+                    style={{textAlign:"left",background:B.offW,border:"1px solid "+B.grey1,borderRadius:10,padding:"11px 13px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"background 0.1s"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#eef4fb"}
+                    onMouseLeave={e=>e.currentTarget.style.background=B.offW}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:13,fontWeight:800,color:B.navy}}>{it.t}</span>
+                      <span style={{fontSize:9,fontWeight:800,color:it.fmt==="PPTX"?"#b45309":"#0369a1",background:it.fmt==="PPTX"?"#fef3c7":"#e0f2fe",borderRadius:6,padding:"2px 7px",whiteSpace:"nowrap"}}>{it.fmt}</span>
+                    </div>
+                    <div style={{fontSize:11,color:B.grey4,marginTop:3,lineHeight:1.35}}>{it.d}</div>
+                    <div style={{fontSize:10.5,color:g.color,fontWeight:800,marginTop:6}}>{it.cta} →</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{marginTop:18,fontSize:11,color:B.grey3,fontStyle:"italic"}}>Los documentos que requieren un lote o cliente específico te piden elegirlo primero en su pantalla.</div>
+      </div>
+    );
+  };
+
   // ─── RENDER ───────────────────────────────────────────────────────
   return (
     <div style={s.app}>
@@ -17923,7 +17984,7 @@ Respuesta: [respuesta exacta, conversacional]
           <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.2</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["dashboard","📊 Dashboard"],["crm","🎯 CRM"+crmNavCount],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Opción"],["asesores","🤝 Buscando"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["documentos","📄 Documentos"],["dashboard","📊 Dashboard"],["crm","🎯 CRM"+crmNavCount],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Opción"],["asesores","🤝 Buscando"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
@@ -17948,6 +18009,7 @@ Respuesta: [respuesta exacta, conversacional]
           )}
         </div>
       </nav>
+      {view==="documentos"&&<ViewDocumentos/>}
       {view==="home"&&<ViewHome/>}
       {view==="crm"&&<ViewCRM/>}
       {view==="dashboard"&&<ViewDashboard/>}
