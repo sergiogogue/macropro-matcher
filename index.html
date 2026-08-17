@@ -196,6 +196,12 @@ const { useState, useRef, useCallback } = React;
 // ═══════════════════════════════════════════════════════════════════
 const SUPABASE_URL = "https://xugrrabebphdelgwqnwc.supabase.co";
 const SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
+// ── SPEC alcance (13-ago-2026): MacroPro pasa a SOLO LECTURA en las tablas compartidas.
+// La Landing es la única que escribe lotes/clientes/captaciones/desarrollos/landing_*.
+// MacroPro solo escribe app_config (metas) y crm_lotes (mientras exista el CRM).
+// Este flag neutraliza en CÓDIGO todas las escrituras a tablas compartidas (evita revertir
+// la limpieza hecha en la Landing, p. ej. las coordenadas de Terrasoles). Reversible.
+const MP_READONLY_SHARED = true;
 // MacroCotizador (misma base Supabase, sin REST entre apps). Se abre con cliente+lote por URL.
 const MACROCOTIZADOR_URL = "https://macrocotizador.vercel.app";
 // Slug del desarrollo a partir del nombre (best-effort para desarrollos.slug; ej. "Kulkana"→"kulkana").
@@ -642,7 +648,7 @@ async function migrarLotesASupabase(lotes, onProgress) {
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
     try {
-      const { data, error } = await sb.from('lotes').upsert(batch, { onConflict: 'id' }).select('id');
+      const { data, error } = MP_READONLY_SHARED ? {data:[],error:null} : await sb.from('lotes').upsert(batch, { onConflict: 'id' }).select('id');
       if (error) {
         errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${error.message}`);
       } else {
@@ -679,7 +685,7 @@ async function migrarClientesASupabase(clientes, onProgress, asesorEmailMap) {
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
     try {
-      const { data, error } = await sb.from('clientes').upsert(batch, { onConflict: 'id_cliente' }).select('id');
+      const { data, error } = MP_READONLY_SHARED ? {data:[],error:null} : await sb.from('clientes').upsert(batch, { onConflict: 'id_cliente' }).select('id');
       if (error) {
         errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${error.message}`);
       } else {
@@ -2135,7 +2141,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // Subida de UN cliente (clave = id_cliente; sin id ni correo no se sube para evitar duplicados)
   // Mapa nombre(asesor) → correo, desde el catálogo de asesores (para poblar asesor_email al subir)
   const asesorEmailMap=()=>{ const m={}; const add=a=>{ if(a&&a.nombre&&a.email) m[a.nombre.toString().trim().toLowerCase()]=a.email.toString().trim().toLowerCase(); }; (asesoresCatalog||[]).forEach(add); (asesoresCloud||[]).forEach(add); return m; };
-  const subirClienteCloud=async(c)=>{ if(!window.sb||!c) return; const row=clienteToSupabase(c, asesorEmailMap()); if(!row) return; try{ await window.sb.from('clientes').upsert(row,{onConflict:'id_cliente'}); }catch(err){ console.warn('subir cliente:',err&&err.message); } };
+  const subirClienteCloud=async(c)=>{ if(MP_READONLY_SHARED) return; if(!window.sb||!c) return; const row=clienteToSupabase(c, asesorEmailMap()); if(!row) return; try{ await window.sb.from('clientes').upsert(row,{onConflict:'id_cliente'}); }catch(err){ console.warn('subir cliente:',err&&err.message); } };
   // Clave de identidad de un cliente para snapshot/dedupe: correo → id → nombre+teléfono
   const normTxt=s=>String(s||"").trim().toLowerCase().replace(/\s+/g," ");
   const cliKey=(c)=>{ const e=normTxt(c&&(c.email||c.correo)); if(e) return "e:"+e; const n=normTxt(c&&c.nombre), t=String((c&&c.telefono)||"").replace(/\D/g,""); if(n||t) return "n:"+n+"|"+t; const id=String((c&&(c.id||c.id_cliente))||"").trim(); return id?("id:"+id):""; };
@@ -2446,14 +2452,14 @@ function MacroProMatcher({ sessionEmail } = {}) {
     if(!window.sb || !c || !c.id) return;
     const row = filaDeCaptacion(c);
     try{
-      const { error } = await window.sb.from('captaciones').upsert(row, { onConflict:'id' });
+      const { error } = MP_READONLY_SHARED ? {error:null} : await window.sb.from('captaciones').upsert(row, { onConflict:'id' });
       if(error) throw error;
     }catch(e){
       // Reintento SIN las columnas de autorización (por si aún no se corre el SQL que las crea).
       const msg = String((e&&e.message)||e||"");
       if(/precio_autorizado|observaciones_autorizacion|respuestas|schema cache|column|PGRST204/i.test(msg)){
         const { precio_autorizado, observaciones_autorizacion, respuestas, ...base } = row;
-        try{ await window.sb.from('captaciones').upsert(base, { onConflict:'id' }); }
+        try{ if(!MP_READONLY_SHARED) await window.sb.from('captaciones').upsert(base, { onConflict:'id' }); }
         catch(e2){ console.warn('subir captación (fallback):', e2&&e2.message); }
       }else{ console.warn('subir captación:', msg); }
     }
@@ -2976,7 +2982,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
         const fullRows = (inventory||[]).map(l=>({ id: loteKey(l), datos: l, updated_at: new Date().toISOString() })).filter(r=>r.id);
         for(let i=0;i<fullRows.length;i+=200){
           const batch = fullRows.slice(i,i+200);
-          const { error } = await sb.from('inventario_full').upsert(batch,{ onConflict:'id' });
+          const { error } = MP_READONLY_SHARED ? {error:null} : await sb.from('inventario_full').upsert(batch,{ onConflict:'id' });
           if(error) throw new Error(error.message);
         }
       } catch(e){ console.warn('inventario_full (subida completa):', (e&&e.message)||e); }
@@ -3183,7 +3189,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
       let subidos = 0;
       for(let i=0;i<rows.length;i+=200){
         const batch = rows.slice(i,i+200);
-        const { error } = await sb.from('inventario_full').upsert(batch,{ onConflict:'id' });
+        const { error } = MP_READONLY_SHARED ? {error:null} : await sb.from('inventario_full').upsert(batch,{ onConflict:'id' });
         if(error) throw new Error(error.message);
         subidos += batch.length;
       }
@@ -3235,7 +3241,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     autoMantRef.current = true;                          // marcar antes de insertar (evita reentradas)
     (async ()=>{
       try{
-        const { error } = await window.sb.from('desarrollos').insert(nuevos);
+        const { error } = MP_READONLY_SHARED ? {error:null} : await window.sb.from('desarrollos').insert(nuevos);
         if(error){ console.warn('auto-mant desarrollos:', error.message); return; }
         // actualizar cache local + mapeo (no re-baja: ya sabemos lo nuevo)
         const merged = [...catalogoRef.current, ...nuevos];
@@ -5721,7 +5727,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
       if (tc.length) patch.tipo_cliente = tc;
       if (!Object.keys(patch).length) { setSaving(false); setEdit(null); return; }
       try {
-        const { error } = await sb.from('landing_clientes').update(patch).eq('id', row.id);
+        const { error } = MP_READONLY_SHARED ? {error:null} : await sb.from('landing_clientes').update(patch).eq('id', row.id);
         if (error) throw error;
         setRow(prev => ({ ...prev, ...patch }));
         setEdit(null);
@@ -5858,7 +5864,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
         tagline:draft.tagline||null, logo_url:draft.logo_url||null,
       };
       try{
-        const { error } = await sb.from('desarrollos').update(payload).eq('id',editId);
+        const { error } = MP_READONLY_SHARED ? {error:null} : await sb.from('desarrollos').update(payload).eq('id',editId);
         if(error){ toast("❌ Error al guardar: "+error.message); setSaving(false); return; }
         const next=(rows||[]).map(r=> r.id===editId ? {...r,...payload} : r);
         setRows(next);
@@ -6314,6 +6320,13 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const [hsFuente, setHsFuente] = React.useState("");     // 'hubspot_deals' | 'landing_clientes'
     const [hsTotalLeido, setHsTotalLeido] = React.useState(0);
     const cargarHubspot = React.useCallback(async ()=>{
+      // ── RETIRADO (SPEC alcance 13-ago-2026) ──────────────────────────────────
+      // El "Kanban HubSpot" (espejo de hubspot_deals) se retiró: es un TERCER pipeline
+      // sobre la misma base y el import chocaba con los límites de tasa de HubSpot (429).
+      // HubSpot es la fuente de la relación con el cliente; MacroPro NO debe reflejarlo.
+      // NO RECONECTAR. Se deja el lector como no-op para no reintroducir el problema.
+      setHsDeals([]); setHsFuente("retirado"); setHsLoading(false); return;
+      /* eslint-disable no-unreachable */
       const _sb = window.sb || sb;
       if(!_sb){ setHsErr("Sin conexión a Supabase"); setHsDeals([]); return; }
       setHsLoading(true); setHsErr(null);
