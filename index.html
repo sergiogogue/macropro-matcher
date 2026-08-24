@@ -2452,14 +2452,14 @@ function MacroProMatcher({ sessionEmail } = {}) {
     if(!window.sb || !c || !c.id) return;
     const row = filaDeCaptacion(c);
     try{
-      const { error } = MP_READONLY_SHARED ? {error:null} : await window.sb.from('captaciones').upsert(row, { onConflict:'id' });
+      const { error } = await window.sb.from('captaciones').upsert(row, { onConflict:'id' });
       if(error) throw error;
     }catch(e){
       // Reintento SIN las columnas de autorización (por si aún no se corre el SQL que las crea).
       const msg = String((e&&e.message)||e||"");
       if(/precio_autorizado|observaciones_autorizacion|respuestas|schema cache|column|PGRST204/i.test(msg)){
         const { precio_autorizado, observaciones_autorizacion, respuestas, ...base } = row;
-        try{ if(!MP_READONLY_SHARED) await window.sb.from('captaciones').upsert(base, { onConflict:'id' }); }
+        try{ await window.sb.from('captaciones').upsert(base, { onConflict:'id' }); }
         catch(e2){ console.warn('subir captación (fallback):', e2&&e2.message); }
       }else{ console.warn('subir captación:', msg); }
     }
@@ -15267,7 +15267,7 @@ Respuesta: [respuesta exacta, conversacional]
       }catch(e){ console.warn("subir dictamen:",e&&e.message); }
     }
     if(!url){ try{ const a=document.createElement("a"); a.href=URL.createObjectURL(gen.blob); a.download=nombre; document.body.appendChild(a); a.click(); a.remove(); }catch(e){}
-      toast("⚠ No se pudo subir a la nube (revisa permisos de Storage para usuarios logueados). Se descargó el PDF localmente."); }
+      toast("⚠ No se pudo subir a la nube: falta el bucket 'captaciones-docs' o permisos (corre sql/captaciones_docs_storage.sql). Se descargó el PDF localmente."); }
     const nowISO=new Date().toISOString();
     const docsPrev=Array.isArray(c.documentosUrls)?c.documentosUrls:[];
     const docs = url ? [...docsPrev, {nombre, url, tipo:"Dictamen de autorización", fecha:nowISO}] : docsPrev;
