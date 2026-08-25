@@ -3509,6 +3509,34 @@ function MacroProMatcher({ sessionEmail } = {}) {
     for(const st of HUBSPOT_STAGES){ if(_hsNorm(st)===lbl) return st; }
     return null;
   };
+  // ─── Agrupamiento SPEC: las ~17 etiquetas crudas de HubSpot → 7 columnas usables ───
+  // EDITABLE aquí (esto es CONFIG, no lógica): si HubSpot renombra una etapa, cámbiala en
+  // el mapa de abajo y listo, sin tocar el resto. Las etiquetas que no casen (o null) caen
+  // en "Sin etapa". Las dos variantes de "Firma de contrato (de) compraventa" caen juntas.
+  const HUBSPOT_GRUPOS_ORD=["Prospecto","Contactado","Interesado","Apartado","Contrato","Cerrado","Perdido"];
+  const HUBSPOT_GRUPO_COLOR={Prospecto:"#64748B",Contactado:"#3B82F6",Interesado:"#6366f1",Apartado:"#f97316",Contrato:"#06B6D4",Cerrado:"#22c55e",Perdido:"#94a3b8","Sin etapa":"#cbd5e1"};
+  const _HS_GRUPO_MAP=[
+    ["Prospecto","Prospecto"],["Prospecto nuevo","Prospecto"],["Cliente sin contactar","Prospecto"],
+    ["Contactado","Contactado"],["Cliente contactado","Contactado"],["Cita programada","Contactado"],
+    ["Interesado","Interesado"],["Cliente interesado","Interesado"],["Visita hecha","Interesado"],
+    ["Apartado","Apartado"],["Carta oferta enviada","Apartado"],["Firma de carta oferta","Apartado"],
+    ["Firma de contrato compraventa","Contrato"],["Firma de contrato de compraventa","Contrato"],
+    ["Escriturado","Cerrado"],
+    ["Descartado","Perdido"],["Venta Perdida","Perdido"],
+  ];
+  const _hsGrupoLookup={}; _HS_GRUPO_MAP.forEach(p=>{ _hsGrupoLookup[_hsNorm(p[0])]=p[1]; });
+  // etapa cruda → grupo (o "Sin etapa" si es null/vacía/desconocida). Normaliza acentos,
+  // mayúsculas y la preposición "de" (para que las dos "firma de contrato…" coincidan).
+  const hsGrupoDeEtapa=(stage)=>{
+    const raw=(stage==null?"":String(stage)).trim();
+    if(!raw) return "Sin etapa";
+    const n=_hsNorm(raw);
+    if(_hsGrupoLookup[n]) return _hsGrupoLookup[n];
+    const sinDe=s=>s.replace(/\bde\b/g," ").replace(/\s+/g," ").trim();
+    const nSinDe=sinDe(n);
+    for(const k in _hsGrupoLookup){ if(sinDe(k)===nSinDe) return _hsGrupoLookup[k]; }
+    return "Sin etapa";
+  };
   const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Por Contactar":"#f59e0b","Contactado":"#3B82F6","Cita":"#0891b2","Visita":"#0d9488","Cotización":"#0284c7","En análisis":"#6366f1","En negociación":B.gold,"Propuesta":"#8B5CF6","Apartado":"#f97316","Contrato":"#06B6D4","Vendido":"#22c55e","Descartado":"#94a3b8"};
   // Probabilidades estándar industria para forecast ponderado
   const STAGE_PROBABILITY={"Prospecto":0.05,"Por Contactar":0.08,"Contactado":0.15,"Cita":0.25,"Visita":0.35,"Cotización":0.38,"En análisis":0.40,"En negociación":0.55,"Propuesta":0.70,"Apartado":0.80,"Contrato":0.90,"Vendido":1.00,"Descartado":0.00,"Disponible":0.00};
@@ -6309,9 +6337,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const [kanbanSearch, setKanbanSearch] = React.useState(""); // buscador de clientes (local: conserva foco al teclear)
     const [miDiaSearch, setMiDiaSearch] = React.useState(""); // buscador de Mi día (LOCAL a ViewCRM: conserva foco al teclear)
     const [searchProsp, setSearchProsp] = React.useState(""); // buscador de Prospectos (LOCAL a ViewCRM: conserva foco al teclear)
-    // 🔶 Kanban HubSpot (solo lectura): refleja el pipeline de HubSpot. Lee de la tabla espejo
-    // `hubspot_deals` (mirror directo de HubSpot) y, si no hay, de `landing_clientes.etapa_hubspot`.
-    // MacroPro NO llama a HubSpot; solo lee lo que el import servidor haya dejado en Supabase.
+    // 🔶 Pipeline de HubSpot (solo lectura): espejo del board de HubSpot. Lee de la tabla
+    // de la landing `hubspot_deals_pendientes` (viva, sync horario). MacroPro NO llama a
+    // HubSpot ni escribe; solo lee. Las tarjetas no se arrastran (se mueven en HubSpot).
     const [hsDeals, setHsDeals] = React.useState(null);   // null = no cargado · [] = cargado (deals normalizados)
     const [hsLoading, setHsLoading] = React.useState(false);
     const [hsErr, setHsErr] = React.useState(null);
@@ -6320,56 +6348,46 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const [hsFuente, setHsFuente] = React.useState("");     // 'hubspot_deals' | 'landing_clientes'
     const [hsTotalLeido, setHsTotalLeido] = React.useState(0);
     const cargarHubspot = React.useCallback(async ()=>{
-      // ── RETIRADO (SPEC alcance 13-ago-2026) ──────────────────────────────────
-      // El "Kanban HubSpot" (espejo de hubspot_deals) se retiró: es un TERCER pipeline
-      // sobre la misma base y el import chocaba con los límites de tasa de HubSpot (429).
-      // HubSpot es la fuente de la relación con el cliente; MacroPro NO debe reflejarlo.
-      // NO RECONECTAR. Se deja el lector como no-op para no reintroducir el problema.
-      setHsDeals([]); setHsFuente("retirado"); setHsLoading(false); return;
-      /* eslint-disable no-unreachable */
+      // ── FUENTE (b): tabla de la landing `hubspot_deals_pendientes` ────────────
+      // Está VIVA: ~1,178 filas, la sincroniza la landing cada hora. MacroPro solo LEE
+      // (política hsdp_admin: authenticated ALL). NO reconectamos el viejo espejo
+      // hubspot_deals de MacroPro (muerto). Espejo de solo lectura; nadie arrastra aquí.
       const _sb = window.sb || sb;
       if(!_sb){ setHsErr("Sin conexión a Supabase"); setHsDeals([]); return; }
       setHsLoading(true); setHsErr(null);
       try{
-        // Colaboradores (asesor_id → nombre) para la fuente landing_clientes
-        let colabs={};
-        try{ const c=await _sb.from('landing_colaboradores').select('id,nombre,email'); if(c&&!c.error&&Array.isArray(c.data)) c.data.forEach(x=>{ if(x&&x.id!=null) colabs[x.id]={nombre:x.nombre||"",email:x.email||""}; }); }catch(e){}
-        let rows=[]; let fuente=""; let leido=0;
-        // Fuente A: tabla espejo hubspot_deals (mirror directo de HubSpot).
-        // SOLO negocios de Macrolotes: la función guarda con `desarrollo` lleno solo los de
-        // los pipelines de Macrolotes; la basura vieja quedó con desarrollo NULL → la excluimos.
-        try{
-          const d=await _sb.from('hubspot_deals').select('*').not('desarrollo','is',null);
-          if(!d.error && Array.isArray(d.data) && d.data.length){
-            leido=d.data.length;
-            rows=d.data.map(x=>({
-              key:x.deal_id||x.id, stage:(x.dealstage_label||x.dealstage_id||"").toString().trim(),
-              pipeline:(x.pipeline||"").toString().trim(), title:x.dealname||x.hubspot_contact_id||"(sin nombre)",
-              amount:(x.amount!=null?Number(x.amount):null), owner:x.owner||"", desarrollo:x.desarrollo||"", pendiente:false
-            }));
-            fuente="hubspot_deals";
-          }
-        }catch(e){}
-        // Fuente B (fallback): landing_clientes con etapa_hubspot
-        if(!rows.length){
-          const d=await _sb.from('landing_clientes').select('*');
-          if(d.error) throw d.error;
-          const all=Array.isArray(d.data)?d.data:[]; leido=all.length;
-          rows=all.filter(r=>(r.etapa_hubspot||"").toString().trim()).map(r=>({
-            key:r.id, stage:(r.etapa_hubspot||"").toString().trim(), pipeline:(r.pipeline_hubspot||"").toString().trim(),
-            title:r.nombre_contacto||r.empresa||r.email||"(sin nombre)", amount:null,
-            owner:((r.asesor_id!=null&&colabs[r.asesor_id]&&colabs[r.asesor_id].nombre)||r.propietario_hubspot||""),
-            desarrollo:r.desarrollo_interes||"", pendiente:!!r.pendiente_perfilar,
-            email:(r.email||"").toString().trim().toLowerCase(), empresa:r.empresa||""
-          }));
-          fuente="landing_clientes";
+        const cols='deal_id,id,nombre,empresa,email,etapa_hubspot,pipeline_hubspot,desarrollo_interes,propietario_hubspot,monto_cierre,lote_id,actualizado_at,fecha';
+        // Paginación: Supabase corta en 1,000 filas por consulta; la tabla trae ~1,178.
+        let all=[]; let from=0; const PAGE=1000;
+        for(let guard=0; guard<20; guard++){
+          const { data, error } = await _sb.from('hubspot_deals_pendientes').select(cols).range(from, from+PAGE-1);
+          if(error) throw error;
+          const chunk=Array.isArray(data)?data:[];
+          all=all.concat(chunk);
+          if(chunk.length<PAGE) break;
+          from+=PAGE;
         }
-        setHsFuente(fuente); setHsTotalLeido(leido); setHsDeals(rows);
+        const rows=all.map(x=>({
+          key:x.deal_id||x.id,
+          stage:(x.etapa_hubspot||"").toString().trim(),       // etiqueta cruda de HubSpot (se agrupa en 7)
+          pipeline:(x.pipeline_hubspot||"").toString().trim(),
+          title:x.nombre||x.empresa||x.email||"(sin nombre)",
+          amount:(x.monto_cierre!=null?Number(x.monto_cierre):null),
+          owner:x.propietario_hubspot||"",
+          desarrollo:x.desarrollo_interes||"",
+          lote_id:(x.lote_id||"").toString().trim(),
+          email:(x.email||"").toString().trim().toLowerCase(),
+          empresa:x.empresa||"",
+          fresh:x.actualizado_at||x.fecha||null,
+          pendiente:false
+        }));
+        setHsFuente("hubspot_deals_pendientes"); setHsTotalLeido(all.length); setHsDeals(rows);
       }catch(e){ setHsErr(String((e&&e.message)||e)); setHsDeals([]); }
       setHsLoading(false);
     },[]);
     React.useEffect(()=>{
-      if(activeTab==="kanban" && vistaKanban==="hubspot" && esAdmin && hsDeals===null && !hsLoading) cargarHubspot();
+      // El pipeline de HubSpot se muestra arriba del tablero propio en la vista "board".
+      if(activeTab==="kanban" && vistaKanban!=="canales" && esAdmin && hsDeals===null && !hsLoading) cargarHubspot();
     },[activeTab, vistaKanban, esAdmin]);
     const [showNoteModal, setShowNoteModal] = React.useState(false);
     const [interForm, setInterForm] = React.useState({fecha:new Date().toISOString().slice(0,10),canal:"Llamada",contacto:"",reaccion:"Interesado",nota:""});
@@ -8308,9 +8326,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
       );
     };
 
-    // 🔶 KANBAN HUBSPOT — espejo de solo lectura del pipeline de HubSpot. Lee deals ya
-    // normalizados (fuente: hubspot_deals o landing_clientes). Columnas = etapa (stage).
-    // Tarjeta = deal/cliente con su asesor (owner). NO arrastra, NO edita, NO escribe a HubSpot.
+    // 🔶 PIPELINE DE HUBSPOT — espejo de solo lectura. Fuente: hubspot_deals_pendientes
+    // (tabla de la landing, viva, sync horario). 7 columnas agrupadas (SPEC) + "Sin etapa".
+    // Tarjeta = negocio con su asesor (owner). NO arrastra, NO edita, NO escribe a HubSpot.
     const VistaKanbanHubSpot=()=>{
       const selStyle={padding:"6px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"};
       const fMoney=v=>(v||v===0)?"$"+Number(v).toLocaleString("es-MX",{maximumFractionDigits:0}):"";
@@ -8321,31 +8339,31 @@ function MacroProMatcher({ sessionEmail } = {}) {
         (hsPipeFilter==="Todos" || (r.pipeline||"").trim()===hsPipeFilter) &&
         (hsDevFilter==="Todos" || (r.desarrollo||"").trim()===hsDevFilter)
       );
-      // Columnas = etapas presentes; orden: las conocidas de HubSpot primero, luego extras alfabético.
-      const presentes=[...new Set(filt.map(r=>(r.stage||"").trim()).filter(Boolean))];
-      const cols=[];
-      HUBSPOT_STAGES.forEach(k=>{ const f=presentes.find(p=>_hsNorm(p)===_hsNorm(k)); if(f&&!cols.includes(f)) cols.push(f); });
-      presentes.filter(p=>!cols.includes(p)).sort().forEach(p=>cols.push(p));
-      const porEtapa={}; cols.forEach(c=>porEtapa[c]=[]);
-      filt.forEach(r=>{ const e=(r.stage||"").trim(); if(porEtapa[e]) porEtapa[e].push(r); });
-      const PAL=["#64748B","#f59e0b","#3B82F6","#0891b2","#0d9488","#6366f1","#a855f7","#f97316","#0284c7","#06B6D4","#22c55e","#94a3b8"];
-      const colorDe=(st,i)=>{ for(const k in HUBSPOT_STAGE_COLORS){ if(_hsNorm(k)===_hsNorm(st)) return HUBSPOT_STAGE_COLORS[k]; } return PAL[i%PAL.length]; };
-      const abrirFichaDeal=(r)=>{ const em=(r.email||"").trim().toLowerCase(); if(em){ const cli=(clients||[]).find(c=>((c.email||c.correo||"").toString().trim().toLowerCase())===em); if(cli){ abrirFichaCliente(cli); return; } } toast("Este negocio vive en HubSpot/landing. Su etapa se administra allá."); };
+      // Columnas = los 7 grupos del SPEC (siempre visibles) + "Sin etapa" al final si hay huérfanos.
+      const porEtapa={}; HUBSPOT_GRUPOS_ORD.forEach(g=>porEtapa[g]=[]); porEtapa["Sin etapa"]=[];
+      filt.forEach(r=>{ const g=hsGrupoDeEtapa(r.stage); (porEtapa[g]||porEtapa["Sin etapa"]).push(r); });
+      const cols=[...HUBSPOT_GRUPOS_ORD]; if(porEtapa["Sin etapa"].length) cols.push("Sin etapa");
+      const colorDe=(st)=>HUBSPOT_GRUPO_COLOR[st]||"#64748b";
+      // Frescura: el máximo actualizado_at de lo leído (ámbar si >3 h).
+      const freshMs=(()=>{ let m=0; rows.forEach(r=>{ const t=r.fresh?Date.parse(r.fresh):0; if(t>m)m=t; }); return m; })();
+      const freshTxt=(()=>{ if(!freshMs) return ""; const min=Math.round((Date.now()-freshMs)/60000); if(min<1)return"hace segundos"; if(min<60)return"hace "+min+" min"; const h=Math.floor(min/60),mm=min%60; return"hace "+h+" h"+(mm?(" "+mm+" min"):""); })();
+      const freshStale=!!freshMs && (Date.now()-freshMs)>3*60*60*1000;
+      const abrirFichaDeal=(r)=>{ const em=(r.email||"").trim().toLowerCase(); if(em){ const cli=(clients||[]).find(c=>((c.email||c.correo||"").toString().trim().toLowerCase())===em); if(cli){ abrirFichaCliente(cli); return; } } toast("Este negocio vive en HubSpot. Su etapa se administra allá."); };
       const card=(r,i)=>(
         <div key={(r.key||i)} onClick={()=>abrirFichaDeal(r)} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:9,padding:"9px 10px",marginBottom:8,cursor:"pointer"}}>
           <div style={{fontSize:11,fontWeight:800,color:B.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title||"(sin nombre)"}</div>
           {(r.amount||r.amount===0)&&<div style={{fontSize:11,fontWeight:800,color:"#0f6b3f",marginTop:2}}>{fMoney(r.amount)}</div>}
           {r.desarrollo&&<div style={{fontSize:9,color:"#0f6b3f",fontWeight:700,marginTop:3}}>📍 {r.desarrollo}</div>}
           {r.owner&&<div style={{fontSize:9,color:B.grey3,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👤 {r.owner}</div>}
-          {r.pendiente&&<div style={{fontSize:9,fontWeight:800,color:"#b45309",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:5,padding:"1px 6px",marginTop:4,display:"inline-block"}}>⚠ falta criterio</div>}
         </div>
       );
       return (
-        <div>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:12}}>
+        <div style={{marginBottom:20}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:6}}>
             <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-              <span style={{fontSize:13,fontWeight:800,color:"#ff7a59"}}>🔶 Kanban HubSpot</span>
-              <span style={{fontSize:10,fontWeight:700,color:B.grey4,background:B.offW,border:"1px solid "+B.grey1,borderRadius:20,padding:"3px 9px"}}>Solo lectura · espejo de HubSpot{hsFuente?(" · "+hsFuente):""}</span>
+              <span style={{fontSize:13,fontWeight:800,color:"#ff7a59"}}>🔶 Pipeline de HubSpot</span>
+              <span style={{fontSize:10,fontWeight:700,color:B.grey4,background:B.offW,border:"1px solid "+B.grey1,borderRadius:20,padding:"3px 9px"}}>Solo lectura · los cambios se hacen en HubSpot</span>
+              {freshTxt&&<span style={{fontSize:10,fontWeight:800,color:freshStale?"#b45309":"#0f6b3f",background:freshStale?"#fff7ed":"#ecfdf5",border:"1px solid "+(freshStale?"#fed7aa":"#a7f3d0"),borderRadius:20,padding:"3px 9px"}}>🕐 Sincronizado {freshTxt}{freshStale?" ⚠":""}</span>}
               {pipes.length>2&&<select value={hsPipeFilter} onChange={e=>setHsPipeFilter(e.target.value)} style={selStyle}>{pipes.map(p=><option key={p} value={p}>{p==="Todos"?"Todos los pipelines":p}</option>)}</select>}
               {devs.length>1&&<select value={hsDevFilter} onChange={e=>setHsDevFilter(e.target.value)} style={selStyle}>{devs.map(d=><option key={d} value={d}>{d==="Todos"?"Todos los desarrollos":d}</option>)}</select>}
             </div>
@@ -8355,35 +8373,36 @@ function MacroProMatcher({ sessionEmail } = {}) {
             <div style={{padding:"30px",textAlign:"center",color:B.grey3,fontSize:13}}>Cargando pipeline de HubSpot…</div>
           ) : hsErr ? (
             <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,padding:"16px 18px",color:"#92400e",fontSize:12,lineHeight:1.6}}>
-              <b>No se pudo leer el espejo de HubSpot.</b><br/>{hsErr}<br/><br/>
-              MacroPro lee <code>public.hubspot_deals</code> o <code>public.landing_clientes</code> (RLS de lectura). No llama a HubSpot directo.
+              <b>No se pudo leer el pipeline de HubSpot.</b><br/>{hsErr}<br/><br/>
+              MacroPro lee <code>public.hubspot_deals_pendientes</code> (la llena la landing cada hora). Requiere sesión iniciada (RLS de lectura para <code>authenticated</code>).
             </div>
           ) : rows.length===0 ? (
             <div style={{padding:"30px",textAlign:"center",color:B.grey3,fontSize:13}}>
               <div style={{fontSize:34,marginBottom:8}}>🔶</div>
-              <b>El espejo de HubSpot está vacío.</b><br/>
-              <span style={{fontSize:11.5,lineHeight:1.6}}>Leí <b>{hsTotalLeido}</b> registro(s). Los negocios de HubSpot aún <b>no se han importado a Supabase</b>.<br/>
-              Falta el <b>import servidor</b> (token → HubSpot → tabla <code>hubspot_deals</code> o <code>landing_clientes</code>). Ver <code>supabase/functions/sync-hubspot-deals</code>. MacroPro los refleja apenas existan.</span>
+              <b>Sin negocios que mostrar.</b><br/>
+              <span style={{fontSize:11.5,lineHeight:1.6}}>Leí <b>{hsTotalLeido}</b> registro(s) de <code>hubspot_deals_pendientes</code>.</span>
             </div>
           ) : (
             <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:10}}>
-              {cols.map((st,i)=>{ const col=colorDe(st,i); const items=porEtapa[st]||[];
+              {cols.map((st)=>{ const col=colorDe(st); const items=porEtapa[st]||[];
                 return (
-                  <div key={st} style={{flex:"0 0 230px",minWidth:230,background:B.offW,borderRadius:10,border:"1px solid "+B.grey1,display:"flex",flexDirection:"column",maxHeight:"64vh"}}>
+                  <div key={st} style={{flex:"0 0 220px",minWidth:220,background:st==="Sin etapa"?"#f8fafc":B.offW,borderRadius:10,border:"1px "+(st==="Sin etapa"?"dashed":"solid")+" "+B.grey1,display:"flex",flexDirection:"column",maxHeight:"56vh"}}>
                     <div style={{padding:"9px 11px",borderBottom:"2px solid "+col,display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
                       <span style={{fontSize:11,fontWeight:800,color:B.navy,lineHeight:1.2}}>{st}</span>
                       <span style={{fontSize:10,fontWeight:800,color:"#fff",background:col,borderRadius:9,padding:"1px 7px",flexShrink:0}}>{items.length}</span>
                     </div>
                     <div style={{padding:8,overflowY:"auto",flex:1}}>
-                      {items.length===0?<div style={{fontSize:10,color:B.grey3,textAlign:"center",padding:"14px 0",fontStyle:"italic"}}>—</div>:items.slice(0,60).map(card)}
-                      {items.length>60&&<div style={{fontSize:10,color:B.grey3,textAlign:"center",padding:"6px 0",fontWeight:700}}>+{items.length-60} más</div>}
+                      {items.length===0?<div style={{fontSize:10,color:B.grey3,textAlign:"center",padding:"14px 0",fontStyle:"italic"}}>—</div>:items.slice(0,80).map(card)}
+                      {items.length>80&&<div style={{fontSize:10,color:B.grey3,textAlign:"center",padding:"6px 0",fontWeight:700}}>+{items.length-80} más</div>}
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
-          <div style={{fontSize:10,color:B.grey3,marginTop:8}}>Espejo de solo lectura · columnas = etapa de HubSpot · tarjeta = negocio/cliente · muestra su asesor (owner).</div>
+          <div style={{fontSize:10,color:B.grey3,marginTop:8,lineHeight:1.5}}>
+            Refleja <b>negocios</b> de HubSpot, no inventario. Para ver qué lote está comprometido, el deal necesita el lote capturado en HubSpot. · Fuente: <code>hubspot_deals_pendientes</code> (landing, sync horario) · las tarjetas no se arrastran.
+          </div>
         </div>
       );
     };
@@ -11160,6 +11179,8 @@ Respuesta: [respuesta exacta, conversacional]
         {activeTab==="kanban"&&(
           <div>
             {vistaKanban==="canales" ? VistaCanalCiudad() : (<>
+            {esAdmin&&VistaKanbanHubSpot()}
+            {esAdmin&&<div style={{fontSize:13,fontWeight:800,color:B.navy,margin:"4px 0 10px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>📋 Tablero propio <span style={{fontSize:10,fontWeight:700,color:B.grey4,background:B.offW,border:"1px solid "+B.grey1,borderRadius:20,padding:"3px 9px"}}>editable · arrastra para cambiar etapa (no toca HubSpot)</span></div>}
             {KanbanBoard()}
             <div id="lot-detail-panel" style={{marginTop:14}}>{LotPanel()}</div>
             {PlanPanel()}
