@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA LOTES™ Intelligence v74</title>
+<title>GUÍA LOTES™ Intelligence v75</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDMgMTJsMTAtNC00IDExeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMyIiB5PSI0NCIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjMxIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBsZXR0ZXItc3BhY2luZz0iLTEiPklOPC90ZXh0Pjwvc3ZnPg==">
 <link rel="alternate icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDMgMTJsMTAtNC00IDExeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMyIiB5PSI0NCIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjMxIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBsZXR0ZXItc3BhY2luZz0iLTEiPklOPC90ZXh0Pjwvc3ZnPg==">
 <meta name="theme-color" content="#D21F1F">
@@ -831,7 +831,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
   <div class="header-right">
     <button class="hdr-btn" onclick="openEstudios()" title="Estudios guardados">📚 <span class="lbl">Estudios</span></button>
     <button class="hdr-btn" onclick="openAutorizStats()" title="Estadística de autorizaciones">📊 <span class="lbl">Autorizaciones</span></button>
-    <span class="v-badge">v74</span>
+    <span class="v-badge">v75</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -1090,6 +1090,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <div class="lote-pill"><span>Precio:</span> <strong id="result-precio">—</strong></div>
         <button class="btn-print" onclick="exportPDF()">📄 Exportar PDF</button>
+        <button class="btn-print" onclick="exportPDF(true)" title="Imprime solo la Opinión de Valor (precio de la tierra) en una hoja, con el estilo del sistema — sin residual ni pro forma.">💎 Opinión de Valor</button>
         <button class="btn-autoriza" onclick="openAutorizacion()">✅ Autorización</button>
         <button class="btn-pptx" onclick="exportPPTX()">📊 Exportar PPTX</button>
         <button class="btn-reset" onclick="resetApp()" title="Limpia el informe actual y permite analizar otro lote. Los archivos Excel base se conservan.">↺ Revisar otro lote</button>
@@ -5464,7 +5465,7 @@ const GG = {
 };
 
 // ── EXPORT PDF ────────────────────────────────────────────────────────────────
-async function exportPDF() {
+async function exportPDF(ovOnly=false) {
   if (!analysisData) { showToast('⚠️ Primero genera el análisis','error'); return; }
   const d = analysisData;
   const l = d.loteData;
@@ -5474,9 +5475,9 @@ async function exportPDF() {
   // Precargar datos externos (entorno/DENUE/demografía) si aún no están, para que el PDF salga completo
   try {
     if (parseFloat(l.lat) && parseFloat(l.long)) {
-      showToast('📄 Generando reporte completo…','');
-      if (!l._entorno) await loadEntorno(l);
-      if (!l._denue)   await loadDenue(l);
+      showToast(ovOnly?'💎 Generando Opinión de Valor…':'📄 Generando reporte completo…','');
+      if (!ovOnly && !l._entorno) await loadEntorno(l);
+      if (!ovOnly && !l._denue)   await loadDenue(l);
       if (!l._demo)    await loadDemografia(l);
     }
   } catch(e) { console.warn('exportPDF preload:', e.message); }
@@ -5491,33 +5492,33 @@ async function exportPDF() {
   const _fmt = n => '$'+Math.round(n).toLocaleString('es-MX');
   const _infl = (l._res && l._res.inflacion>0) ? l._res.inflacion : 3.94;
   const _confColor = _conf.nivel==='alta'?'#15803d':_conf.nivel==='media'?'#b45309':'#b91c1c';
-  let miHtml = `<div class="stitle">🎯 CONFIABILIDAD DEL ANÁLISIS</div>
+  let miHtml = ovOnly ? '' : `<div class="stitle">🎯 CONFIABILIDAD DEL ANÁLISIS</div>
     <div class="snota">Confiabilidad de la OV: <b style="color:${_confColor}">${_conf.score}% (${_conf.nivel})</b>. ${_conf.items.filter(i=>!i.ok).length?'Para mayor exactitud agrega: '+_conf.items.filter(i=>!i.ok).map(i=>i.label).join(', ')+'.':'Datos completos.'}</div>`;
-  if(l._entorno && l._entorno.resumen){
+  if(!ovOnly && l._entorno && l._entorno.resumen){
     miHtml += `<div class="stitle">📍 ENTORNO · OpenStreetMap (${l._entorno.radio}km)</div><div class="snota">${l._entorno.resumen}</div>`;
   }
-  if(l._denue && l._denue.resumen){
+  if(!ovOnly && l._denue && l._denue.resumen){
     miHtml += `<div class="stitle">🏢 ACTIVIDAD ECONÓMICA · INEGI DENUE (${l._denue.dist}km)</div><div class="snota">${l._denue.resumen}</div>`;
   }
   if(l._demo && l._demo.items && l._demo.items.length){
     const demoCards = l._demo.items.map(i=>`<div class="sbox"><div class="lbl">${i.label}</div><div class="val">${i.val}</div></div>`).join('');
     miHtml += `<div class="stitle">👥 DEMOGRAFÍA · INEGI Censo · ${l._demo.municipio}</div><div class="sgrid" style="grid-template-columns:repeat(5,1fr)">${demoCards}</div>`;
   }
-  if(_rl && !_rl.insufficient && _rl.valorTierra>0){
+  if(!ovOnly && _rl && !_rl.insufficient && _rl.valorTierra>0){
     miHtml += `<div class="stitle">💰 VALOR RESIDUAL DE LA TIERRA · ${_rl.escenarioLabel}</div>
       <div style="font-size:14px;font-weight:700;color:#002B49;margin:2px 0 5px">${_fmt(_rl.valorTierraM2)}/m² · ${_fmtM(_rl.valorTierra)} total (${Math.round(_rl.sup).toLocaleString('es-MX')} m²)</div>
       <div class="snota">Ingresos ${_fmtM(_rl.ingresos)} − ${_rl.costoLabel.toLowerCase()} ${_fmtM(_rl.costoBase)} − costos blandos ${_fmtM(_rl.costosBlandos)} − utilidad ${Math.round(_rl.utilidadPct*100)}% (${_fmtM(_rl.utilidad)}) = ${_fmtM(_rl.valorTierra)}.</div>`;
   }
-  if(_bu && _bu.ok && _bu.ok.length){
+  if(!ovOnly && _bu && _bu.ok && _bu.ok.length){
     const buRows = _bu.ok.map((r,i)=>`<tr><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0;${i===0?'font-weight:700;background:#fffbeb':''}">${i===0?'★ ':''}${r.escenarioLabel}${i===0?' — MEJOR USO':''}</td><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0;text-align:right;${i===0?'font-weight:700;background:#fffbeb':''}">${_fmt(r.valorTierraM2)}/m²</td></tr>`).join('');
     miHtml += `<div class="stitle">🏆 MEJOR USO DEL TERRENO</div><table style="width:100%;border-collapse:collapse;font-size:9px;margin-bottom:8px">${buRows}</table>`;
   }
-  if(_pf){
+  if(!ovOnly && _pf){
     const _vf = _rl.valorTierra * Math.pow(1+_infl/100, _pf.horizonte);
     miHtml += `<div class="stitle">📊 PRO FORMA · CASO DE INVERSIÓN (costo tierra: ${_pf.fuenteTierra})</div>
       <div class="snota">TIR aprox. <b>${_pf.tirPct.toFixed(1)}%</b> (${_pf.horizonte} años) · ROI ${_pf.roiPct.toFixed(0)}% · Margen ${_pf.margenPct.toFixed(0)}% · Utilidad ${_fmtM(_pf.utilidad)}. Inversión total ${_fmtM(_pf.inversionTotal)}, ingresos ${_fmtM(_pf.ingresos)}. Tierra proyectada a ${_pf.horizonte} años (+${_infl}%/año): <b>${_fmtM(_vf)}</b>.</div>`;
   }
-  if(_mc && _mc.comps && _mc.comps.length){
+  if(!ovOnly && _mc && _mc.comps && _mc.comps.length){
     const _compRows = _mc.comps.slice(0,10).map(dd=>`<tr><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0">${dd.desarrollo||'—'}</td><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0">${dd.desarrollador||'—'}</td><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0;text-align:right">${_fmt(dd[_mc.pf]||0)}/m²</td><td style="padding:3px 6px;border-bottom:1px solid #e2e8f0;text-align:right">${dd.dist!=null?dd.dist.toFixed(1)+' km':'—'}</td></tr>`).join('');
     miHtml += `<div class="stitle">🏘 COMPETENCIA CERCANA · ${_mc.comps.length} desarrollos en el radio</div>
       <table style="width:100%;border-collapse:collapse;font-size:9px;margin-bottom:10px">
@@ -5554,6 +5555,29 @@ async function exportPDF() {
     const pct=Math.min(100,f.score||50);
     return `<div class="frow"><span class="fn">${f.nombre}</span><div class="fb"><div class="fbf" style="width:${pct}%;background:${c}"></div></div><span class="fv" style="color:${c}">${pct}</span></div>`;
   }).join('') : '';
+
+  const ovBlockHtml = ov?`
+<div class="stitle">💎 OPINIÓN DE VALOR</div>
+<div class="vgrid">
+  <div class="scircle"><span class="snum">${ov.score||0}</span><span class="slbl">/ 100</span></div>
+  <div class="smeta"><div class="stit">${ov.score_titulo||''}</div><div class="ssub">${ov.score_resumen||''}</div></div>
+</div>
+<div class="pgrid">
+  <div class="pbox"><div class="plbl">Precio Mínimo</div><div class="pval" style="color:#b91c1c">${ov.precio_minimo||'—'}</div><div class="pm2">${ov.precio_minimo_m2||''}</div></div>
+  <div class="pbox mid"><div class="plbl">Precio de Cierre</div><div class="pval" style="color:#b45309">${ov.precio_cierre||'—'}</div><div class="pm2">${ov.precio_cierre_m2||''}</div></div>
+  <div class="pbox"><div class="plbl">Precio Lista</div><div class="pval" style="color:#15803d">${ov.precio_lista||'—'}</div><div class="pm2">${ov.precio_lista_m2||''}</div></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px">
+  <div>${factoresHtml}</div>
+  <div>
+    ${ov.comparables?`<div class="comp">📍 ${ov.comparables}</div>`:''}
+    <div class="vbox">
+      <div class="vl">${veredictoIcon} ${veredictoLabel}</div>
+      <div class="vt">${veredictoText}</div>
+    </div>
+  </div>
+</div>
+`:'';
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>
@@ -5660,7 +5684,7 @@ body{font-family:'DM Sans',sans-serif;font-size:10px;color:#0f172a;background:#f
     <div style="font-size:7.5px;color:#94a3b8;letter-spacing:2px;text-transform:uppercase;margin-top:3px">GUÍA MACROLOTES · INTELLIGENCE PLATFORM</div>
   </div>
   <div class="hdr-right">
-    <div style="font-weight:600;color:#ffffff;font-size:11px">Análisis Comercial de Macrolote</div>
+    <div style="font-weight:600;color:#ffffff;font-size:11px">${ovOnly?'Opinión de Valor del Terreno':'Análisis Comercial de Macrolote'}</div>
     <div style="color:#94a3b8">${new Date().toLocaleDateString('es-MX',{year:'numeric',month:'long',day:'numeric'})}</div>
     <div class="conf">CONFIDENCIAL</div>
   </div>
@@ -5676,7 +5700,7 @@ body{font-family:'DM Sans',sans-serif;font-size:10px;color:#0f172a;background:#f
   <div class="sbox"><div class="lbl">Uso de Suelo</div><div class="val" style="font-size:10px">${l.uso_suelo||'—'}</div></div>
 </div>
 
-${miHtml}
+${ovOnly ? ovBlockHtml : miHtml}
 
 <div class="stitle">🚦 SEMÁFORO DE USO DE SUELO</div>
 <div class="smgrid">
@@ -5686,34 +5710,15 @@ ${miHtml}
 </div>
 ${d.semaforo.nota?`<div class="snota">📌 ${d.semaforo.nota}</div>`:''}
 
+${ovOnly?'':`
 <div class="stitle">🎯 BUYER PERSONAS</div>
 <div class="bgrid">${buyersHtml}</div>
 
 <div class="stitle">💬 ARGUMENTARIO ANTI-OBJECIONES</div>
 <div class="agrid">${argsHtml}</div>
+`}
 
-${ov?`
-<div class="stitle">💎 OPINIÓN DE VALOR</div>
-<div class="vgrid">
-  <div class="scircle"><span class="snum">${ov.score||0}</span><span class="slbl">/ 100</span></div>
-  <div class="smeta"><div class="stit">${ov.score_titulo||''}</div><div class="ssub">${ov.score_resumen||''}</div></div>
-</div>
-<div class="pgrid">
-  <div class="pbox"><div class="plbl">Precio Mínimo</div><div class="pval" style="color:#b91c1c">${ov.precio_minimo||'—'}</div><div class="pm2">${ov.precio_minimo_m2||''}</div></div>
-  <div class="pbox mid"><div class="plbl">Precio de Cierre</div><div class="pval" style="color:#b45309">${ov.precio_cierre||'—'}</div><div class="pm2">${ov.precio_cierre_m2||''}</div></div>
-  <div class="pbox"><div class="plbl">Precio Lista</div><div class="pval" style="color:#15803d">${ov.precio_lista||'—'}</div><div class="pm2">${ov.precio_lista_m2||''}</div></div>
-</div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px">
-  <div>${factoresHtml}</div>
-  <div>
-    ${ov.comparables?`<div class="comp">📍 ${ov.comparables}</div>`:''}
-    <div class="vbox">
-      <div class="vl">${veredictoIcon} ${veredictoLabel}</div>
-      <div class="vt">${veredictoText}</div>
-    </div>
-  </div>
-</div>
-`:''}
+${ovOnly ? miHtml : ovBlockHtml}
 
 <div class="footer">
   <div style="display:flex;align-items:center;gap:8px">
@@ -5740,7 +5745,7 @@ ${ov?`
     showToast('⚠️ Permite ventanas emergentes para exportar el PDF', 'error');
     return;
   }
-  showToast('📄 Abre la ventana y usa Ctrl+P / Cmd+P para guardar como PDF', '');
+  showToast(ovOnly?'💎 Opinión de Valor lista · usa Ctrl+P / Cmd+P para guardar como PDF':'📄 Abre la ventana y usa Ctrl+P / Cmd+P para guardar como PDF', '');
 }
 
 // ── EXPORT PPTX ───────────────────────────────────────────────────────────────
