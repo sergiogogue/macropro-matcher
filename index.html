@@ -6356,7 +6356,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
       if(!_sb){ setHsErr("Sin conexión a Supabase"); setHsDeals([]); return; }
       setHsLoading(true); setHsErr(null);
       try{
-        const cols='deal_id,id,nombre,empresa,email,etapa_hubspot,pipeline_hubspot,desarrollo_interes,propietario_hubspot,monto_cierre,lote_id,actualizado_at,fecha';
+        const cols='deal_id,id,nombre,empresa,email,etapa_hubspot,pipeline_hubspot,desarrollo_interes,etiquetas,propietario_hubspot,propietario_hubspot_email,monto_cierre,lote_id,actualizado_at,fecha';
         // Paginación: Supabase corta en 1,000 filas por consulta; la tabla trae ~1,178.
         let all=[]; let from=0; const PAGE=1000;
         for(let guard=0; guard<20; guard++){
@@ -6374,7 +6374,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
           title:x.nombre||x.empresa||x.email||"(sin nombre)",
           amount:(x.monto_cierre!=null?Number(x.monto_cierre):null),
           owner:x.propietario_hubspot||"",
+          ownerEmail:(x.propietario_hubspot_email||"").toString().trim().toLowerCase(),
           desarrollo:x.desarrollo_interes||"",
+          etiquetas:Array.isArray(x.etiquetas)?x.etiquetas:[],
           lote_id:(x.lote_id||"").toString().trim(),
           email:(x.email||"").toString().trim().toLowerCase(),
           empresa:x.empresa||"",
@@ -8335,10 +8337,34 @@ function MacroProMatcher({ sessionEmail } = {}) {
       const rows=Array.isArray(hsDeals)?hsDeals:[];
       const pipes=["Todos",...[...new Set(rows.map(r=>(r.pipeline||"").trim()).filter(Boolean))].sort()];
       const devs=["Todos",...[...new Set(rows.map(r=>(r.desarrollo||"").trim()).filter(Boolean))].sort()];
-      const filt=rows.filter(r=>
-        (hsPipeFilter==="Todos" || (r.pipeline||"").trim()===hsPipeFilter) &&
-        (hsDevFilter==="Todos" || (r.desarrollo||"").trim()===hsDevFilter)
-      );
+      // ── Este tablero respeta los MISMOS filtros del CRM (barra de arriba + tab Kanban),
+      //    en AND con sus dos menús propios. Todo se recalcula sobre lo filtrado (contadores incl.).
+      const _n = s => String(s==null?"":s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ").trim();
+      // Empresa (chips TYA/Corretaje/Favier/HITO): mapea desarrollo del deal → empresa igual que el CRM a los lotes.
+      const devToCompania={};
+      (srcInvCRM||[]).forEach(l=>{ if(l&&l.desarrollo){ const k=_n(l.desarrollo); if(!devToCompania[k]) devToCompania[k]=getCompaniaDev(l.desarrollador||l.desarrollo); } });
+      const companiaDeDeal=(r)=>{
+        const cands=[r.desarrollo, ...(Array.isArray(r.etiquetas)?r.etiquetas:[])].filter(Boolean);
+        for(const c of cands){ const m=devToCompania[_n(c)]; if(m) return m; }
+        return r.desarrollo?getCompaniaDev(r.desarrollo):"";
+      };
+      const _q=_n(kanbanSearch);
+      const _matchDev=(val,filtro)=>{ if(filtro==="Todos") return true; const a=_n(val), b=_n(filtro); return a===b || a.includes(b); };
+      const filt=rows.filter(r=>{
+        // Menús propios del tablero
+        if(!(hsPipeFilter==="Todos" || (r.pipeline||"").trim()===hsPipeFilter)) return false;
+        if(!(hsDevFilter==="Todos" || (r.desarrollo||"").trim()===hsDevFilter)) return false;
+        // Buscar cliente (nombre/email/empresa del deal)
+        if(_q){ const hay=_n(r.title)+" "+_n(r.email)+" "+_n(r.empresa); if(!hay.includes(_q)) return false; }
+        // Asesor (propietario_hubspot nombre o email)
+        if(filterAsesor!=="Todos"){ const fa=_n(filterAsesor); if(!(_n(r.owner).includes(fa) || _n(r.ownerEmail).includes(fa) || _n(r.ownerEmail).includes(fa.replace(/ /g,"")))) return false; }
+        // Desarrollo (chips de arriba + dropdown del Kanban) contra desarrollo_interes
+        if(!_matchDev(r.desarrollo, filterDesarrolloGlobal)) return false;
+        if(!_matchDev(r.desarrollo, filterDesarrolloCRM)) return false;
+        // Empresa (chips de arriba)
+        if(filterDevCompania!=="Todos" && companiaDeDeal(r)!==filterDevCompania) return false;
+        return true;
+      });
       // Columnas = los 7 grupos del SPEC (siempre visibles) + "Sin etapa" al final si hay huérfanos.
       const porEtapa={}; HUBSPOT_GRUPOS_ORD.forEach(g=>porEtapa[g]=[]); porEtapa["Sin etapa"]=[];
       filt.forEach(r=>{ const g=hsGrupoDeEtapa(r.stage); (porEtapa[g]||porEtapa["Sin etapa"]).push(r); });
