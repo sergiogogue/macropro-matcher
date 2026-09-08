@@ -15264,6 +15264,62 @@ Respuesta: [respuesta exacta, conversacional]
     if(url) toast("✅ Dictamen ("+gen.estado+") guardado en la ficha");
     return url;
   };
+  // ── Documentos del terreno (Opción): checklist + subida al bucket captaciones-docs ──
+  // El asesor sube desde la ficha; se reutiliza documentos_urls (jsonb) y el mismo bucket
+  // del dictamen. Se abren/descargan por su URL pública; se depuran a mano cuando el
+  // terreno ya se resolvió (así no se acumulan para siempre).
+  const DOCS_REQUERIDOS=[
+    {tipo:"Fotos del terreno", icon:"📷", min:4, multiple:true, accept:"image/*"},
+    {tipo:"Certificado de uso de suelo", icon:"📜", accept:"image/*,application/pdf"},
+    {tipo:"Plano del terreno", icon:"🗺️", accept:"image/*,application/pdf"},
+    {tipo:"Boleta registral / predial", icon:"🧾", accept:"image/*,application/pdf"},
+  ];
+  const _pathDeUrl=(url)=>{ try{ const m=String(url||"").split("/captaciones-docs/")[1]; return m?decodeURIComponent(m.split("?")[0]):""; }catch(e){ return ""; } };
+  const docsPorTipo=(c)=>{ const m={}; (Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]).forEach(d=>{ const t=d&&d.tipo; if(!t) return; (m[t]=m[t]||[]).push(d); }); return m; };
+  const mapsOkCap=(c)=>/^https?:\/\//i.test(((c&&c.ligaMaps)||"").trim());
+  const estadoDocsCaptacion=(c)=>{
+    const m=docsPorTipo(c); const faltan=[];
+    DOCS_REQUERIDOS.forEach(r=>{ if((m[r.tipo]||[]).length<(r.min||1)) faltan.push(r.tipo); });
+    if(!mapsOkCap(c)) faltan.push("Liga de Google Maps");
+    const total=DOCS_REQUERIDOS.length+1;
+    return { faltan, total, completas:total-faltan.length, listo:faltan.length===0 };
+  };
+  const subirDocCaptacion=async(c,tipo,file)=>{
+    if(!c||!file) return;
+    if(!window.sb){ toast("⚠ Sin conexión a Supabase"); return; }
+    toast("⬆️ Subiendo "+tipo+"…");
+    try{
+      const safe=(file.name||"archivo").replace(/[^a-zA-Z0-9._-]/g,"_").slice(-60);
+      const slug=tipo.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
+      const path=(c.id||("cap-"+Date.now()))+"/"+slug+"-"+Date.now()+"-"+safe;
+      const up=await window.sb.storage.from("captaciones-docs").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:true});
+      if(up.error) throw up.error;
+      const pu=window.sb.storage.from("captaciones-docs").getPublicUrl(path);
+      const url=(pu&&pu.data&&pu.data.publicUrl)||"";
+      if(!url) throw new Error("sin URL pública");
+      const nowISO=new Date().toISOString();
+      const docsPrev=Array.isArray(c.documentosUrls)?c.documentosUrls:[];
+      const upd={...c, documentosUrls:[...docsPrev, {nombre:file.name||"archivo", url, path, tipo, fecha:nowISO}]};
+      setEditingCaptacion(prev=>(prev&&prev.id===c.id)?upd:prev);
+      upsertCaptacion(upd);
+      toast("✅ "+tipo+" subido");
+    }catch(e){ console.warn("subir doc:",e&&e.message); toast("⚠ No se pudo subir: revisa el bucket 'captaciones-docs' y permisos (corre sql/captaciones_docs_storage.sql + captaciones_docs_auth_upload.sql)."); }
+  };
+  const quitarDocCaptacion=async(c,idx)=>{
+    const docs=Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]; const d=docs[idx]; if(!d) return;
+    if(!window.confirm("¿Quitar este documento? Se borra de la nube.")) return;
+    try{ const p=d.path||_pathDeUrl(d.url); if(window.sb&&p) await window.sb.storage.from("captaciones-docs").remove([p]); }catch(e){ console.warn(e); }
+    const upd={...c, documentosUrls:docs.filter((_,i)=>i!==idx)};
+    setEditingCaptacion(prev=>(prev&&prev.id===c.id)?upd:prev); upsertCaptacion(upd); toast("🗑 Documento quitado");
+  };
+  const depurarDocsCaptacion=async(c)=>{
+    const docs=Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]; if(!docs.length){ toast("No hay documentos que depurar"); return; }
+    if(!window.confirm("¿Depurar los "+docs.length+" documento(s) de esta captación? Se borran de la nube y no se puede deshacer.")) return;
+    try{ const paths=docs.map(d=>d&&(d.path||_pathDeUrl(d.url))).filter(Boolean); if(window.sb&&paths.length) await window.sb.storage.from("captaciones-docs").remove(paths); }catch(e){ console.warn("depurar:",e&&e.message); }
+    const nowISO=new Date().toISOString();
+    const upd={...c, documentosUrls:[], respuestas:[...(Array.isArray(c.respuestas)?c.respuestas:[]), {fecha:nowISO,canal:"archivo",tipo:"depuracion",texto:"Documentos depurados ("+docs.length+")"}]};
+    setEditingCaptacion(prev=>(prev&&prev.id===c.id)?upd:prev); upsertCaptacion(upd); toast("🗑 Documentos depurados");
+  };
   const descargarReporteCaptacionPDF = async () => {
     if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
     toast("📄 Generando reporte…");
@@ -15474,6 +15530,12 @@ Respuesta: [respuesta exacta, conversacional]
                             );
                           })()}
                           {vb&&<div style={{display:"inline-block", fontSize:9, fontWeight:800, color:vb.color, background:vb.bg, borderRadius:6, padding:"2px 7px", marginBottom:6}}>{c.viabilidad}</div>}
+                          {(()=>{ const ed=estadoDocsCaptacion(c); return (
+                            <div style={{display:"inline-block", fontSize:9, fontWeight:800, marginLeft:vb?6:0, marginBottom:6, borderRadius:6, padding:"2px 7px",
+                              color:ed.listo?"#0f6b3f":"#b45309", background:ed.listo?"#dcfce7":"#fff7ed", border:"1px solid "+(ed.listo?"#86efac":"#fed7aa")}}>
+                              {ed.listo?"✅ Listo para analizar":("📥 Docs "+ed.completas+"/"+ed.total)}
+                            </div>
+                          ); })()}
                           <div style={{fontSize:10, color:B.grey4, lineHeight:1.6}}>
                             {(c.zona||c.ciudad)&&<div>📍 {c.zona?c.zona+", ":""}{c.ciudad}{c.estado?", "+c.estado:""}</div>}
                             {(c.usoSuelo||c.superficie)&&<div>🧭 {c.usoSuelo||"sin uso"}{c.superficie?" · "+parseFloat(c.superficie).toLocaleString("es-MX")+" m²":""}</div>}
@@ -18131,19 +18193,55 @@ Respuesta: [respuesta exacta, conversacional]
                   <div>
                     <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>📄 Documentos y seguimiento</div>
                     <div><span style={lbStyle}>Documentos (escrituras, predial, etc.)</span><input style={inStyle} value={f.documentos||""} onChange={e=>setF({documentos:e.target.value})} placeholder="Qué tenemos / qué falta"/></div>
-                    {Array.isArray(f.documentosUrls)&&f.documentosUrls.length>0&&(
-                      <div style={{marginTop:10}}>
-                        <span style={lbStyle}>📎 Archivos adjuntos ({f.documentosUrls.length})</span>
-                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                          {f.documentosUrls.map((d,i)=>{ const u=(d&&(d.url||d))||""; const nm=(d&&(d.nombre||d.name))||("Documento "+(i+1)); const tipo=d&&d.tipo; if(!u) return null; return (
-                            <a key={i} href={u} target="_blank" rel="noopener noreferrer" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"8px 11px",borderRadius:8,border:"1px solid "+B.grey1,background:B.offW,textDecoration:"none",color:B.navy,fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>
-                              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📄 {tipo?<b style={{color:"#0f6b3f"}}>{tipo}: </b>:null}{nm}</span>
-                              <span style={{fontSize:11,fontWeight:800,color:"#1d4ed8",flexShrink:0}}>Abrir ↗</span>
-                            </a>
+                    {(()=>{ const est=estadoDocsCaptacion(f); const m=docsPorTipo(f); const reqSet=new Set(DOCS_REQUERIDOS.map(r=>r.tipo));
+                      const otros=(Array.isArray(f.documentosUrls)?f.documentosUrls:[]).map((d,i)=>({d,i})).filter(x=>x.d&&x.d.url&&!reqSet.has(x.d.tipo));
+                      return (
+                      <div style={{marginTop:12, border:"1px solid "+B.grey1, borderRadius:10, overflow:"hidden"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",padding:"9px 12px",background:est.listo?"#ecfdf5":"#fff7ed",borderBottom:"1px solid "+B.grey1}}>
+                          <span style={{fontSize:12,fontWeight:800,color:est.listo?"#0f6b3f":"#b45309"}}>{est.listo?"✅ Listo para analizar":("📥 Documentos "+est.completas+"/"+est.total)}</span>
+                          {!est.listo&&<span style={{fontSize:10,fontWeight:700,color:"#b45309"}}>Falta: {est.faltan.join(" · ")}</span>}
+                        </div>
+                        <div style={{padding:"9px 12px",display:"flex",flexDirection:"column",gap:9}}>
+                          {DOCS_REQUERIDOS.map(r=>{ const items=m[r.tipo]||[]; const n=items.length; const req=r.min||1; const ok=n>=req; return (
+                            <div key={r.tipo} style={{display:"flex",flexDirection:"column",gap:5}}>
+                              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                                <span style={{fontSize:12,fontWeight:700,color:B.navy}}>{ok?"✅":"⬜"} {r.icon} {r.tipo}{req>1?<span style={{fontSize:10,fontWeight:800,color:ok?"#0f6b3f":"#b45309"}}> ({n}/{req})</span>:null}</span>
+                                <label style={{fontSize:11,fontWeight:800,color:"#1d4ed8",cursor:"pointer",border:"1px solid #bfdbfe",background:"#eff6ff",borderRadius:7,padding:"4px 10px"}}>
+                                  ⬆️ Subir
+                                  <input type="file" hidden accept={r.accept} multiple={!!r.multiple} onChange={e=>{ const fs=Array.from(e.target.files||[]); fs.forEach(file=>subirDocCaptacion(f,r.tipo,file)); e.target.value=""; }}/>
+                                </label>
+                              </div>
+                              {items.map((d,i)=>{ const gi=(f.documentosUrls||[]).indexOf(d); return (
+                                <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"5px 9px",borderRadius:7,border:"1px solid "+B.grey1,background:B.offW}}>
+                                  <a href={d.url} target="_blank" rel="noopener noreferrer" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"none",color:B.navy,fontSize:11,fontWeight:700}}>📄 {d.nombre||"archivo"} <span style={{color:"#1d4ed8",fontWeight:800}}>· Abrir/Descargar ↗</span></a>
+                                  <button onClick={()=>quitarDocCaptacion(f,gi)} title="Quitar" style={{border:"none",background:"transparent",color:"#dc2626",cursor:"pointer",fontSize:12,fontWeight:800,flexShrink:0}}>✕</button>
+                                </div>
+                              ); })}
+                            </div>
                           ); })}
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                            <span style={{fontSize:12,fontWeight:700,color:B.navy}}>{mapsOkCap(f)?"✅":"⬜"} 📍 Liga de Google Maps</span>
+                            {mapsOkCap(f)
+                              ? <a href={(f.ligaMaps||"").trim()} target="_blank" rel="noopener noreferrer" style={{fontSize:11,fontWeight:800,color:"#1d4ed8",textDecoration:"none"}}>Abrir ↗</a>
+                              : <span style={{fontSize:10,color:"#b45309",fontWeight:700}}>captúrala arriba en 🗺️ Liga de Google Maps</span>}
+                          </div>
+                          {otros.length>0&&(
+                            <div style={{display:"flex",flexDirection:"column",gap:5,borderTop:"1px dashed "+B.grey1,paddingTop:8}}>
+                              <span style={{fontSize:11,fontWeight:800,color:B.grey4}}>📎 Otros archivos ({otros.length})</span>
+                              {otros.map(({d,i})=>(
+                                <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"5px 9px",borderRadius:7,border:"1px solid "+B.grey1,background:B.offW}}>
+                                  <a href={d.url} target="_blank" rel="noopener noreferrer" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"none",color:B.navy,fontSize:11,fontWeight:700}}>📄 {d.tipo?<b style={{color:"#0f6b3f"}}>{d.tipo}: </b>:null}{d.nombre||"archivo"} <span style={{color:"#1d4ed8",fontWeight:800}}>↗</span></a>
+                                  <button onClick={()=>quitarDocCaptacion(f,i)} title="Quitar" style={{border:"none",background:"transparent",color:"#dc2626",cursor:"pointer",fontSize:12,fontWeight:800,flexShrink:0}}>✕</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {Array.isArray(f.documentosUrls)&&f.documentosUrls.length>0&&(
+                            <button onClick={()=>depurarDocsCaptacion(f)} title="Borra los documentos de la nube (úsalo cuando el terreno ya se resolvió)" style={{alignSelf:"flex-start",marginTop:2,fontSize:11,fontWeight:800,color:"#dc2626",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:7,padding:"5px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗑 Depurar documentos</button>
+                          )}
                         </div>
                       </div>
-                    )}
+                    ); })()}
                     <div style={{marginTop:10}}><span style={lbStyle}>Notas y seguimiento</span><textarea style={{...inStyle,minHeight:62,resize:"vertical"}} value={f.notas||""} onChange={e=>setF({notas:e.target.value})}/></div>
                   </div>
                   {f.loteInventarioId && <div style={{fontSize:11,fontWeight:700,color:"#15803d",background:"#dcfce7",borderRadius:8,padding:"8px 12px"}}>✓ Este terreno ya está publicado en el Inventario (Corretaje).</div>}
