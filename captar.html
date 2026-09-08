@@ -124,7 +124,7 @@
       <div class="sect">Documentos</div>
       <div class="docbox">
         <div class="leyenda">
-          📎 <b>Importante:</b> para procesar la opción y sacar la <b>opinión de valor</b>, los siguientes documentos deben enviarse por correo a
+          📎 <b>Importante:</b> para procesar la opción y sacar la <b>opinión de valor</b>, súbelos <b>aquí abajo</b> (llegan directo al sistema) o, si prefieres, envíalos por correo a
           <b>icortez@grupoguia.mx</b>, <b>mortuno@grupoguia.mx</b> y <b>macrolotes@grupoguia.mx</b>. Marca los que ya tienes disponibles:
         </div>
         <label class="check"><input type="checkbox" name="doc" value="Plano"><span>Plano</span></label>
@@ -135,14 +135,20 @@
         <label class="check"><input type="checkbox" name="doc" value="Avalúo (si tiene)"><span>Avalúo (si ya cuenta con uno, envíalo también)</span></label>
       </div>
 
-      <div class="sect">Documentos clave <span class="opt" style="text-transform:none;letter-spacing:0;color:var(--mut);font-weight:600">(PDF)</span></div>
-      <div><label>Dictamen de trazos de usos y destinos / visor urbano <span class="opt">(PDF)</span></label>
-        <input id="fileDictamen" type="file" accept=".pdf,image/*">
-        <div class="hint">Sube aquí el dictamen de trazos de usos y destinos (o el dictamen del visor urbano).</div>
+      <div class="sect">Sube los documentos aquí <span class="opt" style="text-transform:none;letter-spacing:0;color:var(--mut);font-weight:600">(llegan directo a Grupo Guía)</span></div>
+      <div><label>📷 Fotos del terreno <span class="opt">(sube 4 o más)</span></label>
+        <input id="fileFotos" type="file" multiple accept="image/*">
+        <div class="hint">Sube al menos 4 fotos del terreno.</div>
       </div>
-      <div style="margin-top:12px"><label>Boleta predial <span class="opt">(PDF)</span></label>
+      <div style="margin-top:12px"><label>📜 Certificado de uso de suelo <span class="opt">(PDF o foto)</span></label>
+        <input id="fileUsoSuelo" type="file" accept=".pdf,image/*">
+        <div class="hint">Dictamen de trazos de usos y destinos o dictamen del visor urbano.</div>
+      </div>
+      <div style="margin-top:12px"><label>🗺️ Plano del terreno <span class="opt">(PDF o foto)</span></label>
+        <input id="filePlano" type="file" accept=".pdf,image/*">
+      </div>
+      <div style="margin-top:12px"><label>🧾 Boleta registral y/o pago del predial <span class="opt">(PDF o foto)</span></label>
         <input id="filePredial" type="file" accept=".pdf,image/*">
-        <div class="hint">Sube aquí la boleta predial del terreno.</div>
       </div>
 
       <div class="sect">Adjuntar otros archivos <span class="opt" style="text-transform:none;letter-spacing:0;color:var(--mut);font-weight:600">(opcional)</span></div>
@@ -218,14 +224,19 @@ btn.addEventListener("click", async () => {
       if(url) documentos_urls.push(tipo ? { nombre:file.name, url, tipo } : { nombre:file.name, url });
     }catch(e){ /* si un archivo falla, seguimos: no bloquea el envío */ }
   };
-  const fDict = ($("#fileDictamen") && $("#fileDictamen").files) ? $("#fileDictamen").files[0] : null;
-  const fPred = ($("#filePredial") && $("#filePredial").files) ? $("#filePredial").files[0] : null;
-  const files = ($("#files") && $("#files").files) ? $("#files").files : [];
-  if(fDict||fPred||files.length){
+  // Tipos EXACTOS al checklist de la ficha de Opción (index.html) para que palomeen.
+  const fFotos = ($("#fileFotos") && $("#fileFotos").files) ? $("#fileFotos").files : [];
+  const fUso   = ($("#fileUsoSuelo") && $("#fileUsoSuelo").files) ? $("#fileUsoSuelo").files[0] : null;
+  const fPlano = ($("#filePlano") && $("#filePlano").files) ? $("#filePlano").files[0] : null;
+  const fPred  = ($("#filePredial") && $("#filePredial").files) ? $("#filePredial").files[0] : null;
+  const files  = ($("#files") && $("#files").files) ? $("#files").files : [];
+  if(fFotos.length||fUso||fPlano||fPred||files.length){
     btn.textContent = "Subiendo archivos…";
-    if(fDict) await subirArchivo(fDict, "dict", "Dictamen de trazos de usos y destinos");
-    if(fPred) await subirArchivo(fPred, "pred", "Boleta predial");
-    for(let i=0;i<files.length;i++){ await subirArchivo(files[i], i, null); }
+    for(let i=0;i<fFotos.length;i++){ await subirArchivo(fFotos[i], "foto"+i, "Fotos del terreno"); }
+    if(fUso)   await subirArchivo(fUso, "uso", "Certificado de uso de suelo");
+    if(fPlano) await subirArchivo(fPlano, "plano", "Plano del terreno");
+    if(fPred)  await subirArchivo(fPred, "pred", "Boleta registral / predial");
+    for(let i=0;i<files.length;i++){ await subirArchivo(files[i], "otro"+i, null); }
   }
   const row = {
     id, pipeline: "Ofrecido",
