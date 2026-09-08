@@ -196,6 +196,12 @@ const { useState, useRef, useCallback } = React;
 // ═══════════════════════════════════════════════════════════════════
 const SUPABASE_URL = "https://xugrrabebphdelgwqnwc.supabase.co";
 const SUPABASE_KEY = "sb_publishable_n-EUveYY5vHlCQdDLEOU7w_4ndCZaJ0";
+// ── SPEC alcance (13-ago-2026): MacroPro pasa a SOLO LECTURA en las tablas compartidas.
+// La Landing es la única que escribe lotes/clientes/captaciones/desarrollos/landing_*.
+// MacroPro solo escribe app_config (metas) y crm_lotes (mientras exista el CRM).
+// Este flag neutraliza en CÓDIGO todas las escrituras a tablas compartidas (evita revertir
+// la limpieza hecha en la Landing, p. ej. las coordenadas de Terrasoles). Reversible.
+const MP_READONLY_SHARED = true;
 // MacroCotizador (misma base Supabase, sin REST entre apps). Se abre con cliente+lote por URL.
 const MACROCOTIZADOR_URL = "https://macrocotizador.vercel.app";
 // Slug del desarrollo a partir del nombre (best-effort para desarrollos.slug; ej. "Kulkana"→"kulkana").
@@ -642,7 +648,7 @@ async function migrarLotesASupabase(lotes, onProgress) {
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
     try {
-      const { data, error } = await sb.from('lotes').upsert(batch, { onConflict: 'id' }).select('id');
+      const { data, error } = MP_READONLY_SHARED ? {data:[],error:null} : await sb.from('lotes').upsert(batch, { onConflict: 'id' }).select('id');
       if (error) {
         errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${error.message}`);
       } else {
@@ -679,7 +685,7 @@ async function migrarClientesASupabase(clientes, onProgress, asesorEmailMap) {
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
     try {
-      const { data, error } = await sb.from('clientes').upsert(batch, { onConflict: 'id_cliente' }).select('id');
+      const { data, error } = MP_READONLY_SHARED ? {data:[],error:null} : await sb.from('clientes').upsert(batch, { onConflict: 'id_cliente' }).select('id');
       if (error) {
         errors.push(`Batch ${Math.floor(i/BATCH_SIZE)+1}: ${error.message}`);
       } else {
@@ -2135,7 +2141,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // Subida de UN cliente (clave = id_cliente; sin id ni correo no se sube para evitar duplicados)
   // Mapa nombre(asesor) → correo, desde el catálogo de asesores (para poblar asesor_email al subir)
   const asesorEmailMap=()=>{ const m={}; const add=a=>{ if(a&&a.nombre&&a.email) m[a.nombre.toString().trim().toLowerCase()]=a.email.toString().trim().toLowerCase(); }; (asesoresCatalog||[]).forEach(add); (asesoresCloud||[]).forEach(add); return m; };
-  const subirClienteCloud=async(c)=>{ if(!window.sb||!c) return; const row=clienteToSupabase(c, asesorEmailMap()); if(!row) return; try{ await window.sb.from('clientes').upsert(row,{onConflict:'id_cliente'}); }catch(err){ console.warn('subir cliente:',err&&err.message); } };
+  const subirClienteCloud=async(c)=>{ if(MP_READONLY_SHARED) return; if(!window.sb||!c) return; const row=clienteToSupabase(c, asesorEmailMap()); if(!row) return; try{ await window.sb.from('clientes').upsert(row,{onConflict:'id_cliente'}); }catch(err){ console.warn('subir cliente:',err&&err.message); } };
   // Clave de identidad de un cliente para snapshot/dedupe: correo → id → nombre+teléfono
   const normTxt=s=>String(s||"").trim().toLowerCase().replace(/\s+/g," ");
   const cliKey=(c)=>{ const e=normTxt(c&&(c.email||c.correo)); if(e) return "e:"+e; const n=normTxt(c&&c.nombre), t=String((c&&c.telefono)||"").replace(/\D/g,""); if(n||t) return "n:"+n+"|"+t; const id=String((c&&(c.id||c.id_cliente))||"").trim(); return id?("id:"+id):""; };
@@ -2976,7 +2982,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
         const fullRows = (inventory||[]).map(l=>({ id: loteKey(l), datos: l, updated_at: new Date().toISOString() })).filter(r=>r.id);
         for(let i=0;i<fullRows.length;i+=200){
           const batch = fullRows.slice(i,i+200);
-          const { error } = await sb.from('inventario_full').upsert(batch,{ onConflict:'id' });
+          const { error } = MP_READONLY_SHARED ? {error:null} : await sb.from('inventario_full').upsert(batch,{ onConflict:'id' });
           if(error) throw new Error(error.message);
         }
       } catch(e){ console.warn('inventario_full (subida completa):', (e&&e.message)||e); }
@@ -3183,7 +3189,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
       let subidos = 0;
       for(let i=0;i<rows.length;i+=200){
         const batch = rows.slice(i,i+200);
-        const { error } = await sb.from('inventario_full').upsert(batch,{ onConflict:'id' });
+        const { error } = MP_READONLY_SHARED ? {error:null} : await sb.from('inventario_full').upsert(batch,{ onConflict:'id' });
         if(error) throw new Error(error.message);
         subidos += batch.length;
       }
@@ -3235,7 +3241,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     autoMantRef.current = true;                          // marcar antes de insertar (evita reentradas)
     (async ()=>{
       try{
-        const { error } = await window.sb.from('desarrollos').insert(nuevos);
+        const { error } = MP_READONLY_SHARED ? {error:null} : await window.sb.from('desarrollos').insert(nuevos);
         if(error){ console.warn('auto-mant desarrollos:', error.message); return; }
         // actualizar cache local + mapeo (no re-baja: ya sabemos lo nuevo)
         const merged = [...catalogoRef.current, ...nuevos];
@@ -3502,6 +3508,34 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const lbl=_hsNorm(deal.dealstage_label||deal.dealstage||"");
     for(const st of HUBSPOT_STAGES){ if(_hsNorm(st)===lbl) return st; }
     return null;
+  };
+  // ─── Agrupamiento SPEC: las ~17 etiquetas crudas de HubSpot → 7 columnas usables ───
+  // EDITABLE aquí (esto es CONFIG, no lógica): si HubSpot renombra una etapa, cámbiala en
+  // el mapa de abajo y listo, sin tocar el resto. Las etiquetas que no casen (o null) caen
+  // en "Sin etapa". Las dos variantes de "Firma de contrato (de) compraventa" caen juntas.
+  const HUBSPOT_GRUPOS_ORD=["Prospecto","Contactado","Interesado","Apartado","Contrato","Cerrado","Perdido"];
+  const HUBSPOT_GRUPO_COLOR={Prospecto:"#64748B",Contactado:"#3B82F6",Interesado:"#6366f1",Apartado:"#f97316",Contrato:"#06B6D4",Cerrado:"#22c55e",Perdido:"#94a3b8","Sin etapa":"#cbd5e1"};
+  const _HS_GRUPO_MAP=[
+    ["Prospecto","Prospecto"],["Prospecto nuevo","Prospecto"],["Cliente sin contactar","Prospecto"],
+    ["Contactado","Contactado"],["Cliente contactado","Contactado"],["Cita programada","Contactado"],
+    ["Interesado","Interesado"],["Cliente interesado","Interesado"],["Visita hecha","Interesado"],
+    ["Apartado","Apartado"],["Carta oferta enviada","Apartado"],["Firma de carta oferta","Apartado"],
+    ["Firma de contrato compraventa","Contrato"],["Firma de contrato de compraventa","Contrato"],
+    ["Escriturado","Cerrado"],
+    ["Descartado","Perdido"],["Venta Perdida","Perdido"],
+  ];
+  const _hsGrupoLookup={}; _HS_GRUPO_MAP.forEach(p=>{ _hsGrupoLookup[_hsNorm(p[0])]=p[1]; });
+  // etapa cruda → grupo (o "Sin etapa" si es null/vacía/desconocida). Normaliza acentos,
+  // mayúsculas y la preposición "de" (para que las dos "firma de contrato…" coincidan).
+  const hsGrupoDeEtapa=(stage)=>{
+    const raw=(stage==null?"":String(stage)).trim();
+    if(!raw) return "Sin etapa";
+    const n=_hsNorm(raw);
+    if(_hsGrupoLookup[n]) return _hsGrupoLookup[n];
+    const sinDe=s=>s.replace(/\bde\b/g," ").replace(/\s+/g," ").trim();
+    const nSinDe=sinDe(n);
+    for(const k in _hsGrupoLookup){ if(sinDe(k)===nSinDe) return _hsGrupoLookup[k]; }
+    return "Sin etapa";
   };
   const PIPELINE_COLORS={"Disponible":B.grey3,"Prospecto":"#64748B","Por Contactar":"#f59e0b","Contactado":"#3B82F6","Cita":"#0891b2","Visita":"#0d9488","Cotización":"#0284c7","En análisis":"#6366f1","En negociación":B.gold,"Propuesta":"#8B5CF6","Apartado":"#f97316","Contrato":"#06B6D4","Vendido":"#22c55e","Descartado":"#94a3b8"};
   // Probabilidades estándar industria para forecast ponderado
@@ -5721,7 +5755,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
       if (tc.length) patch.tipo_cliente = tc;
       if (!Object.keys(patch).length) { setSaving(false); setEdit(null); return; }
       try {
-        const { error } = await sb.from('landing_clientes').update(patch).eq('id', row.id);
+        const { error } = MP_READONLY_SHARED ? {error:null} : await sb.from('landing_clientes').update(patch).eq('id', row.id);
         if (error) throw error;
         setRow(prev => ({ ...prev, ...patch }));
         setEdit(null);
@@ -5858,7 +5892,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
         tagline:draft.tagline||null, logo_url:draft.logo_url||null,
       };
       try{
-        const { error } = await sb.from('desarrollos').update(payload).eq('id',editId);
+        const { error } = MP_READONLY_SHARED ? {error:null} : await sb.from('desarrollos').update(payload).eq('id',editId);
         if(error){ toast("❌ Error al guardar: "+error.message); setSaving(false); return; }
         const next=(rows||[]).map(r=> r.id===editId ? {...r,...payload} : r);
         setRows(next);
@@ -6303,9 +6337,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const [kanbanSearch, setKanbanSearch] = React.useState(""); // buscador de clientes (local: conserva foco al teclear)
     const [miDiaSearch, setMiDiaSearch] = React.useState(""); // buscador de Mi día (LOCAL a ViewCRM: conserva foco al teclear)
     const [searchProsp, setSearchProsp] = React.useState(""); // buscador de Prospectos (LOCAL a ViewCRM: conserva foco al teclear)
-    // 🔶 Kanban HubSpot (solo lectura): refleja el pipeline de HubSpot. Lee de la tabla espejo
-    // `hubspot_deals` (mirror directo de HubSpot) y, si no hay, de `landing_clientes.etapa_hubspot`.
-    // MacroPro NO llama a HubSpot; solo lee lo que el import servidor haya dejado en Supabase.
+    // 🔶 Pipeline de HubSpot (solo lectura): espejo del board de HubSpot. Lee de la tabla
+    // de la landing `hubspot_deals_pendientes` (viva, sync horario). MacroPro NO llama a
+    // HubSpot ni escribe; solo lee. Las tarjetas no se arrastran (se mueven en HubSpot).
     const [hsDeals, setHsDeals] = React.useState(null);   // null = no cargado · [] = cargado (deals normalizados)
     const [hsLoading, setHsLoading] = React.useState(false);
     const [hsErr, setHsErr] = React.useState(null);
@@ -6314,49 +6348,48 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const [hsFuente, setHsFuente] = React.useState("");     // 'hubspot_deals' | 'landing_clientes'
     const [hsTotalLeido, setHsTotalLeido] = React.useState(0);
     const cargarHubspot = React.useCallback(async ()=>{
+      // ── FUENTE (b): tabla de la landing `hubspot_deals_pendientes` ────────────
+      // Está VIVA: ~1,178 filas, la sincroniza la landing cada hora. MacroPro solo LEE
+      // (política hsdp_admin: authenticated ALL). NO reconectamos el viejo espejo
+      // hubspot_deals de MacroPro (muerto). Espejo de solo lectura; nadie arrastra aquí.
       const _sb = window.sb || sb;
       if(!_sb){ setHsErr("Sin conexión a Supabase"); setHsDeals([]); return; }
       setHsLoading(true); setHsErr(null);
       try{
-        // Colaboradores (asesor_id → nombre) para la fuente landing_clientes
-        let colabs={};
-        try{ const c=await _sb.from('landing_colaboradores').select('id,nombre,email'); if(c&&!c.error&&Array.isArray(c.data)) c.data.forEach(x=>{ if(x&&x.id!=null) colabs[x.id]={nombre:x.nombre||"",email:x.email||""}; }); }catch(e){}
-        let rows=[]; let fuente=""; let leido=0;
-        // Fuente A: tabla espejo hubspot_deals (mirror directo de HubSpot).
-        // SOLO negocios de Macrolotes: la función guarda con `desarrollo` lleno solo los de
-        // los pipelines de Macrolotes; la basura vieja quedó con desarrollo NULL → la excluimos.
-        try{
-          const d=await _sb.from('hubspot_deals').select('*').not('desarrollo','is',null);
-          if(!d.error && Array.isArray(d.data) && d.data.length){
-            leido=d.data.length;
-            rows=d.data.map(x=>({
-              key:x.deal_id||x.id, stage:(x.dealstage_label||x.dealstage_id||"").toString().trim(),
-              pipeline:(x.pipeline||"").toString().trim(), title:x.dealname||x.hubspot_contact_id||"(sin nombre)",
-              amount:(x.amount!=null?Number(x.amount):null), owner:x.owner||"", desarrollo:x.desarrollo||"", pendiente:false
-            }));
-            fuente="hubspot_deals";
-          }
-        }catch(e){}
-        // Fuente B (fallback): landing_clientes con etapa_hubspot
-        if(!rows.length){
-          const d=await _sb.from('landing_clientes').select('*');
-          if(d.error) throw d.error;
-          const all=Array.isArray(d.data)?d.data:[]; leido=all.length;
-          rows=all.filter(r=>(r.etapa_hubspot||"").toString().trim()).map(r=>({
-            key:r.id, stage:(r.etapa_hubspot||"").toString().trim(), pipeline:(r.pipeline_hubspot||"").toString().trim(),
-            title:r.nombre_contacto||r.empresa||r.email||"(sin nombre)", amount:null,
-            owner:((r.asesor_id!=null&&colabs[r.asesor_id]&&colabs[r.asesor_id].nombre)||r.propietario_hubspot||""),
-            desarrollo:r.desarrollo_interes||"", pendiente:!!r.pendiente_perfilar,
-            email:(r.email||"").toString().trim().toLowerCase(), empresa:r.empresa||""
-          }));
-          fuente="landing_clientes";
+        const cols='deal_id,id,nombre,empresa,email,etapa_hubspot,pipeline_hubspot,desarrollo_interes,etiquetas,propietario_hubspot,propietario_hubspot_email,monto_cierre,lote_id,actualizado_at,fecha';
+        // Paginación: Supabase corta en 1,000 filas por consulta; la tabla trae ~1,178.
+        let all=[]; let from=0; const PAGE=1000;
+        for(let guard=0; guard<20; guard++){
+          const { data, error } = await _sb.from('hubspot_deals_pendientes').select(cols).range(from, from+PAGE-1);
+          if(error) throw error;
+          const chunk=Array.isArray(data)?data:[];
+          all=all.concat(chunk);
+          if(chunk.length<PAGE) break;
+          from+=PAGE;
         }
-        setHsFuente(fuente); setHsTotalLeido(leido); setHsDeals(rows);
+        const rows=all.map(x=>({
+          key:x.deal_id||x.id,
+          stage:(x.etapa_hubspot||"").toString().trim(),       // etiqueta cruda de HubSpot (se agrupa en 7)
+          pipeline:(x.pipeline_hubspot||"").toString().trim(),
+          title:x.nombre||x.empresa||x.email||"(sin nombre)",
+          amount:(x.monto_cierre!=null?Number(x.monto_cierre):null),
+          owner:x.propietario_hubspot||"",
+          ownerEmail:(x.propietario_hubspot_email||"").toString().trim().toLowerCase(),
+          desarrollo:x.desarrollo_interes||"",
+          etiquetas:Array.isArray(x.etiquetas)?x.etiquetas:[],
+          lote_id:(x.lote_id||"").toString().trim(),
+          email:(x.email||"").toString().trim().toLowerCase(),
+          empresa:x.empresa||"",
+          fresh:x.actualizado_at||x.fecha||null,
+          pendiente:false
+        }));
+        setHsFuente("hubspot_deals_pendientes"); setHsTotalLeido(all.length); setHsDeals(rows);
       }catch(e){ setHsErr(String((e&&e.message)||e)); setHsDeals([]); }
       setHsLoading(false);
     },[]);
     React.useEffect(()=>{
-      if(activeTab==="kanban" && vistaKanban==="hubspot" && esAdmin && hsDeals===null && !hsLoading) cargarHubspot();
+      // El pipeline de HubSpot se muestra arriba del tablero propio en la vista "board".
+      if(activeTab==="kanban" && vistaKanban!=="canales" && esAdmin && hsDeals===null && !hsLoading) cargarHubspot();
     },[activeTab, vistaKanban, esAdmin]);
     const [showNoteModal, setShowNoteModal] = React.useState(false);
     const [interForm, setInterForm] = React.useState({fecha:new Date().toISOString().slice(0,10),canal:"Llamada",contacto:"",reaccion:"Interesado",nota:""});
@@ -8295,44 +8328,68 @@ function MacroProMatcher({ sessionEmail } = {}) {
       );
     };
 
-    // 🔶 KANBAN HUBSPOT — espejo de solo lectura del pipeline de HubSpot. Lee deals ya
-    // normalizados (fuente: hubspot_deals o landing_clientes). Columnas = etapa (stage).
-    // Tarjeta = deal/cliente con su asesor (owner). NO arrastra, NO edita, NO escribe a HubSpot.
+    // 🔶 PIPELINE DE HUBSPOT — espejo de solo lectura. Fuente: hubspot_deals_pendientes
+    // (tabla de la landing, viva, sync horario). 7 columnas agrupadas (SPEC) + "Sin etapa".
+    // Tarjeta = negocio con su asesor (owner). NO arrastra, NO edita, NO escribe a HubSpot.
     const VistaKanbanHubSpot=()=>{
       const selStyle={padding:"6px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:B.white,outline:"none",fontFamily:"'DM Sans',sans-serif"};
       const fMoney=v=>(v||v===0)?"$"+Number(v).toLocaleString("es-MX",{maximumFractionDigits:0}):"";
       const rows=Array.isArray(hsDeals)?hsDeals:[];
       const pipes=["Todos",...[...new Set(rows.map(r=>(r.pipeline||"").trim()).filter(Boolean))].sort()];
       const devs=["Todos",...[...new Set(rows.map(r=>(r.desarrollo||"").trim()).filter(Boolean))].sort()];
-      const filt=rows.filter(r=>
-        (hsPipeFilter==="Todos" || (r.pipeline||"").trim()===hsPipeFilter) &&
-        (hsDevFilter==="Todos" || (r.desarrollo||"").trim()===hsDevFilter)
-      );
-      // Columnas = etapas presentes; orden: las conocidas de HubSpot primero, luego extras alfabético.
-      const presentes=[...new Set(filt.map(r=>(r.stage||"").trim()).filter(Boolean))];
-      const cols=[];
-      HUBSPOT_STAGES.forEach(k=>{ const f=presentes.find(p=>_hsNorm(p)===_hsNorm(k)); if(f&&!cols.includes(f)) cols.push(f); });
-      presentes.filter(p=>!cols.includes(p)).sort().forEach(p=>cols.push(p));
-      const porEtapa={}; cols.forEach(c=>porEtapa[c]=[]);
-      filt.forEach(r=>{ const e=(r.stage||"").trim(); if(porEtapa[e]) porEtapa[e].push(r); });
-      const PAL=["#64748B","#f59e0b","#3B82F6","#0891b2","#0d9488","#6366f1","#a855f7","#f97316","#0284c7","#06B6D4","#22c55e","#94a3b8"];
-      const colorDe=(st,i)=>{ for(const k in HUBSPOT_STAGE_COLORS){ if(_hsNorm(k)===_hsNorm(st)) return HUBSPOT_STAGE_COLORS[k]; } return PAL[i%PAL.length]; };
-      const abrirFichaDeal=(r)=>{ const em=(r.email||"").trim().toLowerCase(); if(em){ const cli=(clients||[]).find(c=>((c.email||c.correo||"").toString().trim().toLowerCase())===em); if(cli){ abrirFichaCliente(cli); return; } } toast("Este negocio vive en HubSpot/landing. Su etapa se administra allá."); };
+      // ── Este tablero respeta los MISMOS filtros del CRM (barra de arriba + tab Kanban),
+      //    en AND con sus dos menús propios. Todo se recalcula sobre lo filtrado (contadores incl.).
+      const _n = s => String(s==null?"":s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ").trim();
+      // Empresa (chips TYA/Corretaje/Favier/HITO): mapea desarrollo del deal → empresa igual que el CRM a los lotes.
+      const devToCompania={};
+      (srcInvCRM||[]).forEach(l=>{ if(l&&l.desarrollo){ const k=_n(l.desarrollo); if(!devToCompania[k]) devToCompania[k]=getCompaniaDev(l.desarrollador||l.desarrollo); } });
+      const companiaDeDeal=(r)=>{
+        const cands=[r.desarrollo, ...(Array.isArray(r.etiquetas)?r.etiquetas:[])].filter(Boolean);
+        for(const c of cands){ const m=devToCompania[_n(c)]; if(m) return m; }
+        return r.desarrollo?getCompaniaDev(r.desarrollo):"";
+      };
+      const _q=_n(kanbanSearch);
+      const _matchDev=(val,filtro)=>{ if(filtro==="Todos") return true; const a=_n(val), b=_n(filtro); return a===b || a.includes(b); };
+      const filt=rows.filter(r=>{
+        // Menús propios del tablero
+        if(!(hsPipeFilter==="Todos" || (r.pipeline||"").trim()===hsPipeFilter)) return false;
+        if(!(hsDevFilter==="Todos" || (r.desarrollo||"").trim()===hsDevFilter)) return false;
+        // Buscar cliente (nombre/email/empresa del deal)
+        if(_q){ const hay=_n(r.title)+" "+_n(r.email)+" "+_n(r.empresa); if(!hay.includes(_q)) return false; }
+        // Asesor (propietario_hubspot nombre o email)
+        if(filterAsesor!=="Todos"){ const fa=_n(filterAsesor); if(!(_n(r.owner).includes(fa) || _n(r.ownerEmail).includes(fa) || _n(r.ownerEmail).includes(fa.replace(/ /g,"")))) return false; }
+        // Desarrollo (chips de arriba + dropdown del Kanban) contra desarrollo_interes
+        if(!_matchDev(r.desarrollo, filterDesarrolloGlobal)) return false;
+        if(!_matchDev(r.desarrollo, filterDesarrolloCRM)) return false;
+        // Empresa (chips de arriba)
+        if(filterDevCompania!=="Todos" && companiaDeDeal(r)!==filterDevCompania) return false;
+        return true;
+      });
+      // Columnas = los 7 grupos del SPEC (siempre visibles) + "Sin etapa" al final si hay huérfanos.
+      const porEtapa={}; HUBSPOT_GRUPOS_ORD.forEach(g=>porEtapa[g]=[]); porEtapa["Sin etapa"]=[];
+      filt.forEach(r=>{ const g=hsGrupoDeEtapa(r.stage); (porEtapa[g]||porEtapa["Sin etapa"]).push(r); });
+      const cols=[...HUBSPOT_GRUPOS_ORD]; if(porEtapa["Sin etapa"].length) cols.push("Sin etapa");
+      const colorDe=(st)=>HUBSPOT_GRUPO_COLOR[st]||"#64748b";
+      // Frescura: el máximo actualizado_at de lo leído (ámbar si >3 h).
+      const freshMs=(()=>{ let m=0; rows.forEach(r=>{ const t=r.fresh?Date.parse(r.fresh):0; if(t>m)m=t; }); return m; })();
+      const freshTxt=(()=>{ if(!freshMs) return ""; const min=Math.round((Date.now()-freshMs)/60000); if(min<1)return"hace segundos"; if(min<60)return"hace "+min+" min"; const h=Math.floor(min/60),mm=min%60; return"hace "+h+" h"+(mm?(" "+mm+" min"):""); })();
+      const freshStale=!!freshMs && (Date.now()-freshMs)>3*60*60*1000;
+      const abrirFichaDeal=(r)=>{ const em=(r.email||"").trim().toLowerCase(); if(em){ const cli=(clients||[]).find(c=>((c.email||c.correo||"").toString().trim().toLowerCase())===em); if(cli){ abrirFichaCliente(cli); return; } } toast("Este negocio vive en HubSpot. Su etapa se administra allá."); };
       const card=(r,i)=>(
         <div key={(r.key||i)} onClick={()=>abrirFichaDeal(r)} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:9,padding:"9px 10px",marginBottom:8,cursor:"pointer"}}>
           <div style={{fontSize:11,fontWeight:800,color:B.navy,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.title||"(sin nombre)"}</div>
           {(r.amount||r.amount===0)&&<div style={{fontSize:11,fontWeight:800,color:"#0f6b3f",marginTop:2}}>{fMoney(r.amount)}</div>}
           {r.desarrollo&&<div style={{fontSize:9,color:"#0f6b3f",fontWeight:700,marginTop:3}}>📍 {r.desarrollo}</div>}
           {r.owner&&<div style={{fontSize:9,color:B.grey3,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👤 {r.owner}</div>}
-          {r.pendiente&&<div style={{fontSize:9,fontWeight:800,color:"#b45309",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:5,padding:"1px 6px",marginTop:4,display:"inline-block"}}>⚠ falta criterio</div>}
         </div>
       );
       return (
-        <div>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:12}}>
+        <div style={{marginBottom:20}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:6}}>
             <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-              <span style={{fontSize:13,fontWeight:800,color:"#ff7a59"}}>🔶 Kanban HubSpot</span>
-              <span style={{fontSize:10,fontWeight:700,color:B.grey4,background:B.offW,border:"1px solid "+B.grey1,borderRadius:20,padding:"3px 9px"}}>Solo lectura · espejo de HubSpot{hsFuente?(" · "+hsFuente):""}</span>
+              <span style={{fontSize:13,fontWeight:800,color:"#ff7a59"}}>🔶 Pipeline de HubSpot</span>
+              <span style={{fontSize:10,fontWeight:700,color:B.grey4,background:B.offW,border:"1px solid "+B.grey1,borderRadius:20,padding:"3px 9px"}}>Solo lectura · los cambios se hacen en HubSpot</span>
+              {freshTxt&&<span style={{fontSize:10,fontWeight:800,color:freshStale?"#b45309":"#0f6b3f",background:freshStale?"#fff7ed":"#ecfdf5",border:"1px solid "+(freshStale?"#fed7aa":"#a7f3d0"),borderRadius:20,padding:"3px 9px"}}>🕐 Sincronizado {freshTxt}{freshStale?" ⚠":""}</span>}
               {pipes.length>2&&<select value={hsPipeFilter} onChange={e=>setHsPipeFilter(e.target.value)} style={selStyle}>{pipes.map(p=><option key={p} value={p}>{p==="Todos"?"Todos los pipelines":p}</option>)}</select>}
               {devs.length>1&&<select value={hsDevFilter} onChange={e=>setHsDevFilter(e.target.value)} style={selStyle}>{devs.map(d=><option key={d} value={d}>{d==="Todos"?"Todos los desarrollos":d}</option>)}</select>}
             </div>
@@ -8342,35 +8399,36 @@ function MacroProMatcher({ sessionEmail } = {}) {
             <div style={{padding:"30px",textAlign:"center",color:B.grey3,fontSize:13}}>Cargando pipeline de HubSpot…</div>
           ) : hsErr ? (
             <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,padding:"16px 18px",color:"#92400e",fontSize:12,lineHeight:1.6}}>
-              <b>No se pudo leer el espejo de HubSpot.</b><br/>{hsErr}<br/><br/>
-              MacroPro lee <code>public.hubspot_deals</code> o <code>public.landing_clientes</code> (RLS de lectura). No llama a HubSpot directo.
+              <b>No se pudo leer el pipeline de HubSpot.</b><br/>{hsErr}<br/><br/>
+              MacroPro lee <code>public.hubspot_deals_pendientes</code> (la llena la landing cada hora). Requiere sesión iniciada (RLS de lectura para <code>authenticated</code>).
             </div>
           ) : rows.length===0 ? (
             <div style={{padding:"30px",textAlign:"center",color:B.grey3,fontSize:13}}>
               <div style={{fontSize:34,marginBottom:8}}>🔶</div>
-              <b>El espejo de HubSpot está vacío.</b><br/>
-              <span style={{fontSize:11.5,lineHeight:1.6}}>Leí <b>{hsTotalLeido}</b> registro(s). Los negocios de HubSpot aún <b>no se han importado a Supabase</b>.<br/>
-              Falta el <b>import servidor</b> (token → HubSpot → tabla <code>hubspot_deals</code> o <code>landing_clientes</code>). Ver <code>supabase/functions/sync-hubspot-deals</code>. MacroPro los refleja apenas existan.</span>
+              <b>Sin negocios que mostrar.</b><br/>
+              <span style={{fontSize:11.5,lineHeight:1.6}}>Leí <b>{hsTotalLeido}</b> registro(s) de <code>hubspot_deals_pendientes</code>.</span>
             </div>
           ) : (
             <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:10}}>
-              {cols.map((st,i)=>{ const col=colorDe(st,i); const items=porEtapa[st]||[];
+              {cols.map((st)=>{ const col=colorDe(st); const items=porEtapa[st]||[];
                 return (
-                  <div key={st} style={{flex:"0 0 230px",minWidth:230,background:B.offW,borderRadius:10,border:"1px solid "+B.grey1,display:"flex",flexDirection:"column",maxHeight:"64vh"}}>
+                  <div key={st} style={{flex:"0 0 220px",minWidth:220,background:st==="Sin etapa"?"#f8fafc":B.offW,borderRadius:10,border:"1px "+(st==="Sin etapa"?"dashed":"solid")+" "+B.grey1,display:"flex",flexDirection:"column",maxHeight:"56vh"}}>
                     <div style={{padding:"9px 11px",borderBottom:"2px solid "+col,display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
                       <span style={{fontSize:11,fontWeight:800,color:B.navy,lineHeight:1.2}}>{st}</span>
                       <span style={{fontSize:10,fontWeight:800,color:"#fff",background:col,borderRadius:9,padding:"1px 7px",flexShrink:0}}>{items.length}</span>
                     </div>
                     <div style={{padding:8,overflowY:"auto",flex:1}}>
-                      {items.length===0?<div style={{fontSize:10,color:B.grey3,textAlign:"center",padding:"14px 0",fontStyle:"italic"}}>—</div>:items.slice(0,60).map(card)}
-                      {items.length>60&&<div style={{fontSize:10,color:B.grey3,textAlign:"center",padding:"6px 0",fontWeight:700}}>+{items.length-60} más</div>}
+                      {items.length===0?<div style={{fontSize:10,color:B.grey3,textAlign:"center",padding:"14px 0",fontStyle:"italic"}}>—</div>:items.slice(0,80).map(card)}
+                      {items.length>80&&<div style={{fontSize:10,color:B.grey3,textAlign:"center",padding:"6px 0",fontWeight:700}}>+{items.length-80} más</div>}
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
-          <div style={{fontSize:10,color:B.grey3,marginTop:8}}>Espejo de solo lectura · columnas = etapa de HubSpot · tarjeta = negocio/cliente · muestra su asesor (owner).</div>
+          <div style={{fontSize:10,color:B.grey3,marginTop:8,lineHeight:1.5}}>
+            Refleja <b>negocios</b> de HubSpot, no inventario. Para ver qué lote está comprometido, el deal necesita el lote capturado en HubSpot. · Fuente: <code>hubspot_deals_pendientes</code> (landing, sync horario) · las tarjetas no se arrastran.
+          </div>
         </div>
       );
     };
@@ -11147,6 +11205,8 @@ Respuesta: [respuesta exacta, conversacional]
         {activeTab==="kanban"&&(
           <div>
             {vistaKanban==="canales" ? VistaCanalCiudad() : (<>
+            {esAdmin&&VistaKanbanHubSpot()}
+            {esAdmin&&<div style={{fontSize:13,fontWeight:800,color:B.navy,margin:"4px 0 10px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>📋 Tablero propio <span style={{fontSize:10,fontWeight:700,color:B.grey4,background:B.offW,border:"1px solid "+B.grey1,borderRadius:20,padding:"3px 9px"}}>editable · arrastra para cambiar etapa (no toca HubSpot)</span></div>}
             {KanbanBoard()}
             <div id="lot-detail-panel" style={{marginTop:14}}>{LotPanel()}</div>
             {PlanPanel()}
@@ -15021,12 +15081,12 @@ Respuesta: [respuesta exacta, conversacional]
     pasos.forEach(p=>{ const t=doc.splitTextToSize(p,PW-2*MX); doc.text(t,MX,y); y+=t.length*5.6+2; });
     y+=6;
     // Documentos
-    doc.setFillColor(240,249,255); doc.setDrawColor(186,230,253); doc.roundedRect(MX,y,PW-2*MX,64,3,3,"FD");
+    doc.setFillColor(240,249,255); doc.setDrawColor(186,230,253); doc.roundedRect(MX,y,PW-2*MX,70,3,3,"FD");
     doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.setTextColor(3,105,161); doc.text("Documentos para la opinión de valor",MX+6,y+9);
     doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(45,55,70);
     doc.text("Envíalos a:  icortez@grupoguia.mx   y   mortuno@grupoguia.mx",MX+6,y+17);
-    ["•  Plano","•  Dictamen de trazos de usos y destinos (o visor urbano)","•  Boleta predial","•  INE","•  4 fotos del terreno","•  Avalúo (si ya cuenta con uno)"].forEach((dline,i)=>{ doc.text(dline,MX+8,y+25+i*6); });
-    y+=72;
+    ["•  Plano","•  Certificado de uso de suelo (vigente)","•  Dictamen de trazos de usos y destinos (o visor urbano)","•  Boleta predial","•  INE","•  4 fotos del terreno","•  Avalúo (si ya cuenta con uno)"].forEach((dline,i)=>{ doc.text(dline,MX+8,y+25+i*6); });
+    y+=78;
     // Pie
     doc.setDrawColor(210,216,226); doc.line(MX,280,PW-MX,280);
     doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(0,43,73); doc.text("Grupo Guía · Macrolotes",MX,286);
@@ -15254,7 +15314,7 @@ Respuesta: [respuesta exacta, conversacional]
       }catch(e){ console.warn("subir dictamen:",e&&e.message); }
     }
     if(!url){ try{ const a=document.createElement("a"); a.href=URL.createObjectURL(gen.blob); a.download=nombre; document.body.appendChild(a); a.click(); a.remove(); }catch(e){}
-      toast("⚠ No se pudo subir a la nube (revisa permisos de Storage para usuarios logueados). Se descargó el PDF localmente."); }
+      toast("⚠ No se pudo subir a la nube: falta el bucket 'captaciones-docs' o permisos (corre sql/captaciones_docs_storage.sql). Se descargó el PDF localmente."); }
     const nowISO=new Date().toISOString();
     const docsPrev=Array.isArray(c.documentosUrls)?c.documentosUrls:[];
     const docs = url ? [...docsPrev, {nombre, url, tipo:"Dictamen de autorización", fecha:nowISO}] : docsPrev;
@@ -16521,10 +16581,14 @@ Respuesta: [respuesta exacta, conversacional]
         y=drawTableHeader(y);
         let etapaActual="";
         filasCanal.forEach((f,ri)=>{
-          if(y+5.5>PH-8){ doc.addPage(); y=MY; y=drawTableHeader(y); etapaActual=""; }
+          // Comentario COMPLETO: se envuelve al ancho de su columna y la fila CRECE a lo alto
+          // según su largo (antes se cortaba a 80 caracteres con altura fija).
+          doc.setFontSize(5.5);
+          const comLines=doc.splitTextToSize(String(f.ultComentario||""),cols[9].w-3);
+          const rowH=Math.max(5.5, comLines.length*2.3+1.8);
+          if(y+rowH+5>PH-8){ doc.addPage(); y=MY; y=drawTableHeader(y); etapaActual=""; }
           if(f.etapa!==etapaActual){
             etapaActual=f.etapa;
-            if(y+5+5.5>PH-8){ doc.addPage(); y=MY; y=drawTableHeader(y); }
             const ec=COLORES_ETAPA[f.etapa]||"#475569";
             const er=parseInt(ec.slice(1,3),16),eg=parseInt(ec.slice(3,5),16),eb=parseInt(ec.slice(5,7),16);
             doc.setFillColor(er,eg,eb); doc.rect(MX,y,PW-MX*2,5,"F");
@@ -16532,15 +16596,18 @@ Respuesta: [respuesta exacta, conversacional]
             doc.text(f.etapa.toUpperCase(),MX+4,y+3.5);y+=5;
           }
           const bg=ri%2===0?[255,255,255]:[248,249,252];
-          doc.setFillColor(...bg); let cx=MX; const rowH=5.5;
+          doc.setFillColor(...bg); let cx=MX;
           cols.forEach(c=>{doc.rect(cx,y,c.w,rowH,"F");doc.setDrawColor(220,220,225);doc.rect(cx,y,c.w,rowH,"S");cx+=c.w;});
           const sr=parseInt(f.semColor.slice(1,3),16),sg=parseInt(f.semColor.slice(3,5),16),sb=parseInt(f.semColor.slice(5,7),16);
-          doc.setFillColor(sr,sg,sb); doc.circle(MX+3,y+rowH/2,1.5,"F");
+          doc.setFillColor(sr,sg,sb); doc.circle(MX+3,y+2.75,1.5,"F");
           cx=MX+cols[0].w;
-          [f.etapa,f.nombre,f.empresa,f.lote,fmtSup(f.supM2),fmtM2(f.precioM2),fmtM(f.precioTotal),f.asesor,(f.ultComentario||"").substring(0,80)].forEach((v,vi)=>{
+          [f.etapa,f.nombre,f.empresa,f.lote,fmtSup(f.supM2),fmtM2(f.precioM2),fmtM(f.precioTotal),f.asesor].forEach((v,vi)=>{
             doc.setFont("helvetica",vi===1?"bold":"normal"); doc.setFontSize(5.5); doc.setTextColor(0,43,73);
             doc.text(String(v||""),cx+1.5,y+3.6,{maxWidth:cols[vi+1].w-2});cx+=cols[vi+1].w;
           });
+          // Última columna: comentario COMPLETO (varias líneas)
+          doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(0,43,73);
+          doc.text(comLines,cx+1.5,y+3.2,{maxWidth:cols[9].w-2});
           y+=rowH;
         });
       };
@@ -17954,6 +18021,67 @@ Respuesta: [respuesta exacta, conversacional]
     const n=src.filter(l=>{const p=crmData[l.id]&&crmData[l.id].pipeline;return p&&p!=="Disponible"&&p!=="Descartado";}).length;
     return n>0?" ("+n+")":"";
   })();
+  // ─── CENTRO DE DOCUMENTOS (reposicionamiento: un solo lugar por audiencia) ──
+  // Aditivo: organiza los generadores de PDF/PPTX que YA existen, agrupados por
+  // "para quién es el documento", y lleva a la pantalla donde se produce cada uno.
+  const ViewDocumentos = () => {
+    const GRUPOS = [
+      { grupo:"Para una junta", icon:"🗓️", color:"#002B49", items:[
+        {t:"Seguimiento semanal", d:"Semáforo por canal, último comentario y fichas de clientes.", fmt:"PDF", to:"ejecutivo", cta:"Exportar PDF"},
+        {t:"Reporte de dirección (CEO / Cliente)", d:"Tablero ejecutivo en modo CEO o Cliente.", fmt:"PDF", to:"dashboard", cta:"Generar reporte"},
+        {t:"Cierre de mes · Metas", d:"Scorecard anual y al mes, apartados y tendencia (2 hojas).", fmt:"PDF", to:"metas", cta:"Imprimir / PDF"},
+      ]},
+      { grupo:"Para un desarrollador", icon:"🏢", color:"#1f5f3f", items:[
+        {t:"Informe por desarrollador", d:"Desempeño de su desarrollo para la junta (TYA).", fmt:"PDF", to:"corretaje", cta:"Generar informe"},
+        {t:"Match de clientes para su inventario", d:"Los mejores clientes para sus lotes.", fmt:"PPTX", to:"matchLot", cta:"Elegir lote → PPTX"},
+      ]},
+      { grupo:"Para un cliente", icon:"🤝", color:"#a8893f", items:[
+        {t:"Ficha técnica del lote", d:"Presentación del lote en diapositivas.", fmt:"PPTX", to:"lots", cta:"Elegir lote → PPTX"},
+        {t:"Presentación de opciones (Match)", d:"Los mejores lotes para el cliente.", fmt:"PPTX", to:"matchClient", cta:"Elegir cliente → PPTX"},
+        {t:"Entorno del terreno (DENUE)", d:"Servicios y entorno alrededor del lote.", fmt:"PDF", to:"lots", cta:"Abrir lote → Entorno"},
+      ]},
+      { grupo:"Para captación", icon:"🌱", color:"#0f6b3f", items:[
+        {t:"Demanda por zona y uso", d:"Qué buscan los clientes, por ciudad y uso de suelo.", fmt:"PDF", to:"corretaje", cta:"Generar demanda"},
+        {t:"Reporte de captaciones", d:"Terrenos captados / en opción.", fmt:"PDF", to:"captacion", cta:"Generar reporte"},
+      ]},
+    ];
+    return (
+      <div style={{padding:"20px 24px",maxWidth:1200,margin:"0 auto"}}>
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:11,fontWeight:700,color:B.gold,letterSpacing:2,textTransform:"uppercase"}}>📄 Centro de documentos</div>
+          <div style={{fontSize:28,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif",marginTop:2}}>¿Qué necesitas presentar?</div>
+          <div style={{fontSize:13,color:B.grey4,marginTop:4}}>Elige por audiencia. Te llevo a la pantalla donde se genera el PDF o PPTX.</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:16}}>
+          {GRUPOS.map(g=>(
+            <div key={g.grupo} style={{background:B.white,borderRadius:14,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.05)",overflow:"hidden"}}>
+              <div style={{background:g.color,padding:"12px 16px",display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:16}}>{g.icon}</span>
+                <span style={{fontSize:13,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:0.8}}>{g.grupo}</span>
+              </div>
+              <div style={{padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
+                {g.items.map(it=>(
+                  <button key={it.t} onClick={()=>setView(it.to)} title={"Ir a "+it.cta}
+                    style={{textAlign:"left",background:B.offW,border:"1px solid "+B.grey1,borderRadius:10,padding:"11px 13px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"background 0.1s"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#eef4fb"}
+                    onMouseLeave={e=>e.currentTarget.style.background=B.offW}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                      <span style={{fontSize:13,fontWeight:800,color:B.navy}}>{it.t}</span>
+                      <span style={{fontSize:9,fontWeight:800,color:it.fmt==="PPTX"?"#b45309":"#0369a1",background:it.fmt==="PPTX"?"#fef3c7":"#e0f2fe",borderRadius:6,padding:"2px 7px",whiteSpace:"nowrap"}}>{it.fmt}</span>
+                    </div>
+                    <div style={{fontSize:11,color:B.grey4,marginTop:3,lineHeight:1.35}}>{it.d}</div>
+                    <div style={{fontSize:10.5,color:g.color,fontWeight:800,marginTop:6}}>{it.cta} →</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{marginTop:18,fontSize:11,color:B.grey3,fontStyle:"italic"}}>Los documentos que requieren un lote o cliente específico te piden elegirlo primero en su pantalla.</div>
+      </div>
+    );
+  };
+
   // ─── RENDER ───────────────────────────────────────────────────────
   return (
     <div style={s.app}>
@@ -17965,7 +18093,7 @@ Respuesta: [respuesta exacta, conversacional]
           <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.2</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["dashboard","📊 Dashboard"],["crm","🎯 CRM"+crmNavCount],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Opción"],["asesores","🤝 Buscando"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["documentos","📄 Documentos"],["dashboard","📊 Dashboard"],["crm","🎯 CRM"+crmNavCount],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Opción"],["asesores","🤝 Buscando"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
@@ -17990,6 +18118,7 @@ Respuesta: [respuesta exacta, conversacional]
           )}
         </div>
       </nav>
+      {view==="documentos"&&<ViewDocumentos/>}
       {view==="home"&&<ViewHome/>}
       {view==="crm"&&<ViewCRM/>}
       {view==="dashboard"&&<ViewDashboard/>}

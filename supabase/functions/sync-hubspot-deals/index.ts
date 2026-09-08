@@ -74,9 +74,14 @@ Deno.serve(async () => {
       } while (oa);
     } catch (_) {}
 
-    // 4) BÚSQUEDA por pipeline + SOLO últimos 90 días (más liviano, sin rate-limit)
-    const properties = [...new Set(["dealname", "amount", "dealstage", "pipeline", "hubspot_owner_id", ...devProps])];
-    const cutoff = String(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).setUTCHours(0, 0, 0, 0)); // epoch ms · últimos 3 meses
+    // 4) BÚSQUEDA por pipeline. Filtramos por ÚLTIMA MODIFICACIÓN (hs_lastmodifieddate),
+    //    NO por creación (createdate). Un deal maduro —Apartado, Carta oferta, Firma de
+    //    contrato— se creó hace meses pero sigue vivo: su createdate quedaba fuera de la
+    //    ventana de 90 días y NUNCA llegaba (por eso solo entraban deals nuevos). Con
+    //    hs_lastmodifieddate capturamos todo lo que se ha movido en la ventana = el board
+    //    activo real. Ventana amplia (~3 años) para no dejar fuera deals que avanzan lento.
+    const properties = [...new Set(["dealname", "amount", "dealstage", "pipeline", "hubspot_owner_id", "hs_lastmodifieddate", ...devProps])];
+    const cutoff = String(new Date(Date.now() - 1095 * 24 * 60 * 60 * 1000).setUTCHours(0, 0, 0, 0)); // epoch ms · últimos ~3 años (por modificación)
     let after: string | undefined = undefined;
     const rows: Record<string, unknown>[] = [];
     let guard = 0;
@@ -84,7 +89,7 @@ Deno.serve(async () => {
       const body: any = {
         filterGroups: [{ filters: [
           { propertyName: "pipeline", operator: "IN", values: macroPipeIds },
-          { propertyName: "createdate", operator: "GTE", value: cutoff },
+          { propertyName: "hs_lastmodifieddate", operator: "GTE", value: cutoff },
         ] }],
         properties, limit: 100,
       };
