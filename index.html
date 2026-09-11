@@ -13743,6 +13743,19 @@ Respuesta: [respuesta exacta, conversacional]
   const ViewMetas = () => {
     // Desarrolladores: combinación de metas + inventario + oficiales (siempre completos)
     const desarrolladoresMetas = getDesarrolladoresActivos(metasData, inventory);
+    // Auto-sanar filtro atorado: si el desarrollador seleccionado NO coincide con ningún
+    // desarrollo de las metas cargadas (p. ej. filtro viejo "HITO" tras importar un Excel
+    // cuyo catálogo mapea Capital Norte→"Capital Norte"), regresa a "Todos" para no esconder
+    // todo el scorecard. Igual para el filtro de desarrollo. Así "todo carga" siempre.
+    React.useEffect(()=>{
+      const devs=Object.values(metasData||{});
+      if(metasFiltroDesarrollador!=="Todos" && devs.length>0 && !devs.some(d=>d&&d.desarrollador===metasFiltroDesarrollador)){
+        setMetasFiltroDesarrollador("Todos");
+      }
+      if(metasFiltroDesarrollo!=="Todos" && Object.keys(metasData||{}).length>0 && !Object.keys(metasData).includes(metasFiltroDesarrollo)){
+        setMetasFiltroDesarrollo("Todos");
+      }
+    },[metasData, metasFiltroDesarrollador, metasFiltroDesarrollo]);
     // Desarrollos: si hay filtro de desarrollador, solo los suyos (filtro inteligente)
     const desarrollosMetas = (() => {
       if(metasFiltroDesarrollador==="Todos"){
