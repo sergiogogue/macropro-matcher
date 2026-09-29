@@ -12614,6 +12614,14 @@ Respuesta: [respuesta exacta, conversacional]
     // ─── Datos base + filtros ───────────────────────────────────────
     const srcInvE = inventory.length>0?inventory:SAMPLE_INVENTORY;
     const desarrolladoresUnicos = [...new Set(srcInvE.map(l=>l.desarrollador||l.desarrollo).filter(Boolean))].sort();
+    // R-09: auto-sanar filtro atorado — si el desarrollador seleccionado ya no existe
+    // en las opciones (dato viejo persistido), vuelve a "Todos" para no dejar la vista vacía.
+    React.useEffect(()=>{
+      if(ejecFiltroDesarrollador!=="Todos" && desarrolladoresUnicos.length>0 && !desarrolladoresUnicos.includes(ejecFiltroDesarrollador)){
+        setEjecFiltroDesarrollador("Todos");
+        try{ localStorage.setItem("macropro_ejec_filtro_dev","Todos"); }catch(e){}
+      }
+    },[ejecFiltroDesarrollador, desarrolladoresUnicos.join("|")]);
     const desarrollosUnicos = [...new Set(srcInvE.filter(l=>{
       if(ejecFiltroDesarrollador==="Todos") return true;
       return (l.desarrollador||l.desarrollo)===ejecFiltroDesarrollador;
