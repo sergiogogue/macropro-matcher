@@ -17,7 +17,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Instalar dependencia del guard
-        run: npm install --no-save @babel/standalone@7
+      - name: Instalar dependencias del guard
+        run: npm install --no-save @babel/standalone@7 react@18 react-dom@18 jsdom
       - name: Validar (JSX compila + etapas completas)
         run: node scripts/validate.js
+      - name: Montar sin crash (R-10)
+        run: node scripts/mount.js
