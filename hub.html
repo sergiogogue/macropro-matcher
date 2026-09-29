@@ -66,6 +66,20 @@
   .mbody{ padding:18px; } .stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; } .stat{ background:var(--bg); border-radius:12px; padding:12px; text-align:center; } .stat b{ font-size:18px; display:block; } .stat span{ font-size:11px; color:var(--mut); }
   .macts{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
   .x{ float:right; cursor:pointer; color:#fff; font-size:22px; font-weight:700; line-height:1; text-shadow:0 1px 4px rgba(0,0,0,.4); }
+  /* --- Alta de app (formulario) --- */
+  .fgrid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .fgrid .full{ grid-column:1 / -1; }
+  .fld label{ display:block; font-size:11px; font-weight:800; color:var(--mut); text-transform:uppercase; letter-spacing:.4px; margin-bottom:5px; }
+  .fld input, .fld select{ width:100%; box-sizing:border-box; font-family:inherit; font-size:13px; padding:10px 11px; border:1px solid var(--line); border-radius:10px; background:#fff; color:inherit; }
+  .fld input:focus, .fld select:focus{ outline:none; border-color:var(--navy); box-shadow:0 0 0 3px rgba(10,37,64,.10); }
+  .fmsg{ margin-top:12px; font-size:12px; font-weight:700; padding:10px 12px; border-radius:10px; display:none; }
+  .fmsg.show{ display:block; }
+  .fmsg.ok{ background:#e7f6ed; color:#12693c; }
+  .fmsg.err{ background:#fdecec; color:#9b1c1c; }
+  .facts{ display:flex; gap:8px; margin-top:16px; }
+  .facts .btn{ flex:1; padding:12px 8px; font-size:13px; }
+  .btn.save{ background:var(--navy); color:#fff; border-color:var(--navy); }
+  .btn.save:disabled{ opacity:.55; cursor:not-allowed; }
   .videos{ display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:18px; }
   .vcard{ background:#fff; border:1px solid var(--line); border-radius:16px; overflow:hidden; display:flex; flex-direction:column; transition:.18s; } .vcard:hover{ box-shadow:0 12px 30px rgba(10,37,64,.12); transform:translateY(-3px); }
   .vframe{ position:relative; width:100%; padding-top:56.25%; background:#000; } .vframe iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; }
@@ -100,6 +114,28 @@
 <div class="ov" id="ov"><div class="modal">
   <div class="mhead" id="mhead"><span class="x" onclick="cerrar()">×</span><h2 id="mtit"></h2></div>
   <div class="mbody"><div class="stats" id="mstats"></div><div class="macts" id="macts"></div></div>
+</div></div>
+
+<div class="ov" id="ovAlta"><div class="modal">
+  <div class="mhead" style="height:88px;background:linear-gradient(135deg,#0a2540,#1f4b73)">
+    <span class="x" onclick="cerrarAlta()">&times;</span><h2>Dar de alta app</h2>
+  </div>
+  <div class="mbody">
+    <div class="fgrid">
+      <div class="fld full"><label>Nombre *</label><input id="fNombre" placeholder="Ej. Canva" maxlength="60" autocomplete="off"></div>
+      <div class="fld full"><label>URL *</label><input id="fUrl" placeholder="https://www.canva.com" autocomplete="off"></div>
+      <div class="fld full"><label>Descripción</label><input id="fDesc" placeholder="Diseño y presentaciones" maxlength="80" autocomplete="off"></div>
+      <div class="fld"><label>Ícono (emoji)</label><input id="fIcono" placeholder="🔗" maxlength="8" autocomplete="off"></div>
+      <div class="fld"><label>Color</label><input id="fColor" type="color" value="#0a2540" style="padding:4px;height:40px"></div>
+      <div class="fld"><label>Sección</label><select id="fGrupo"><option value="tool">Herramientas</option><option value="core">Macrolotes</option></select></div>
+      <div class="fld"><label>Clave de alta *</label><input id="fClave" type="password" placeholder="••••••" autocomplete="off"></div>
+    </div>
+    <div class="fmsg" id="fMsg"></div>
+    <div class="facts">
+      <button class="btn" onclick="cerrarAlta()">Cancelar</button>
+      <button class="btn save" id="fSave" onclick="guardarApp()">Guardar app</button>
+    </div>
+  </div>
 </div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -243,9 +279,9 @@ function appEl(a){
 function renderApps(){
   const core = APPS.filter(a=>a.grupo==="core").sort((x,y)=>(x.orden||0)-(y.orden||0));
   const tool = APPS.filter(a=>a.grupo!=="core").sort((x,y)=>(x.orden||0)-(y.orden||0));
-  const add = g => `<button class="app add"><div class="plus">＋</div><b>Dar de alta app</b><small>${g}</small></button>`;
-  document.getElementById("core").innerHTML = core.map(appEl).join("") + add("Macrolotes");
-  document.getElementById("tools").innerHTML = tool.map(appEl).join("") + add("Herramienta");
+  const add = (g,gr) => `<button class="app add" onclick="abrirAlta('${gr}')"><div class="plus">＋</div><b>Dar de alta app</b><small>${g}</small></button>`;
+  document.getElementById("core").innerHTML = core.map(appEl).join("") + add("Macrolotes","core");
+  document.getElementById("tools").innerHTML = tool.map(appEl).join("") + add("Herramienta","tool");
 }
 
 function appBySlug(s){ return APPS.find(a=>a.slug===s); }
@@ -293,6 +329,69 @@ function abrir(d){
 }
 function cerrar(){ document.getElementById("ov").classList.remove("show"); }
 document.getElementById("ov").addEventListener("click",e=>{ if(e.target.id==="ov") cerrar(); });
+
+// ─── ALTA DE APPS DESDE EL HUB ──────────────────────────────────────────
+// Escribe vía la función RPC 'hub_agregar_app' (SECURITY DEFINER + clave).
+// El rol anon NO tiene INSERT sobre la tabla apps: solo puede ejecutar la función.
+function fMsg(txt, tipo){
+  const el = document.getElementById("fMsg");
+  el.textContent = txt;
+  el.className = "fmsg show " + (tipo || "");
+}
+function abrirAlta(grupo){
+  ["fNombre","fUrl","fDesc","fIcono","fClave"].forEach(id=>{ document.getElementById(id).value = ""; });
+  document.getElementById("fColor").value = "#0a2540";
+  document.getElementById("fGrupo").value = (grupo === "core") ? "core" : "tool";
+  document.getElementById("fMsg").className = "fmsg";
+  document.getElementById("fSave").disabled = false;
+  document.getElementById("ovAlta").classList.add("show");
+  setTimeout(()=>{ document.getElementById("fNombre").focus(); }, 60);
+}
+function cerrarAlta(){ document.getElementById("ovAlta").classList.remove("show"); }
+document.getElementById("ovAlta").addEventListener("click", e=>{ if(e.target.id === "ovAlta") cerrarAlta(); });
+
+async function guardarApp(){
+  const nombre = document.getElementById("fNombre").value.trim();
+  let   url    = document.getElementById("fUrl").value.trim();
+  const desc   = document.getElementById("fDesc").value.trim();
+  const icono  = document.getElementById("fIcono").value.trim() || "🔗";
+  const color  = document.getElementById("fColor").value;
+  const grupo  = document.getElementById("fGrupo").value;
+  const clave  = document.getElementById("fClave").value;
+
+  if(!nombre){ fMsg("Falta el nombre.", "err"); return; }
+  if(!url){ fMsg("Falta la URL.", "err"); return; }
+  if(!/^https?:\/\//i.test(url)) url = "https://" + url;
+  try{ new URL(url); }catch(e){ fMsg("La URL no es válida.", "err"); return; }
+  if(!clave){ fMsg("Falta la clave de alta.", "err"); return; }
+  if(!sb){ fMsg("Sin conexión a Supabase. Recarga la página.", "err"); return; }
+
+  const btn = document.getElementById("fSave");
+  btn.disabled = true;
+  fMsg("Guardando…", "");
+
+  try{
+    const { data, error } = await sb.rpc("hub_agregar_app", {
+      p_clave: clave, p_nombre: nombre, p_url: url,
+      p_descripcion: desc, p_icono: icono, p_color: color, p_grupo: grupo
+    });
+    if(error){
+      const m = (error.message || "").toLowerCase();
+      if(m.includes("clave"))       fMsg("Clave de alta incorrecta.", "err");
+      else if(m.includes("duplic")) fMsg("Ya existe una app con ese nombre.", "err");
+      else                          fMsg("No se pudo guardar: " + error.message, "err");
+      btn.disabled = false;
+      return;
+    }
+    fMsg("✓ App agregada. Actualizando…", "ok");
+    APPS = APPS_FALLBACK; DES = []; COUNT = {};
+    await cargar();
+    setTimeout(cerrarAlta, 900);
+  }catch(err){
+    fMsg("Error inesperado: " + (err.message || err), "err");
+    btn.disabled = false;
+  }
+}
 
 cargar();
 </script>
