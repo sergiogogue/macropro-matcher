@@ -5,7 +5,10 @@ _Complemento de `AUDITORIA_MACROPRO_2026-09.md` · Actualizado 2026-09-29._
 ---
 
 ## Anexo A — Inventario RLS
-_(Llenar corriendo `sql/rls_audit.sql` Parte 1 en Supabase y pegando el resultado.)_
+_Auditado 2026-09-29. **Todas las tablas de MacroPro tienen RLS activo (rowsecurity=true)**
+con políticas `authenticated` (captaciones deja `anon INSERT` para el formulario público) →
+MacroPro está protegido, no requiere acción. Las exposiciones detectadas son de tablas
+de la Landing/valuador — ver `docs/HALLAZGOS_RLS_COMPARTIDA.md`._
 
 | Tabla | RLS activo | Políticas | Lectura anon | Escritura anon | Notas |
 |---|---|---|---|---|---|
