@@ -11765,7 +11765,7 @@ Respuesta: [respuesta exacta, conversacional]
         const prospectos=e.prospectos||[];
         if(prospectos.length===0) return e.pipeline||"Disponible";
         let best="Disponible"; let maxOrd=0;
-        const ord={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociacion":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10};
+        const ord={"Prospecto":1,"Contactado":2,"Cita":3,"Visita":4,"Cotización":4.5,"En análisis":5,"En negociación":6,"En negociacion":6,"Propuesta":7,"Apartado":8,"Contrato":9,"Vendido":10};
         prospectos.forEach(p=>{ if(p&&p.pipeline){ const o=ord[p.pipeline]||0; if(o>maxOrd){maxOrd=o;best=p.pipeline;} } });
         return best;
       };

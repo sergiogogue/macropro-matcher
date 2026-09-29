@@ -1,0 +1,23 @@
+name: validate
+
+# Guard de publicación (R-07/R-08): corre en cada push y PR a main.
+# Falla si el JSX no compila o si una lista de etapas del pipeline está
+# incompleta respecto a PIPELINE_STAGES (la fuente única).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Instalar dependencia del guard
+        run: npm install --no-save @babel/standalone@7
+      - name: Validar (JSX compila + etapas completas)
+        run: node scripts/validate.js
