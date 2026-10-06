@@ -1854,6 +1854,14 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [planoVisible, setPlanoVisible] = React.useState(true);
   const [selectedAsesorLotes, setSelectedAsesorLotes] = React.useState(null);
   const [inventory, setInventoryRaw] = useState(()=>loadPersisted(STORAGE_KEYS.inventory,[]));
+  // ⚖️ Comparador Inteligente (Spec 61): ids de lotes seleccionados para comparar (2–5).
+  const [compararIds, setCompararIds] = useState([]);
+  const toggleComparar = (id)=> setCompararIds(prev=>{
+    if(prev.includes(id)) return prev.filter(x=>x!==id);
+    if(prev.length>=5){ toast("⚖️ Máximo 5 lotes para comparar"); return prev; }
+    return [...prev, id];
+  });
+  const limpiarComparar = ()=> setCompararIds([]);
   const setInventory=(data)=>{
     if(typeof data==="function"){
       setInventoryRaw(prev=>{const next=data(prev);savePersisted(STORAGE_KEYS.inventory,next);return next;});
@@ -3308,7 +3316,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const limpiar = ()=>{ try{ window.history.replaceState(null,"",window.location.pathname); }catch(e){} };
     // 0) vista directa (?vista=admin, dashboard, clients, lots, crm, metas…)
     if(vista){
-      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch','asesores','captacion','corretaje'];
+      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch','asesores','captacion','corretaje','comparador'];
       deepLinkRef.current = true;
       if(VISTAS.includes(vista)) setView(vista);
       limpiar(); return;
@@ -6309,6 +6317,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
                 <button style={{padding:"6px 11px",background:"#16a34a",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>{setQuickClientLot({id:lot.id,nombre:lot.nombre,desarrollo:lot.desarrollo});setQuickClientSearch("");setQuickClientFilterAsesor("Todos");setQuickClientNota("");}}>👥 Asignar cliente</button>
                 <button style={{padding:"6px 11px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>{setCotizarLote({id:lot.id,nombre:lot.nombre,desarrollo:lot.desarrollo});setCotizarSearch("");}} title="Cotizar este terreno en MacroCotizador">🧮 Cotizar</button>
                 <button style={s.btn("sm")} onClick={()=>{setSelectedLot(lot);setView("matchLot");}}>🎯 Match</button>
+                {(()=>{ const on=compararIds.includes(lot.id); return (
+                  <button title={on?"Quitar de la comparación":"Agregar a comparar (2–5)"} onClick={()=>toggleComparar(lot.id)}
+                    style={{padding:"6px 11px",border:"1px solid "+(on?"#C49A22":B.grey2),background:on?"#C49A22":"#fff",color:on?"#002B49":B.grey4,borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"'DM Sans',sans-serif"}}>⚖️ {on?"Comparando":"Comparar"}</button>
+                ); })()}
                 {inventory.length>0&&<button style={{...s.btn("sm"),background:B.redL,color:B.red}} onClick={()=>deleteLot(lot.id)}>🗑</button>}
               </div>
             </div>
@@ -18113,6 +18125,167 @@ Respuesta: [respuesta exacta, conversacional]
     );
   };
 
+  // ─── ⚖️ COMPARADOR INTELIGENTE (Spec 61) · 2–5 lotes lado a lado + recomendación ──
+  // Vista autocontenida. Lee `inventory` y `compararIds` del padre. Recomendación por
+  // ALGORITMO (sin IA): precio/m² vs mercado + servicios + edificabilidad + status.
+  // No toca el motor de matching ni las listas de etapas.
+  const ViewComparador = () => {
+    const inv = Array.isArray(inventory)?inventory:[];
+    const sel = compararIds.map(id=>inv.find(l=>l.id===id)).filter(Boolean);
+    const [picker, setPicker] = React.useState("");
+    const num = (v)=>Number(v)||0;
+    const fM = (v)=>{ const x=num(v); if(x>=1e6) return "$"+(x/1e6).toFixed(1)+"M"; if(x>=1e3) return "$"+Math.round(x/1e3)+"k"; return x>0?("$"+Math.round(x)):"—"; };
+    const precioTotal = (l)=> num(l.precio_total) || (num(l.sup_m2)*num(l.precio_m2));
+    const avgMercado = (uso)=>{ const c=inv.filter(l=>(l.uso||"")===(uso||"") && num(l.precio_m2)>0); return c.length? c.reduce((a,l)=>a+num(l.precio_m2),0)/c.length : 0; };
+    const posMercado = (l)=>{ const avg=avgMercado(l.uso); return (avg&&num(l.precio_m2))? (num(l.precio_m2)-avg)/avg : null; }; // <0 = más barato que mercado
+    const competenciaCerca = (l)=> inv.filter(o=>o.id!==l.id && (o.uso||"")===(l.uso||"") && (o.ciudad||"")===(l.ciudad||"")).length;
+    const srvDefs = (l)=> [["💧","agua",l.agua],["⚡","luz",l.luz],["🚽","drenaje",l.drenaje],["🛣️","acceso",l.acceso]];
+    const srvOk = (v)=>{ const s=String(v||"").trim().toLowerCase(); return s && !/^(no|sin|n\/a|-|0)/.test(s); };
+    const nSrv = (l)=> srvDefs(l).filter(([,,v])=>srvOk(v)).length;
+    const score = (l)=>{ let s=0; const pm=posMercado(l); if(pm!=null) s+=Math.max(0,-pm*100); s+=nSrv(l)*6; s+=num(l.cus)*8; s+=Math.min(num(l.viv_max),200)*0.05; if(String(l.status||"").toLowerCase().includes("dispon")) s+=5; return s; };
+    const ganador = sel.length>=2 ? sel.reduce((b,l)=> score(l)>score(b)?l:b, sel[0]) : null;
+    const razon = (l)=>{ if(!l) return ""; const p=[]; const pm=posMercado(l); if(pm!=null&&pm<-0.01) p.push("mejor precio/m² ("+Math.round(pm*100)+"% vs mercado de su uso)"); const ns=nSrv(l); if(ns>=3) p.push("servicios "+(ns===4?"completos":"casi completos")); if(num(l.cus)>0) p.push("buena edificabilidad (CUS "+l.cus+")"); return p.length? p.join(" · ") : "mejor balance general"; };
+    const pmColor = (pm)=> pm==null?B.grey4 : (pm<=-0.03?"#16a34a":(pm>=0.03?"#dc2626":"#C49A22"));
+    const pmTxt = (pm)=> pm==null?"—":(pm>0?"+":"")+Math.round(pm*100)+"%";
+
+    // Filas de la tabla. best(l) → resalta la mejor celda numérica en verde.
+    const minBy=(f)=>{ const xs=sel.map(f).filter(x=>x>0); return xs.length?Math.min(...xs):null; };
+    const maxBy=(f)=>{ const xs=sel.map(f).filter(x=>x>0); return xs.length?Math.max(...xs):null; };
+    const minPM2=minBy(l=>num(l.precio_m2)), maxSup=maxBy(l=>num(l.sup_m2)), maxCUS=maxBy(l=>num(l.cus)), maxSrv=maxBy(l=>nSrv(l)), minPos=(()=>{ const xs=sel.map(posMercado).filter(x=>x!=null); return xs.length?Math.min(...xs):null; })();
+    const filas = [
+      { k:"Ubicación", r:(l)=> [l.colonia,l.ciudad,l.estado].filter(Boolean).join(", ")||"—" },
+      { k:"Superficie", r:(l)=> (num(l.sup_m2)).toLocaleString("es-MX")+" m²", best:(l)=> maxSup&&num(l.sup_m2)===maxSup },
+      { k:"Precio", r:(l)=> fM(precioTotal(l)) },
+      { k:"Precio/m²", r:(l)=> num(l.precio_m2)? "$"+num(l.precio_m2).toLocaleString("es-MX") : "—", best:(l)=> minPM2&&num(l.precio_m2)===minPM2 },
+      { k:"Uso de suelo", r:(l)=> (l.usos_todos&&l.usos_todos.length?l.usos_todos.join(" · "):l.uso)||"—" },
+      { k:"COS / CUS", r:(l)=> (l.cos||"—")+" / "+(l.cus||"—"), best:(l)=> maxCUS&&num(l.cus)===maxCUS },
+      { k:"Desarrollador", r:(l)=> l.desarrollador||l.desarrollo||"—" },
+      { k:"Amenidades / Servicios", r:(l)=> { const on=srvDefs(l).filter(([,,v])=>srvOk(v)).map(([e])=>e); return on.length? on.join(" ") : "— sin dato"; }, best:(l)=> maxSrv&&nSrv(l)===maxSrv&&nSrv(l)>0 },
+      { k:"Posición vs mercado", r:(l)=> <span style={{color:pmColor(posMercado(l)),fontWeight:800}}>{pmTxt(posMercado(l))}</span>, best:(l)=> minPos!=null&&posMercado(l)===minPos },
+      { k:"Competencia cercana", r:(l)=> competenciaCerca(l)+" lotes" },
+      { k:"Absorción", r:(l)=> "— sin dato" },
+    ];
+
+    // ── Acciones ──
+    const resumenTexto = ()=>{
+      const lines = sel.map(l=> "• "+(l.nombre||l.id)+" — "+[l.colonia,l.ciudad].filter(Boolean).join(", ")+" · "+(num(l.sup_m2)).toLocaleString("es-MX")+" m² · "+fM(precioTotal(l))+" ($"+num(l.precio_m2).toLocaleString("es-MX")+"/m²)");
+      return "⚖️ Comparativa de terrenos (Grupo Guía):\n"+lines.join("\n")+(ganador?("\n\n✅ Recomendado: "+(ganador.nombre||ganador.id)+" — "+razon(ganador)):"");
+    };
+    const compartirWA = ()=> window.open("https://wa.me/?text="+encodeURIComponent(resumenTexto()),"_blank");
+    const compartirMail = ()=> window.open("mailto:?subject="+encodeURIComponent("Comparativa de terrenos · Grupo Guía")+"&body="+encodeURIComponent(resumenTexto()),"_blank");
+    const guardar = ()=>{ try{ const prev=JSON.parse(localStorage.getItem("macropro_comparativas_v1")||"[]"); prev.unshift({fecha:new Date().toISOString(), ids:sel.map(l=>l.id), nombres:sel.map(l=>l.nombre||l.id), recomendado:ganador?(ganador.nombre||ganador.id):""}); localStorage.setItem("macropro_comparativas_v1", JSON.stringify(prev.slice(0,50))); toast("💾 Comparativa guardada"); }catch(e){ toast("⚠ No se pudo guardar"); } };
+    const exportarPDF = ()=>{
+      if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
+      const { jsPDF }=window.jspdf; const doc=new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+      const PW=297, MX=14; let y=16;
+      doc.setFillColor(0,43,73); doc.rect(0,0,PW,20,"F");
+      doc.setTextColor(245,179,53); doc.setFont("helvetica","bold"); doc.setFontSize(14); doc.text("⚖️ Comparativa de terrenos · Grupo Guía",MX,13);
+      doc.setTextColor(200,215,230); doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.text(new Date().toLocaleString("es-MX",{dateStyle:"long",timeStyle:"short"}),PW-MX,13,{align:"right"});
+      y=28;
+      const colW=(PW-2*MX-46)/sel.length; const x0=MX+46;
+      const cell=(txt,x,yy,w,bold)=>{ doc.setFont("helvetica",bold?"bold":"normal"); doc.setTextColor(30,41,59); const t=doc.splitTextToSize(String(txt==null?"":txt),w-3); doc.text(t,x+1.5,yy); return t.length; };
+      doc.setFontSize(9);
+      // Encabezado: nombres
+      doc.setFont("helvetica","bold"); doc.setTextColor(0,43,73); doc.text("",MX,y);
+      sel.forEach((l,i)=>{ cell((l.nombre||l.id)+(ganador&&ganador.id===l.id?"  ✅":""), x0+i*colW, y, colW, true); });
+      y+=7; doc.setDrawColor(210,216,226); doc.line(MX,y-3,PW-MX,y-3);
+      const rowsPDF=[["Ubicación",l=>[l.colonia,l.ciudad].filter(Boolean).join(", ")],["Superficie",l=>num(l.sup_m2).toLocaleString("es-MX")+" m²"],["Precio",l=>fM(precioTotal(l))],["Precio/m²",l=>num(l.precio_m2)?"$"+num(l.precio_m2).toLocaleString("es-MX"):"—"],["Uso",l=>(l.usos_todos&&l.usos_todos.length?l.usos_todos.join(" · "):l.uso)||"—"],["COS / CUS",l=>(l.cos||"—")+" / "+(l.cus||"—")],["Desarrollador",l=>l.desarrollador||l.desarrollo||"—"],["Servicios",l=>srvDefs(l).filter(([,,v])=>srvOk(v)).map(([,n])=>n).join(", ")||"—"],["Pos. vs mercado",l=>pmTxt(posMercado(l))],["Competencia",l=>competenciaCerca(l)+" lotes"]];
+      rowsPDF.forEach(([lab,f])=>{ doc.setFont("helvetica","bold"); doc.setTextColor(100,116,139); doc.text(lab,MX,y); let maxL=1; sel.forEach((l,i)=>{ const n=cell(f(l),x0+i*colW,y,colW,false); if(n>maxL)maxL=n; }); y+=maxL*4.5+2.5; if(y>185){ doc.addPage(); y=20; } });
+      if(ganador){ y+=4; doc.setFillColor(236,253,245); doc.rect(MX,y-4,PW-2*MX,12,"F"); doc.setFont("helvetica","bold"); doc.setTextColor(15,107,63); doc.text("✅ Recomendado: "+(ganador.nombre||ganador.id)+" — "+razon(ganador),MX+2,y+3,{maxWidth:PW-2*MX-4}); }
+      doc.save("Comparativa_"+sel.map(l=>l.id).join("_").slice(0,40)+".pdf");
+      toast("📄 PDF descargado");
+    };
+
+    const matches = picker.trim()? inv.filter(l=>{ const q=picker.toLowerCase(); return !compararIds.includes(l.id) && ((l.nombre||"").toLowerCase().includes(q)||(l.desarrollo||"").toLowerCase().includes(q)||(l.ciudad||"").toLowerCase().includes(q)||(l.id||"").toLowerCase().includes(q)); }).slice(0,8) : [];
+
+    return (
+      <div style={{padding:"24px 28px",maxWidth:1300,margin:"0 auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:16}}>
+          <div>
+            <div style={{fontSize:22,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>⚖️ Comparador Inteligente</div>
+            <div style={{fontSize:12,color:B.grey3,marginTop:2}}>Compara 2–5 terrenos lado a lado con recomendación automática.</div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <button onClick={()=>setView("lots")} style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+B.grey1,background:"#fff",color:B.navy,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📦 Ir al Inventario</button>
+            {sel.length>0&&<button onClick={limpiarComparar} style={{padding:"8px 14px",borderRadius:8,border:"1px solid #fecaca",background:"#fef2f2",color:"#dc2626",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✕ Limpiar</button>}
+          </div>
+        </div>
+
+        {/* Buscador para agregar lotes */}
+        <div style={{marginBottom:16,position:"relative",maxWidth:460}}>
+          <input value={picker} onChange={e=>setPicker(e.target.value)} placeholder={sel.length>=5?"Máximo 5 lotes":"➕ Agregar lote (nombre, desarrollo, ciudad…)"} disabled={sel.length>=5}
+            style={{width:"100%",padding:"10px 13px",borderRadius:9,border:"1px solid "+B.grey1,fontSize:13,color:B.navy,outline:"none",fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box",background:sel.length>=5?B.offW:"#fff"}}/>
+          {matches.length>0&&(
+            <div style={{position:"absolute",zIndex:30,top:"100%",left:0,right:0,background:"#fff",border:"1px solid "+B.grey1,borderRadius:9,marginTop:4,boxShadow:"0 8px 24px rgba(0,43,73,0.12)",overflow:"hidden"}}>
+              {matches.map(l=>(
+                <div key={l.id} onClick={()=>{ toggleComparar(l.id); setPicker(""); }} style={{padding:"9px 12px",cursor:"pointer",fontSize:12,borderBottom:"1px solid "+B.grey1,display:"flex",justifyContent:"space-between",gap:8}}>
+                  <span style={{fontWeight:700,color:B.navy}}>{l.nombre||l.id}</span>
+                  <span style={{color:B.grey3}}>{[l.desarrollo,l.ciudad].filter(Boolean).join(" · ")}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {sel.length<2 ? (
+          <div style={{padding:"40px",textAlign:"center",color:B.grey3,fontSize:14,background:"#fff",borderRadius:12,border:"1px dashed "+B.grey1}}>
+            <div style={{fontSize:40,marginBottom:10}}>⚖️</div>
+            Selecciona <b>2 a 5 lotes</b> para comparar — márcalos con <b>⚖️ Comparar</b> en el Inventario, o búscalos aquí arriba.
+            {sel.length===1&&<div style={{marginTop:8,fontSize:12}}>Llevas 1 seleccionado. Agrega al menos otro.</div>}
+          </div>
+        ) : (
+          <>
+          <div style={{overflowX:"auto",background:"#fff",borderRadius:12,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.05)"}}>
+            <table style={{borderCollapse:"collapse",width:"100%",minWidth:420+sel.length*180}}>
+              <thead>
+                <tr>
+                  <th style={{textAlign:"left",padding:"12px 14px",fontSize:11,color:B.grey3,textTransform:"uppercase",letterSpacing:1,background:B.offW,borderBottom:"2px solid "+B.grey1,position:"sticky",left:0,zIndex:2}}></th>
+                  {sel.map(l=>{ const win=ganador&&ganador.id===l.id; return (
+                    <th key={l.id} style={{padding:"12px 14px",minWidth:180,background:win?"#fffaf0":B.offW,borderBottom:"2px solid "+(win?"#C49A22":B.grey1),borderTop:win?"3px solid #C49A22":"none",textAlign:"left",verticalAlign:"top"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6}}>
+                        <span style={{fontSize:14,fontWeight:800,color:B.navy}}>{l.nombre||l.id}{win?" ✅":""}</span>
+                        <button onClick={()=>toggleComparar(l.id)} title="Quitar" style={{border:"none",background:"transparent",color:"#dc2626",cursor:"pointer",fontSize:13,fontWeight:800}}>✕</button>
+                      </div>
+                      <div style={{marginTop:6,height:52,borderRadius:8,background:"linear-gradient(135deg,"+B.navy+","+(B.navyL||"#003a66")+")",display:"flex",alignItems:"center",justifyContent:"center",color:B.gold,fontSize:11,fontWeight:800,gap:6}}>
+                        🗺️ {(l.maps_url||(l.lat&&l.lng))? <a href={l.maps_url||("https://maps.google.com/?q="+l.lat+","+l.lng)} target="_blank" rel="noopener noreferrer" style={{color:"#fff",textDecoration:"underline"}}>Ver mapa</a> : <span style={{color:"#c7d2e0"}}>sin ubicación</span>}
+                      </div>
+                    </th>
+                  ); })}
+                </tr>
+              </thead>
+              <tbody>
+                {filas.map((f,ri)=>(
+                  <tr key={f.k} style={{background:ri%2?"#fff":"#fcfdfe"}}>
+                    <td style={{padding:"10px 14px",fontSize:12,fontWeight:700,color:B.grey4,borderBottom:"1px solid "+B.grey1,whiteSpace:"nowrap",position:"sticky",left:0,background:"inherit",zIndex:1}}>{f.k}</td>
+                    {sel.map(l=>{ const best=f.best&&f.best(l); return (
+                      <td key={l.id} style={{padding:"10px 14px",fontSize:12.5,color:B.navy,borderBottom:"1px solid "+B.grey1,background:best?"#ecfdf5":"transparent",fontWeight:best?800:500}}>{f.r(l)}{best?" ✓":""}</td>
+                    ); })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {ganador&&(
+            <div style={{marginTop:16,background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:12,padding:"16px 18px"}}>
+              <div style={{fontSize:14,fontWeight:800,color:"#0f6b3f"}}>✅ Recomendada: {ganador.nombre||ganador.id}</div>
+              <div style={{fontSize:13,color:"#065f46",marginTop:4,lineHeight:1.5}}>{razon(ganador)}.</div>
+            </div>
+          )}
+
+          <div style={{marginTop:16,display:"flex",gap:10,flexWrap:"wrap"}}>
+            <button onClick={compartirWA} style={{padding:"10px 16px",borderRadius:9,border:"none",background:"#25d366",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📱 WhatsApp</button>
+            <button onClick={compartirMail} style={{padding:"10px 16px",borderRadius:9,border:"1px solid "+B.grey1,background:"#fff",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✉️ Correo</button>
+            <button onClick={guardar} style={{padding:"10px 16px",borderRadius:9,border:"1px solid "+B.grey1,background:"#fff",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>💾 Guardar</button>
+            <button onClick={compartirWA} style={{padding:"10px 16px",borderRadius:9,border:"1px solid "+B.gold,background:"#fffaf0",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>👤 Enviar al cliente</button>
+            <button onClick={exportarPDF} style={{padding:"10px 16px",borderRadius:9,border:"none",background:B.navy,color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📄 Exportar PDF</button>
+          </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
   // ─── RENDER ───────────────────────────────────────────────────────
   return (
     <div style={s.app}>
@@ -18177,6 +18350,15 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="admin"&&<ViewAdmin/>}
       {view==="asesores"&&<ViewAsesores/>}
       {view==="captacion"&&<ViewCaptacion/>}
+      {view==="comparador"&&<ViewComparador/>}
+      {/* ⚖️ Barra flotante del Comparador (Spec 61) — visible al seleccionar lotes, fuera de la propia vista */}
+      {compararIds.length>0 && view!=="comparador" && (
+        <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:2147483000,background:"#002B49",color:"#fff",padding:"12px 18px",display:"flex",alignItems:"center",justifyContent:"center",gap:14,flexWrap:"wrap",boxShadow:"0 -6px 24px rgba(0,0,0,.25)",fontFamily:"'DM Sans',sans-serif"}}>
+          <span style={{fontSize:13,fontWeight:700}}>⚖️ {compararIds.length} {compararIds.length===1?"lote seleccionado":"lotes seleccionados"} para comparar{compararIds.length<2?" (agrega al menos 1 más)":""}</span>
+          <button onClick={()=>setView("comparador")} disabled={compararIds.length<2} style={{padding:"9px 18px",borderRadius:8,border:"none",background:compararIds.length>=2?"#C49A22":"rgba(255,255,255,.25)",color:compararIds.length>=2?"#002B49":"rgba(255,255,255,.6)",fontSize:13,fontWeight:800,cursor:compararIds.length>=2?"pointer":"not-allowed",fontFamily:"inherit"}}>Comparar ahora →</button>
+          <button onClick={limpiarComparar} style={{padding:"9px 14px",borderRadius:8,border:"1px solid rgba(255,255,255,.35)",background:"transparent",color:"rgba(255,255,255,.8)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Limpiar</button>
+        </div>
+      )}
       <ModalApiKey/>
       <ModalMigrate/>
       {ModalAddClient}
