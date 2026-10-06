@@ -843,6 +843,32 @@ function buscarMatchesParaSolicitud(solicitud, inventory){
   }).filter(m=>m!==null).sort((a,b)=>b.score-a.score);
 }
 
+// Spec 67 · Score de compatibilidad CLIENTE↔LOTE (0–100, explicable).
+// EXTIENDE buscarMatchesParaSolicitud: mapea el cliente a "solicitud" y, como el
+// cliente tiene arrays de ciudad/uso, toma el MEJOR match entre sus combinaciones.
+// Normaliza sobre los criterios que el cliente SÍ especificó (así un perfil completo
+// puede llegar a 100 aunque el core use también frente/estado que el cliente no tiene).
+function scoreClienteLote(cliente, lote){
+  if(!cliente||!lote) return {score:0,razones:[],descalificado:false,na:true};
+  const ciudades=(Array.isArray(cliente.ciudad_interes)&&cliente.ciudad_interes.length)?cliente.ciudad_interes:[""];
+  const usos=(Array.isArray(cliente.uso_interes)&&cliente.uso_interes.length)?cliente.uso_interes:[""];
+  let best=null;
+  ciudades.forEach(ci=>usos.forEach(us=>{
+    const sol={ superficieMin:cliente.sup_min||0, superficieMax:cliente.sup_max||0, frenteMinimo:0,
+                precioMaximo:cliente.presupuesto_max||0, estado:"", ciudad:ci||"", usoSuelo:us||"" };
+    const m=buscarMatchesParaSolicitud(sol,[lote])[0];
+    if(m && (!best || (m.descalificado===best.descalificado ? m.score>best.score : (!m.descalificado && best.descalificado)))) best=m;
+  }));
+  if(!best) return {score:0,razones:[],descalificado:false,na:true};
+  let maxApp=0;
+  if((cliente.sup_min||0)>0||(cliente.sup_max||0)>0) maxApp+=20;
+  if((cliente.presupuesto_max||0)>0) maxApp+=20;
+  if(ciudades[0]!=="") maxApp+=15;
+  if(usos[0]!=="") maxApp+=15;
+  const score=maxApp>0?Math.round(Math.min(best.score,maxApp)/maxApp*100):0;
+  return { score, razones:best.razones||[], descalificado:best.descalificado, na:maxApp===0 };
+}
+
 // ─── ICS CALENDAR EXPORT ──────────────────────────────────────────
 function descargarICS(activity, lote, prospecto, durMinutes){
   try{
@@ -1862,6 +1888,23 @@ function MacroProMatcher({ sessionEmail } = {}) {
     return [...prev, id];
   });
   const limpiarComparar = ()=> setCompararIds([]);
+  // 🔔 Spec 67 · Alertas de lote nuevo que encaja con clientes (reactivo, sin servidor).
+  const [matchAlerts, setMatchAlerts] = useState([]);
+  React.useEffect(()=>{
+    try{
+      const inv=Array.isArray(inventory)?inventory:[]; if(!inv.length) return;
+      const seen=JSON.parse(localStorage.getItem("macropro_match_seen_lotes")||"[]");
+      const seenSet=new Set(seen);
+      const nuevos=inv.filter(l=>l&&l.id&&!seenSet.has(l.id));
+      if(seen.length && nuevos.length){ // no alertar en la primera carga (sin snapshot previo)
+        const cls=Array.isArray(clients)?clients:[]; const alerts=[];
+        nuevos.forEach(l=>{ const ms=cls.filter(c=>{ const r=scoreClienteLote(c,l); return !r.descalificado&&!r.na&&r.score>=60; });
+          if(ms.length) alerts.push({loteId:l.id, loteNombre:l.nombre||l.id, n:ms.length}); });
+        if(alerts.length){ setMatchAlerts(prev=>{ const m={}; [...prev,...alerts].forEach(a=>m[a.loteId]=a); return Object.values(m); }); toast("🔔 "+alerts.length+" lote(s) nuevo(s) con clientes que encajan — ve a 📋 Matches"); }
+      }
+      localStorage.setItem("macropro_match_seen_lotes", JSON.stringify(inv.map(l=>l&&l.id).filter(Boolean)));
+    }catch(e){}
+  },[inventory, clients]);
   const setInventory=(data)=>{
     if(typeof data==="function"){
       setInventoryRaw(prev=>{const next=data(prev);savePersisted(STORAGE_KEYS.inventory,next);return next;});
@@ -3316,7 +3359,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const limpiar = ()=>{ try{ window.history.replaceState(null,"",window.location.pathname); }catch(e){} };
     // 0) vista directa (?vista=admin, dashboard, clients, lots, crm, metas…)
     if(vista){
-      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch','asesores','captacion','corretaje','comparador'];
+      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch','asesores','captacion','corretaje','comparador','matches'];
       deepLinkRef.current = true;
       if(VISTAS.includes(vista)) setView(vista);
       limpiar(); return;
@@ -18286,6 +18329,99 @@ Respuesta: [respuesta exacta, conversacional]
     );
   };
 
+  // ─── 📋 MATCHES (Spec 67) · cliente × inventario con score 0–100, historial y alertas ──
+  const ViewMatches = () => {
+    const inv = Array.isArray(inventory)?inventory:[];
+    const cls = Array.isArray(clients)?clients:[];
+    const [umbral, setUmbral] = React.useState(60);
+    const [soloPend, setSoloPend] = React.useState(false);
+    const [hist, setHist] = React.useState(()=>{ try{ return JSON.parse(localStorage.getItem("macropro_matches_hist_v1")||"{}")||{}; }catch(e){ return {}; } });
+    const estadoDe = (cid,lid)=> (hist[cid+"|"+lid]&&hist[cid+"|"+lid].estado)||"pendiente";
+    const setEstado = (cid,lid,estado)=> setHist(prev=>{ const next={...prev,[cid+"|"+lid]:{estado,fecha:new Date().toISOString()}}; try{localStorage.setItem("macropro_matches_hist_v1",JSON.stringify(next));}catch(e){} return next; });
+    const num=(v)=>Number(v)||0;
+    const fM=(v)=>{ const x=num(v); return x>=1e6?"$"+(x/1e6).toFixed(1)+"M":(x>=1e3?"$"+Math.round(x/1e3)+"k":(x>0?"$"+Math.round(x):"—")); };
+    const chip=(sc)=>{ const c= sc>=80?["#16a34a","#dcfce7"]:sc>=60?["#b45309","#fffaf0"]:["#64748b","#f1f5f9"]; return <span style={{fontSize:12,fontWeight:800,color:c[0],background:c[1],border:"1px solid "+c[0]+"55",borderRadius:20,padding:"2px 9px",flexShrink:0}}>{sc}</span>; };
+    const porCliente = React.useMemo(()=> cls.map(c=>{
+        const ms = inv.map(l=>{ const r=scoreClienteLote(c,l); return {lote:l, score:r.score, razones:r.razones, descalificado:r.descalificado, na:r.na}; })
+          .filter(m=>!m.descalificado&&!m.na&&m.score>=umbral).sort((a,b)=>b.score-a.score).slice(0,8);
+        return {cliente:c, matches:ms};
+      }).filter(x=>x.matches.length>0).sort((a,b)=>(b.matches[0]?b.matches[0].score:0)-(a.matches[0]?a.matches[0].score:0))
+    ,[cls, inv, umbral]);
+    const cidOf=(c)=>(c.id||c.correo||c.email||c.nombre||"");
+    const avisar=(c,l,sc)=>{ const to=c.correo||c.email||""; const subj="Match: "+(l.nombre||l.id)+" para "+(c.nombre||"cliente"); const body="El lote "+(l.nombre||l.id)+" ("+[l.colonia,l.ciudad].filter(Boolean).join(", ")+" · "+num(l.sup_m2).toLocaleString("es-MX")+" m² · "+fM(l.precio_total)+") encaja con "+(c.nombre||"el cliente")+" (compatibilidad "+sc+"/100).\n\n— MacroPro · Grupo Guía"; window.open("mailto:"+encodeURIComponent(to)+"?subject="+encodeURIComponent(subj)+"&body="+encodeURIComponent(body),"_blank"); };
+    const totalMatches = porCliente.reduce((a,x)=>a+x.matches.length,0);
+    return (
+      <div style={{padding:"24px 28px",maxWidth:1200,margin:"0 auto"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:14}}>
+          <div>
+            <div style={{fontSize:22,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>📋 Matches · Cliente × Inventario</div>
+            <div style={{fontSize:12,color:B.grey3,marginTop:2}}>{porCliente.length} cliente(s) con match · {totalMatches} coincidencia(s) · umbral {umbral}/100</div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <label style={{fontSize:11,fontWeight:700,color:B.grey4}}>Umbral:
+              <select value={umbral} onChange={e=>setUmbral(Number(e.target.value))} style={{marginLeft:6,padding:"6px 9px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:12,color:B.navy,background:"#fff",fontFamily:"'DM Sans',sans-serif"}}>
+                {[50,60,70,80,90].map(u=><option key={u} value={u}>{u}+</option>)}
+              </select>
+            </label>
+            <button onClick={()=>setSoloPend(v=>!v)} style={{padding:"7px 12px",borderRadius:8,border:"1px solid "+(soloPend?"#C49A22":B.grey1),background:soloPend?"#fffaf0":"#fff",color:B.navy,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{soloPend?"◉":"◯"} Solo pendientes</button>
+          </div>
+        </div>
+
+        {/* 🔔 Lotes nuevos que encajan */}
+        {matchAlerts.length>0 && (
+          <div style={{marginBottom:16,background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:12,padding:"12px 16px"}}>
+            <div style={{fontSize:13,fontWeight:800,color:"#b45309",marginBottom:6}}>🔔 Lotes nuevos con clientes que encajan</div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {matchAlerts.map(a=>(<div key={a.loteId} style={{fontSize:12,color:"#7c2d12"}}>🏗 <b>{a.loteNombre}</b> encaja con <b>{a.n}</b> cliente(s).</div>))}
+            </div>
+            <button onClick={()=>setMatchAlerts([])} style={{marginTop:6,fontSize:11,fontWeight:700,color:"#b45309",background:"transparent",border:"none",cursor:"pointer",textDecoration:"underline"}}>Marcar como vistas</button>
+          </div>
+        )}
+
+        {porCliente.length===0 ? (
+          <div style={{padding:"40px",textAlign:"center",color:B.grey3,fontSize:14,background:"#fff",borderRadius:12,border:"1px dashed "+B.grey1}}>
+            <div style={{fontSize:40,marginBottom:10}}>📭</div>
+            No hay matches ≥ {umbral}. Baja el umbral, o verifica que los clientes tengan presupuesto/zona/uso/superficie capturados.
+          </div>
+        ) : porCliente.map(({cliente,matches})=>{
+          const cid=cidOf(cliente);
+          const visibles = soloPend? matches.filter(m=>estadoDe(cid,m.lote.id)==="pendiente") : matches;
+          if(!visibles.length) return null;
+          return (
+            <div key={cid} style={{background:"#fff",borderRadius:12,border:"1px solid "+B.grey1,boxShadow:"0 2px 10px rgba(0,43,73,0.05)",marginBottom:14,overflow:"hidden"}}>
+              <div style={{padding:"12px 16px",background:B.offW,borderBottom:"1px solid "+B.grey1,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div>
+                  <span style={{fontSize:14,fontWeight:800,color:B.navy}}>👤 {cliente.nombre||"(sin nombre)"}</span>
+                  {cliente.empresa&&<span style={{fontSize:11,color:B.grey4,marginLeft:6}}>· {cliente.empresa}</span>}
+                  <div style={{fontSize:11,color:B.grey3,marginTop:2}}>{[cliente.tipo_comprador,(cliente.ciudad_interes||[]).join("/"),(cliente.uso_interes||[]).join("/")].filter(Boolean).join(" · ")}{cliente.presupuesto_max?(" · ≤ "+fM(cliente.presupuesto_max)):""}</div>
+                </div>
+                <button onClick={()=>{setSelectedClient(cliente);setView("matchClient");}} style={{padding:"7px 12px",borderRadius:8,border:"1px solid "+B.navy,background:"#eef4fb",color:B.navy,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🎯 Abrir en Cliente→Lotes</button>
+              </div>
+              <div style={{padding:"6px 10px"}}>
+                {visibles.map(m=>{ const l=m.lote; const est=estadoDe(cid,l.id); return (
+                  <div key={l.id} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 8px",borderBottom:"1px solid "+B.grey1,flexWrap:"wrap"}}>
+                    {chip(m.score)}
+                    <div style={{flex:1,minWidth:200}}>
+                      <div style={{fontSize:13,fontWeight:700,color:B.navy}}>{l.nombre||l.id} <span style={{fontSize:11,fontWeight:600,color:B.grey4}}>· {[l.colonia,l.ciudad].filter(Boolean).join(", ")}</span></div>
+                      <div style={{fontSize:11,color:B.grey3,marginTop:1}}>{num(l.sup_m2).toLocaleString("es-MX")} m² · {fM(l.precio_total)} · {l.uso||"—"} · {m.razones.join(" · ")||"—"}</div>
+                    </div>
+                    <select value={est} onChange={e=>setEstado(cid,l.id,e.target.value)} style={{padding:"5px 8px",borderRadius:7,border:"1px solid "+B.grey1,fontSize:11,fontWeight:700,color:est==="cerrado"?"#16a34a":est==="contactado"?"#b45309":B.grey4,background:"#fff",fontFamily:"'DM Sans',sans-serif"}}>
+                      <option value="pendiente">📇 Pendiente</option>
+                      <option value="contactado">📞 Contactado</option>
+                      <option value="cerrado">✅ Cerrado</option>
+                    </select>
+                    <button onClick={()=>{setSelectedLot(l);setView("matchLot");}} style={{padding:"5px 10px",borderRadius:7,border:"1px solid "+B.grey1,background:"#fff",color:B.navy,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver lote</button>
+                    <button onClick={()=>avisar(cliente,l,m.score)} title={cliente.correo||cliente.email?("Avisar a "+(cliente.asesor||"asesor")):"Sin correo del cliente"} style={{padding:"5px 10px",borderRadius:7,border:"none",background:"#25d366",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✉️ Avisar</button>
+                  </div>
+                ); })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   // ─── RENDER ───────────────────────────────────────────────────────
   return (
     <div style={s.app}>
@@ -18297,7 +18433,7 @@ Respuesta: [respuesta exacta, conversacional]
           <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.2</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["documentos","📄 Documentos"],["dashboard","📊 Dashboard"],["crm","🎯 CRM"+crmNavCount],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Opción"],["asesores","🤝 Buscando"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["documentos","📄 Documentos"],["dashboard","📊 Dashboard"],["crm","🎯 CRM"+crmNavCount],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Opción"],["asesores","🤝 Buscando"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["matches","📋 Matches"+(matchAlerts.length?" ("+matchAlerts.length+")":"")],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
@@ -18351,6 +18487,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="asesores"&&<ViewAsesores/>}
       {view==="captacion"&&<ViewCaptacion/>}
       {view==="comparador"&&<ViewComparador/>}
+      {view==="matches"&&<ViewMatches/>}
       {/* ⚖️ Barra flotante del Comparador (Spec 61) — visible al seleccionar lotes, fuera de la propia vista */}
       {compararIds.length>0 && view!=="comparador" && (
         <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:2147483000,background:"#002B49",color:"#fff",padding:"12px 18px",display:"flex",alignItems:"center",justifyContent:"center",gap:14,flexWrap:"wrap",boxShadow:"0 -6px 24px rgba(0,0,0,.25)",fontFamily:"'DM Sans',sans-serif"}}>
