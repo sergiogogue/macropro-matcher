@@ -4603,6 +4603,16 @@ function MacroProMatcher({ sessionEmail } = {}) {
             <button style={s.btn("primary")} onClick={abrirNuevoCliente}>➕ Nuevo cliente</button>
           </div>
         </div>
+        {selectedClient && (()=>{
+          const inv0=Array.isArray(inventory)?inventory:[];
+          const ms=inv0.map(l=>({l,r:scoreClienteLote(selectedClient,l)})).filter(x=>!x.r.descalificado&&!x.r.na&&x.r.score>=60).sort((a,b)=>b.r.score-a.r.score);
+          if(!ms.length) return (<div style={{margin:"0 0 14px",padding:"8px 14px",borderRadius:9,background:"#f1f5f9",border:"1px solid "+B.grey1,color:B.grey4,fontSize:12.5,fontWeight:600}}>✨ Sin coincidencias ≥60 para este cliente — ajusta el umbral en 📋 Matches.</div>);
+          const best=ms[0];
+          return (<div style={{margin:"0 0 14px",padding:"9px 14px",borderRadius:9,background:"#eef4fb",border:"1px solid "+B.gold+"66",color:B.navy,fontSize:12.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+            <span>✨ Este cliente encaja con <b>{ms.length}</b> {ms.length===1?"lote":"lotes"} · mejor: <b>{best.l.nombre||best.l.id}</b> ({best.r.score})</span>
+            <button onClick={()=>setView("matches")} style={{padding:"5px 12px",borderRadius:7,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver →</button>
+          </div>);
+        })()}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18}}>
           <div>
             <div style={{fontSize:12,fontWeight:700,color:B.navy,marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
@@ -4804,6 +4814,16 @@ function MacroProMatcher({ sessionEmail } = {}) {
           <button style={s.btn("ghost")} onClick={()=>setView("home")}>← Inicio</button>
           <div><div style={s.sectionTitle}>Lote → Clientes</div><div style={s.sectionSub}>Selecciona lote y filtra los clientes</div></div>
         </div>
+        {selectedLot && (()=>{
+          const cls0=Array.isArray(clients)?clients:[];
+          const ms=cls0.map(c=>({c,r:scoreClienteLote(c,selectedLot)})).filter(x=>!x.r.descalificado&&!x.r.na&&x.r.score>=60).sort((a,b)=>b.r.score-a.r.score);
+          if(!ms.length) return (<div style={{margin:"0 0 14px",padding:"8px 14px",borderRadius:9,background:"#f1f5f9",border:"1px solid "+B.grey1,color:B.grey4,fontSize:12.5,fontWeight:600}}>✨ Sin coincidencias ≥60 para este lote — ajusta el umbral en 📋 Matches.</div>);
+          const best=ms[0];
+          return (<div style={{margin:"0 0 14px",padding:"9px 14px",borderRadius:9,background:"#eef4fb",border:"1px solid "+B.gold+"66",color:B.navy,fontSize:12.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+            <span>✨ Este lote encaja con <b>{ms.length}</b> {ms.length===1?"cliente":"clientes"} · mejor: <b>{best.c.nombre||"(sin nombre)"}</b> ({best.r.score})</span>
+            <button onClick={()=>setView("matches")} style={{padding:"5px 12px",borderRadius:7,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver →</button>
+          </div>);
+        })()}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18}}>
           <div>
             <div style={{fontSize:12,fontWeight:700,color:B.navy,marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
