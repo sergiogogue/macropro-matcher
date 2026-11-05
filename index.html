@@ -4544,6 +4544,34 @@ function MacroProMatcher({ sessionEmail } = {}) {
           <div style={s.stat}><span style={s.statNum}>{fmtM(srcInv.reduce((a,l)=>a+l.precio_total,0))}</span><span style={s.statLabel}>Valor portafolio</span></div>
         </div>
       </div>
+      {/* Back-Office "Option Engine": Home apunta solo a las vistas visibles */}
+      <div style={{marginBottom:10}}>
+        <div style={s.sectionTitle}>Back-Office · Captación</div>
+        <div style={s.sectionSub}>MacroPro en modo Option Engine: captura terrenos, cruza con tu cartera y administra.</div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginBottom:16}}>
+        <div style={{...s.modeCard(false),gridColumn:"span 1"}} onClick={()=>setView("captacion")} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-4px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <div style={s.modeIcon}>🌱</div>
+          <div style={s.modeTitle}>Opción / Captación</div>
+          <div style={s.modeSub}>Registra un terreno, sube documentos y cruza con tus clientes.</div>
+          <div style={{marginTop:"auto"}}><button style={s.btn("primary")} onClick={e=>{e.stopPropagation();setView("captacion");}}>Ir a Captación →</button></div>
+        </div>
+        <div style={{...s.modeCard(false),gridColumn:"span 1"}} onClick={()=>setView("documentos")} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-4px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <div style={s.modeIcon}>📄</div>
+          <div style={s.modeTitle}>Documentos</div>
+          <div style={s.modeSub}>Consulta y gestiona la documentación.</div>
+          <div style={{marginTop:"auto"}}><button style={s.btn("navy")} onClick={e=>{e.stopPropagation();setView("documentos");}}>Ver documentos →</button></div>
+        </div>
+        <div style={{...s.modeCard(false),gridColumn:"span 1",background:`linear-gradient(135deg,${B.gold}12,${B.white})`,border:`2px solid ${B.gold}40`}} onClick={()=>setView("admin")} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-4px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <div style={s.modeIcon}>⚙️</div>
+          <div style={s.modeTitle}>Admin</div>
+          <div style={s.modeSub}>Aprobar para publicar y administración del back-office.</div>
+          <div style={{marginTop:"auto"}}><button style={s.btn("primary")} onClick={e=>{e.stopPropagation();setView("admin");}}>Ir a Admin →</button></div>
+        </div>
+      </div>
+      {/* DEPRECADO (Option Engine): accesos a vistas viejas (Cliente→Lotes, Lote→Clientes, Búsqueda,
+          Dashboard, Clientes, Inventario). Preservado — render desactivado con {false &&}. Reversible. */}
+      {false && (<div>
       <div style={{marginBottom:10}}>
         <div style={s.sectionTitle}>¿Qué análisis quieres hacer?</div>
         <div style={s.sectionSub}>Elige el modo de cruce según tu necesidad del momento</div>
@@ -4576,6 +4604,13 @@ function MacroProMatcher({ sessionEmail } = {}) {
         <button style={s.btn("ghost")} onClick={()=>recargarInventarioCloud({manual:true})} title="El inventario vive en la plataforma (landing). Aquí solo se consulta.">🔄 Actualizar inventario</button>
         <button style={s.btn("ghost")} onClick={()=>setView("clients")}>👥 Gestionar Clientes</button>
         <button style={s.btn("ghost")} onClick={()=>setView("lots")}>📦 Ver Inventario</button>
+        <button style={{...s.btn("ghost"),borderColor:B.gold,color:B.goldD}} onClick={()=>setView("admin")}>⚙️ Administrador</button>
+      </div>
+      </div>)}
+      {/* Back-Office "Option Engine": barra de acciones visible (solo vistas permitidas) */}
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4}}>
+        <button style={{...s.btn("primary"),padding:"13px 26px",fontSize:14,boxShadow:`0 4px 20px ${B.gold}44`}} onClick={()=>setView("captacion")}>🌱 Nueva Opción / Captación</button>
+        <button style={s.btn("ghost")} onClick={()=>recargarInventarioCloud({manual:true})} title="El inventario vive en la plataforma (landing). Aquí solo se consulta.">🔄 Actualizar inventario</button>
         <button style={{...s.btn("ghost"),borderColor:B.gold,color:B.goldD}} onClick={()=>setView("admin")}>⚙️ Administrador</button>
       </div>
       {(inventory.length===0||clients.length===0)&&(
