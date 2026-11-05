@@ -15468,9 +15468,13 @@ Respuesta: [respuesta exacta, conversacional]
     return { ok:faltan.length===0, faltan };
   };
   // Back-Office (Tarea 4): aprobar una captación y PUBLICARLA en vitrina_propiedades (Landing).
-  // estatus='disponible' + nivel_ficha='en_vitrina' (no existe 'publicado'). Solo INSERT; respeta el esquema.
+  // estatus='disponible' + nivel_ficha='en_vitrina' (no existe 'publicado'). Respeta el esquema.
+  // Fix de duplicados: UPSERT SEGURO por folio (busca antes; update si existe, insert si no).
+  // El folio es DETERMINISTA por captación ("GG-VIT-"+id), así re-publicar NO duplica.
+  // Respaldo en DB: índice único parcial (sql/vitrina_dedup_folio.sql).
   const aprobarYPublicar = async (c)=>{
     if(!c) return;
+    if(!c.id){ toast("⚠ Guarda la captación antes de publicar (necesita id)"); return; }
     const chk = listoParaPublicar(c);
     if(!chk.ok){ toast("⚠ Falta para publicar: "+chk.faltan.join(" · ")); return; }
     if(!window.sb){ toast("⚠ Sin conexión a Supabase"); return; }
@@ -15486,8 +15490,9 @@ Respuesta: [respuesta exacta, conversacional]
       let lat=null,lng=null; const mm=String(c.ligaMaps||"").match(/(-?\d{1,2}\.\d{3,}),\s*(-?\d{1,3}\.\d{3,})/); if(mm){ lat=parseFloat(mm[1]); lng=parseFloat(mm[2]); }
       const hoy=new Date().toISOString().slice(0,10);
       const vig=(()=>{ const d=new Date(); d.setDate(d.getDate()+90); return d.toISOString().slice(0,10); })();
+      const folio = "GG-VIT-"+c.id;   // determinista por captación → dedup por folio
       const row = {
-        folio: "GG-VIT-"+(c.id||Date.now()), origen: "macropro",
+        folio, origen: "macropro",
         tipo, operacion:"venta", nivel_ficha:"en_vitrina", estatus:"disponible", tipo_opcion:tipoOpcion,
         titulo: (c.zona||c.propietario||"Terreno")+(c.ciudad?(" · "+c.ciudad):""),
         descripcion: c.notas||null,
@@ -15502,9 +15507,29 @@ Respuesta: [respuesta exacta, conversacional]
         asesor_email: uemail||null, asesor_usuario_id: uid, verificado_por: uid,
         notas_colaboracion: c.esquema_comision? ("Esquema de comisión: "+c.esquema_comision) : null,
       };
-      const { error } = await window.sb.from('vitrina_propiedades').insert(row);
-      if(error) throw error;
-      toast("🚀 Publicado en vitrina: "+(c.propietario||c.zona||c.id));
+      // UPSERT SEGURO: ¿ya existe esta captación publicada (mismo folio+origen)?
+      const { data: existentes, error: selErr } = await window.sb
+        .from('vitrina_propiedades').select('id').eq('origen','macropro').eq('folio', folio).limit(1);
+      if(selErr) throw selErr;
+      if(existentes && existentes.length){
+        // Ya estaba publicada → ACTUALIZA los datos, pero NO pisa `estatus`:
+        // el ciclo de vida (vendido/apartado/baja) lo maneja la Landing. Solo re-afirma en_vitrina.
+        const { estatus, ...rowSinEstatus } = row;
+        const { error: updErr } = await window.sb.from('vitrina_propiedades')
+          .update({ ...rowSinEstatus, updated_at: new Date().toISOString() }).eq('id', existentes[0].id);
+        if(updErr) throw updErr;
+        toast("♻ Vitrina actualizada (ya estaba publicada): "+(c.propietario||c.zona||c.id));
+      } else {
+        const { error: insErr } = await window.sb.from('vitrina_propiedades').insert(row);
+        if(insErr){
+          // Carrera / índice único parcial: si choca por duplicado, no es fatal.
+          if(/duplicate key|unique|23505/i.test(String((insErr&&insErr.message)||insErr))){
+            toast("♻ Ya estaba publicada en vitrina (no se duplicó).");
+          } else { throw insErr; }
+        } else {
+          toast("🚀 Publicado en vitrina: "+(c.propietario||c.zona||c.id));
+        }
+      }
       upsertCaptacion({...c, publicadoVitrina:true, publicadoVitrinaAt:new Date().toISOString()});
     }catch(e){ toast("❌ No se pudo publicar: "+((e&&e.message)||e)); }
   };
