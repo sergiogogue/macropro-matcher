@@ -2482,7 +2482,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
     respuestas:(()=>{ const v=r.respuestas; if(Array.isArray(v)) return v; if(typeof v==="string"&&v){ try{ return JSON.parse(v); }catch(e){ return []; } } return []; })(),
     loteInventarioId:r.lote_inventario_id||"",
     esquema_comision:r.esquema_comision||"", acepta_privacidad:!!r.acepta_privacidad, acepta_responsabilidad:!!r.acepta_responsabilidad, viabilidad_100:!!r.viabilidad_100,
-    firma_nombre:r.firma_nombre||"", firma_fecha:r.firma_fecha||null, firma_ip:r.firma_ip||""
+    firma_nombre:r.firma_nombre||"", firma_fecha:r.firma_fecha||null, firma_ip:r.firma_ip||"",
+    // Aprobación para publicar (la LANDING la inserta en lotes; MacroPro solo marca)
+    aprobadaPublicar:!!r.aprobada_publicar, aprobadaAt:r.aprobada_at||null, aprobadaPor:r.aprobada_por||"", publicadaLoteId:r.publicada_lote_id||""
   });
   const filaDeCaptacion = (c)=>({
     id:c.id, pipeline:c.pipeline||"Nueva opción",
@@ -2504,6 +2506,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
     esquema_comision:c.esquema_comision||null,
     acepta_privacidad:!!c.acepta_privacidad, acepta_responsabilidad:!!c.acepta_responsabilidad, viabilidad_100:!!c.viabilidad_100,
     firma_nombre:c.firma_nombre||null, firma_fecha:c.firma_fecha||null, firma_ip:c.firma_ip||null,
+    // Aprobación para publicar (la LANDING la inserta en lotes; MacroPro solo marca)
+    aprobada_publicar:!!c.aprobadaPublicar, aprobada_at:c.aprobadaAt||null, aprobada_por:c.aprobadaPor||null, publicada_lote_id:c.publicadaLoteId||null,
     eliminado:false, updated_at:new Date().toISOString()
   });
   const subirCaptacionCloud = async (c)=>{
@@ -2515,8 +2519,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
     }catch(e){
       // Reintento SIN las columnas de autorización (por si aún no se corre el SQL que las crea).
       const msg = String((e&&e.message)||e||"");
-      if(/precio_autorizado|observaciones_autorizacion|respuestas|esquema_comision|acepta_privacidad|acepta_responsabilidad|viabilidad_100|firma_nombre|firma_fecha|firma_ip|schema cache|column|PGRST204/i.test(msg)){
-        const { precio_autorizado, observaciones_autorizacion, respuestas, esquema_comision, acepta_privacidad, acepta_responsabilidad, viabilidad_100, firma_nombre, firma_fecha, firma_ip, ...base } = row;
+      if(/precio_autorizado|observaciones_autorizacion|respuestas|esquema_comision|acepta_privacidad|acepta_responsabilidad|viabilidad_100|firma_nombre|firma_fecha|firma_ip|aprobada_publicar|aprobada_at|aprobada_por|publicada_lote_id|schema cache|column|PGRST204/i.test(msg)){
+        const { precio_autorizado, observaciones_autorizacion, respuestas, esquema_comision, acepta_privacidad, acepta_responsabilidad, viabilidad_100, firma_nombre, firma_fecha, firma_ip, aprobada_publicar, aprobada_at, aprobada_por, publicada_lote_id, ...base } = row;
         try{ await window.sb.from('captaciones').upsert(base, { onConflict:'id' }); }
         catch(e2){ console.warn('subir captación (fallback):', e2&&e2.message); }
       }else{ console.warn('subir captación:', msg); }
@@ -5997,10 +6001,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
           </div>
           <div style={{...s.sectionSub,marginBottom:18}}>Carga y administra aquí los datos del negocio. Todo se guarda en la nube y lo leen TODAS las apps (MacroPro, Cotizador, Intelligence, Presentaciones, Hub).</div>
           {!sb&&<div style={{padding:16,background:B.redL,color:B.red,borderRadius:10,fontSize:13,marginBottom:14}}>Sin conexión a Supabase — inicia sesión para administrar.</div>}
-          {(()=>{ const cands=(captaciones||[]).filter(c=>c&&!c.eliminado&&!c.publicadoVitrina); return (
+          {(()=>{ const cands=(captaciones||[]).filter(c=>c&&!c.eliminado&&!c.aprobadaPublicar); return (
             <div style={{marginBottom:18,background:B.white,border:"1px solid "+B.grey1,borderRadius:12,padding:"14px 16px",boxShadow:"0 2px 10px rgba(0,43,73,0.05)"}}>
-              <div style={{fontSize:14,fontWeight:800,color:B.navy,marginBottom:4}}>🚀 Aprobar y Publicar a Vitrina (Dirección)</div>
-              <div style={{fontSize:11,color:B.grey3,marginBottom:10}}>Publica la captación al escaparate (vitrina_propiedades) de la Landing. Requiere: Fotos (4), Plano, Certificado de uso de suelo, KMZ, liga de Maps y firma digital.</div>
+              <div style={{fontSize:14,fontWeight:800,color:B.navy,marginBottom:4}}>✅ Aprobar para publicar · Macrolotes (Dirección)</div>
+              <div style={{fontSize:11,color:B.grey3,marginBottom:10}}>Aprueba la captación para que la Landing la publique en el catálogo de macrolotes (tabla lotes). MacroPro NO escribe el inventario. Requiere: Fotos (4), Plano, Certificado de uso de suelo, KMZ, liga de Maps y firma digital.</div>
               {cands.length===0? <div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>No hay captaciones pendientes de publicar.</div> :
                 <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:"46vh",overflowY:"auto"}}>
                   {cands.map(c=>{ const chk=listoParaPublicar(c); return (
@@ -6009,7 +6013,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
                         <div style={{fontSize:13,fontWeight:700,color:B.navy}}>{c.propietario||c.zona||c.id}{c.ciudad&&<span style={{fontSize:11,fontWeight:600,color:B.grey4}}> · {c.ciudad}</span>}</div>
                         <div style={{fontSize:11,marginTop:2,color:chk.ok?"#15803d":"#b45309"}}>{chk.ok?"✅ Listo para publicar":("Falta: "+chk.faltan.join(" · "))}</div>
                       </div>
-                      <button disabled={!chk.ok} onClick={()=>aprobarYPublicar(c)} style={{padding:"8px 14px",borderRadius:8,border:"none",background:chk.ok?"#16a34a":B.grey1,color:chk.ok?"#fff":B.grey3,fontSize:12,fontWeight:800,cursor:chk.ok?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif"}}>🚀 Aprobar y Publicar</button>
+                      <button disabled={!chk.ok} onClick={()=>aprobarYPublicar(c)} style={{padding:"8px 14px",borderRadius:8,border:"none",background:chk.ok?"#16a34a":B.grey1,color:chk.ok?"#fff":B.grey3,fontSize:12,fontWeight:800,cursor:chk.ok?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif"}}>✅ Aprobar para publicar</button>
                     </div>
                   ); })}
                 </div>}
@@ -15467,12 +15471,26 @@ Respuesta: [respuesta exacta, conversacional]
     if(!((c&&c.firma_nombre||"").trim())) faltan.push("Firma digital");
     return { ok:faltan.length===0, faltan };
   };
-  // Back-Office (Tarea 4): aprobar una captación y PUBLICARLA en vitrina_propiedades (Landing).
-  // estatus='disponible' + nivel_ficha='en_vitrina' (no existe 'publicado'). Respeta el esquema.
-  // Fix de duplicados: UPSERT SEGURO por folio (busca antes; update si existe, insert si no).
-  // El folio es DETERMINISTA por captación ("GG-VIT-"+id), así re-publicar NO duplica.
-  // Respaldo en DB: índice único parcial (sql/vitrina_dedup_folio.sql).
+  // ════════════════════════════════════════════════════════════════════
+  // Aprobar una captación PARA PUBLICAR en el catálogo de MACROLOTES.
+  // DECISIÓN (2026-11-05): MacroPro NO escribe lotes/vitrina. Solo MARCA la captación
+  // como aprobada; la LANDING la lee e inserta en `lotes` con sus reglas (clave_unica no
+  // nula, id minúscula, upsert por clave → anti-duplicados). Respeta "la Landing es la
+  // única que escribe lotes" + MP_READONLY_SHARED. Columnas: sql/captaciones_aprobacion_publicar.sql
+  // ════════════════════════════════════════════════════════════════════
   const aprobarYPublicar = async (c)=>{
+    if(!c) return;
+    if(!c.id){ toast("⚠ Guarda la captación antes de aprobar"); return; }
+    const chk = listoParaPublicar(c);
+    if(!chk.ok){ toast("⚠ Falta para publicar: "+chk.faltan.join(" · ")); return; }
+    if(!window.confirm("¿Aprobar «"+(c.propietario||c.zona||c.id)+"» para el catálogo de macrolotes?\n\nLa Landing la publicará (MacroPro no escribe el inventario).")) return;
+    let uemail=null; try{ const u=window.sb&&await window.sb.auth.getUser(); uemail=(u&&u.data&&u.data.user&&u.data.user.email)||null; }catch(e){}
+    upsertCaptacion({ ...c, aprobadaPublicar:true, aprobadaAt:new Date().toISOString(), aprobadaPor:uemail });
+    toast("✅ Aprobada para publicar. La Landing la agregará al catálogo de macrolotes.");
+  };
+  // ── DEPRECADO (2026-11-05): publicaba DIRECTO a vitrina_propiedades desde MacroPro.
+  //    Se conserva por referencia (Regla de Oro #2: no borrar hasta validar). NO se invoca.
+  const aprobarYPublicarVitrina_DEPRECADO = async (c)=>{
     if(!c) return;
     if(!c.id){ toast("⚠ Guarda la captación antes de publicar (necesita id)"); return; }
     const chk = listoParaPublicar(c);
