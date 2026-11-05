@@ -6004,6 +6004,13 @@ function MacroProMatcher({ sessionEmail } = {}) {
       })();
       return ()=>{ alive=false; };
     },[]);
+    // FASE D: mapa captacion_id → [estatus...] de captaciones_legal (para el gate de publicar)
+    const [legalMap,setLegalMap]=useState({});
+    React.useEffect(()=>{
+      if(!sb) return; let alive=true;
+      (async()=>{ try{ const { data } = await sb.from('captaciones_legal').select('captacion_id,estatus'); if(!alive) return; const m={}; (data||[]).forEach(r=>{ (m[r.captacion_id]=m[r.captacion_id]||[]).push(r.estatus); }); setLegalMap(m); }catch(e){} })();
+      return ()=>{ alive=false; };
+    },[]);
     const startEdit=(r)=>{ setEditId(r.id); setDraft({...r}); };
     const cancel=()=>{ setEditId(null); setDraft({}); };
     const setF=(k,v)=>setDraft(d=>({...d,[k]:v}));
@@ -6053,13 +6060,13 @@ function MacroProMatcher({ sessionEmail } = {}) {
               <div style={{fontSize:11,color:B.grey3,marginBottom:10}}>Aprueba la captación para que la Landing la publique en el catálogo de macrolotes (tabla lotes). MacroPro NO escribe el inventario. Requiere: Fotos (4), Plano, Certificado de uso de suelo, KMZ, liga de Maps y firma digital.</div>
               {cands.length===0? <div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>No hay captaciones pendientes de publicar.</div> :
                 <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:"46vh",overflowY:"auto"}}>
-                  {cands.map(c=>{ const chk=listoParaPublicar(c); return (
+                  {cands.map(c=>{ const chk=listoParaPublicar(c); const le=legalMap[c.id]||[]; const legalPend=le.filter(s=>s!=="aprobado").length; const legalOk=le.length===0||legalPend===0; const puede=chk.ok&&legalOk; return (
                     <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"9px 11px",borderRadius:9,border:"1px solid "+B.grey1,background:B.offW,flexWrap:"wrap"}}>
                       <div style={{minWidth:200,flex:1}}>
                         <div style={{fontSize:13,fontWeight:700,color:B.navy}}>{c.propietario||c.zona||c.id}{c.ciudad&&<span style={{fontSize:11,fontWeight:600,color:B.grey4}}> · {c.ciudad}</span>}</div>
-                        <div style={{fontSize:11,marginTop:2,color:chk.ok?"#15803d":"#b45309"}}>{chk.ok?"✅ Listo para publicar":("Falta: "+chk.faltan.join(" · "))}</div>
+                        <div style={{fontSize:11,marginTop:2,color:puede?"#15803d":"#b45309"}}>{puede?"✅ Listo para publicar":(!chk.ok?("Falta: "+chk.faltan.join(" · ")):("⚖️ Expediente legal: "+legalPend+" doc(s) por aprobar"))}</div>
                       </div>
-                      <button disabled={!chk.ok} onClick={()=>aprobarYPublicar(c)} style={{padding:"8px 14px",borderRadius:8,border:"none",background:chk.ok?"#16a34a":B.grey1,color:chk.ok?"#fff":B.grey3,fontSize:12,fontWeight:800,cursor:chk.ok?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif"}}>✅ Aprobar para publicar</button>
+                      <button disabled={!puede} onClick={()=>aprobarYPublicar(c)} style={{padding:"8px 14px",borderRadius:8,border:"none",background:puede?"#16a34a":B.grey1,color:puede?"#fff":B.grey3,fontSize:12,fontWeight:800,cursor:puede?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif"}}>✅ Aprobar para publicar</button>
                     </div>
                   ); })}
                 </div>}
@@ -15529,6 +15536,25 @@ Respuesta: [respuesta exacta, conversacional]
     try{ await navigator.clipboard.writeText(url); toast("🔗 Liga Mágica copiada al portapapeles"); }
     catch(e){ try{ window.prompt("Copia la Liga Mágica:", url); }catch(_){ toast(url); } }
   };
+  // FASE D: Expediente Legal — documentos que sube el propietario (tabla captaciones_legal).
+  const [legalDocs, setLegalDocs] = React.useState([]);
+  const cargarLegalModal = React.useCallback(async (capId)=>{
+    if(!window.sb || !capId){ setLegalDocs([]); return; }
+    try{ const { data } = await window.sb.from('captaciones_legal').select('*').eq('captacion_id', capId).order('created_at'); setLegalDocs(Array.isArray(data)?data:[]); }
+    catch(e){ setLegalDocs([]); }
+  }, []);
+  React.useEffect(()=>{
+    if(showCaptacionModal && editingCaptacion && editingCaptacion.id) cargarLegalModal(editingCaptacion.id);
+    else setLegalDocs([]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCaptacionModal, editingCaptacion && editingCaptacion.id]);
+  const setEstatusLegal = async (docId, estatus)=>{
+    if(!window.sb || !docId) return;
+    try{ const { error } = await window.sb.from('captaciones_legal').update({ estatus }).eq('id', docId); if(error) throw error;
+      setLegalDocs(prev=>prev.map(d=>d.id===docId?{...d, estatus}:d));
+      toast(estatus==='aprobado'?"✅ Documento aprobado":"❌ Documento rechazado");
+    }catch(e){ toast("⚠ "+((e&&e.message)||e)); }
+  };
   // Cross-Check (Option Engine): dado el terreno en captación, pide a api-matching el Top 3 de
   // CLIENTES compatibles (modo lote→clientes). Requiere redeploy de la Edge Function con ese modo.
   const buscarClientesCompatiblesCaptacion = async (f)=>{
@@ -18947,6 +18973,34 @@ Respuesta: [respuesta exacta, conversacional]
                         <input style={inStyle} value={f.firma_nombre||""} onChange={e=>{ const v=e.target.value; setF({firma_nombre:v, firma_fecha: v.trim()? (f.firma_fecha||new Date().toISOString()) : null}); }} placeholder="Escribe tu nombre completo"/>
                         {f.firma_nombre&&f.firma_fecha&&<div style={{fontSize:10,color:B.grey3,marginTop:3}}>Firmado: {(()=>{try{return new Date(f.firma_fecha).toLocaleString("es-MX",{dateStyle:"medium",timeStyle:"short"});}catch(e){return "";}})()}</div>}
                       </div>
+                    </div>
+                    {/* ⚖️ Expediente Legal (FASE D): documentos que sube el propietario vía Liga Mágica */}
+                    <div style={{marginBottom:12,padding:"12px 14px",borderRadius:10,border:"1px solid "+B.grey1,background:"#fbfdff"}}>
+                      <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>⚖️ Expediente Legal <span style={{fontSize:10,fontWeight:700,color:B.grey4}}>(lo sube el dueño con la Liga Mágica)</span></div>
+                      {legalDocs.length===0 ? (
+                        <div style={{fontSize:11,color:B.grey4,fontStyle:"italic"}}>Sin documentos del propietario todavía. Comparte la Liga Mágica (botón de arriba).</div>
+                      ) : (
+                        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                          {legalDocs.map(d=>{
+                            const col = d.estatus==="aprobado"?"#15803d":(d.estatus==="rechazado"?"#dc2626":"#b45309");
+                            return (
+                              <div key={d.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:8,background:B.white}}>
+                                <div style={{minWidth:160,flex:1}}>
+                                  <div style={{fontSize:12,fontWeight:700,color:B.navy}}>{d.tipo_documento||"Documento"}{d.url&&<a href={d.url} target="_blank" rel="noopener noreferrer" style={{marginLeft:8,fontSize:11,fontWeight:700,color:"#1d4ed8"}}>ver ↗</a>}</div>
+                                  <div style={{fontSize:10,fontWeight:700,color:col,textTransform:"uppercase"}}>{d.estatus||"pendiente"}</div>
+                                </div>
+                                <div style={{display:"flex",gap:6}}>
+                                  <button onClick={()=>setEstatusLegal(d.id,"aprobado")} disabled={d.estatus==="aprobado"} style={{padding:"6px 10px",borderRadius:7,border:"none",background:d.estatus==="aprobado"?B.grey1:"#16a34a",color:"#fff",fontSize:11,fontWeight:800,cursor:d.estatus==="aprobado"?"default":"pointer",fontFamily:"'DM Sans',sans-serif"}}>Aprobar</button>
+                                  <button onClick={()=>setEstatusLegal(d.id,"rechazado")} disabled={d.estatus==="rechazado"} style={{padding:"6px 10px",borderRadius:7,border:"1px solid #dc2626",background:d.estatus==="rechazado"?B.grey1:B.white,color:d.estatus==="rechazado"?B.grey3:"#dc2626",fontSize:11,fontWeight:800,cursor:d.estatus==="rechazado"?"default":"pointer",fontFamily:"'DM Sans',sans-serif"}}>Rechazar</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {(()=>{ const pend=legalDocs.filter(d=>d.estatus!=="aprobado").length; return (
+                            <div style={{fontSize:11,fontWeight:700,color:pend===0?"#15803d":"#b45309",marginTop:2}}>{pend===0?"✅ Expediente legal completo (todo aprobado)":("⏳ "+pend+" documento(s) por aprobar antes de publicar")}</div>
+                          ); })()}
+                        </div>
+                      )}
                     </div>
                     <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>📄 Documentos y seguimiento</div>
                     <div><span style={lbStyle}>Documentos (escrituras, predial, etc.)</span><input style={inStyle} value={f.documentos||""} onChange={e=>setF({documentos:e.target.value})} placeholder="Qué tenemos / qué falta"/></div>
