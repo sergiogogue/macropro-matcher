@@ -171,6 +171,13 @@
     <button id="another" type="button">Registrar otra opción</button>
   </div>
 
+  <!-- FASE C · Portal del propietario (Liga Mágica): visible SOLO con ?token= -->
+  <div class="card" id="portal" style="display:none; margin-top:14px">
+    <div class="body" id="portalBody">
+      <div style="text-align:center; color:var(--mut); font-size:14px; padding:24px">Cargando tu expediente…</div>
+    </div>
+  </div>
+
   <p class="note">Grupo Guía · MacroPro — Semáforo para opción</p>
 </div>
 
@@ -282,6 +289,115 @@ $("#another").addEventListener("click", () => {
   btn.disabled = false; btn.textContent = "Enviar opción →";
   window.scrollTo({top:0,behavior:"smooth"});
 });
+
+// ════════════════════════════════════════════════════════════════════
+// FASE C · Portal del propietario (Liga Mágica) — se activa solo con ?token=
+// El dueño ve el avance de su expediente y sube documentos legales. NO ve
+// precios ni comisiones (la RPC legal_estado solo devuelve datos seguros).
+// ════════════════════════════════════════════════════════════════════
+(function(){
+  try{
+    const token = new URLSearchParams(location.search).get("token");
+    if(!token) return;  // sin token → formulario normal de siempre
+    const formCard = document.querySelector(".card:not(.ok-screen)");
+    if(formCard) formCard.style.display = "none";
+    const okCard = document.getElementById("ok"); if(okCard) okCard.style.display = "none";
+    const portal = document.getElementById("portal"); if(portal) portal.style.display = "block";
+    window.__ligaToken = token;
+    cargarPortal(token);
+  }catch(e){}
+})();
+
+const TIPOS_LEGAL = ["INE","Escrituras","Boleta predial","Comprobante de domicilio","Otro"];
+
+async function cargarPortal(token){
+  const body = document.getElementById("portalBody");
+  if(!sb){ body.innerHTML = '<div style="color:#dc2626;padding:20px">No se pudo conectar. Revisa tu internet.</div>'; return; }
+  let est;
+  try{
+    const { data, error } = await sb.rpc("legal_estado", { p_token: token });
+    if(error) throw error;
+    est = data;
+  }catch(e){
+    body.innerHTML = '<div style="color:#dc2626;padding:24px;text-align:center">Este enlace no es válido o expiró.<br>Contacta a tu asesor de Grupo Guía.</div>';
+    return;
+  }
+  const cap = (est && est.captacion) || {};
+  const docs = (est && est.documentos) || [];
+  window.__capId = cap.id || "";
+  const hayDocs = docs.length>0;
+  const todosAprob = hayDocs && docs.every(d=>d.estatus==="aprobado");
+  const paso1 = true;
+  const paso2 = todosAprob;
+  const paso3 = !!cap.aprobada_publicar;
+  const paso4 = !!cap.publicada_lote_id;
+  const step = (ok, activo, icon, titulo, sub)=>`
+    <div style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--line)">
+      <div style="flex:0 0 30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;background:${ok?'#dcfce7':(activo?'#fef3c7':'#eef1f5')}">${ok?'✅':(activo?'⏳':icon)}</div>
+      <div><div style="font-weight:800;color:var(--navy);font-size:14px">${titulo}</div>${sub?('<div style="font-size:12px;color:var(--mut);margin-top:2px">'+sub+'</div>'):''}</div>
+    </div>`;
+  const terreno = [cap.zona, cap.ciudad].filter(Boolean).join(" · ") || "Tu terreno";
+  let html = `
+    <div style="text-align:center;margin-bottom:6px">
+      <div style="font-size:11px;font-weight:800;letter-spacing:1px;color:var(--goldD);text-transform:uppercase">Expediente de tu terreno</div>
+      <div style="font-size:19px;font-weight:800;color:var(--navy);margin-top:2px">${terreno}</div>
+      <div style="font-size:12px;color:var(--mut)">${cap.uso_suelo||""}${cap.superficie?(" · "+cap.superficie+" m²"):""}</div>
+    </div>
+    <div class="sect">Avance de tu expediente</div>
+    ${step(paso1,false,"📋","Datos recibidos","Tu terreno ya está registrado con Grupo Guía.")}
+    ${step(paso2,!paso2,"📄","Documentos legales", paso2?"Documentos completos y aprobados.":"Sube tus documentos abajo (INE, escrituras, etc.).")}
+    ${step(paso3,paso2&&!paso3,"🔎","Revisión de Dirección", paso3?"Aprobado por Dirección.":"Pendiente de revisión interna.")}
+    ${step(paso4,paso3&&!paso4,"🚀","Publicado", paso4?"Tu terreno ya está publicado.":"Se publicará al completar la revisión.")}
+  `;
+  if(hayDocs){
+    html += '<div class="sect">Tus documentos</div>';
+    docs.forEach(d=>{
+      const badge = d.estatus==="aprobado"?'<span style="color:#15803d;font-weight:800">✅ Aprobado</span>'
+        : d.estatus==="rechazado"?'<span style="color:#dc2626;font-weight:800">❌ Rechazado — vuelve a subirlo</span>'
+        : '<span style="color:#b45309;font-weight:800">⏳ En revisión</span>';
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;margin-bottom:7px">
+        <div style="font-size:13px;font-weight:700;color:var(--navy)">${d.tipo_documento||"Documento"}${d.url?(' · <a href="'+d.url+'" target="_blank" rel="noopener" style="color:#1d4ed8;font-weight:700">ver</a>'):''}</div>
+        <div style="font-size:12px">${badge}</div>
+      </div>`;
+    });
+  }
+  if(!paso4){
+    html += '<div class="sect">Subir documentos</div><div class="docbox"><div class="leyenda">Sube aquí tus documentos legales. El equipo los revisará y verás el estatus en esta misma página.</div>';
+    TIPOS_LEGAL.forEach((t,i)=>{
+      const safeT = t.replace(/[^A-Za-zÁÉÍÓÚáéíóúÑñ ]/g,"");
+      html += `<div style="margin-bottom:10px"><label>${t}</label><input type="file" accept=".pdf,image/*" onchange="subirLegal(this, '${safeT}')"><div class="hint" id="hintLegal${i}"></div></div>`;
+    });
+    html += "</div>";
+  }
+  html += '<div id="portalMsg" style="margin-top:10px;font-size:13px"></div>';
+  body.innerHTML = html;
+}
+
+async function subirLegal(input, tipo){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const token = window.__ligaToken, capId = window.__capId || "sin-id";
+  const pMsg = document.getElementById("portalMsg");
+  const setMsg = (t,color)=>{ if(pMsg){ pMsg.textContent=t; pMsg.style.color=color||"var(--mut)"; } };
+  if(!sb || !token){ setMsg("No se pudo conectar. Intenta de nuevo.", "#dc2626"); return; }
+  input.disabled = true;
+  setMsg("Subiendo "+tipo+"…");
+  try{
+    const safe = (file.name||"archivo").replace(/[^a-zA-Z0-9._-]/g,"_");
+    const path = capId + "/legal/" + Date.now() + "_" + safe;
+    const up = await sb.storage.from("captaciones-docs").upload(path, file, { upsert:true, contentType:file.type||undefined });
+    if(up.error) throw up.error;
+    const pu = sb.storage.from("captaciones-docs").getPublicUrl(path);
+    const url = pu && pu.data && pu.data.publicUrl;
+    const { error } = await sb.rpc("legal_subir_doc", { p_token: token, p_tipo: tipo, p_url: url });
+    if(error) throw error;
+    setMsg("✅ "+tipo+" subido. El equipo lo revisará.", "#15803d");
+    cargarPortal(token);
+  }catch(e){
+    input.disabled = false;
+    setMsg("No se pudo subir: "+((e&&e.message)||e), "#dc2626");
+  }
+}
 </script>
 </body>
 </html>
