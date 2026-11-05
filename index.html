@@ -2493,7 +2493,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
     esquema_comision:r.esquema_comision||"", acepta_privacidad:!!r.acepta_privacidad, acepta_responsabilidad:!!r.acepta_responsabilidad, viabilidad_100:!!r.viabilidad_100,
     firma_nombre:r.firma_nombre||"", firma_fecha:r.firma_fecha||null, firma_ip:r.firma_ip||"",
     // Aprobación para publicar (la LANDING la inserta en lotes; MacroPro solo marca)
-    aprobadaPublicar:!!r.aprobada_publicar, aprobadaAt:r.aprobada_at||null, aprobadaPor:r.aprobada_por||"", publicadaLoteId:r.publicada_lote_id||""
+    aprobadaPublicar:!!r.aprobada_publicar, aprobadaAt:r.aprobada_at||null, aprobadaPor:r.aprobada_por||"", publicadaLoteId:r.publicada_lote_id||"",
+    ligaToken:r.liga_token||""   // Liga Mágica (solo lectura; NO se re-sube para no pisar el token del DB)
   });
   const filaDeCaptacion = (c)=>({
     id:c.id, pipeline:c.pipeline||"Nueva opción",
@@ -15516,6 +15517,18 @@ Respuesta: [respuesta exacta, conversacional]
     if(!((c&&c.firma_nombre||"").trim())) faltan.push("Firma digital");
     return { ok:faltan.length===0, faltan };
   };
+  // Liga Mágica: copia el link único del propietario (captar.html?token=...) para su expediente legal.
+  const copiarLigaMagica = async (f)=>{
+    if(!f||!f.id){ toast("⚠ Guarda la captación primero"); return; }
+    let token = f.ligaToken;
+    if(!token && window.sb){
+      try{ const { data } = await window.sb.from('captaciones').select('liga_token').eq('id', f.id).limit(1); token=(data&&data[0]&&data[0].liga_token)||""; if(token) setEditingCaptacion(prev=>({ ...prev, ligaToken:token })); }catch(e){}
+    }
+    if(!token){ toast("⚠ Aún no hay liga (guarda y espera la sync, o corre el SQL de Liga Mágica)"); return; }
+    const url = "https://sergiogogue.github.io/macropro-matcher/captar.html?token="+token;
+    try{ await navigator.clipboard.writeText(url); toast("🔗 Liga Mágica copiada al portapapeles"); }
+    catch(e){ try{ window.prompt("Copia la Liga Mágica:", url); }catch(_){ toast(url); } }
+  };
   // Cross-Check (Option Engine): dado el terreno en captación, pide a api-matching el Top 3 de
   // CLIENTES compatibles (modo lote→clientes). Requiere redeploy de la Edge Function con ese modo.
   const buscarClientesCompatiblesCaptacion = async (f)=>{
@@ -18723,6 +18736,13 @@ Respuesta: [respuesta exacta, conversacional]
                   <span onClick={()=>setShowCaptacionModal(false)} style={{cursor:"pointer",fontSize:24,fontWeight:700,lineHeight:1}}>×</span>
                 </div>
                 <div style={{padding:"20px 26px",maxHeight:"62vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:16}}>
+                  {/* 🔗 Liga Mágica: link único para que el propietario suba su expediente legal */}
+                  {f.id && (
+                    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 12px",borderRadius:10,border:"1px dashed "+B.gold,background:"#fffdf5"}}>
+                      <button onClick={()=>copiarLigaMagica(f)} style={{padding:"8px 14px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🔗 Copiar Liga Mágica</button>
+                      <span style={{fontSize:10.5,color:B.grey4}}>Link para que el dueño suba INE, escrituras, etc. y vea el avance de su expediente.</span>
+                    </div>
+                  )}
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                     <div>
                       <span style={lbStyle}>Etapa del seguimiento</span>
