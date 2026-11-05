@@ -2480,7 +2480,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
     documentos:r.documentos||"", notas:r.notas||"",
     documentosUrls:(()=>{ const v=r.documentos_urls; if(Array.isArray(v)) return v; if(typeof v==="string"&&v){ try{ return JSON.parse(v); }catch(e){ return []; } } return []; })(),
     respuestas:(()=>{ const v=r.respuestas; if(Array.isArray(v)) return v; if(typeof v==="string"&&v){ try{ return JSON.parse(v); }catch(e){ return []; } } return []; })(),
-    loteInventarioId:r.lote_inventario_id||""
+    loteInventarioId:r.lote_inventario_id||"",
+    esquema_comision:r.esquema_comision||"", acepta_privacidad:!!r.acepta_privacidad, acepta_responsabilidad:!!r.acepta_responsabilidad, viabilidad_100:!!r.viabilidad_100,
+    firma_nombre:r.firma_nombre||"", firma_fecha:r.firma_fecha||null, firma_ip:r.firma_ip||""
   });
   const filaDeCaptacion = (c)=>({
     id:c.id, pipeline:c.pipeline||"Nueva opción",
@@ -2498,6 +2500,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
     documentos_urls:Array.isArray(c.documentosUrls)?c.documentosUrls:[],
     respuestas:Array.isArray(c.respuestas)?c.respuestas:[],
     lote_inventario_id:c.loteInventarioId||null,
+    // Back-Office (Tarea 2) — columnas nuevas (sql/captaciones_backoffice_columns.sql)
+    esquema_comision:c.esquema_comision||null,
+    acepta_privacidad:!!c.acepta_privacidad, acepta_responsabilidad:!!c.acepta_responsabilidad, viabilidad_100:!!c.viabilidad_100,
+    firma_nombre:c.firma_nombre||null, firma_fecha:c.firma_fecha||null, firma_ip:c.firma_ip||null,
     eliminado:false, updated_at:new Date().toISOString()
   });
   const subirCaptacionCloud = async (c)=>{
@@ -2509,8 +2515,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
     }catch(e){
       // Reintento SIN las columnas de autorización (por si aún no se corre el SQL que las crea).
       const msg = String((e&&e.message)||e||"");
-      if(/precio_autorizado|observaciones_autorizacion|respuestas|schema cache|column|PGRST204/i.test(msg)){
-        const { precio_autorizado, observaciones_autorizacion, respuestas, ...base } = row;
+      if(/precio_autorizado|observaciones_autorizacion|respuestas|esquema_comision|acepta_privacidad|acepta_responsabilidad|viabilidad_100|firma_nombre|firma_fecha|firma_ip|schema cache|column|PGRST204/i.test(msg)){
+        const { precio_autorizado, observaciones_autorizacion, respuestas, esquema_comision, acepta_privacidad, acepta_responsabilidad, viabilidad_100, firma_nombre, firma_fecha, firma_ip, ...base } = row;
         try{ await window.sb.from('captaciones').upsert(base, { onConflict:'id' }); }
         catch(e2){ console.warn('subir captación (fallback):', e2&&e2.message); }
       }else{ console.warn('subir captación:', msg); }
@@ -5991,6 +5997,24 @@ function MacroProMatcher({ sessionEmail } = {}) {
           </div>
           <div style={{...s.sectionSub,marginBottom:18}}>Carga y administra aquí los datos del negocio. Todo se guarda en la nube y lo leen TODAS las apps (MacroPro, Cotizador, Intelligence, Presentaciones, Hub).</div>
           {!sb&&<div style={{padding:16,background:B.redL,color:B.red,borderRadius:10,fontSize:13,marginBottom:14}}>Sin conexión a Supabase — inicia sesión para administrar.</div>}
+          {(()=>{ const cands=(captaciones||[]).filter(c=>c&&!c.eliminado&&!c.publicadoVitrina); return (
+            <div style={{marginBottom:18,background:B.white,border:"1px solid "+B.grey1,borderRadius:12,padding:"14px 16px",boxShadow:"0 2px 10px rgba(0,43,73,0.05)"}}>
+              <div style={{fontSize:14,fontWeight:800,color:B.navy,marginBottom:4}}>🚀 Aprobar y Publicar a Vitrina (Dirección)</div>
+              <div style={{fontSize:11,color:B.grey3,marginBottom:10}}>Publica la captación al escaparate (vitrina_propiedades) de la Landing. Requiere: Fotos (4), Plano, Certificado de uso de suelo, KMZ, liga de Maps y firma digital.</div>
+              {cands.length===0? <div style={{fontSize:12,color:B.grey3,fontStyle:"italic"}}>No hay captaciones pendientes de publicar.</div> :
+                <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:"46vh",overflowY:"auto"}}>
+                  {cands.map(c=>{ const chk=listoParaPublicar(c); return (
+                    <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"9px 11px",borderRadius:9,border:"1px solid "+B.grey1,background:B.offW,flexWrap:"wrap"}}>
+                      <div style={{minWidth:200,flex:1}}>
+                        <div style={{fontSize:13,fontWeight:700,color:B.navy}}>{c.propietario||c.zona||c.id}{c.ciudad&&<span style={{fontSize:11,fontWeight:600,color:B.grey4}}> · {c.ciudad}</span>}</div>
+                        <div style={{fontSize:11,marginTop:2,color:chk.ok?"#15803d":"#b45309"}}>{chk.ok?"✅ Listo para publicar":("Falta: "+chk.faltan.join(" · "))}</div>
+                      </div>
+                      <button disabled={!chk.ok} onClick={()=>aprobarYPublicar(c)} style={{padding:"8px 14px",borderRadius:8,border:"none",background:chk.ok?"#16a34a":B.grey1,color:chk.ok?"#fff":B.grey3,fontSize:12,fontWeight:800,cursor:chk.ok?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif"}}>🚀 Aprobar y Publicar</button>
+                    </div>
+                  ); })}
+                </div>}
+            </div>
+          ); })()}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:16}}>
             <div style={card}>
               <div style={{fontSize:26}}>📦</div><div style={cTit}>Inventario</div>
@@ -15429,8 +15453,61 @@ Respuesta: [respuesta exacta, conversacional]
     {tipo:"Fotos del terreno", icon:"📷", min:4, multiple:true, accept:"image/*"},
     {tipo:"Certificado de uso de suelo", icon:"📜", accept:"image/*,application/pdf"},
     {tipo:"Plano del terreno", icon:"🗺️", accept:"image/*,application/pdf"},
+    {tipo:"KMZ", icon:"🗂", accept:".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml"},
     {tipo:"Boleta registral / predial", icon:"🧾", accept:"image/*,application/pdf"},
   ];
+  // Back-Office (Tarea 4): documentos que deben estar al 100% para APROBAR Y PUBLICAR a vitrina.
+  // (Fotos, Plano, Uso de suelo, KMZ + liga de Maps. La boleta/predial NO bloquea la publicación.)
+  const DOCS_PUBLICAR = ["Fotos del terreno","Certificado de uso de suelo","Plano del terreno","KMZ"];
+  const listoParaPublicar=(c)=>{
+    const m={}; (Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]).forEach(d=>{ if(d&&d.tipo){ (m[d.tipo]=m[d.tipo]||[]).push(d); } });
+    const faltan=[];
+    DOCS_PUBLICAR.forEach(t=>{ const min=(t==="Fotos del terreno")?4:1; if((m[t]||[]).length<min) faltan.push(t==="Fotos del terreno"?"Fotos (4)":t); });
+    if(!/^https?:\/\//i.test(((c&&c.ligaMaps)||"").trim())) faltan.push("Liga de Maps");
+    if(!((c&&c.firma_nombre||"").trim())) faltan.push("Firma digital");
+    return { ok:faltan.length===0, faltan };
+  };
+  // Back-Office (Tarea 4): aprobar una captación y PUBLICARLA en vitrina_propiedades (Landing).
+  // estatus='disponible' + nivel_ficha='en_vitrina' (no existe 'publicado'). Solo INSERT; respeta el esquema.
+  const aprobarYPublicar = async (c)=>{
+    if(!c) return;
+    const chk = listoParaPublicar(c);
+    if(!chk.ok){ toast("⚠ Falta para publicar: "+chk.faltan.join(" · ")); return; }
+    if(!window.sb){ toast("⚠ Sin conexión a Supabase"); return; }
+    if(!window.confirm("¿Aprobar y PUBLICAR «"+(c.propietario||c.zona||c.id)+"» en la vitrina?")) return;
+    const num=(v)=>{ const n=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,"")); return isNaN(n)?null:n; };
+    try{
+      let uid=null, uemail=null;
+      try{ const u=await window.sb.auth.getUser(); uid=(u&&u.data&&u.data.user&&u.data.user.id)||null; uemail=(u&&u.data&&u.data.user&&u.data.user.email)||null; }catch(e){}
+      const sup=num(c.superficie);
+      const uso=(c.usoSuelo||"").toLowerCase();
+      const tipo = uso.includes("industrial")?"terreno_industrial":((uso.includes("comercial")||uso.includes("retail"))?"terreno_comercial":"terreno");
+      const tipoOpcion = /exclus/i.test(c.tipoAcuerdo||"")?"exclusiva":"opcion_simple";
+      let lat=null,lng=null; const mm=String(c.ligaMaps||"").match(/(-?\d{1,2}\.\d{3,}),\s*(-?\d{1,3}\.\d{3,})/); if(mm){ lat=parseFloat(mm[1]); lng=parseFloat(mm[2]); }
+      const hoy=new Date().toISOString().slice(0,10);
+      const vig=(()=>{ const d=new Date(); d.setDate(d.getDate()+90); return d.toISOString().slice(0,10); })();
+      const row = {
+        folio: "GG-VIT-"+(c.id||Date.now()), origen: "macropro",
+        tipo, operacion:"venta", nivel_ficha:"en_vitrina", estatus:"disponible", tipo_opcion:tipoOpcion,
+        titulo: (c.zona||c.propietario||"Terreno")+(c.ciudad?(" · "+c.ciudad):""),
+        descripcion: c.notas||null,
+        precio_venta: num(c.precioAutorizado)||num(c.precioDueno), moneda_venta:"MXN", precio_minimo_venta: num(c.precioDueno),
+        municipio: c.ciudad||null, estado: c.estado||null, colonia: c.zona||null,
+        lat, lng, mostrar_ubicacion_exacta:false,
+        m2_terreno: sup, hectareas: sup? Math.round(sup/10000*1000)/1000 : null,
+        uso_suelo: c.usoSuelo||null,
+        propietario_nombre: c.propietario||null, propietario_telefono: c.telefono||null, propietario_email: c.email||null,
+        comision_total_pct: num(c.comision),
+        fecha_levantamiento: (c.fechaCreacion? String(c.fechaCreacion).slice(0,10): hoy), fecha_vigencia: vig,
+        asesor_email: uemail||null, asesor_usuario_id: uid, verificado_por: uid,
+        notas_colaboracion: c.esquema_comision? ("Esquema de comisión: "+c.esquema_comision) : null,
+      };
+      const { error } = await window.sb.from('vitrina_propiedades').insert(row);
+      if(error) throw error;
+      toast("🚀 Publicado en vitrina: "+(c.propietario||c.zona||c.id));
+      upsertCaptacion({...c, publicadoVitrina:true, publicadoVitrinaAt:new Date().toISOString()});
+    }catch(e){ toast("❌ No se pudo publicar: "+((e&&e.message)||e)); }
+  };
   const _pathDeUrl=(url)=>{ try{ const m=String(url||"").split("/captaciones-docs/")[1]; return m?decodeURIComponent(m.split("?")[0]):""; }catch(e){ return ""; } };
   const docsPorTipo=(c)=>{ const m={}; (Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]).forEach(d=>{ const t=d&&d.tipo; if(!t) return; (m[t]=m[t]||[]).push(d); }); return m; };
   const mapsOkCap=(c)=>/^https?:\/\//i.test(((c&&c.ligaMaps)||"").trim());
@@ -18453,7 +18530,9 @@ Respuesta: [respuesta exacta, conversacional]
           <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.2</span>
         </div>
         <div style={s.navLinks}>
-          {[["home","🏠 Inicio"],["documentos","📄 Documentos"],["dashboard","📊 Dashboard"],["crm","🎯 CRM"+crmNavCount],["ejecutivo","⬡ Ejecutivo"],["metas","🎯 Metas"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Opción"],["asesores","🤝 Buscando"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["matches","📋 Matches"+(matchAlerts.length?" ("+matchAlerts.length+")":"")],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {/* Back-Office (Tarea 1): CRM/Metas/Ejecutivo OCULTOS del menú (migran a Landing/Intelligence).
+              NO se borran: componentes, render (view===) y datos siguen intactos; reversible re-agregando aquí sus entradas. */}
+          {[["home","🏠 Inicio"],["documentos","📄 Documentos"],["dashboard","📊 Dashboard"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Opción"],["asesores","🤝 Buscando"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["matches","📋 Matches"+(matchAlerts.length?" ("+matchAlerts.length+")":"")],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
@@ -18690,6 +18769,29 @@ Respuesta: [respuesta exacta, conversacional]
                     );
                   })()}
                   <div>
+                    <div style={{marginTop:14,marginBottom:12,padding:"12px 14px",borderRadius:10,border:"1px solid "+B.grey1,background:"#fbfdff"}}>
+                      <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:10}}>🧾 Quality Gate · Back-Office</div>
+                      <div style={{marginBottom:10}}>
+                        <span style={lbStyle}>Esquema de comisión</span>
+                        <div style={{display:"flex",gap:18,marginTop:4}}>
+                          {["100/0","40/60"].map(op=>(
+                            <label key={op} style={{display:"flex",alignItems:"center",gap:6,fontSize:13,color:B.navy,cursor:"pointer"}}>
+                              <input type="radio" name="esquema_comision" checked={f.esquema_comision===op} onChange={()=>setF({esquema_comision:op})}/> {op}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      {[["acepta_privacidad","Aviso de Privacidad (LFPDPPP)"],["acepta_responsabilidad","Responsabilidad de la información"],["viabilidad_100","Semáforo de Viabilidad al 100%"]].map(([k,lbl])=>(
+                        <label key={k} style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5,color:B.navy,marginBottom:6,cursor:"pointer"}}>
+                          <input type="checkbox" checked={!!f[k]} onChange={e=>setF({[k]:e.target.checked})}/> {lbl}
+                        </label>
+                      ))}
+                      <div style={{marginTop:8}}>
+                        <span style={lbStyle}>✍️ Firma digital (nombre completo del asesor)</span>
+                        <input style={inStyle} value={f.firma_nombre||""} onChange={e=>{ const v=e.target.value; setF({firma_nombre:v, firma_fecha: v.trim()? (f.firma_fecha||new Date().toISOString()) : null}); }} placeholder="Escribe tu nombre completo"/>
+                        {f.firma_nombre&&f.firma_fecha&&<div style={{fontSize:10,color:B.grey3,marginTop:3}}>Firmado: {(()=>{try{return new Date(f.firma_fecha).toLocaleString("es-MX",{dateStyle:"medium",timeStyle:"short"});}catch(e){return "";}})()}</div>}
+                      </div>
+                    </div>
                     <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>📄 Documentos y seguimiento</div>
                     <div><span style={lbStyle}>Documentos (escrituras, predial, etc.)</span><input style={inStyle} value={f.documentos||""} onChange={e=>setF({documentos:e.target.value})} placeholder="Qué tenemos / qué falta"/></div>
                     {(()=>{ const est=estadoDocsCaptacion(f); const m=docsPorTipo(f); const reqSet=new Set(DOCS_REQUERIDOS.map(r=>r.tipo));
