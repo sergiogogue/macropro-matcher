@@ -85,11 +85,25 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const clienteId = body.clienteId ?? new URL(req.url).searchParams.get("clienteId");
     const limit = Math.min(Number(body.limit) || 5, 20);
-    if (!clienteId) return json({ error: "Falta clienteId." }, 400, origin);
-
     const sb = createClient(SUPABASE_URL, SERVICE_KEY);
+
+    // ── MODO lote→clientes (Cross-Check del Wizard de Captación) ──
+    // Recibe un terreno temporal { superficie_m2, precio_total, ciudad, uso } y devuelve el Top N de CLIENTES.
+    if (body.lote) {
+      const lote = body.lote;
+      const { data: clientes } = await sb.from("clientes").select("*");
+      const arr = Array.isArray(clientes) ? clientes : [];
+      const scored = arr.map((cl: any) => { const r = scoreClienteLote(cl, lote); return { cliente: { id: cl.id_cliente || cl.id, nombre: cl.nombre }, score: r.score, razones: r.razones, descalificado: r.descalificado, na: r.na }; })
+        .filter((m) => !m.descalificado && !m.na && m.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+      return json({ modo: "lote_a_clientes", total_evaluados: arr.length, top: scored }, 200, origin);
+    }
+
+    // ── MODO clienteId→lotes (original) ──
+    const clienteId = body.clienteId ?? new URL(req.url).searchParams.get("clienteId");
+    if (!clienteId) return json({ error: "Falta clienteId (o envía body.lote para el modo lote→clientes)." }, 400, origin);
     // Cliente (por id_cliente o id)
     const { data: cRows } = await sb.from("clientes").select("*").or(`id_cliente.eq.${clienteId},id.eq.${clienteId}`).limit(1);
     const cliente = cRows && cRows[0];

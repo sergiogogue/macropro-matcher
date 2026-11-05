@@ -1822,6 +1822,12 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [view, setViewRaw] = useState(()=>loadPersisted(STORAGE_KEYS.view,"home"));
   // Wrapper de setView que también persiste
   const setView=(v)=>{setViewRaw(v);savePersisted(STORAGE_KEYS.view,v);};
+  // Back-Office "Option Engine": si al cargar, la vista persistida/por URL es OCULTA, redirige a
+  // Captación (solo al montar; la navegación interna no se bloquea). Reversible.
+  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin"];
+    if(!permitidas.includes(view)){ setView("captacion"); try{ if(window.location.hash && window.location.hash!=="#captacion") window.history.replaceState(null,"","#captacion"); }catch(e){} }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   // ─── CRM STATE (ELEVADO AL PADRE para sobrevivir rerenders de ViewCRM) ───
   const [activeTab, setActiveTabRaw] = React.useState(()=>loadPersisted(STORAGE_KEYS.activeTab,"dashboard"));
@@ -2436,6 +2442,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [showCaptacionModal, setShowCaptacionModal] = React.useState(false);
   const [editingCaptacion, setEditingCaptacion] = React.useState(null);
   const [respComentario, setRespComentario] = React.useState(""); // texto del comentario a enviar al asesor (Opción)
+  // Cross-Check (Option Engine): CLIENTES compatibles con el terreno en captación (api-matching modo lote→clientes)
+  const [ccCaptBusy, setCcCaptBusy] = React.useState(false);
+  const [ccCaptRes, setCcCaptRes] = React.useState(null);
   const [cruceCaptacion, setCruceCaptacion] = React.useState(null); // terreno cuyo cruce con demanda se muestra
   const upsertCaptacion = (c)=>{
     if(!c||!c.id) return;
@@ -3369,9 +3378,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
     const limpiar = ()=>{ try{ window.history.replaceState(null,"",window.location.pathname); }catch(e){} };
     // 0) vista directa (?vista=admin, dashboard, clients, lots, crm, metas…)
     if(vista){
-      const VISTAS=['home','dashboard','ejecutivo','metas','clients','lots','crm','admin','matchClient','matchLot','quickSearch','asesores','captacion','corretaje','comparador','matches'];
+      // Back-Office "Option Engine": por URL solo se permiten las 4 vistas visibles; el resto → Captación.
+      const VISTAS_PERMITIDAS=['home','captacion','documentos','admin'];
       deepLinkRef.current = true;
-      if(VISTAS.includes(vista)) setView(vista);
+      setView(VISTAS_PERMITIDAS.includes(vista)?vista:'captacion');
       limpiar(); return;
     }
     // 1) lote concreto → Lote→Clientes
@@ -15471,6 +15481,22 @@ Respuesta: [respuesta exacta, conversacional]
     if(!((c&&c.firma_nombre||"").trim())) faltan.push("Firma digital");
     return { ok:faltan.length===0, faltan };
   };
+  // Cross-Check (Option Engine): dado el terreno en captación, pide a api-matching el Top 3 de
+  // CLIENTES compatibles (modo lote→clientes). Requiere redeploy de la Edge Function con ese modo.
+  const buscarClientesCompatiblesCaptacion = async (f)=>{
+    if(!f) return;
+    if(!window.sb){ toast("⚠ Sin conexión a Supabase"); return; }
+    const num=(v)=>{ const n=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,"")); return isNaN(n)?null:n; };
+    const lote = { superficie_m2:num(f.superficie), precio_total:(num(f.precioAutorizado)||num(f.precioDueno)), ciudad:f.ciudad||"", uso:f.usoSuelo||"" };
+    setCcCaptBusy(true); setCcCaptRes(null);
+    try{
+      const { data, error } = await window.sb.functions.invoke('api-matching', { body:{ lote, limit:3 } });
+      if(error) throw error;
+      if(data&&data.error) throw new Error(data.error);
+      setCcCaptRes(data||{ top:[] });
+    }catch(e){ setCcCaptRes({ error:(e&&e.message)||String(e) }); }
+    finally{ setCcCaptBusy(false); }
+  };
   // ════════════════════════════════════════════════════════════════════
   // Aprobar una captación PARA PUBLICAR en el catálogo de MACROLOTES.
   // DECISIÓN (2026-11-05): MacroPro NO escribe lotes/vitrina. Solo MARCA la captación
@@ -18573,9 +18599,11 @@ Respuesta: [respuesta exacta, conversacional]
           <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.2</span>
         </div>
         <div style={s.navLinks}>
-          {/* Back-Office (Tarea 1): CRM/Metas/Ejecutivo OCULTOS del menú (migran a Landing/Intelligence).
-              NO se borran: componentes, render (view===) y datos siguen intactos; reversible re-agregando aquí sus entradas. */}
-          {[["home","🏠 Inicio"],["documentos","📄 Documentos"],["dashboard","📊 Dashboard"],["corretaje","🗺️ Corretaje"],["captacion","🌱 Opción"],["asesores","🤝 Buscando"],["quickSearch","🔍 Búsqueda"],["matchClient","👤 Cliente→Lotes"],["matchLot","🏗 Lote→Clientes"],["matches","📋 Matches"+(matchAlerts.length?" ("+matchAlerts.length+")":"")],["clients","👥 Clientes"],["lots","📦 Inventario"]].map(([v,l])=>(
+          {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
+              NO se borran vistas: componentes y render (view===) siguen intactos; reversible re-agregando entradas.
+              Ocultas (solo accesibles internamente): dashboard, corretaje, asesores(Buscando), quickSearch,
+              matchClient, matchLot, matches, clients, lots(Inventario), crm, metas, ejecutivo, comparador. */}
+          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["admin","⚙️ Admin"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
@@ -18724,6 +18752,36 @@ Respuesta: [respuesta exacta, conversacional]
                       <div><span style={lbStyle}>Vigencia del encargo</span><input style={inStyle} value={f.vigencia||""} onChange={e=>setF({vigencia:e.target.value})} placeholder="Ej. 6 meses"/></div>
                     </div>
                   </div>
+                  {/* 🔍 Cross-Check (Option Engine): CLIENTES compatibles con este terreno */}
+                  {(f.superficie && f.precioDueno && f.usoSuelo && f.ciudad) && (()=>{
+                    const r = ccCaptRes; const n = (r && !r.error && Array.isArray(r.top)) ? r.top.length : 0;
+                    return (
+                      <div style={{border:"1px solid "+B.grey1, background:"#f5f9ff", borderRadius:10, padding:"12px 14px"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                          <button onClick={()=>buscarClientesCompatiblesCaptacion(f)} disabled={ccCaptBusy} style={{padding:"9px 14px",borderRadius:8,border:"none",background:ccCaptBusy?B.grey1:B.navy,color:"#fff",fontSize:12,fontWeight:800,cursor:ccCaptBusy?"wait":"pointer",fontFamily:"'DM Sans',sans-serif"}}>{ccCaptBusy?"Buscando…":"🔍 Buscar clientes compatibles"}</button>
+                          <span style={{fontSize:10.5,color:B.grey4}}>Cruza este terreno con tu cartera de clientes (Top 3).</span>
+                        </div>
+                        {r && r.error && <div style={{marginTop:8,fontSize:11,color:"#b45309"}}>⚠ {r.error}</div>}
+                        {r && !r.error && n>0 && (
+                          <div style={{marginTop:10}}>
+                            <div style={{fontSize:13,fontWeight:800,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:8,padding:"8px 11px"}}>✨ Este terreno encaja con {n} cliente{n!==1?"s":""} de tu cartera</div>
+                            <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
+                              {r.top.map((m,i)=>{ const cl=m.cliente||{}; return (
+                                <div key={cl.id||i} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",borderRadius:8,border:"1px solid "+B.grey1,background:B.white}}>
+                                  <div style={{flex:"0 0 40px",height:40,borderRadius:"50%",background:m.score>=70?"#16a34a":(m.score>=40?"#d97706":B.grey3),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13}}>{m.score}</div>
+                                  <div style={{minWidth:0}}>
+                                    <div style={{fontSize:13,fontWeight:700,color:B.navy}}>{cl.nombre||cl.id}</div>
+                                    {Array.isArray(m.razones)&&m.razones.length>0&&<div style={{fontSize:10.5,color:B.grey4}}>{m.razones.join(" · ")}</div>}
+                                  </div>
+                                </div>
+                              ); })}
+                            </div>
+                          </div>
+                        )}
+                        {r && !r.error && n===0 && <div style={{marginTop:8,fontSize:11,color:B.grey4}}>Sin clientes compatibles por ahora.</div>}
+                      </div>
+                    );
+                  })()}
                   {esAdmin ? (
                     <div style={{border:"1.5px solid "+B.gold, background:"#fffaf0", borderRadius:10, padding:"14px 16px"}}>
                       <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:2,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>🔒 Autorización para comercializar <span style={{fontSize:9,fontWeight:800,color:"#a8893f",background:"#fff3d6",border:"1px solid #f0e0a8",borderRadius:6,padding:"2px 7px",textTransform:"uppercase",letterSpacing:0.5}}>Solo administrador</span></div>
