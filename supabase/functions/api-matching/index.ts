@@ -20,7 +20,7 @@ const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY     = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 // Orígenes permitidos (ajusta si cambia el dominio de la Landing/MacroPro).
-const ALLOWED = ["https://macrolotes.grupoguia.mx", "https://sergiogogue.github.io"];
+const ALLOWED = ["https://macrolotes.grupoguia.mx", "https://grupoguia-macrolotes.netlify.app", "https://sergiogogue.github.io"];
 const cors = (o: string) => ({
   "Access-Control-Allow-Origin": ALLOWED.includes(o) ? o : ALLOWED[0],
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
