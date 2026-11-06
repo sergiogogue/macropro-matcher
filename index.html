@@ -15855,79 +15855,67 @@ Respuesta: [respuesta exacta, conversacional]
           marcaAgua(doc);
         });
 
-        // Logo + encabezado/pie reutilizables (mismo estilo en Documentos y Cotización).
+        // ══ 2) COTIZACIÓN + DOCUMENTOS en UNA sola hoja, del mismo tamaño que las láminas ══
         const logo=await cargarImg(LOGO_MACROLOTES);
-        const encabezado=(titulo,sub)=>{
-          doc.setFillColor(AZ[0],AZ[1],AZ[2]); doc.rect(0,0,PW,48,"F");
-          doc.setFillColor(DO[0],DO[1],DO[2]); doc.rect(0,48,PW,1.5,"F");
-          if(logo&&logo.w){ const h=20,w=Math.min(70,h*(logo.w/logo.h)); try{doc.addImage(logo.data,"PNG",MX,14,w,h);}catch(e){} }
-          else { doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(20); doc.text("GRUPO GUÍA",MX,30); }
-          doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.text(titulo,PW-MX,22,{align:"right"});
-          doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(200,205,215); doc.text(sub,PW-MX,28,{align:"right"});
-        };
-        const pie=()=>{
-          doc.setDrawColor(DO[0],DO[1],DO[2]); doc.setLineWidth(0.8); doc.line(MX,285,PW-MX,285); doc.setLineWidth(0.2);
-          doc.setTextColor(150,160,175); doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.text("Documento confidencial · Grupo Guía",PW/2,291,{align:"center"});
-        };
+        const firstImg=imgs.find(im=>im&&im.w);
+        const SW=297, SH=firstImg?Math.round(SW*(firstImg.h/firstImg.w)*100)/100:167;
+        doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
+        const M=14;
+        // Encabezado
+        doc.setFillColor(AZ[0],AZ[1],AZ[2]); doc.rect(0,0,SW,30,"F");
+        doc.setFillColor(DO[0],DO[1],DO[2]); doc.rect(0,30,SW,1.2,"F");
+        if(logo&&logo.w){ const h=14,w=Math.min(58,h*(logo.w/logo.h)); try{doc.addImage(logo.data,"PNG",M,9,w,h);}catch(e){} }
+        else { doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(17); doc.text("GRUPO GUÍA",M,20); }
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.text("Cotización",SW-M,15,{align:"right"});
+        doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(200,205,215); doc.text("Opcionador · Macrolotes",SW-M,21,{align:"right"});
 
-        // ══ 2) DOCUMENTOS para opcionar el terreno ══
-        doc.addPage("a4","portrait");
-        encabezado("Documentos","Para opcionar · Macrolotes");
-        doc.setTextColor(60,70,85); doc.setFont("helvetica","normal"); doc.setFontSize(11);
-        doc.text(doc.splitTextToSize("Para formalizar la opción de su terreno necesitamos los siguientes documentos:",PW-2*MX),MX,66);
-        let yd=92;
-        doc.setFontSize(12.5);
-        DOCS_OPCION.forEach((d)=>{
-          doc.setFillColor(DO[0],DO[1],DO[2]); doc.circle(MX+2,yd-1.6,1.7,"F");
-          doc.setTextColor(40,50,65); doc.text(d,MX+9,yd); yd+=18;
-        });
-        yd+=2;
-        const notaLines=doc.splitTextToSize(DOCS_NOTA,PW-2*MX-12);
-        const notaH=notaLines.length*5.6+16;
-        doc.setDrawColor(245,215,150); doc.setFillColor(255,249,235); doc.roundedRect(MX,yd,PW-2*MX,notaH,3,3,"FD");
-        doc.setTextColor(146,104,10); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("Importante",MX+6,yd+9);
-        doc.setTextColor(90,80,60); doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.text(notaLines,MX+6,yd+16);
-        pie();
-        marcaAgua(doc);
+        // Dos columnas: izquierda cotización, derecha documentos
+        const colGap=12, Lx=M, Lw=Math.round((SW-2*M-colGap)*0.56), Rx=Lx+Lw+colGap, Rw=(SW-M)-Rx;
+        doc.setDrawColor(228,232,238); doc.setLineWidth(0.3); doc.line(Rx-colGap/2,40,Rx-colGap/2,SH-16);
 
-        // ══ 3) COTIZACIÓN (membrete) — AL FINAL ══
-        doc.addPage("a4","portrait");
-        encabezado("Cotización","Opcionador · Macrolotes");
-
-        let y=66;
-        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(14);
-        doc.text("Estimado(a) "+nombreCli,MX,y); y+=8;
-        const contacto=[telCli?("Tel: "+telCli):"",emailCli?("Email: "+emailCli):""].filter(Boolean).join("     ·     ");
-        if(contacto){ doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(70,80,95); doc.text(contacto,MX,y); y+=6.5; }
-        doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(70,80,95);
-        doc.text("Asesor: "+asesor+"     ·     Fecha: "+fecha,MX,y); y+=12;
-
-        const boxY=y, boxH=46, colX=PW/2+4;
-        doc.setDrawColor(230,232,238); doc.setFillColor(248,250,252); doc.roundedRect(MX,boxY,PW-2*MX,boxH,3,3,"FD");
-        doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("TERRENO",MX+6,boxY+9);
-        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(14); doc.text(r.terreno_nombre||"—",MX+6,boxY+18);
-        doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.setTextColor(70,80,95);
-        doc.text([r.terreno_ciudad,r.terreno_dimensiones].filter(Boolean).join("  ·  ")||"—",MX+6,boxY+25);
-        doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
-        doc.text("VALOR DE VENTA",MX+6,boxY+36); doc.text("COMISIÓN",colX,boxY+36);
+        // Izquierda — Cotización
+        let y=46;
+        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.text("Estimado(a) "+nombreCli,Lx,y); y+=7;
+        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(70,80,95);
+        if(telCli||emailCli){ doc.text([telCli?("Tel: "+telCli):"",emailCli?("Email: "+emailCli):""].filter(Boolean).join("   ·   "),Lx,y); y+=5; }
+        doc.text("Asesor: "+asesor,Lx,y); y+=5; doc.text("Fecha: "+fecha,Lx,y); y+=8;
+        const bY=y, bH=40, cX2=Lx+Lw/2+2;
+        doc.setDrawColor(230,232,238); doc.setFillColor(248,250,252); doc.roundedRect(Lx,bY,Lw,bH,3,3,"FD");
+        doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text("TERRENO",Lx+5,bY+8);
+        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.text(r.terreno_nombre||"—",Lx+5,bY+16);
+        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(70,80,95); doc.text([r.terreno_ciudad,r.terreno_dimensiones].filter(Boolean).join("  ·  ")||"—",Lx+5,bY+22);
+        doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text("VALOR DE VENTA",Lx+5,bY+30); doc.text("COMISIÓN",cX2,bY+30);
         const _vN=parseFloat(String(r.valor_terreno||"").replace(/[^0-9.]/g,""))||0;
         const _pN=parseFloat(String(r.monto_comision||"").replace(/[^0-9.]/g,""))||0;
         const _comTxt=(r.monto_comision||"—")+((_vN&&_pN)?("  ("+(_vN*_pN/100).toLocaleString("es-MX",{style:"currency",currency:"MXN",maximumFractionDigits:0})+")"):"");
-        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(14);
-        doc.text(r.valor_terreno||"—",MX+6,boxY+43); doc.setFontSize(_comTxt.length>14?11:14); doc.text(_comTxt,colX,boxY+43);
-        y=boxY+boxH+14;
+        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text(r.valor_terreno||"—",Lx+5,bY+37); doc.setFontSize(_comTxt.length>13?10:12); doc.text(_comTxt,cX2,bY+37);
+        y=bY+bH+8;
+        doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text("CONDICIONES",Lx,y); y+=5;
+        doc.setTextColor(60,70,85); doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.text(doc.splitTextToSize(r.condiciones||CONDICIONES_DEFAULT,Lw),Lx,y);
+        const fy=SH-22;
+        doc.setDrawColor(222,226,232); doc.setLineWidth(0.3); doc.line(Lx,fy-5,Lx+60,fy-5);
+        doc.setFont("helvetica","bold"); doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFontSize(11); doc.text(asesor,Lx,fy);
+        doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.setTextColor(120,130,145); doc.text("Grupo Guía · Opcionador de Macrolotes",Lx,fy+5);
 
-        doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("CONDICIONES",MX,y); y+=6;
-        doc.setTextColor(60,70,85); doc.setFont("helvetica","normal"); doc.setFontSize(10.5);
-        const cond=doc.splitTextToSize(r.condiciones||CONDICIONES_DEFAULT,PW-2*MX); doc.text(cond,MX,y); y+=cond.length*6+16;
+        // Derecha — Documentos
+        let ry=46;
+        doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(10.5); doc.text("DOCUMENTOS PARA OPCIONAR",Rx,ry); ry+=8;
+        doc.setFontSize(9.5);
+        DOCS_OPCION.forEach((d)=>{
+          const lines=doc.splitTextToSize(d,Rw-7);
+          doc.setFillColor(DO[0],DO[1],DO[2]); doc.circle(Rx+1.3,ry-1.4,1.3,"F");
+          doc.setTextColor(40,50,65); doc.text(lines,Rx+6,ry); ry+=lines.length*5+2.6;
+        });
+        ry+=2;
+        const notaLines=doc.splitTextToSize(DOCS_NOTA,Rw-10);
+        const notaH=notaLines.length*4.6+13;
+        doc.setDrawColor(245,215,150); doc.setFillColor(255,249,235); doc.roundedRect(Rx,ry,Rw,notaH,3,3,"FD");
+        doc.setTextColor(146,104,10); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("Importante",Rx+5,ry+7);
+        doc.setTextColor(90,80,60); doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.text(notaLines,Rx+5,ry+12.5);
 
-        doc.setFontSize(10.5); doc.setTextColor(70,80,95);
-        const cierre=doc.splitTextToSize("Quedamos a sus órdenes para cualquier aclaración. Agradecemos la confianza en Grupo Guía.",PW-2*MX);
-        doc.text(cierre,MX,y); y+=cierre.length*6+18;
-        doc.setDrawColor(222,226,232); doc.setLineWidth(0.3); doc.line(MX,y-7,MX+70,y-7);
-        doc.setFont("helvetica","bold"); doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFontSize(12); doc.text(asesor,MX,y);
-        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(120,130,145); doc.text("Grupo Guía · Opcionador de Macrolotes",MX,y+6);
-        pie();
+        // Pie
+        doc.setDrawColor(DO[0],DO[1],DO[2]); doc.setLineWidth(0.8); doc.line(M,SH-11,SW-M,SH-11); doc.setLineWidth(0.2);
+        doc.setTextColor(150,160,175); doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.text("Documento confidencial · Grupo Guía",SW/2,SH-5,{align:"center"});
         marcaAgua(doc);
 
         // Quita la página inicial en blanco (creada al construir el documento)
