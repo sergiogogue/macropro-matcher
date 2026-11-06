@@ -15740,7 +15740,9 @@ Respuesta: [respuesta exacta, conversacional]
   const DOCS_NOTA = "Los documentos deben enviarse en PDF (no fotos), salvo las 4 fotos del terreno. Si aún no hay escritura, envíe copia del contrato de compraventa.";
   const ViewPitchCotizacion = () => {
     const AZUL = "#0f172a", DORADO = "#d4af37";
-    const [f, setF] = useState({ cliente_id:"", cliente_nombre:"", cliente_telefono:"", cliente_email:"", asesor_nombre:"", terreno_nombre:"", terreno_ciudad:"", terreno_dimensiones:"", valor_terreno:"", monto_comision:"", condiciones:CONDICIONES_DEFAULT, estatus:"borrador" });
+    const DRAFT_KEY = "macropro_cotizador_draft_v1";
+    const DEF_F = { cliente_id:"", cliente_nombre:"", cliente_telefono:"", cliente_email:"", asesor_nombre:"", terreno_nombre:"", terreno_ciudad:"", terreno_dimensiones:"", valor_terreno:"", monto_comision:"10%", condiciones:CONDICIONES_DEFAULT, estatus:"borrador" };
+    const [f, setF] = useState(()=>{ try{ const s=localStorage.getItem(DRAFT_KEY); if(s) return { ...DEF_F, ...(JSON.parse(s)||{}) }; }catch(e){} return DEF_F; });
     const [clienteSel, setClienteSel] = useState(null);   // cliente resuelto de la base (si existe)
     const [guardando, setGuardando] = useState(false);
     const [guardada, setGuardada] = useState(null);
@@ -15748,6 +15750,13 @@ Respuesta: [respuesta exacta, conversacional]
     const [cargandoHist, setCargandoHist] = useState(false);
     const [pdfBusy, setPdfBusy] = useState(false);
     const set = (k,v)=>setF((p)=>({ ...p, [k]:v }));
+    // Guarda el borrador en el navegador para que NO se borre si la app se recarga.
+    React.useEffect(()=>{ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify(f)); }catch(e){} }, [f]);
+    // Comisión siempre en %: calcula el monto en pesos a partir del valor y el %.
+    const fmtMXN = (n)=> (Number(n)||0).toLocaleString("es-MX",{style:"currency",currency:"MXN",maximumFractionDigits:0});
+    const valorNum = parseFloat(String(f.valor_terreno||"").replace(/[^0-9.]/g,""))||0;
+    const pctNum = parseFloat(String(f.monto_comision||"").replace(/[^0-9.]/g,""))||0;
+    const comisionMXN = (valorNum>0 && pctNum>0) ? valorNum*pctNum/100 : 0;
 
     // Buscador de cliente: al escribir/elegir un nombre, si existe en la base local (clients)
     // autollena teléfono, email e id. Si es nuevo, deja esos campos para capturarlos a mano.
@@ -15777,16 +15786,19 @@ Respuesta: [respuesta exacta, conversacional]
 
     // Historial de cotizaciones del cliente seleccionado (tabla cotizaciones_opcionador).
     const cargarHistorial = async (cid)=>{
-      if(!window.sb||!cid){ setHistorial([]); return; }
+      if(!window.sb){ setHistorial([]); return; }
       setCargandoHist(true);
       try{
-        const { data, error } = await window.sb.from("cotizaciones_opcionador").select("*").eq("cliente_id",cid).order("created_at",{ascending:false});
+        let q = window.sb.from("cotizaciones_opcionador").select("*").order("created_at",{ascending:false}).limit(cid?200:20);
+        if(cid) q = q.eq("cliente_id",cid);
+        const { data, error } = await q;
         if(error) throw error;
         setHistorial(data||[]);
       }catch(e){ setHistorial([]); }
       finally{ setCargandoHist(false); }
     };
-    React.useEffect(()=>{ if(f.cliente_id) cargarHistorial(f.cliente_id); else setHistorial([]); }, [f.cliente_id]);
+    // Al abrir muestra las últimas 20; si eliges un cliente, filtra por ese cliente.
+    React.useEffect(()=>{ cargarHistorial(f.cliente_id||null); }, [f.cliente_id]);
 
     // Marca de agua diagonal "CONFIDENCIAL GRUPO GUÍA" (opacidad 0.1) en la página actual.
     const marcaAgua = (doc)=>{
@@ -15844,9 +15856,12 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.setTextColor(70,80,95);
         doc.text([r.terreno_ciudad,r.terreno_dimensiones].filter(Boolean).join("  ·  ")||"—",MX+6,boxY+23);
         doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
-        doc.text("VALOR DE VENTA",MX+6,boxY+33); doc.text("COMISIÓN (10%)",colX,boxY+33);
+        doc.text("VALOR DE VENTA",MX+6,boxY+33); doc.text("COMISIÓN",colX,boxY+33);
         doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13);
-        doc.text(r.valor_terreno||"—",MX+6,boxY+40); doc.text(r.monto_comision||"—",colX,boxY+40);
+        const _vN=parseFloat(String(r.valor_terreno||"").replace(/[^0-9.]/g,""))||0;
+        const _pN=parseFloat(String(r.monto_comision||"").replace(/[^0-9.]/g,""))||0;
+        const _comTxt=(r.monto_comision||"—")+((_vN&&_pN)?("  ("+(_vN*_pN/100).toLocaleString("es-MX",{style:"currency",currency:"MXN",maximumFractionDigits:0})+")"):"");
+        doc.text(r.valor_terreno||"—",MX+6,boxY+40); doc.setFontSize(_comTxt.length>14?10:13); doc.text(_comTxt,colX,boxY+40);
         y=boxY+boxH+12;
 
         // Condiciones
@@ -15956,7 +15971,9 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
             <div style={grid2}>
               <div><span style={lb}>Valor de venta del terreno</span><input style={inp} value={f.valor_terreno} onChange={(e)=>set("valor_terreno",e.target.value)} placeholder="Ej. $5,000,000"/></div>
-              <div><span style={lb}>Monto de comisión (10%)</span><input style={inp} value={f.monto_comision} onChange={(e)=>set("monto_comision",e.target.value)} placeholder="Ej. $500,000"/></div>
+              <div><span style={lb}>Comisión (%)</span><input style={inp} value={f.monto_comision} onChange={(e)=>set("monto_comision",e.target.value)} placeholder="Ej. 10%"/>
+                {comisionMXN>0 && <div style={{fontSize:11,color:"#15803d",marginTop:4}}>≈ {fmtMXN(comisionMXN)} de comisión</div>}
+              </div>
             </div>
             <div><span style={lb}>Estatus</span>
               <select style={inp} value={f.estatus} onChange={(e)=>set("estatus",e.target.value)}>
@@ -15987,21 +16004,20 @@ Respuesta: [respuesta exacta, conversacional]
         <div style={{...card, marginTop:18}}>
           <div style={{...header, padding:"16px 26px"}}>
             <div style={{fontSize:15,fontWeight:800}}>Historial de cotizaciones</div>
-            <div style={{fontSize:12,color:DORADO,fontWeight:800}}>{clienteSel?clienteSel.nombre:""}</div>
+            <div style={{fontSize:12,color:DORADO,fontWeight:800}}>{clienteSel?clienteSel.nombre:(f.cliente_nombre?f.cliente_nombre:"Últimas 20")}</div>
           </div>
           <div style={{padding:"16px 20px"}}>
-            {!f.cliente_id
-              ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Selecciona un cliente para ver su historial.</div>
-              : cargandoHist
-                ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Cargando…</div>
-                : historial.length===0
-                  ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Sin cotizaciones para este cliente todavía.</div>
-                  : (
+            {cargandoHist
+              ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Cargando…</div>
+              : historial.length===0
+                ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Aún no hay cotizaciones guardadas.</div>
+                : (
                     <div style={{overflowX:"auto"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                         <thead>
                           <tr style={{textAlign:"left",color:AZUL,borderBottom:"2px solid "+DORADO}}>
                             <th style={{padding:"8px 10px"}}>Fecha</th>
+                            <th style={{padding:"8px 10px"}}>Cliente</th>
                             <th style={{padding:"8px 10px"}}>Terreno</th>
                             <th style={{padding:"8px 10px"}}>Valor</th>
                             <th style={{padding:"8px 10px"}}>Comisión</th>
@@ -16016,6 +16032,7 @@ Respuesta: [respuesta exacta, conversacional]
                             return (
                               <tr key={r.id} style={{borderBottom:"1px solid #eef2f7"}}>
                                 <td style={{padding:"8px 10px",color:"#334155"}}>{r.created_at?new Date(r.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}):"—"}</td>
+                                <td style={{padding:"8px 10px",color:"#334155"}}>{r.cliente_nombre||"—"}</td>
                                 <td style={{padding:"8px 10px",color:AZUL,fontWeight:600}}>{r.terreno_nombre||"—"}</td>
                                 <td style={{padding:"8px 10px",color:"#334155"}}>{r.valor_terreno||"—"}</td>
                                 <td style={{padding:"8px 10px",color:"#334155"}}>{r.monto_comision||"—"}</td>
