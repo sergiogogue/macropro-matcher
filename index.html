@@ -15855,34 +15855,44 @@ Respuesta: [respuesta exacta, conversacional]
           marcaAgua(doc);
         });
 
+        // Logo + encabezado/pie reutilizables (mismo estilo en Documentos y Cotización).
+        const logo=await cargarImg(LOGO_MACROLOTES);
+        const encabezado=(titulo,sub)=>{
+          doc.setFillColor(AZ[0],AZ[1],AZ[2]); doc.rect(0,0,PW,48,"F");
+          doc.setFillColor(DO[0],DO[1],DO[2]); doc.rect(0,48,PW,1.5,"F");
+          if(logo&&logo.w){ const h=20,w=Math.min(70,h*(logo.w/logo.h)); try{doc.addImage(logo.data,"PNG",MX,14,w,h);}catch(e){} }
+          else { doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(20); doc.text("GRUPO GUÍA",MX,30); }
+          doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.text(titulo,PW-MX,22,{align:"right"});
+          doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(200,205,215); doc.text(sub,PW-MX,28,{align:"right"});
+        };
+        const pie=()=>{
+          doc.setDrawColor(DO[0],DO[1],DO[2]); doc.setLineWidth(0.8); doc.line(MX,285,PW-MX,285); doc.setLineWidth(0.2);
+          doc.setTextColor(150,160,175); doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.text("Documento confidencial · Grupo Guía",PW/2,291,{align:"center"});
+        };
+
         // ══ 2) DOCUMENTOS para opcionar el terreno ══
         doc.addPage("a4","portrait");
-        doc.setFillColor(AZ[0],AZ[1],AZ[2]); doc.rect(0,0,PW,30,"F");
-        doc.setFillColor(DO[0],DO[1],DO[2]); doc.rect(0,30,PW,1.2,"F");
-        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.text("Documentos para opcionar el terreno",MX,19);
-        let yd=50;
-        doc.setFont("helvetica","normal"); doc.setFontSize(11.5);
+        encabezado("Documentos","Para opcionar · Macrolotes");
+        doc.setTextColor(60,70,85); doc.setFont("helvetica","normal"); doc.setFontSize(11);
+        doc.text(doc.splitTextToSize("Para formalizar la opción de su terreno necesitamos los siguientes documentos:",PW-2*MX),MX,66);
+        let yd=92;
+        doc.setFontSize(12.5);
         DOCS_OPCION.forEach((d)=>{
-          doc.setFillColor(DO[0],DO[1],DO[2]); doc.circle(MX+1.8,yd-1.5,1.5,"F");
-          doc.setTextColor(40,50,65); doc.text(d,MX+8,yd); yd+=11.5;
+          doc.setFillColor(DO[0],DO[1],DO[2]); doc.circle(MX+2,yd-1.6,1.7,"F");
+          doc.setTextColor(40,50,65); doc.text(d,MX+9,yd); yd+=18;
         });
-        yd+=6;
+        yd+=2;
         const notaLines=doc.splitTextToSize(DOCS_NOTA,PW-2*MX-12);
-        const notaH=notaLines.length*5.4+15;
+        const notaH=notaLines.length*5.6+16;
         doc.setDrawColor(245,215,150); doc.setFillColor(255,249,235); doc.roundedRect(MX,yd,PW-2*MX,notaH,3,3,"FD");
-        doc.setTextColor(146,104,10); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("Importante",MX+6,yd+8);
-        doc.setTextColor(90,80,60); doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.text(notaLines,MX+6,yd+15);
+        doc.setTextColor(146,104,10); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("Importante",MX+6,yd+9);
+        doc.setTextColor(90,80,60); doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.text(notaLines,MX+6,yd+16);
+        pie();
         marcaAgua(doc);
 
         // ══ 3) COTIZACIÓN (membrete) — AL FINAL ══
         doc.addPage("a4","portrait");
-        doc.setFillColor(AZ[0],AZ[1],AZ[2]); doc.rect(0,0,PW,48,"F");
-        doc.setFillColor(DO[0],DO[1],DO[2]); doc.rect(0,48,PW,1.5,"F");
-        const logo=await cargarImg(LOGO_MACROLOTES);
-        if(logo&&logo.w){ const h=20,w=Math.min(70,h*(logo.w/logo.h)); try{doc.addImage(logo.data,"PNG",MX,14,w,h);}catch(e){} }
-        else { doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(20); doc.text("GRUPO GUÍA",MX,30); }
-        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.text("Cotización",PW-MX,22,{align:"right"});
-        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(200,205,215); doc.text("Opcionador · Macrolotes",PW-MX,28,{align:"right"});
+        encabezado("Cotización","Opcionador · Macrolotes");
 
         let y=66;
         doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(14);
@@ -15917,8 +15927,7 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setDrawColor(222,226,232); doc.setLineWidth(0.3); doc.line(MX,y-7,MX+70,y-7);
         doc.setFont("helvetica","bold"); doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFontSize(12); doc.text(asesor,MX,y);
         doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(120,130,145); doc.text("Grupo Guía · Opcionador de Macrolotes",MX,y+6);
-        doc.setDrawColor(DO[0],DO[1],DO[2]); doc.setLineWidth(0.8); doc.line(MX,285,PW-MX,285); doc.setLineWidth(0.2);
-        doc.setTextColor(150,160,175); doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.text("Documento confidencial · Grupo Guía",PW/2,291,{align:"center"});
+        pie();
         marcaAgua(doc);
 
         // Quita la página inicial en blanco (creada al construir el documento)
