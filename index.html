@@ -15867,19 +15867,30 @@ Respuesta: [respuesta exacta, conversacional]
           marcaAgua(doc);
         });
 
-        // ══ 2) COTIZACIÓN + DOCUMENTOS en UNA sola hoja, del mismo tamaño que las láminas ══
+        // ══ Tamaño uniforme (igual que las láminas) + encabezado/pie compartidos ══
         const logo=await cargarImg(LOGO_MACROLOTES);
         const firstImg=imgs.find(im=>im&&im.w);
         const SW=297, SH=firstImg?Math.round(SW*(firstImg.h/firstImg.w)*100)/100:167;
-        doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
         const M=14;
-        // Encabezado
-        doc.setFillColor(AZ[0],AZ[1],AZ[2]); doc.rect(0,0,SW,30,"F");
-        doc.setFillColor(DO[0],DO[1],DO[2]); doc.rect(0,30,SW,1.2,"F");
-        if(logo&&logo.w){ const h=14,w=Math.min(58,h*(logo.w/logo.h)); try{doc.addImage(logo.data,"PNG",M,9,w,h);}catch(e){} }
-        else { doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(17); doc.text("GRUPO GUÍA",M,20); }
-        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.text("Cotización",SW-M,15,{align:"right"});
-        doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(200,205,215); doc.text("Opcionador · Macrolotes",SW-M,21,{align:"right"});
+        const bandaTitulo=(t1,t2)=>{
+          doc.setFillColor(AZ[0],AZ[1],AZ[2]); doc.rect(0,0,SW,30,"F");
+          doc.setFillColor(DO[0],DO[1],DO[2]); doc.rect(0,30,SW,1.2,"F");
+          if(logo&&logo.w){ const h=14,w=Math.min(58,h*(logo.w/logo.h)); try{doc.addImage(logo.data,(logo.fmt||"PNG"),M,9,w,h);}catch(e){} }
+          else { doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(17); doc.text("GRUPO GUÍA",M,20); }
+          doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.text(t1,SW-M,15,{align:"right"});
+          doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(200,205,215); doc.text(t2,SW-M,21,{align:"right"});
+        };
+        const pieDoc=()=>{
+          doc.setDrawColor(DO[0],DO[1],DO[2]); doc.setLineWidth(0.8); doc.line(M,SH-11,SW-M,SH-11); doc.setLineWidth(0.2);
+          doc.setTextColor(150,160,175); doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.text("Documento confidencial · Grupo Guía",SW/2,SH-5,{align:"center"});
+        };
+
+        const cotId=(r&&r.id)||(guardada&&guardada.id)||"";
+        const enlace="https://macrolotes.grupoguia.mx/aceptar"+(cotId?("?c="+cotId):"");
+
+        // ══ COTIZACIÓN + DOCUMENTOS en UNA sola hoja ══
+        doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
+        bandaTitulo("Cotización","Opcionador · Macrolotes");
 
         // Dos columnas: izquierda cotización, derecha documentos
         const colGap=12, Lx=M, Lw=Math.round((SW-2*M-colGap)*0.56), Rx=Lx+Lw+colGap, Rw=(SW-M)-Rx;
@@ -15925,9 +15936,26 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setTextColor(146,104,10); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("Importante",Rx+5,ry+7);
         doc.setTextColor(90,80,60); doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.text(notaLines,Rx+5,ry+12.5);
 
-        // Pie
-        doc.setDrawColor(DO[0],DO[1],DO[2]); doc.setLineWidth(0.8); doc.line(M,SH-11,SW-M,SH-11); doc.setLineWidth(0.2);
-        doc.setTextColor(150,160,175); doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.text("Documento confidencial · Grupo Guía",SW/2,SH-5,{align:"center"});
+        pieDoc();
+        marcaAgua(doc);
+
+        // ══ TÉRMINOS, CONDICIONES Y ALCANCES — ÚLTIMA HOJA ══
+        doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
+        bandaTitulo("Términos y Condiciones","Alcances del servicio");
+        let ty=42;
+        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text("Términos, Condiciones y Alcances del Servicio",M,ty); ty+=7;
+        doc.setTextColor(55,65,80); doc.setFont("helvetica","normal"); doc.setFontSize(8.6);
+        [ "Grupo Guía es una empresa de tecnología inmobiliaria que ofrece servicios de intermediación y comercialización (opción) de terrenos y macrolotes, vinculando al propietario con desarrolladores e inversionistas. Este documento es una cotización informativa; no constituye contrato de compraventa ni garantiza la venta del inmueble.",
+          "Alcance del servicio: (i) análisis y estructuración de la opción de venta; (ii) difusión y vinculación con compradores potenciales; (iii) acompañamiento documental y seguimiento. La comisión indicada se causa conforme a las condiciones señaladas y únicamente al concretarse la operación, salvo pacto por escrito en contrario.",
+          "El propietario declara que la información y documentación proporcionada es veraz y de su legítima propiedad. Los datos personales se tratan conforme al Aviso de Privacidad de Grupo Guía.",
+          "Aceptación (PROFECO): De conformidad con la Ley Federal de Protección al Consumidor, el consumidor manifiesta haber leído y comprendido los términos, condiciones, alcances y el costo del servicio aquí descritos antes de su contratación, siendo ésta libre y voluntaria."
+        ].forEach((p)=>{ const L=doc.splitTextToSize(p,SW-2*M); doc.text(L,M,ty); ty+=L.length*4.4+3.5; });
+        const eY=SH-32;
+        doc.setDrawColor(DO[0],DO[1],DO[2]); doc.setFillColor(255,249,235); doc.roundedRect(M,eY,SW-2*M,21,3,3,"FD");
+        doc.setTextColor(146,104,10); doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.text("Da seguimiento a tu terreno y sube tu documentación. Crea tu cuenta en:",M+6,eY+8);
+        doc.setTextColor(20,70,140); doc.setFont("helvetica","bold"); doc.setFontSize(10.5); doc.text(enlace,M+6,eY+16);
+        try{ doc.link(M+6,eY+11,SW-2*M-12,7,{url:enlace}); }catch(e){}
+        pieDoc();
         marcaAgua(doc);
 
         // Quita la página inicial en blanco (creada al construir el documento)
