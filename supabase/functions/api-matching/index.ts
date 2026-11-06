@@ -101,6 +101,28 @@ Deno.serve(async (req) => {
       return json({ modo: "lote_a_clientes", total_evaluados: arr.length, top: scored }, 200, origin);
     }
 
+    // ── MODO criterios→lotes (ficha de la Landing: manda los criterios directos) ──
+    // No depende de que el cliente exista en la tabla `clientes`. La Landing envía:
+    //   { ciudad, ciudades[], estados[], uso_suelo, usos[], superficie_min, superficie_max, presupuesto_max }
+    // Devuelve { lotes: [ {...lote, score, razones} ] } (la ficha lee l.nombre/score/superficie_m2/precio_total).
+    if (body.criterios) {
+      const cr = body.criterios;
+      const clienteLike = {
+        ciudad_interes: (Array.isArray(cr.ciudades) && cr.ciudades.length) ? cr.ciudades : (cr.ciudad ? [cr.ciudad] : []),
+        uso_interes: (Array.isArray(cr.usos) && cr.usos.length) ? cr.usos : (cr.uso_suelo ? [cr.uso_suelo] : []),
+        sup_min: cr.superficie_min,
+        sup_max: cr.superficie_max,
+        presupuesto_max: cr.presupuesto_max,
+      };
+      const { data: lotes } = await sb.from("lotes").select("id,nombre,desarrollo,desarrollador,ciudad,estado,superficie_m2,precio_total,precio_m2,uso,usos_todos,status_inventario,maps_url");
+      const inv = Array.isArray(lotes) ? lotes : [];
+      const scored = inv.map((l: any) => { const r = scoreClienteLote(clienteLike, l); return { ...l, score: r.score, razones: r.razones, descalificado: r.descalificado, na: r.na }; })
+        .filter((m) => !m.descalificado && !m.na && m.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+      return json({ modo: "criterios", total_evaluados: inv.length, lotes: scored }, 200, origin);
+    }
+
     // ── MODO clienteId→lotes (original) ──
     const clienteId = body.clienteId ?? new URL(req.url).searchParams.get("clienteId");
     if (!clienteId) return json({ error: "Falta clienteId (o envía body.lote para el modo lote→clientes)." }, 400, origin);
