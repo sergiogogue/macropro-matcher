@@ -1824,7 +1824,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const setView=(v)=>{setViewRaw(v);savePersisted(STORAGE_KEYS.view,v);};
   // Back-Office "Option Engine": si al cargar, la vista persistida/por URL es OCULTA, redirige a
   // Captación (solo al montar; la navegación interna no se bloquea). Reversible.
-  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin"];
+  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch"];
     if(!permitidas.includes(view)){ setView("captacion"); try{ if(window.location.hash && window.location.hash!=="#captacion") window.history.replaceState(null,"","#captacion"); }catch(e){} }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -3380,7 +3380,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     // 0) vista directa (?vista=admin, dashboard, clients, lots, crm, metas…)
     if(vista){
       // Back-Office "Option Engine": por URL solo se permiten las 4 vistas visibles; el resto → Captación.
-      const VISTAS_PERMITIDAS=['home','captacion','documentos','admin'];
+      const VISTAS_PERMITIDAS=['home','captacion','documentos','admin','pitch'];
       deepLinkRef.current = true;
       setView(VISTAS_PERMITIDAS.includes(vista)?vista:'captacion');
       limpiar(); return;
@@ -15722,6 +15722,76 @@ Respuesta: [respuesta exacta, conversacional]
     toast("✅ Reporte descargado");
   };
 
+  // ── Módulo Pitch / Cotizaciones (cotizaciones_opcionador) ──
+  const PITCH_URLS = [1,2,3,4,5].map((n)=>"https://xugrrabebphdelgwqnwc.supabase.co/storage/v1/object/public/pitch-assets/Pitch"+n+".png");
+  const CONDICIONES_DEFAULT = "10% del valor de la venta del terreno, pagadero al recibir...";
+  const ViewPitchCotizacion = () => {
+    const AZUL = "#0f172a", DORADO = "#d4af37";
+    const [f, setF] = useState({ cliente_id:"", asesor_nombre:"", terreno_nombre:"", terreno_ciudad:"", terreno_dimensiones:"", monto_comision:"", condiciones:CONDICIONES_DEFAULT, estatus:"borrador" });
+    const [guardando, setGuardando] = useState(false);
+    const [guardada, setGuardada] = useState(null);
+    const set = (k,v)=>setF((p)=>({ ...p, [k]:v }));
+    const guardar = async ()=>{
+      if(!f.terreno_nombre.trim()){ toast("⚠ Pon al menos el nombre del terreno"); return; }
+      if(!window.sb){ toast("⚠ Sin conexión a Supabase"); return; }
+      setGuardando(true); setGuardada(null);
+      try{
+        const row = { cliente_id:f.cliente_id.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, terreno_nombre:f.terreno_nombre.trim(), terreno_ciudad:f.terreno_ciudad.trim()||null, terreno_dimensiones:f.terreno_dimensiones.trim()||null, monto_comision:f.monto_comision.trim()||null, condiciones:f.condiciones.trim()||CONDICIONES_DEFAULT, estatus:f.estatus||"borrador" };
+        const { data, error } = await window.sb.from("cotizaciones_opcionador").insert(row).select().single();
+        if(error) throw error;
+        setGuardada(data); toast("💾 Cotización guardada");
+      }catch(e){ toast("❌ No se pudo guardar: "+((e&&e.message)||e)); }
+      finally{ setGuardando(false); }
+    };
+    const wrap={maxWidth:720,margin:"0 auto",padding:"24px 18px",fontFamily:"'DM Sans',system-ui,sans-serif"};
+    const card={background:"#fff",border:"1px solid #e5e7eb",borderRadius:16,overflow:"hidden",boxShadow:"0 10px 40px rgba(15,23,42,.08)"};
+    const header={background:AZUL,color:"#fff",padding:"22px 26px",display:"flex",alignItems:"center",justifyContent:"space-between"};
+    const bodyS={padding:"22px 26px",display:"flex",flexDirection:"column",gap:14};
+    const lb={fontSize:11,fontWeight:800,color:AZUL,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5,display:"block"};
+    const inp={width:"100%",padding:"11px 12px",borderRadius:10,border:"1.5px solid #e5e7eb",fontSize:14,color:AZUL,outline:"none",fontFamily:"inherit",background:"#fff"};
+    const grid2={display:"grid",gridTemplateColumns:"1fr 1fr",gap:12};
+    return (
+      <div style={wrap}>
+        <div style={card}>
+          <div style={header}>
+            <div>
+              <div style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:DORADO}}>Grupo Guía · Opcionador</div>
+              <div style={{fontSize:22,fontWeight:800,marginTop:2}}>Pitch / Cotización</div>
+            </div>
+            <div style={{width:44,height:44,borderRadius:10,background:DORADO,color:AZUL,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20}}>G</div>
+          </div>
+          <div style={bodyS}>
+            <div style={grid2}>
+              <div><span style={lb}>Asesor</span><input style={inp} value={f.asesor_nombre} onChange={(e)=>set("asesor_nombre",e.target.value)} placeholder="Nombre del asesor"/></div>
+              <div><span style={lb}>Cliente (id, opcional)</span><input style={inp} value={f.cliente_id} onChange={(e)=>set("cliente_id",e.target.value)} placeholder="id del cliente (opcional)"/></div>
+            </div>
+            <div><span style={lb}>Terreno</span><input style={inp} value={f.terreno_nombre} onChange={(e)=>set("terreno_nombre",e.target.value)} placeholder="Nombre / clave del terreno *"/></div>
+            <div style={grid2}>
+              <div><span style={lb}>Ciudad</span><input style={inp} value={f.terreno_ciudad} onChange={(e)=>set("terreno_ciudad",e.target.value)} placeholder="Ciudad"/></div>
+              <div><span style={lb}>Dimensiones</span><input style={inp} value={f.terreno_dimensiones} onChange={(e)=>set("terreno_dimensiones",e.target.value)} placeholder="Ej. 2,500 m²"/></div>
+            </div>
+            <div style={grid2}>
+              <div><span style={lb}>Monto de comisión</span><input style={inp} value={f.monto_comision} onChange={(e)=>set("monto_comision",e.target.value)} placeholder="Ej. 10% o $500,000"/></div>
+              <div><span style={lb}>Estatus</span>
+                <select style={inp} value={f.estatus} onChange={(e)=>set("estatus",e.target.value)}>
+                  <option value="borrador">Borrador</option><option value="enviada">Enviada</option>
+                  <option value="aceptada">Aceptada</option><option value="rechazada">Rechazada</option>
+                </select>
+              </div>
+            </div>
+            <div><span style={lb}>Condiciones</span>
+              <textarea style={{...inp,minHeight:80,resize:"vertical"}} value={f.condiciones} onChange={(e)=>set("condiciones",e.target.value)}/>
+            </div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4}}>
+              <button onClick={guardar} disabled={guardando} style={{padding:"12px 20px",borderRadius:10,border:"none",background:guardando?"#94a3b8":AZUL,color:"#fff",fontSize:14,fontWeight:800,cursor:guardando?"wait":"pointer",fontFamily:"inherit"}}>{guardando?"Guardando…":"💾 Guardar cotización"}</button>
+              <button disabled={!guardada} onClick={()=>toast("📄 La generación del PDF llega en el Paso 4")} style={{padding:"12px 20px",borderRadius:10,border:"2px solid "+DORADO,background:guardada?DORADO:"#f1f5f9",color:guardada?AZUL:"#94a3b8",fontSize:14,fontWeight:800,cursor:guardada?"pointer":"not-allowed",fontFamily:"inherit"}}>📄 Generar PDF</button>
+            </div>
+            {guardada && (<div style={{fontSize:12,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:10,padding:"8px 11px"}}>✅ Guardada (id: {String(guardada.id).slice(0,8)}…). Lista para el PDF del Paso 4.</div>)}
+          </div>
+        </div>
+      </div>
+    );
+  };
   const ViewCaptacion = () => {
     const ahoraC = new Date();
     const fechaRelC = (iso)=>{ if(!iso) return "—"; const d=new Date(iso); const dias=Math.floor((ahoraC-d)/(1000*60*60*24)); if(dias===0) return "Hoy"; if(dias===1) return "Ayer"; if(dias<7) return `Hace ${dias}d`; if(dias<30) return `Hace ${Math.floor(dias/7)}sem`; return `Hace ${Math.floor(dias/30)}m`; };
@@ -18677,7 +18747,7 @@ Respuesta: [respuesta exacta, conversacional]
               NO se borran vistas: componentes y render (view===) siguen intactos; reversible re-agregando entradas.
               Ocultas (solo accesibles internamente): dashboard, corretaje, asesores(Buscando), quickSearch,
               matchClient, matchLot, matches, clients, lots(Inventario), crm, metas, ejecutivo, comparador. */}
-          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["admin","⚙️ Admin"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["admin","⚙️ Admin"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
@@ -18730,6 +18800,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="admin"&&<ViewAdmin/>}
       {view==="asesores"&&<ViewAsesores/>}
       {view==="captacion"&&<ViewCaptacion/>}
+      {view==="pitch"&&<ViewPitchCotizacion/>}
       {view==="comparador"&&<ViewComparador/>}
       {view==="matches"&&<ViewMatches/>}
       {/* ⚖️ Barra flotante del Comparador (Spec 61) — visible al seleccionar lotes, fuera de la propia vista */}
