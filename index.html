@@ -15728,18 +15728,61 @@ Respuesta: [respuesta exacta, conversacional]
   const ViewPitchCotizacion = () => {
     const AZUL = "#0f172a", DORADO = "#d4af37";
     const [f, setF] = useState({ cliente_id:"", asesor_nombre:"", terreno_nombre:"", terreno_ciudad:"", terreno_dimensiones:"", monto_comision:"", condiciones:CONDICIONES_DEFAULT, estatus:"borrador" });
+    const [cliNombre, setCliNombre] = useState("");       // nombre escrito/elegido en el buscador
+    const [clienteSel, setClienteSel] = useState(null);   // cliente resuelto de la base (nombre, telefono)
     const [guardando, setGuardando] = useState(false);
     const [guardada, setGuardada] = useState(null);
+    const [historial, setHistorial] = useState([]);
+    const [cargandoHist, setCargandoHist] = useState(false);
     const set = (k,v)=>setF((p)=>({ ...p, [k]:v }));
+
+    // Resuelve el nombre escrito contra la base local (clients) y guarda su id en cliente_id.
+    const onCliNombre = (nombre)=>{
+      const n = (nombre||"");
+      setCliNombre(n);
+      const c = (clients||[]).find(x=>((x.nombre||"").trim().toLowerCase())===n.trim().toLowerCase());
+      setClienteSel(c||null);
+      set("cliente_id", c ? String(c.id||c.id_cliente||n.trim()) : n.trim());
+    };
+
+    // Teléfono para WhatsApp (MX: si son 10 dígitos, se antepone 52).
+    const telDigits = (clienteSel&&clienteSel.telefono?String(clienteSel.telefono):"").replace(/\D/g,"");
+    const waPhone = telDigits.length===10 ? ("52"+telDigits) : telDigits;
+    const puedeWA = waPhone.length>=10;
+    const enviarWhatsApp = ()=>{
+      if(!puedeWA){ toast("⚠ Ese cliente no tiene teléfono válido en la base"); return; }
+      const nom = (clienteSel&&clienteSel.nombre)||cliNombre.trim()||"cliente";
+      const ase = f.asesor_nombre.trim()||"Grupo Guía";
+      const msg = "Hola "+nom+", te comparto la cotización y el pitch de tu macrolote. Quedo a tus órdenes para cualquier duda. - "+ase;
+      window.open("https://wa.me/"+waPhone+"?text="+encodeURIComponent(msg), "_blank");
+    };
+
+    // Historial de cotizaciones del cliente seleccionado (tabla cotizaciones_opcionador).
+    const cargarHistorial = async (cid)=>{
+      if(!window.sb||!cid){ setHistorial([]); return; }
+      setCargandoHist(true);
+      try{
+        const { data, error } = await window.sb.from("cotizaciones_opcionador").select("*").eq("cliente_id",cid).order("created_at",{ascending:false});
+        if(error) throw error;
+        setHistorial(data||[]);
+      }catch(e){ setHistorial([]); }
+      finally{ setCargandoHist(false); }
+    };
+    React.useEffect(()=>{ if(f.cliente_id) cargarHistorial(f.cliente_id); else setHistorial([]); }, [f.cliente_id]);
+
+    // Generar PDF (se cablea en el Paso 4). Lo usan el botón principal y el re-descargar del historial.
+    const generarPDF = (row)=>toast("📄 La generación del PDF llega en el Paso 4");
+
     const guardar = async ()=>{
       if(!f.terreno_nombre.trim()){ toast("⚠ Pon al menos el nombre del terreno"); return; }
       if(!window.sb){ toast("⚠ Sin conexión a Supabase"); return; }
       setGuardando(true); setGuardada(null);
       try{
-        const row = { cliente_id:f.cliente_id.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, terreno_nombre:f.terreno_nombre.trim(), terreno_ciudad:f.terreno_ciudad.trim()||null, terreno_dimensiones:f.terreno_dimensiones.trim()||null, monto_comision:f.monto_comision.trim()||null, condiciones:f.condiciones.trim()||CONDICIONES_DEFAULT, estatus:f.estatus||"borrador" };
+        const row = { cliente_id:(f.cliente_id||"").trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, terreno_nombre:f.terreno_nombre.trim(), terreno_ciudad:f.terreno_ciudad.trim()||null, terreno_dimensiones:f.terreno_dimensiones.trim()||null, monto_comision:f.monto_comision.trim()||null, condiciones:f.condiciones.trim()||CONDICIONES_DEFAULT, estatus:f.estatus||"borrador" };
         const { data, error } = await window.sb.from("cotizaciones_opcionador").insert(row).select().single();
         if(error) throw error;
         setGuardada(data); toast("💾 Cotización guardada");
+        cargarHistorial(f.cliente_id);
       }catch(e){ toast("❌ No se pudo guardar: "+((e&&e.message)||e)); }
       finally{ setGuardando(false); }
     };
@@ -15763,7 +15806,14 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={bodyS}>
             <div style={grid2}>
               <div><span style={lb}>Asesor</span><input style={inp} value={f.asesor_nombre} onChange={(e)=>set("asesor_nombre",e.target.value)} placeholder="Nombre del asesor"/></div>
-              <div><span style={lb}>Cliente (id, opcional)</span><input style={inp} value={f.cliente_id} onChange={(e)=>set("cliente_id",e.target.value)} placeholder="id del cliente (opcional)"/></div>
+              <div>
+                <span style={lb}>Cliente</span>
+                <input list="mp-cli-list" style={inp} value={cliNombre} onChange={(e)=>onCliNombre(e.target.value)} placeholder="Busca o escribe el cliente"/>
+                <datalist id="mp-cli-list">{(clients||[]).slice(0,800).map((c,i)=>(<option key={i} value={c.nombre||""}/>))}</datalist>
+                {clienteSel
+                  ? <div style={{fontSize:11,color:"#15803d",marginTop:4}}>📞 {clienteSel.telefono||"sin teléfono"}{(clienteSel.email||clienteSel.correo)?(" · "+(clienteSel.email||clienteSel.correo)):""}</div>
+                  : (cliNombre.trim()?<div style={{fontSize:11,color:"#b45309",marginTop:4}}>Cliente nuevo (no está en la base — WhatsApp necesita un cliente con teléfono)</div>:null)}
+              </div>
             </div>
             <div><span style={lb}>Terreno</span><input style={inp} value={f.terreno_nombre} onChange={(e)=>set("terreno_nombre",e.target.value)} placeholder="Nombre / clave del terreno *"/></div>
             <div style={grid2}>
@@ -15784,9 +15834,56 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4}}>
               <button onClick={guardar} disabled={guardando} style={{padding:"12px 20px",borderRadius:10,border:"none",background:guardando?"#94a3b8":AZUL,color:"#fff",fontSize:14,fontWeight:800,cursor:guardando?"wait":"pointer",fontFamily:"inherit"}}>{guardando?"Guardando…":"💾 Guardar cotización"}</button>
-              <button disabled={!guardada} onClick={()=>toast("📄 La generación del PDF llega en el Paso 4")} style={{padding:"12px 20px",borderRadius:10,border:"2px solid "+DORADO,background:guardada?DORADO:"#f1f5f9",color:guardada?AZUL:"#94a3b8",fontSize:14,fontWeight:800,cursor:guardada?"pointer":"not-allowed",fontFamily:"inherit"}}>📄 Generar PDF</button>
+              <button disabled={!guardada} onClick={()=>generarPDF(guardada)} style={{padding:"12px 20px",borderRadius:10,border:"2px solid "+DORADO,background:guardada?DORADO:"#f1f5f9",color:guardada?AZUL:"#94a3b8",fontSize:14,fontWeight:800,cursor:guardada?"pointer":"not-allowed",fontFamily:"inherit"}}>📄 Generar PDF</button>
+              <button disabled={!puedeWA} onClick={enviarWhatsApp} title={puedeWA?"Enviar por WhatsApp al cliente":"Selecciona un cliente con teléfono"} style={{padding:"12px 20px",borderRadius:10,border:"none",background:puedeWA?"#25D366":"#f1f5f9",color:puedeWA?"#fff":"#94a3b8",fontSize:14,fontWeight:800,cursor:puedeWA?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 Enviar por WhatsApp</button>
             </div>
             {guardada && (<div style={{fontSize:12,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:10,padding:"8px 11px"}}>✅ Guardada (id: {String(guardada.id).slice(0,8)}…). Lista para el PDF del Paso 4.</div>)}
+          </div>
+        </div>
+
+        {/* ── Historial de cotizaciones del cliente ── */}
+        <div style={{...card, marginTop:18}}>
+          <div style={{...header, padding:"16px 26px"}}>
+            <div style={{fontSize:15,fontWeight:800}}>Historial de cotizaciones</div>
+            <div style={{fontSize:12,color:DORADO,fontWeight:800}}>{clienteSel?clienteSel.nombre:""}</div>
+          </div>
+          <div style={{padding:"16px 20px"}}>
+            {!f.cliente_id
+              ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Selecciona un cliente para ver su historial.</div>
+              : cargandoHist
+                ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Cargando…</div>
+                : historial.length===0
+                  ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Sin cotizaciones para este cliente todavía.</div>
+                  : (
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                        <thead>
+                          <tr style={{textAlign:"left",color:AZUL,borderBottom:"2px solid "+DORADO}}>
+                            <th style={{padding:"8px 10px"}}>Fecha</th>
+                            <th style={{padding:"8px 10px"}}>Terreno</th>
+                            <th style={{padding:"8px 10px"}}>Monto</th>
+                            <th style={{padding:"8px 10px"}}>Estatus</th>
+                            <th style={{padding:"8px 10px",textAlign:"right"}}>PDF</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {historial.map((r)=>{
+                            const est=(r.estatus||"borrador");
+                            const col={borrador:["#f1f5f9","#475569"],enviada:["#dbeafe","#1d4ed8"],aceptada:["#dcfce7","#15803d"],rechazada:["#fee2e2","#b91c1c"]}[est]||["#f1f5f9","#475569"];
+                            return (
+                              <tr key={r.id} style={{borderBottom:"1px solid #eef2f7"}}>
+                                <td style={{padding:"8px 10px",color:"#334155"}}>{r.created_at?new Date(r.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}):"—"}</td>
+                                <td style={{padding:"8px 10px",color:AZUL,fontWeight:600}}>{r.terreno_nombre||"—"}</td>
+                                <td style={{padding:"8px 10px",color:"#334155"}}>{r.monto_comision||"—"}</td>
+                                <td style={{padding:"8px 10px"}}><span style={{background:col[0],color:col[1],borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800,textTransform:"capitalize"}}>{est}</span></td>
+                                <td style={{padding:"8px 10px",textAlign:"right"}}><button onClick={()=>generarPDF(r)} style={{padding:"6px 12px",borderRadius:8,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL,fontSize:12,fontWeight:800,cursor:"pointer"}}>📄 PDF</button></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
           </div>
         </div>
       </div>
