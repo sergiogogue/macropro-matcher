@@ -15210,12 +15210,14 @@ Respuesta: [respuesta exacta, conversacional]
   const CAPTAR_URL = "https://sergiogogue.github.io/macropro-matcher/captar.html";
   const LOGO_MACROLOTES = "https://xugrrabebphdelgwqnwc.supabase.co/storage/v1/object/public/logos-desarrollos/03ad3f32-7322-4e98-b653-8bdb970b68d5-1779665862554.png";
   const cargarImg = (url)=> new Promise((resolve)=>{
+    let done=false; const finish=(v)=>{ if(done) return; done=true; resolve(v); };
     try{
       const img = new Image(); img.crossOrigin = "anonymous";
-      img.onload = ()=>{ try{ const c=document.createElement("canvas"); c.width=img.naturalWidth; c.height=img.naturalHeight; c.getContext("2d").drawImage(img,0,0); resolve({data:c.toDataURL("image/png"), w:img.naturalWidth, h:img.naturalHeight}); }catch(e){ resolve(null); } };
-      img.onerror = ()=>resolve(null);
+      img.onload = ()=>{ try{ const c=document.createElement("canvas"); c.width=img.naturalWidth; c.height=img.naturalHeight; c.getContext("2d").drawImage(img,0,0); finish({data:c.toDataURL("image/png"), w:img.naturalWidth, h:img.naturalHeight}); }catch(e){ finish(null); } };
+      img.onerror = ()=>finish(null);
       img.src = url;
-    }catch(e){ resolve(null); }
+      setTimeout(()=>finish(null), 12000); // nunca colgar la generación del PDF si una imagen no responde
+    }catch(e){ finish(null); }
   });
   const descargarInstruccionesCaptacionPDF = async () => {
     if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
