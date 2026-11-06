@@ -15209,11 +15209,22 @@ Respuesta: [respuesta exacta, conversacional]
   // ── PDF de instrucciones para compartir la liga de captación (con logo Macrolotes Guía) ──
   const CAPTAR_URL = "https://sergiogogue.github.io/macropro-matcher/captar.html";
   const LOGO_MACROLOTES = "https://xugrrabebphdelgwqnwc.supabase.co/storage/v1/object/public/logos-desarrollos/03ad3f32-7322-4e98-b653-8bdb970b68d5-1779665862554.png";
-  const cargarImg = (url)=> new Promise((resolve)=>{
+  const cargarImg = (url, opts)=> new Promise((resolve)=>{
+    opts = opts || {};
     let done=false; const finish=(v)=>{ if(done) return; done=true; resolve(v); };
     try{
       const img = new Image(); img.crossOrigin = "anonymous";
-      img.onload = ()=>{ try{ const c=document.createElement("canvas"); c.width=img.naturalWidth; c.height=img.naturalHeight; c.getContext("2d").drawImage(img,0,0); finish({data:c.toDataURL("image/png"), w:img.naturalWidth, h:img.naturalHeight}); }catch(e){ finish(null); } };
+      img.onload = ()=>{ try{
+        let w=img.naturalWidth, h=img.naturalHeight;
+        const maxDim=opts.maxDim||0;
+        if(maxDim && Math.max(w,h)>maxDim){ const s=maxDim/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); }
+        const c=document.createElement("canvas"); c.width=w; c.height=h;
+        const ctx=c.getContext("2d");
+        if(opts.jpeg){ ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,w,h); } // JPEG no tiene transparencia
+        ctx.drawImage(img,0,0,w,h);
+        const data = opts.jpeg ? c.toDataURL("image/jpeg", opts.quality||0.72) : c.toDataURL("image/png");
+        finish({data, fmt:(opts.jpeg?"JPEG":"PNG"), w:img.naturalWidth, h:img.naturalHeight});
+      }catch(e){ finish(null); } };
       img.onerror = ()=>finish(null);
       img.src = url;
       setTimeout(()=>finish(null), 12000); // nunca colgar la generación del PDF si una imagen no responde
@@ -15838,12 +15849,13 @@ Respuesta: [respuesta exacta, conversacional]
         const PW=210, MX=16;
 
         // ══ 1) PRESENTACIÓN: las 5 láminas del Pitch, a TODA la hoja (sin márgenes) ══
-        const imgs=await Promise.all(PITCH_URLS.map(cargarImg));
+        // JPEG comprimido + reescalado → PDF ligero para enviar por correo.
+        const imgs=await Promise.all(PITCH_URLS.map((u)=>cargarImg(u,{jpeg:true, maxDim:1600, quality:0.72})));
         imgs.forEach((im,i)=>{
           if(im&&im.w){
             const W=297, H=Math.round(W*(im.h/im.w)*100)/100;
             doc.addPage([W,H], W>=H?"landscape":"portrait");
-            try{ doc.addImage(im.data,"PNG",0,0,W,H); }
+            try{ doc.addImage(im.data,(im.fmt||"JPEG"),0,0,W,H); }
             catch(e){ doc.setFillColor(AZ[0],AZ[1],AZ[2]); doc.rect(0,0,W,H,"F"); }
           } else {
             doc.addPage("a4","landscape");
