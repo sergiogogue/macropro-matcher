@@ -15210,12 +15210,14 @@ Respuesta: [respuesta exacta, conversacional]
   const CAPTAR_URL = "https://sergiogogue.github.io/macropro-matcher/captar.html";
   const LOGO_MACROLOTES = "https://xugrrabebphdelgwqnwc.supabase.co/storage/v1/object/public/logos-desarrollos/03ad3f32-7322-4e98-b653-8bdb970b68d5-1779665862554.png";
   const cargarImg = (url)=> new Promise((resolve)=>{
+    let done=false; const finish=(v)=>{ if(done) return; done=true; resolve(v); };
     try{
       const img = new Image(); img.crossOrigin = "anonymous";
-      img.onload = ()=>{ try{ const c=document.createElement("canvas"); c.width=img.naturalWidth; c.height=img.naturalHeight; c.getContext("2d").drawImage(img,0,0); resolve({data:c.toDataURL("image/png"), w:img.naturalWidth, h:img.naturalHeight}); }catch(e){ resolve(null); } };
-      img.onerror = ()=>resolve(null);
+      img.onload = ()=>{ try{ const c=document.createElement("canvas"); c.width=img.naturalWidth; c.height=img.naturalHeight; c.getContext("2d").drawImage(img,0,0); finish({data:c.toDataURL("image/png"), w:img.naturalWidth, h:img.naturalHeight}); }catch(e){ finish(null); } };
+      img.onerror = ()=>finish(null);
       img.src = url;
-    }catch(e){ resolve(null); }
+      setTimeout(()=>finish(null), 12000); // nunca colgar la generación del PDF si una imagen no responde
+    }catch(e){ finish(null); }
   });
   const descargarInstruccionesCaptacionPDF = async () => {
     if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
@@ -15799,9 +15801,11 @@ Respuesta: [respuesta exacta, conversacional]
 
     // Genera el PDF: hoja membretada (datos del cliente, valor del terreno, comisión 10% y
     // condiciones) + las 5 láminas del Pitch Deck + marca de agua en cada página.
+    // Arma una fila con lo que haya en el formulario (para generar el PDF sin tener que guardar).
+    const rowActual = ()=>({ cliente_id:(f.cliente_id||"").trim()||null, cliente_nombre:f.cliente_nombre.trim()||null, cliente_telefono:f.cliente_telefono.trim()||null, cliente_email:f.cliente_email.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, terreno_nombre:f.terreno_nombre.trim(), terreno_ciudad:f.terreno_ciudad.trim()||null, terreno_dimensiones:f.terreno_dimensiones.trim()||null, valor_terreno:f.valor_terreno.trim()||null, monto_comision:f.monto_comision.trim()||null, condiciones:f.condiciones.trim()||CONDICIONES_DEFAULT, estatus:f.estatus||"borrador", created_at:new Date().toISOString() });
     const generarPDF = async (row)=>{
-      const r = row || guardada;
-      if(!r){ toast("⚠ Primero guarda la cotización"); return; }
+      const r = row || guardada || rowActual();
+      if(!r || !((r.terreno_nombre||"").trim())){ toast("⚠ Pon al menos el nombre del terreno"); return; }
       if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
       setPdfBusy(true); toast("📄 Generando PDF…");
       try{
@@ -15972,7 +15976,7 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4}}>
               <button onClick={guardar} disabled={guardando} style={{padding:"12px 20px",borderRadius:10,border:"none",background:guardando?"#94a3b8":AZUL,color:"#fff",fontSize:14,fontWeight:800,cursor:guardando?"wait":"pointer",fontFamily:"inherit"}}>{guardando?"Guardando…":"💾 Guardar cotización"}</button>
-              <button disabled={!guardada||pdfBusy} onClick={()=>generarPDF(guardada)} style={{padding:"12px 20px",borderRadius:10,border:"2px solid "+DORADO,background:(guardada&&!pdfBusy)?DORADO:"#f1f5f9",color:(guardada&&!pdfBusy)?AZUL:"#94a3b8",fontSize:14,fontWeight:800,cursor:(guardada&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>{pdfBusy?"Generando…":"📄 Generar PDF"}</button>
+              <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada)} style={{padding:"12px 20px",borderRadius:10,border:"2px solid "+DORADO,background:(f.terreno_nombre.trim()&&!pdfBusy)?DORADO:"#f1f5f9",color:(f.terreno_nombre.trim()&&!pdfBusy)?AZUL:"#94a3b8",fontSize:14,fontWeight:800,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>{pdfBusy?"Generando…":"📄 Generar PDF"}</button>
               <button disabled={!puedeWA} onClick={enviarWhatsApp} title={puedeWA?"Enviar por WhatsApp al cliente":"Selecciona un cliente con teléfono"} style={{padding:"12px 20px",borderRadius:10,border:"none",background:puedeWA?"#25D366":"#f1f5f9",color:puedeWA?"#fff":"#94a3b8",fontSize:14,fontWeight:800,cursor:puedeWA?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 Enviar por WhatsApp</button>
             </div>
             {guardada && (<div style={{fontSize:12,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:10,padding:"8px 11px"}}>✅ Guardada (id: {String(guardada.id).slice(0,8)}…). Lista para el PDF del Paso 4.</div>)}
