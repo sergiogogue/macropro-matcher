@@ -15725,21 +15725,192 @@ Respuesta: [respuesta exacta, conversacional]
   // ── Módulo Pitch / Cotizaciones (cotizaciones_opcionador) ──
   const PITCH_URLS = [1,2,3,4,5].map((n)=>"https://xugrrabebphdelgwqnwc.supabase.co/storage/v1/object/public/pitch-assets/Pitch"+n+".png");
   const CONDICIONES_DEFAULT = "10% del valor de la venta del terreno, pagadero al recibir...";
+  const DOCS_OPCION = [
+    "Escrituras",
+    "Certificado de Uso de Suelo",
+    "Certificado de libertad de gravamen",
+    "INE del propietario",
+    "Plano / levantamiento con medidas y colindancias",
+    "Boleta / recibo predial",
+    "Ubicación / coordenadas (Google Maps o KML)",
+    "4 fotos del terreno",
+  ];
+  const DOCS_NOTA = "Los documentos deben enviarse en PDF (no fotos), salvo las 4 fotos del terreno. Si aún no hay escritura, envíe copia del contrato de compraventa.";
   const ViewPitchCotizacion = () => {
     const AZUL = "#0f172a", DORADO = "#d4af37";
-    const [f, setF] = useState({ cliente_id:"", asesor_nombre:"", terreno_nombre:"", terreno_ciudad:"", terreno_dimensiones:"", monto_comision:"", condiciones:CONDICIONES_DEFAULT, estatus:"borrador" });
+    const [f, setF] = useState({ cliente_id:"", cliente_nombre:"", cliente_telefono:"", cliente_email:"", asesor_nombre:"", terreno_nombre:"", terreno_ciudad:"", terreno_dimensiones:"", valor_terreno:"", monto_comision:"", condiciones:CONDICIONES_DEFAULT, estatus:"borrador" });
+    const [clienteSel, setClienteSel] = useState(null);   // cliente resuelto de la base (si existe)
     const [guardando, setGuardando] = useState(false);
     const [guardada, setGuardada] = useState(null);
+    const [historial, setHistorial] = useState([]);
+    const [cargandoHist, setCargandoHist] = useState(false);
+    const [pdfBusy, setPdfBusy] = useState(false);
     const set = (k,v)=>setF((p)=>({ ...p, [k]:v }));
+
+    // Buscador de cliente: al escribir/elegir un nombre, si existe en la base local (clients)
+    // autollena teléfono, email e id. Si es nuevo, deja esos campos para capturarlos a mano.
+    const onCliNombre = (nombre)=>{
+      const n = (nombre||"");
+      const c = (clients||[]).find(x=>((x.nombre||"").trim().toLowerCase())===n.trim().toLowerCase());
+      setClienteSel(c||null);
+      setF((p)=>({ ...p,
+        cliente_nombre:n,
+        cliente_id: c ? String(c.id||c.id_cliente||n.trim()) : n.trim(),
+        cliente_telefono: c ? String(c.telefono||"") : p.cliente_telefono,
+        cliente_email: c ? String(c.email||c.correo||"") : p.cliente_email,
+      }));
+    };
+
+    // Teléfono para WhatsApp (MX: si son 10 dígitos, se antepone 52).
+    const telDigits = String(f.cliente_telefono||"").replace(/\D/g,"");
+    const waPhone = telDigits.length===10 ? ("52"+telDigits) : telDigits;
+    const puedeWA = waPhone.length>=10;
+    const enviarWhatsApp = ()=>{
+      if(!puedeWA){ toast("⚠ Captura un teléfono válido (10 dígitos) del cliente"); return; }
+      const nom = f.cliente_nombre.trim()||"cliente";
+      const ase = f.asesor_nombre.trim()||"Grupo Guía";
+      const msg = "Hola "+nom+", te comparto la cotización y el pitch de tu macrolote. Quedo a tus órdenes para cualquier duda. - "+ase;
+      window.open("https://wa.me/"+waPhone+"?text="+encodeURIComponent(msg), "_blank");
+    };
+
+    // Historial de cotizaciones del cliente seleccionado (tabla cotizaciones_opcionador).
+    const cargarHistorial = async (cid)=>{
+      if(!window.sb||!cid){ setHistorial([]); return; }
+      setCargandoHist(true);
+      try{
+        const { data, error } = await window.sb.from("cotizaciones_opcionador").select("*").eq("cliente_id",cid).order("created_at",{ascending:false});
+        if(error) throw error;
+        setHistorial(data||[]);
+      }catch(e){ setHistorial([]); }
+      finally{ setCargandoHist(false); }
+    };
+    React.useEffect(()=>{ if(f.cliente_id) cargarHistorial(f.cliente_id); else setHistorial([]); }, [f.cliente_id]);
+
+    // Marca de agua diagonal "CONFIDENCIAL GRUPO GUÍA" (opacidad 0.1) en la página actual.
+    const marcaAgua = (doc)=>{
+      const PW=doc.internal.pageSize.getWidth(), PH=doc.internal.pageSize.getHeight();
+      let hasGS=false;
+      try{ if(typeof doc.GState==="function"){ doc.setGState(new doc.GState({opacity:0.10})); hasGS=true; } }catch(e){ hasGS=false; }
+      doc.setTextColor(hasGS?15:226, hasGS?23:232, hasGS?42:240);
+      doc.setFont("helvetica","bold"); doc.setFontSize(42);
+      try{ doc.text("CONFIDENCIAL GRUPO GUÍA", PW/2, PH/2, {align:"center", angle:45}); }catch(e){}
+      if(hasGS){ try{ doc.setGState(new doc.GState({opacity:1})); }catch(e){} }
+    };
+
+    // Genera el PDF: hoja membretada (datos del cliente, valor del terreno, comisión 10% y
+    // condiciones) + las 5 láminas del Pitch Deck + marca de agua en cada página.
+    const generarPDF = async (row)=>{
+      const r = row || guardada;
+      if(!r){ toast("⚠ Primero guarda la cotización"); return; }
+      if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
+      setPdfBusy(true); toast("📄 Generando PDF…");
+      try{
+        const AZ=[15,23,42], DO=[212,175,55];
+        const cli=(clients||[]).find(x=>String(x.id||x.id_cliente)===String(r.cliente_id));
+        const nombreCli=r.cliente_nombre||(cli&&cli.nombre)||(clienteSel&&clienteSel.nombre)||r.cliente_id||"Cliente";
+        const telCli=r.cliente_telefono||(cli&&cli.telefono)||"";
+        const emailCli=r.cliente_email||(cli&&(cli.email||cli.correo))||"";
+        const asesor=r.asesor_nombre||f.asesor_nombre||"Grupo Guía";
+        const fecha=r.created_at?new Date(r.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"}):new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"});
+        const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+        const PW=210, MX=16;
+
+        // ── Página 1: membrete ──
+        doc.setFillColor(AZ[0],AZ[1],AZ[2]); doc.rect(0,0,PW,48,"F");
+        doc.setFillColor(DO[0],DO[1],DO[2]); doc.rect(0,48,PW,1.5,"F");
+        const logo=await cargarImg(LOGO_MACROLOTES);
+        if(logo&&logo.w){ const h=20,w=Math.min(70,h*(logo.w/logo.h)); try{doc.addImage(logo.data,"PNG",MX,14,w,h);}catch(e){} }
+        else { doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(20); doc.text("GRUPO GUÍA",MX,28); }
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.text("Cotización",PW-MX,22,{align:"right"});
+        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(200,205,215); doc.text("Opcionador · Macrolotes",PW-MX,28,{align:"right"});
+
+        let y=64;
+        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+        doc.text("Estimado(a) "+nombreCli,MX,y); y+=7;
+        const contacto=[telCli?("Tel: "+telCli):"",emailCli?("Email: "+emailCli):""].filter(Boolean).join("     ·     ");
+        if(contacto){ doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(70,80,95); doc.text(contacto,MX,y); y+=6; }
+        doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(70,80,95);
+        doc.text("Asesor: "+asesor+"     ·     Fecha: "+fecha,MX,y); y+=10;
+
+        // Caja de datos del terreno (valor + comisión)
+        const boxY=y, boxH=42, colX=PW/2+4;
+        doc.setDrawColor(230,232,238); doc.setFillColor(248,250,252); doc.roundedRect(MX,boxY,PW-2*MX,boxH,3,3,"FD");
+        doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("TERRENO",MX+6,boxY+8);
+        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.text(r.terreno_nombre||"—",MX+6,boxY+16);
+        doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.setTextColor(70,80,95);
+        doc.text([r.terreno_ciudad,r.terreno_dimensiones].filter(Boolean).join("  ·  ")||"—",MX+6,boxY+23);
+        doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
+        doc.text("VALOR DE VENTA",MX+6,boxY+33); doc.text("COMISIÓN (10%)",colX,boxY+33);
+        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+        doc.text(r.valor_terreno||"—",MX+6,boxY+40); doc.text(r.monto_comision||"—",colX,boxY+40);
+        y=boxY+boxH+12;
+
+        // Condiciones
+        doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("CONDICIONES",MX,y); y+=6;
+        doc.setTextColor(60,70,85); doc.setFont("helvetica","normal"); doc.setFontSize(10);
+        const cond=doc.splitTextToSize(r.condiciones||CONDICIONES_DEFAULT,PW-2*MX); doc.text(cond,MX,y); y+=cond.length*5.4+10;
+
+        // Cierre + firma
+        doc.setFontSize(10); doc.setTextColor(70,80,95);
+        const cierre=doc.splitTextToSize("Quedamos a sus órdenes para cualquier aclaración. Agradecemos la confianza en Grupo Guía.",PW-2*MX);
+        doc.text(cierre,MX,y); y+=cierre.length*5.4+12;
+        doc.setFont("helvetica","bold"); doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFontSize(11); doc.text(asesor,MX,y);
+        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(120,130,145); doc.text("Grupo Guía · Opcionador de Macrolotes",MX,y+5);
+        marcaAgua(doc);
+
+        // ── Página 2: documentos para opcionar el terreno ──
+        doc.addPage("a4","portrait");
+        doc.setFillColor(AZ[0],AZ[1],AZ[2]); doc.rect(0,0,PW,30,"F");
+        doc.setFillColor(DO[0],DO[1],DO[2]); doc.rect(0,30,PW,1.2,"F");
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.text("Documentos para opcionar el terreno",MX,19);
+        let yd=46;
+        doc.setFont("helvetica","normal"); doc.setFontSize(11);
+        DOCS_OPCION.forEach((d)=>{
+          doc.setFillColor(DO[0],DO[1],DO[2]); doc.circle(MX+1.8,yd-1.5,1.4,"F");
+          doc.setTextColor(40,50,65); doc.text(d,MX+8,yd); yd+=10;
+        });
+        yd+=4;
+        const notaLines=doc.splitTextToSize(DOCS_NOTA,PW-2*MX-12);
+        const notaH=notaLines.length*5.2+13;
+        doc.setDrawColor(245,215,150); doc.setFillColor(255,249,235); doc.roundedRect(MX,yd,PW-2*MX,notaH,3,3,"FD");
+        doc.setTextColor(146,104,10); doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.text("Importante",MX+6,yd+8);
+        doc.setTextColor(90,80,60); doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.text(notaLines,MX+6,yd+14);
+        marcaAgua(doc);
+
+        // ── Páginas 3-7: láminas del Pitch Deck (horizontal) ──
+        const imgs=await Promise.all(PITCH_URLS.map(cargarImg));
+        imgs.forEach((im,i)=>{
+          doc.addPage("a4","landscape");
+          const LW=doc.internal.pageSize.getWidth(), LH=doc.internal.pageSize.getHeight();
+          doc.setFillColor(255,255,255); doc.rect(0,0,LW,LH,"F");
+          if(im&&im.w){
+            const m=8, maxW=LW-2*m, maxH=LH-2*m;
+            let w=maxW, h=w*(im.h/im.w); if(h>maxH){ h=maxH; w=h*(im.w/im.h); }
+            try{ doc.addImage(im.data,"PNG",(LW-w)/2,(LH-h)/2,w,h); }catch(e){}
+          } else {
+            doc.setTextColor(150,160,175); doc.setFont("helvetica","normal"); doc.setFontSize(12);
+            doc.text("Lámina "+(i+1)+" del pitch no disponible",LW/2,LH/2,{align:"center"});
+          }
+          marcaAgua(doc);
+        });
+
+        const safe=(s)=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,40);
+        doc.save("Cotizacion_"+(safe(nombreCli)||"cliente")+"_"+(safe(r.terreno_nombre)||"terreno")+".pdf");
+        toast("✅ PDF generado");
+      }catch(e){ toast("❌ No se pudo generar el PDF: "+((e&&e.message)||e)); }
+      finally{ setPdfBusy(false); }
+    };
+
     const guardar = async ()=>{
       if(!f.terreno_nombre.trim()){ toast("⚠ Pon al menos el nombre del terreno"); return; }
       if(!window.sb){ toast("⚠ Sin conexión a Supabase"); return; }
       setGuardando(true); setGuardada(null);
       try{
-        const row = { cliente_id:f.cliente_id.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, terreno_nombre:f.terreno_nombre.trim(), terreno_ciudad:f.terreno_ciudad.trim()||null, terreno_dimensiones:f.terreno_dimensiones.trim()||null, monto_comision:f.monto_comision.trim()||null, condiciones:f.condiciones.trim()||CONDICIONES_DEFAULT, estatus:f.estatus||"borrador" };
+        const row = { cliente_id:(f.cliente_id||"").trim()||null, cliente_nombre:f.cliente_nombre.trim()||null, cliente_telefono:f.cliente_telefono.trim()||null, cliente_email:f.cliente_email.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, terreno_nombre:f.terreno_nombre.trim(), terreno_ciudad:f.terreno_ciudad.trim()||null, terreno_dimensiones:f.terreno_dimensiones.trim()||null, valor_terreno:f.valor_terreno.trim()||null, monto_comision:f.monto_comision.trim()||null, condiciones:f.condiciones.trim()||CONDICIONES_DEFAULT, estatus:f.estatus||"borrador" };
         const { data, error } = await window.sb.from("cotizaciones_opcionador").insert(row).select().single();
         if(error) throw error;
         setGuardada(data); toast("💾 Cotización guardada");
+        cargarHistorial(f.cliente_id);
       }catch(e){ toast("❌ No se pudo guardar: "+((e&&e.message)||e)); }
       finally{ setGuardando(false); }
     };
@@ -15763,7 +15934,16 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={bodyS}>
             <div style={grid2}>
               <div><span style={lb}>Asesor</span><input style={inp} value={f.asesor_nombre} onChange={(e)=>set("asesor_nombre",e.target.value)} placeholder="Nombre del asesor"/></div>
-              <div><span style={lb}>Cliente (id, opcional)</span><input style={inp} value={f.cliente_id} onChange={(e)=>set("cliente_id",e.target.value)} placeholder="id del cliente (opcional)"/></div>
+              <div>
+                <span style={lb}>Nombre del cliente</span>
+                <input list="mp-cli-list" style={inp} value={f.cliente_nombre} onChange={(e)=>onCliNombre(e.target.value)} placeholder="Busca o escribe el cliente"/>
+                <datalist id="mp-cli-list">{(clients||[]).slice(0,800).map((c,i)=>(<option key={i} value={c.nombre||""}/>))}</datalist>
+                {clienteSel && <div style={{fontSize:11,color:"#15803d",marginTop:4}}>✓ Cliente de la base — teléfono y email autollenados</div>}
+              </div>
+            </div>
+            <div style={grid2}>
+              <div><span style={lb}>Teléfono del cliente</span><input style={inp} value={f.cliente_telefono} onChange={(e)=>set("cliente_telefono",e.target.value)} placeholder="10 dígitos (para WhatsApp)"/></div>
+              <div><span style={lb}>Email del cliente</span><input style={inp} type="email" value={f.cliente_email} onChange={(e)=>set("cliente_email",e.target.value)} placeholder="correo@cliente.com"/></div>
             </div>
             <div><span style={lb}>Terreno</span><input style={inp} value={f.terreno_nombre} onChange={(e)=>set("terreno_nombre",e.target.value)} placeholder="Nombre / clave del terreno *"/></div>
             <div style={grid2}>
@@ -15771,22 +15951,79 @@ Respuesta: [respuesta exacta, conversacional]
               <div><span style={lb}>Dimensiones</span><input style={inp} value={f.terreno_dimensiones} onChange={(e)=>set("terreno_dimensiones",e.target.value)} placeholder="Ej. 2,500 m²"/></div>
             </div>
             <div style={grid2}>
-              <div><span style={lb}>Monto de comisión</span><input style={inp} value={f.monto_comision} onChange={(e)=>set("monto_comision",e.target.value)} placeholder="Ej. 10% o $500,000"/></div>
-              <div><span style={lb}>Estatus</span>
-                <select style={inp} value={f.estatus} onChange={(e)=>set("estatus",e.target.value)}>
-                  <option value="borrador">Borrador</option><option value="enviada">Enviada</option>
-                  <option value="aceptada">Aceptada</option><option value="rechazada">Rechazada</option>
-                </select>
-              </div>
+              <div><span style={lb}>Valor de venta del terreno</span><input style={inp} value={f.valor_terreno} onChange={(e)=>set("valor_terreno",e.target.value)} placeholder="Ej. $5,000,000"/></div>
+              <div><span style={lb}>Monto de comisión (10%)</span><input style={inp} value={f.monto_comision} onChange={(e)=>set("monto_comision",e.target.value)} placeholder="Ej. $500,000"/></div>
+            </div>
+            <div><span style={lb}>Estatus</span>
+              <select style={inp} value={f.estatus} onChange={(e)=>set("estatus",e.target.value)}>
+                <option value="borrador">Borrador</option><option value="enviada">Enviada</option>
+                <option value="aceptada">Aceptada</option><option value="rechazada">Rechazada</option>
+              </select>
             </div>
             <div><span style={lb}>Condiciones</span>
               <textarea style={{...inp,minHeight:80,resize:"vertical"}} value={f.condiciones} onChange={(e)=>set("condiciones",e.target.value)}/>
             </div>
+            <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"12px 14px"}}>
+              <div style={{fontSize:11,fontWeight:800,color:AZUL,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>Documentos para opcionar el terreno</div>
+              <ul style={{margin:0,paddingLeft:18,color:"#334155",fontSize:12.5,lineHeight:1.7}}>
+                {DOCS_OPCION.map((d,i)=>(<li key={i}>{d}</li>))}
+              </ul>
+              <div style={{fontSize:11.5,color:"#b45309",marginTop:8}}>{DOCS_NOTA}</div>
+            </div>
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4}}>
               <button onClick={guardar} disabled={guardando} style={{padding:"12px 20px",borderRadius:10,border:"none",background:guardando?"#94a3b8":AZUL,color:"#fff",fontSize:14,fontWeight:800,cursor:guardando?"wait":"pointer",fontFamily:"inherit"}}>{guardando?"Guardando…":"💾 Guardar cotización"}</button>
-              <button disabled={!guardada} onClick={()=>toast("📄 La generación del PDF llega en el Paso 4")} style={{padding:"12px 20px",borderRadius:10,border:"2px solid "+DORADO,background:guardada?DORADO:"#f1f5f9",color:guardada?AZUL:"#94a3b8",fontSize:14,fontWeight:800,cursor:guardada?"pointer":"not-allowed",fontFamily:"inherit"}}>📄 Generar PDF</button>
+              <button disabled={!guardada||pdfBusy} onClick={()=>generarPDF(guardada)} style={{padding:"12px 20px",borderRadius:10,border:"2px solid "+DORADO,background:(guardada&&!pdfBusy)?DORADO:"#f1f5f9",color:(guardada&&!pdfBusy)?AZUL:"#94a3b8",fontSize:14,fontWeight:800,cursor:(guardada&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>{pdfBusy?"Generando…":"📄 Generar PDF"}</button>
+              <button disabled={!puedeWA} onClick={enviarWhatsApp} title={puedeWA?"Enviar por WhatsApp al cliente":"Selecciona un cliente con teléfono"} style={{padding:"12px 20px",borderRadius:10,border:"none",background:puedeWA?"#25D366":"#f1f5f9",color:puedeWA?"#fff":"#94a3b8",fontSize:14,fontWeight:800,cursor:puedeWA?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 Enviar por WhatsApp</button>
             </div>
             {guardada && (<div style={{fontSize:12,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:10,padding:"8px 11px"}}>✅ Guardada (id: {String(guardada.id).slice(0,8)}…). Lista para el PDF del Paso 4.</div>)}
+          </div>
+        </div>
+
+        {/* ── Historial de cotizaciones del cliente ── */}
+        <div style={{...card, marginTop:18}}>
+          <div style={{...header, padding:"16px 26px"}}>
+            <div style={{fontSize:15,fontWeight:800}}>Historial de cotizaciones</div>
+            <div style={{fontSize:12,color:DORADO,fontWeight:800}}>{clienteSel?clienteSel.nombre:""}</div>
+          </div>
+          <div style={{padding:"16px 20px"}}>
+            {!f.cliente_id
+              ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Selecciona un cliente para ver su historial.</div>
+              : cargandoHist
+                ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Cargando…</div>
+                : historial.length===0
+                  ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Sin cotizaciones para este cliente todavía.</div>
+                  : (
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                        <thead>
+                          <tr style={{textAlign:"left",color:AZUL,borderBottom:"2px solid "+DORADO}}>
+                            <th style={{padding:"8px 10px"}}>Fecha</th>
+                            <th style={{padding:"8px 10px"}}>Terreno</th>
+                            <th style={{padding:"8px 10px"}}>Valor</th>
+                            <th style={{padding:"8px 10px"}}>Comisión</th>
+                            <th style={{padding:"8px 10px"}}>Estatus</th>
+                            <th style={{padding:"8px 10px",textAlign:"right"}}>PDF</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {historial.map((r)=>{
+                            const est=(r.estatus||"borrador");
+                            const col={borrador:["#f1f5f9","#475569"],enviada:["#dbeafe","#1d4ed8"],aceptada:["#dcfce7","#15803d"],rechazada:["#fee2e2","#b91c1c"]}[est]||["#f1f5f9","#475569"];
+                            return (
+                              <tr key={r.id} style={{borderBottom:"1px solid #eef2f7"}}>
+                                <td style={{padding:"8px 10px",color:"#334155"}}>{r.created_at?new Date(r.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}):"—"}</td>
+                                <td style={{padding:"8px 10px",color:AZUL,fontWeight:600}}>{r.terreno_nombre||"—"}</td>
+                                <td style={{padding:"8px 10px",color:"#334155"}}>{r.valor_terreno||"—"}</td>
+                                <td style={{padding:"8px 10px",color:"#334155"}}>{r.monto_comision||"—"}</td>
+                                <td style={{padding:"8px 10px"}}><span style={{background:col[0],color:col[1],borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800,textTransform:"capitalize"}}>{est}</span></td>
+                                <td style={{padding:"8px 10px",textAlign:"right"}}><button disabled={pdfBusy} onClick={()=>generarPDF(r)} style={{padding:"6px 12px",borderRadius:8,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL,fontSize:12,fontWeight:800,cursor:pdfBusy?"not-allowed":"pointer",opacity:pdfBusy?0.5:1}}>📄 PDF</button></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
           </div>
         </div>
       </div>
