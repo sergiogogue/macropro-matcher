@@ -15764,7 +15764,7 @@ Respuesta: [respuesta exacta, conversacional]
     // Guarda el borrador en el navegador para que NO se borre si la app se recarga.
     React.useEffect(()=>{ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify(f)); }catch(e){} }, [f]);
     // Comisión siempre en %: calcula el monto en pesos a partir del valor y el %.
-    const fmtMXN = (n)=> (Number(n)||0).toLocaleString("es-MX",{style:"currency",currency:"MXN",maximumFractionDigits:0});
+    const fmtMXN = (n)=> (Number(n)||0).toLocaleString("es-MX",{style:"currency",currency:"MXN",minimumFractionDigits:2,maximumFractionDigits:2});
     const valorNum = parseFloat(String(f.valor_terreno||"").replace(/[^0-9.]/g,""))||0;
     const pctNum = parseFloat(String(f.monto_comision||"").replace(/[^0-9.]/g,""))||0;
     const comisionMXN = (valorNum>0 && pctNum>0) ? valorNum*pctNum/100 : 0;
@@ -15910,7 +15910,7 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text("VALOR DE VENTA",Lx+5,bY+30); doc.text("COMISIÓN",cX2,bY+30);
         const _vN=parseFloat(String(r.valor_terreno||"").replace(/[^0-9.]/g,""))||0;
         const _pN=parseFloat(String(r.monto_comision||"").replace(/[^0-9.]/g,""))||0;
-        const _comTxt=(r.monto_comision||"—")+((_vN&&_pN)?("  ("+(_vN*_pN/100).toLocaleString("es-MX",{style:"currency",currency:"MXN",maximumFractionDigits:0})+")"):"");
+        const _comTxt=(r.monto_comision||"—")+((_vN&&_pN)?("  ("+(_vN*_pN/100).toLocaleString("es-MX",{style:"currency",currency:"MXN",minimumFractionDigits:2,maximumFractionDigits:2})+")"):"");
         doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text(r.valor_terreno||"—",Lx+5,bY+37); doc.setFontSize(_comTxt.length>13?10:12); doc.text(_comTxt,cX2,bY+37);
         y=bY+bH+8;
         doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text("CONDICIONES",Lx,y); y+=5;
@@ -16018,7 +16018,7 @@ Respuesta: [respuesta exacta, conversacional]
               <div><span style={lb}>Dimensiones</span><input style={inp} value={f.terreno_dimensiones} onChange={(e)=>set("terreno_dimensiones",e.target.value)} placeholder="Ej. 2,500 m²"/></div>
             </div>
             <div style={grid2}>
-              <div><span style={lb}>Valor de venta del terreno</span><input style={inp} value={f.valor_terreno} onChange={(e)=>set("valor_terreno",e.target.value)} placeholder="Ej. $5,000,000"/></div>
+              <div><span style={lb}>Valor de venta del terreno</span><input style={inp} value={f.valor_terreno} onChange={(e)=>set("valor_terreno",e.target.value)} onBlur={(e)=>{ const n=parseFloat(String(e.target.value).replace(/[^0-9.]/g,"")); if(!isNaN(n)&&n>0) set("valor_terreno",fmtMXN(n)); }} placeholder="Ej. $5,000,000.00"/></div>
               <div><span style={lb}>Comisión (%)</span><input style={inp} value={f.monto_comision} onChange={(e)=>set("monto_comision",e.target.value)} placeholder="Ej. 10%"/>
                 {comisionMXN>0 && <div style={{fontSize:11,color:"#15803d",marginTop:4}}>≈ {fmtMXN(comisionMXN)} de comisión</div>}
               </div>
