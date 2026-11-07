@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GUÍA LOTES™ Intelligence v75</title>
+<title>GUÍA LOTES™ Intelligence v76</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDMgMTJsMTAtNC00IDExeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMyIiB5PSI0NCIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjMxIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBsZXR0ZXItc3BhY2luZz0iLTEiPklOPC90ZXh0Pjwvc3ZnPg==">
 <link rel="alternate icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiNEMjFGMUYiLz48cGF0aCBkPSJNNDMgMTJsMTAtNC00IDExeiIgZmlsbD0iI0U4QjQ0QyIvPjx0ZXh0IHg9IjMyIiB5PSI0NCIgZm9udC1mYW1pbHk9IkFyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmIiBmb250LXNpemU9IjMxIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjZmZmZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBsZXR0ZXItc3BhY2luZz0iLTEiPklOPC90ZXh0Pjwvc3ZnPg==">
 <meta name="theme-color" content="#D21F1F">
@@ -831,7 +831,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
   <div class="header-right">
     <button class="hdr-btn" onclick="openEstudios()" title="Estudios guardados">📚 <span class="lbl">Estudios</span></button>
     <button class="hdr-btn" onclick="openAutorizStats()" title="Estadística de autorizaciones">📊 <span class="lbl">Autorizaciones</span></button>
-    <span class="v-badge">v75</span>
+    <span class="v-badge">v76</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -3971,8 +3971,24 @@ function setStep(id, state) {
 async function readFilesContent() {
   const contents = [];
   const skipped = [];
+  let inline = 0; const INLINE_MAX = 4*1024*1024; // hasta ~4 MB van dentro de la petición
   for (const file of uploadedFiles) {
     if (SKIP_TYPES.includes(file.type)) { skipped.push(file.name); continue; }
+    // Archivos que vienen de MacroPro (traen _url): los chicos van adjuntos (base64,
+    // la IA ve exactamente lo que se descargó); los grandes van por URL (la IA los
+    // descarga) para no pasar el límite de tamaño de la petición.
+    if (file._url && (file.type==='application/pdf' || /^image\/(jpeg|png|webp)$/.test(file.type))) {
+      if (file.type==='application/pdf') {
+        let head=''; try { head = await file.slice(0,1024).text(); } catch(e){}
+        if (!head.includes('%PDF')) { skipped.push(file.name+' [no es PDF válido]'); continue; }
+      }
+      const tipo = file.type==='application/pdf' ? 'pdf' : 'image';
+      const item = { type:tipo, name:file.name, size:file.size, mediaType:file.type, blob:file };
+      if (inline + file.size <= INLINE_MAX) { item.b64 = await fileToBase64(file); inline += file.size; }
+      else item.url = file._url;
+      contents.push(item);
+      continue;
+    }
     if (file.type==='image/jpeg'||file.type==='image/jpg'||file.type==='image/png'||file.type==='image/webp') {
       if (file.size > 5*1024*1024) { skipped.push(file.name+' [muy grande]'); continue; }
       const b64 = await fileToBase64(file);
@@ -4066,93 +4082,123 @@ function parseJSON(text) {
   try{return JSON.parse(extracted);}catch(e){return JSON.parse(extracted.replace(/,\s*([}\]])/g,'$1'));}
 }
 
-// ── LLAMADA A LA API ──────────────────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════════════════
-// OPCIONADOR · Análisis legal automático. Cuando el Valuador se abre con
-// ?fuente=opcionador, lee los documentos que MacroPro dejó en localStorage
-// ('valuador_opcionador'), los descarga, los MUESTRA en pantalla y corre un
-// dictamen con la IA (reusa callClaude). Autónomo: solo actúa con ese parámetro,
-// así que NO afecta el flujo normal del Valuador.
+// OPCIONADOR → VALUADOR. Cuando Intelligence se abre con ?fuente=opcionador, toma los
+// documentos que MacroPro dejó en localStorage ('valuador_opcionador') y los CARGA EN
+// EL VALUADOR (la misma lista de "Sube los documentos del lote"), llena coordenadas y
+// cliente, y corre SOLO: (1) la revisión legal del opcionador (escritura, INE vs
+// escritura, uso de suelo) y (2) el análisis completo del Valuador (semáforo,
+// compradores, opinión de valor, matching). Sin ?fuente=opcionador no hace nada.
 // ════════════════════════════════════════════════════════════════════════════
 async function analizarOpcionador(){
   let payload=null;
   try{ payload=JSON.parse(localStorage.getItem('valuador_opcionador')||'null'); }catch(e){}
   if(!payload||!Array.isArray(payload.documentos)||!payload.documentos.length) return;
+  const esc=(s)=>String(s==null?'':s).replace(/</g,'&lt;');
 
   const panel=document.createElement('div');
   panel.id='opc-panel';
-  panel.style.cssText='position:relative;z-index:50;margin:16px auto;max-width:900px;background:#0f1b2e;border:1px solid #d4af37;border-radius:14px;padding:18px 20px;color:#e8eef7;font-family:system-ui,-apple-system,sans-serif;box-shadow:0 10px 40px rgba(0,0,0,.4)';
+  panel.style.cssText='position:relative;z-index:5;margin:16px 0;background:#0f1b2e;border:1px solid #d4af37;border-radius:14px;padding:18px 20px;color:#e8eef7;font-family:system-ui,-apple-system,sans-serif;box-shadow:0 10px 40px rgba(0,0,0,.4)';
   const tituloTerreno=[payload.terreno,payload.ciudad].filter(Boolean).join(' · ');
-  panel.innerHTML='<div style="font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#d4af37">Opcionador · Análisis legal con IA</div>'
-    +'<div style="font-size:18px;font-weight:800;margin-top:2px">'+((payload.cliente||'Opcionador').replace(/</g,'&lt;'))+'</div>'
-    +(tituloTerreno?'<div style="font-size:13px;color:#9fb3cc">'+tituloTerreno.replace(/</g,'&lt;')+'</div>':'')
-    +'<div style="margin-top:12px;font-size:12px;font-weight:700;color:#9fb3cc">Documentos en análisis</div>'
-    +'<div id="opc-docs" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:8px"></div>'
-    +'<div id="opc-estado" style="margin-top:14px;font-size:13px;color:#d4af37">⏳ Descargando documentos…</div>'
-    +'<div id="opc-resultado" style="margin-top:12px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;color:#e8eef7"></div>';
-  document.body.insertBefore(panel, document.body.firstChild);
+  panel.innerHTML='<div style="font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#d4af37">Opcionador · Documentos de MacroPro</div>'
+    +'<div style="font-size:18px;font-weight:800;margin-top:2px">'+esc(payload.cliente||'Opcionador')+'</div>'
+    +(tituloTerreno?'<div style="font-size:13px;color:#9fb3cc">'+esc(tituloTerreno)+'</div>':'')
+    +'<div id="opc-docs" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px"></div>'
+    +'<div id="opc-estado" style="margin-top:14px;font-size:13.5px;font-weight:700;color:#d4af37">⏳ Descargando documentos…</div>'
+    +'<div style="margin-top:14px;font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#9fb3cc">Revisión legal</div>'
+    +'<div id="opc-resultado" style="margin-top:6px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;color:#e8eef7">—</div>';
+  const zona=document.getElementById('upload-zone');
+  if(zona&&zona.parentNode) zona.parentNode.insertBefore(panel, zona); else document.body.insertBefore(panel, document.body.firstChild);
+  try{ panel.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){}
   const chips=panel.querySelector('#opc-docs'), estado=panel.querySelector('#opc-estado'), resultado=panel.querySelector('#opc-resultado');
-  const chip=(t,ok)=>{ const c=document.createElement('span'); c.style.cssText='font-size:12px;font-weight:700;border-radius:20px;padding:4px 11px;background:'+(ok?'#14321f':'#2a2a2a')+';color:'+(ok?'#86efac':'#9fb3cc')+';border:1px solid '+(ok?'#166534':'#3a3a3a'); c.textContent=(ok?'✓ ':'✗ ')+t; return c; };
+  const chip=(t,ok)=>{ const c=document.createElement('span'); c.style.cssText='font-size:12px;font-weight:700;border-radius:20px;padding:4px 11px;background:'+(ok?'#14321f':'#2a2a2a')+';color:'+(ok?'#86efac':'#fca5a5')+';border:1px solid '+(ok?'#166534':'#7f1d1d'); c.textContent=(ok?'✓ ':'✗ ')+t; return c; };
 
-  const aB64=(blob)=>new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=rej; r.readAsDataURL(blob); });
+  // 1) Descargar y convertir cada documento en un archivo del Valuador.
+  //    PDF/imagen: el archivo lleva su URL (_url) → la IA lo lee por URL (petición ligera).
+  //    KMZ/KML: se abre aquí → coordenadas a los campos GPS + texto para la IA.
+  //    Otro formato (p. ej. HEIC): se avisa y no se manda.
+  const IMG_OK=/^image\/(jpeg|png|webp)$/;
+  const extDe=(u)=>{ try{ const p=new URL(u).pathname; const i=p.lastIndexOf('.'); return i<0?'':p.slice(i+1).toLowerCase(); }catch(e){ return ''; } };
   const orden=['escrituras','ine','uso_suelo','plano','predial','ubicacion','libertad_gravamen','fotos'];
   const rank=(c)=>{ const i=orden.indexOf(c); return i<0?99:i; };
   const docsOrdenados=[...payload.documentos].sort((a,b)=>rank(a.clave)-rank(b.clave));
-  // Cada documento se REVISA aquí (que exista y su formato) y se manda a la IA por su
-  // URL (la IA lo descarga): así la petición pesa unos KB aunque los PDFs pesen MB.
-  // PDF → documento · JPG/PNG/GIF/WEBP → imagen · KMZ/KML → se abre aquí y se mandan
-  // sus coordenadas como texto (la IA no lee KMZ). Otro formato → se avisa, no se manda.
-  const IMG_OK=/^image\/(jpeg|png|gif|webp)$/;
-  const extDe=(u)=>{ try{ const p=new URL(u).pathname; const i=p.lastIndexOf('.'); return i<0?'':p.slice(i+1).toLowerCase(); }catch(e){ return ''; } };
-  const docsContent=[], listaPrompt=[], omitidos=[];
+  const archivos=[], omitidos=[], usados={};
+  let coords=null;
+  const nombreUnico=(base0,ext)=>{ const base=String(base0).replace(/[\\/:*?"<>|']/g,'-'); const k=base+'.'+ext; usados[k]=(usados[k]||0)+1; return usados[k]>1?(base+' ('+usados[k]+').'+ext):k; };
   for(const d of docsOrdenados){
     try{
       const r=await fetch(d.url); if(!r.ok) throw new Error('HTTP '+r.status);
       const blob=await r.blob(); const mt=(blob.type||'').toLowerCase().split(';')[0]; const x=extDe(d.url);
-      let item=null, nota='';
-      if(mt==='application/pdf'||x==='pdf') item={type:'pdf',url:d.url,blob,name:d.tipo};
-      else if(IMG_OK.test(mt)) item={type:'image',url:d.url,blob,mediaType:mt,name:d.tipo};
-      else if(['jpg','jpeg','png','gif','webp'].includes(x)) item={type:'image',url:d.url,blob,mediaType:'image/'+(x==='jpg'?'jpeg':x),name:d.tipo};
-      else if(x==='kmz'||x==='kml'||/kml|kmz|zip/.test(mt)){ item={type:'text',text:await opcKmlATexto(blob,x),name:d.tipo}; nota=' (coordenadas)'; }
-      if(!item){ omitidos.push(d.tipo+' (formato .'+(x||mt||'?')+' no legible)'); chips.appendChild(chip(d.tipo+' · formato no legible',false)); continue; }
-      docsContent.push(item);
-      listaPrompt.push(docsContent.length+') '+d.tipo+nota);
-      chips.appendChild(chip(d.tipo+nota,true));
-    }catch(e){ omitidos.push(d.tipo+' (no se pudo abrir: '+((e&&e.message)||e)+')'); chips.appendChild(chip(d.tipo,false)); }
+      let f=null, nota='';
+      if(mt==='application/pdf'||x==='pdf'){
+        const head=await blob.slice(0,1024).text().catch(()=>'');
+        if(!head.includes('%PDF')){ omitidos.push(d.tipo+' (el archivo no es un PDF válido: está dañado o no es PDF)'); chips.appendChild(chip(d.tipo+' · no es un PDF válido',false)); continue; }
+        f=new File([blob], nombreUnico(d.tipo,'pdf'), {type:'application/pdf'});
+      }
+      else if(IMG_OK.test(mt)) f=new File([blob], nombreUnico(d.tipo, mt.split('/')[1]==='jpeg'?'jpg':mt.split('/')[1]), {type:mt});
+      else if(['jpg','jpeg','png','webp'].includes(x)) f=new File([blob], nombreUnico(d.tipo,x), {type:'image/'+(x==='jpg'?'jpeg':x)});
+      else if(x==='kmz'||x==='kml'||/kml|kmz|zip/.test(mt)){
+        const k=await opcKmlATexto(blob,x); if(!coords) coords={lat:k.lat,lon:k.lon};
+        f=new File([k.texto], nombreUnico(d.tipo,'txt'), {type:'text/plain'}); nota=' (coordenadas)';
+      }
+      if(!f){ omitidos.push(d.tipo+' (formato .'+(x||mt||'?')+' no legible)'); chips.appendChild(chip(d.tipo+' · formato no legible',false)); continue; }
+      if(f.type!=='text/plain') f._url=d.url;
+      archivos.push(f);
+      const kb=f.size<1024*1024?Math.max(1,Math.round(f.size/1024))+' KB':(f.size/1048576).toFixed(1)+' MB';
+      const fmt=f.type==='application/pdf'?'PDF':f.type==='text/plain'?'KMZ':f.type.split('/')[1].toUpperCase();
+      chips.appendChild(chip(d.tipo+nota+' · '+fmt+' '+kb,true));
+    }catch(e){ omitidos.push(d.tipo+' (no se pudo abrir: '+((e&&e.message)||e)+')'); chips.appendChild(chip(d.tipo+' · no se pudo abrir',false)); }
   }
-  if(!docsContent.length){ estado.textContent='⚠ No se pudo abrir ningún documento: '+omitidos.join('; '); return; }
+  if(!archivos.length){ estado.textContent='⚠ No se pudo abrir ningún documento: '+omitidos.join('; '); return; }
 
-  estado.textContent='🧠 La IA está leyendo '+docsContent.length+' documento(s)… (puede tardar hasta un minuto)';
+  // 2) Cargar en el Valuador y llenar GPS (KMZ o liga de Maps) + cliente/terreno.
+  if(!coords){
+    const m=String(payload.instruccion||'').match(/(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
+    if(m) coords={lat:parseFloat(m[1]),lon:parseFloat(m[2])};
+  }
+  const poner=(id,v)=>{ const el=document.getElementById(id); if(el&&!String(el.value||'').trim()&&v){ el.value=v; try{ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }catch(e){} } };
+  if(coords){ poner('pre-lat',coords.lat.toFixed(6)); poner('pre-lon',coords.lon.toFixed(6)); }
+  poner('pre-cliente',[payload.cliente,payload.terreno].filter(Boolean).join(' · '));
+  addFiles(archivos);
+  const cargados='📄 '+archivos.length+' documento(s) cargados en el Valuador'+(coords?' · 📍 coordenadas listas':' · ⚠ sin coordenadas (agrégalas abajo para el análisis de mercado)')+'.';
+
+  // 3) Revisión legal del opcionador.
+  estado.textContent=cargados+' 🧠 Revisión legal en curso…';
+  resultado.textContent='La IA está leyendo los documentos…';
+  let docsContent=[];
+  try{ docsContent=await readFilesContent(); }catch(e){ estado.textContent='⚠ '+((e&&e.message)||e); return; }
+  // Archivos que el Valuador descartó (p. ej. ".pdf" que no es un PDF real).
+  const enviados=new Set(docsContent.map(d=>d.name));
+  archivos.filter(f=>!enviados.has(f.name)).forEach(f=>{ omitidos.push(f.name+' (el archivo no es un PDF válido)'); chips.appendChild(chip(f.name+' · no es un PDF válido',false)); });
+  const lista=docsContent.map((d,i)=>(i+1)+') '+d.name);
   const prompt='Eres un valuador y abogado inmobiliario senior de Grupo Guía. Te envío '+docsContent.length
-    +' documentos de un terreno en opción, EN ESTE ORDEN:\n'+listaPrompt.join('\n')+'\n\n'
+    +' documentos de un terreno en opción, EN ESTE ORDEN:\n'+lista.join('\n')+'\n\n'
     +(omitidos.length?('NO se incluyeron (avísalo en el dictamen): '+omitidos.join('; ')+'\n\n'):'')
+    +'Cada archivo va precedido de una etiqueta [DOCUMENTO: nombre].\n'
     +(payload.instruccion||'')+'\n\n'
     +'Entrega un DICTAMEN claro y estructurado con estas secciones:\n'
+    +'0) QUÉ RECIBÍ: una línea por documento con lo que REALMENTE contiene (tipo de documento, titular o nombre que aparece, fecha si la hay). Si un archivo está en blanco, es ilegible o no corresponde a lo que dice su etiqueta, dilo así.\n'
     +'1) LEGAL (Escritura): ¿está en regla? superficie, colindancias, régimen (privado/ejidal), gravamenes, riesgos.\n'
     +'2) IDENTIDAD (INE vs Escritura): ¿el titular de la INE coincide con el propietario de la escritura? Di el nombre que aparece en cada uno y si coinciden.\n'
     +'3) TÉCNICO (Uso de Suelo + Plano): vocación, uso permitido, restricciones y viabilidad técnica.\n'
     +'4) VEREDICTO: AUTORIZADO / REVISAR / NO AUTORIZADO, con 1-2 líneas de justificación.\n'
     +'Si algún documento no fue incluido o es ilegible, dilo explícitamente. Responde en español, conciso.';
-  let out;
-  try{
-    out=await callClaude(prompt, docsContent, 2000);
-  }catch(e){
-    // Si la IA no pudo DESCARGAR alguna URL, se reintenta mandando los archivos dentro
-    // de la petición (base64), siempre que no pasen de ~20 MB en total.
-    const msg=String((e&&e.message)||e);
-    const total=docsContent.reduce((s,d)=>s+((d.blob&&d.blob.size)||0),0);
-    if(/^\[400\]/.test(msg) && /url|download|fetch|retriev|obtain|access/i.test(msg) && total<20e6){
-      try{
-        estado.textContent='🧠 Reintentando con los archivos adjuntos…';
-        for(const d of docsContent){ if(d.blob&&d.type!=='text'){ d.b64=await aB64(d.blob); delete d.url; } }
-        out=await callClaude(prompt, docsContent, 2000);
-      }catch(e2){ estado.textContent='⚠ No se pudo completar el análisis: '+((e2&&e2.message)||e2); return; }
-    } else { estado.textContent='⚠ No se pudo completar el análisis: '+msg; return; }
+  let legalOk=false;
+  try{ const out=await callClaude(prompt, docsContent, 2000); resultado.textContent=(out||'').trim()||'La IA no devolvió texto.'; legalOk=!!(out||'').trim(); }
+  catch(e){
+    const m=String((e&&e.message)||e);
+    resultado.textContent='⚠ No se pudo completar la revisión legal: '+m;
+    // Sin sesión / sin permiso: el análisis completo fallaría igual → no se intenta.
+    if(/^\[(401|403)\]/.test(m)){ estado.textContent='⚠ '+cargados+' La IA no está disponible: '+m.replace(/^\[\d+\]\s*/,''); return; }
   }
-  estado.textContent='✅ Análisis completo';
-  resultado.textContent=(out||'').trim()||'La IA no devolvió texto.';
+
+  // 4) Análisis completo del Valuador con los mismos documentos.
+  estado.textContent=cargados+' 🧠 Corriendo el análisis completo del Valuador (semáforo, compradores, opinión de valor)… tarda 1–2 min; el avance se ve abajo.';
+  try{ await startAnalysis(); }catch(e){ console.error('[opcionador] startAnalysis',e); }
+  const listo=!!(typeof analysisData!=='undefined'&&analysisData);
+  estado.textContent=(listo&&legalOk?'✅ ':'⚠ ')+cargados+' '+(legalOk?'Revisión legal lista (arriba).':'La revisión legal no se completó.')+' '+(listo?'Análisis del Valuador listo (abajo).':'El análisis del Valuador no terminó — revisa el aviso en pantalla.');
 }
-// KMZ (zip con un KML adentro) o KML → texto con nombres, coordenadas y centro.
+// KMZ (zip con un KML adentro) o KML → {texto, lat, lon} con nombres, coordenadas y centro.
 async function opcKmlATexto(blob, ext){
   let kml='';
   if(ext==='kml') kml=await blob.text();
@@ -4168,28 +4214,36 @@ async function opcKmlATexto(blob, ext){
   const geoms=[...xml.getElementsByTagName('coordinates')].map(c=>c.textContent.trim().split(/\s+/).filter(Boolean)).filter(a=>a.length);
   if(!geoms.length) throw new Error('el KMZ no trae coordenadas');
   const pts=[].concat(...geoms).map(p=>p.split(',').map(Number)).filter(p=>isFinite(p[0])&&isFinite(p[1]));
+  if(!pts.length) throw new Error('el KMZ no trae coordenadas válidas');
   const lon=pts.reduce((s,p)=>s+p[0],0)/pts.length, lat=pts.reduce((s,p)=>s+p[1],0)/pts.length;
-  const txt='Archivo de ubicación KMZ/KML.\nNombres: '+(nombres.join(' | ')||'—')
+  const texto='Archivo de ubicación KMZ/KML del terreno.\nNombres: '+(nombres.join(' | ')||'—')
     +'\nCentro aproximado: lat '+lat.toFixed(6)+', lon '+lon.toFixed(6)+' (https://maps.google.com/?q='+lat.toFixed(6)+','+lon.toFixed(6)+')'
     +'\nGeometrías: '+geoms.length+' · vértices: '+pts.length
     +'\nCoordenadas (lon,lat[,alt]):\n'+geoms.map(g=>g.join(' ')).join('\n');
-  return txt.slice(0,8000);
+  return { texto:texto.slice(0,8000), lat, lon };
 }
 if(typeof window!=='undefined' && new URLSearchParams(location.search).get('fuente')==='opcionador'){
-  window.addEventListener('load', ()=>{ try{ analizarOpcionador(); }catch(e){ console.error('[opcionador]',e); } });
+  window.addEventListener('load', ()=>{ analizarOpcionador().catch(e=>console.error('[opcionador]',e)); });
 }
 
 async function callClaude(prompt, docsContent, maxTokens=1500) {
-  const content = [];
-  for (const doc of docsContent) {
-    // Con url y sin b64 → la IA descarga el archivo (petición ligera).
-    if (doc.type==='pdf' && doc.url && !doc.b64) content.push({ type:'document', source:{ type:'url', url:doc.url } });
-    else if (doc.type==='image' && doc.url && !doc.b64) content.push({ type:'image', source:{ type:'url', url:doc.url } });
-    else if (doc.type==='pdf') content.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:doc.b64 } });
-    else if (doc.type==='image') content.push({ type:'image', source:{ type:'base64', media_type:doc.mediaType||'image/jpeg', data:doc.b64 } });
-    else content.push({ type:'text', text:`[DOCUMENTO: ${doc.name}]\n${doc.text}` });
-  }
-  content.push({ type:'text', text:prompt });
+  const armar=()=>{
+    const content = [];
+    for (const doc of docsContent) {
+      // Con url y sin b64 → la IA descarga el archivo (petición ligera).
+      if (doc.type==='pdf' && doc.url && !doc.b64) content.push({ type:'document', source:{ type:'url', url:doc.url } });
+      else if (doc.type==='image' && doc.url && !doc.b64) content.push({ type:'image', source:{ type:'url', url:doc.url } });
+      else if (doc.type==='pdf') content.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:doc.b64 } });
+      else if (doc.type==='image') content.push({ type:'image', source:{ type:'base64', media_type:doc.mediaType||'image/jpeg', data:doc.b64 } });
+      else { content.push({ type:'text', text:`[DOCUMENTO: ${doc.name}]\n${doc.text}` }); continue; }
+      // Etiqueta ANTES de cada PDF/imagen: así la IA sabe qué archivo es cuál.
+      content.splice(content.length-1, 0, { type:'text', text:`[DOCUMENTO: ${doc.name}]` });
+    }
+    content.push({ type:'text', text:prompt });
+    return content;
+  };
+  let content = armar();
+  let reintentoUrl = false;
 
   async function doFetch(retries=6) {
     const res = await fetch('/.netlify/functions/claude', {
@@ -4212,7 +4266,16 @@ async function callClaude(prompt, docsContent, maxTokens=1500) {
         if (retries>0) { await new Promise(r=>setTimeout(r,(7-retries)*2000 + 3000)); return doFetch(retries-1); }
         throw new Error('Límite de API. Espera un momento e intenta de nuevo.');
       }
-      throw new Error('['+res.status+'] '+(errData.error?.message || errBody));
+      // La IA no pudo DESCARGAR un archivo por URL → se reintenta una vez con los
+      // archivos adjuntos (base64).
+      const msgErr = String(errData.error?.message || errBody);
+      if (res.status===400 && !reintentoUrl && /url|download|fetch|retriev|obtain|access/i.test(msgErr) && docsContent.some(d=>d.url&&d.blob&&!d.b64)) {
+        reintentoUrl = true;
+        for (const d of docsContent) { if (d.url && d.blob && !d.b64) { d.b64 = await fileToBase64(d.blob); delete d.url; } }
+        content = armar();
+        return doFetch(retries);
+      }
+      throw new Error('['+res.status+'] '+msgErr);
     }
     const data = await res.json();
     if (data.error) {
