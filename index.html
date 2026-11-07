@@ -16273,6 +16273,27 @@ Respuesta: [respuesta exacta, conversacional]
     const opcEnCot=(opcLista||[]).filter(o=>!o.terminos_aceptados);
     const opcNueva=(opcLista||[]).filter(o=>!!o.terminos_aceptados);
     const verOpcDoc=async(row)=>{ try{ const {data,error}=await window.sb.storage.from("documentos-opcionador").createSignedUrl(row.url,180); if(error) throw error; window.open(data.signedUrl,"_blank"); }catch(e){ toast("No se pudo abrir el archivo"); } };
+    // Subir/reemplazar un documento del opcionador desde MacroPro (asesor o admin),
+    // por ejemplo cuando el cliente lo manda por WhatsApp/correo. Mismo bucket y tabla
+    // que usa el portal del cliente; refresca la lista al terminar.
+    const [opcSubiendo,setOpcSubiendo]=React.useState("");
+    const subirOpcDoc=async(tipoKey,file)=>{
+      if(!file||!opcSel||!window.sb) return;
+      setOpcSubiendo(tipoKey);
+      try{
+        let uemail=null; try{ const u=await window.sb.auth.getUser(); uemail=(u&&u.data&&u.data.user&&u.data.user.email)||null; }catch(e){}
+        const ext=((file.name.split(".").pop())||"bin").toLowerCase();
+        const path=opcSel.id+"/"+tipoKey+"."+ext;
+        const up=await window.sb.storage.from("documentos-opcionador").upload(path,file,{upsert:true});
+        if(up.error) throw up.error;
+        const rowDoc={ cotizacion_id:opcSel.id, cliente_email:opcSel.cliente_email||null, tipo_documento:tipoKey, nombre_archivo:file.name, url:path, subido_por:uemail||"macropro", subido_at:new Date().toISOString() };
+        const ins=await window.sb.from("documentos_opcionador").upsert(rowDoc,{onConflict:"cotizacion_id,tipo_documento"});
+        if(ins.error) throw ins.error;
+        await cargarOpc();
+        toast("✓ Documento subido");
+      }catch(e){ toast("No se pudo subir: "+((e&&e.message)||e)); }
+      finally{ setOpcSubiendo(""); }
+    };
     const docsDeOpc=(id)=>{ const m=opcDocs[id]||{}; return OPC_DOCS.map(d=>({ ...d, row:null })); };
     const renderOpcCard=(o)=>{ const h=opcHechos(o.id); const listo=h===OPC_TOTAL; return (
       <div key={"opc-"+o.id} onClick={()=>setOpcSel(o)} style={{padding:"11px 12px",background:B.white,borderRadius:8,border:"1px solid "+B.grey1,borderLeft:"3px solid "+B.gold,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
@@ -16553,7 +16574,13 @@ Respuesta: [respuesta exacta, conversacional]
                       <div style={{fontSize:13,fontWeight:600,color:B.navy}}>{d.t}</div>
                       <div style={{fontSize:11,color:ok?"#15803d":"#94a3b8"}}>{ok?("Subido"+(row.subido_at?" · "+new Date(row.subido_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}):"")):"Pendiente"}</div>
                     </div>
-                    {ok&&<button onClick={()=>verOpcDoc(row)} style={{fontSize:11,fontWeight:800,color:B.navy,background:B.offW,border:"1px solid "+B.grey1,borderRadius:7,padding:"6px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver</button>}
+                    <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+                      {ok&&<button onClick={()=>verOpcDoc(row)} style={{fontSize:11,fontWeight:800,color:B.navy,background:B.offW,border:"1px solid "+B.grey1,borderRadius:7,padding:"6px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver</button>}
+                      <label style={{fontSize:11,fontWeight:800,color:"#fff",background:opcSubiendo===d.k?"#94a3b8":B.navy,border:"1px solid "+(opcSubiendo===d.k?"#94a3b8":B.navy),borderRadius:7,padding:"6px 11px",cursor:opcSubiendo===d.k?"wait":"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}}>
+                        {opcSubiendo===d.k?"Subiendo…":(ok?"Reemplazar":"Subir")}
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" disabled={opcSubiendo===d.k} style={{display:"none"}} onChange={(e)=>{ const fl=e.target.files&&e.target.files[0]; if(fl) subirOpcDoc(d.k,fl); e.target.value=""; }}/>
+                      </label>
+                    </div>
                   </div>
                 ); })}
                 <button onClick={async()=>{
@@ -19295,7 +19322,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.5</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.6</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
