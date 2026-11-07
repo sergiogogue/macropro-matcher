@@ -16106,14 +16106,14 @@ Respuesta: [respuesta exacta, conversacional]
 
         // ══ TÉRMINOS, CONDICIONES Y ALCANCES — ÚLTIMA HOJA ══
         doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
-        bandaTitulo("Términos y Condiciones","Alcances del servicio");
-        let ty=44;
-        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text("Términos y Condiciones",M,ty); ty+=7;
-        // Versión compacta y discreta; los Términos completos se consultan (y se aceptan con
-        // casilla) en la página de aceptación en línea.
-        doc.setTextColor(95,105,120); doc.setFont("helvetica","normal"); doc.setFontSize(8.4);
-        const tcCorto="Grupo Guía ofrece servicios de intermediación y comercialización (opción) de terrenos y macrolotes. Este documento es una cotización informativa; no constituye contrato de compraventa ni garantiza la venta. La comisión se causa únicamente al concretarse la operación, salvo pacto por escrito. Podrás leer los Términos y Condiciones completos en la página de aceptación en línea; al dar ACEPTO manifiestas haberlos leído y aceptado de forma libre y voluntaria (Ley Federal de Protección al Consumidor · PROFECO).";
-        doc.text(doc.splitTextToSize(tcCorto,SW-2*M),M,ty);
+        bandaTitulo("Aceptación de la cotización","Confirma tu decisión");
+        let ty=46;
+        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.text("Da el siguiente paso",M,ty); ty+=8;
+        // En el PDF NO va el texto de términos (es estático). Solo se invita a decidir; los
+        // Términos y Condiciones se leen y se aceptan con una casilla en la página en línea.
+        doc.setTextColor(90,100,115); doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
+        const nota="Para continuar, elige una opción. Al dar ACEPTO pasarás a tu página de aceptación en línea, donde podrás leer los Términos y Condiciones y aceptarlos con una casilla antes de confirmar.";
+        doc.text(doc.splitTextToSize(nota,SW-2*M),M,ty);
         // Botones discretos (clicables): ACEPTO (verde chico) → /aceptar · No acepto (gris outline) → /rechazar
         const eY=SH-28;
         doc.setTextColor(95,105,120); doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.text("¿Deseas continuar?",M,eY-4);
@@ -19474,7 +19474,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.9</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.10</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
