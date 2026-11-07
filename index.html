@@ -16058,16 +16058,23 @@ Respuesta: [respuesta exacta, conversacional]
       finally{ setGuardando(false); }
     };
     const wrap={maxWidth:720,margin:"0 auto",padding:"24px 18px",fontFamily:"'DM Sans',system-ui,sans-serif"};
-    const wrapW={maxWidth:1240,margin:"0 auto",padding:"0 18px 30px",fontFamily:"'DM Sans',system-ui,sans-serif"};
+    const wrapW={maxWidth:1240,margin:"0 auto",padding:"22px 18px 26px",fontFamily:"'DM Sans',system-ui,sans-serif"};
     const card={background:"#fff",border:"1px solid #e5e7eb",borderRadius:16,overflow:"hidden",boxShadow:"0 10px 40px rgba(15,23,42,.08)"};
     const header={background:AZUL,color:"#fff",padding:"22px 26px",display:"flex",alignItems:"center",justifyContent:"space-between"};
     const bodyS={padding:"22px 26px",display:"flex",flexDirection:"column",gap:14};
     const lb={fontSize:11,fontWeight:800,color:AZUL,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5,display:"block"};
     const inp={width:"100%",padding:"11px 12px",borderRadius:10,border:"1.5px solid #e5e7eb",fontSize:14,color:AZUL,outline:"none",fontFamily:"inherit",background:"#fff"};
+    // Menú de asesores: usa el catálogo curado (o la nube si el catálogo está vacío).
+    const asesorOpciones = React.useMemo(()=>{
+      const base = (asesoresCatalog&&asesoresCatalog.length)?asesoresCatalog:(asesoresCloud||[]);
+      const m=new Map();
+      (base||[]).forEach(a=>{ const n=((a&&a.nombre)||"").toString().trim(); if(n) m.set(n.toLowerCase(),n); });
+      return Array.from(m.values()).sort((a,b)=>a.localeCompare(b,"es"));
+    }, [asesoresCatalog, asesoresCloud]);
     const grid2={display:"grid",gridTemplateColumns:"1fr 1fr",gap:12};
     return (
       <React.Fragment>
-      <div style={wrap}>
+      <div style={wrapW}>
         <div style={card}>
           <div style={header}>
             <div>
@@ -16076,9 +16083,17 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
             <div style={{width:44,height:44,borderRadius:10,background:DORADO,color:AZUL,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20}}>G</div>
           </div>
-          <div style={bodyS}>
+          <div style={{display:"flex",flexWrap:"wrap",alignItems:"stretch"}}>
+            {/* ── Izquierda: campos de la cotización ── */}
+            <div style={{flex:"999 1 520px",minWidth:0,boxSizing:"border-box",padding:"22px 26px",display:"flex",flexDirection:"column",gap:14}}>
             <div style={grid2}>
-              <div><span style={lb}>Asesor</span><input style={inp} value={f.asesor_nombre} onChange={(e)=>set("asesor_nombre",e.target.value)} placeholder="Nombre del asesor"/></div>
+              <div><span style={lb}>Asesor</span>
+                <select style={inp} value={f.asesor_nombre} onChange={(e)=>set("asesor_nombre",e.target.value)}>
+                  <option value="">— Selecciona asesor —</option>
+                  {asesorOpciones.map((n,i)=>(<option key={i} value={n}>{n}</option>))}
+                  {f.asesor_nombre && !asesorOpciones.some(n=>n.toLowerCase()===f.asesor_nombre.trim().toLowerCase()) && (<option value={f.asesor_nombre}>{f.asesor_nombre}</option>)}
+                </select>
+              </div>
               <div>
                 <span style={lb}>Nombre del cliente</span>
                 <input list="mp-cli-list" style={inp} value={f.cliente_nombre} onChange={(e)=>onCliNombre(e.target.value)} placeholder="Busca o escribe el cliente"/>
@@ -16110,20 +16125,23 @@ Respuesta: [respuesta exacta, conversacional]
             <div><span style={lb}>Condiciones</span>
               <textarea style={{...inp,minHeight:80,resize:"vertical"}} value={f.condiciones} onChange={(e)=>set("condiciones",e.target.value)}/>
             </div>
-            <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"12px 14px"}}>
-              <div style={{fontSize:11,fontWeight:800,color:AZUL,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>Documentos para opcionar el terreno</div>
-              <ul style={{margin:0,paddingLeft:18,color:"#334155",fontSize:12.5,lineHeight:1.7}}>
-                {DOCS_OPCION.map((d,i)=>(<li key={i}>{d}</li>))}
-              </ul>
-              <div style={{fontSize:11.5,color:"#b45309",marginTop:8}}>{DOCS_NOTA}</div>
-            </div>
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4}}>
               <button onClick={guardar} disabled={guardando} style={{padding:"12px 20px",borderRadius:10,border:"none",background:guardando?"#94a3b8":AZUL,color:"#fff",fontSize:14,fontWeight:800,cursor:guardando?"wait":"pointer",fontFamily:"inherit"}}>{guardando?"Guardando…":"💾 Guardar cotización"}</button>
               <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada)} style={{padding:"12px 20px",borderRadius:10,border:"2px solid "+DORADO,background:(f.terreno_nombre.trim()&&!pdfBusy)?DORADO:"#f1f5f9",color:(f.terreno_nombre.trim()&&!pdfBusy)?AZUL:"#94a3b8",fontSize:14,fontWeight:800,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>{pdfBusy?"Generando…":"📄 Generar PDF"}</button>
               <button disabled={!puedeWA} onClick={enviarWhatsApp} title={puedeWA?"Enviar por WhatsApp al cliente":"Selecciona un cliente con teléfono"} style={{padding:"12px 20px",borderRadius:10,border:"none",background:puedeWA?"#25D366":"#f1f5f9",color:puedeWA?"#fff":"#94a3b8",fontSize:14,fontWeight:800,cursor:puedeWA?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 Enviar por WhatsApp</button>
             </div>
             {guardada && (<div style={{fontSize:12,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:10,padding:"8px 11px"}}>✅ Guardada (id: {String(guardada.id).slice(0,8)}…). Lista para el PDF del Paso 4.</div>)}
-          </div>
+            </div>{/* fin columna izquierda (campos) */}
+
+            {/* ── Derecha: documentos para opcionar (barra lateral) ── */}
+            <div style={{flex:"1 1 320px",maxWidth:"100%",boxSizing:"border-box",background:"#f8fafc",borderLeft:"1px solid #eef2f7",padding:"22px 22px"}}>
+              <div style={{fontSize:11,fontWeight:800,color:AZUL,textTransform:"uppercase",letterSpacing:0.5,marginBottom:10}}>Documentos para opcionar el terreno</div>
+              <ul style={{margin:0,paddingLeft:18,color:"#334155",fontSize:13,lineHeight:1.9}}>
+                {DOCS_OPCION.map((d,i)=>(<li key={i}>{d}</li>))}
+              </ul>
+              <div style={{fontSize:12,color:"#b45309",marginTop:10,lineHeight:1.5}}>{DOCS_NOTA}</div>
+            </div>
+          </div>{/* fin cuerpo 2 columnas del formulario */}
         </div>
 
       </div>{/* ── cierra la columna del formulario (720px) ── */}
@@ -19277,7 +19295,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.4</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.5</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
