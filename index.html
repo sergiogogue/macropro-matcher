@@ -15948,7 +15948,7 @@ Respuesta: [respuesta exacta, conversacional]
     // condiciones) + las 5 láminas del Pitch Deck + marca de agua en cada página.
     // Arma una fila con lo que haya en el formulario (para generar el PDF sin tener que guardar).
     const rowActual = ()=>({ cliente_id:(f.cliente_id||"").trim()||null, cliente_nombre:f.cliente_nombre.trim()||null, cliente_telefono:f.cliente_telefono.trim()||null, cliente_email:f.cliente_email.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, terreno_nombre:f.terreno_nombre.trim(), terreno_ciudad:f.terreno_ciudad.trim()||null, terreno_dimensiones:f.terreno_dimensiones.trim()||null, valor_terreno:f.valor_terreno.trim()||null, monto_comision:f.monto_comision.trim()||null, condiciones:f.condiciones.trim()||CONDICIONES_DEFAULT, estatus:f.estatus||"borrador", created_at:new Date().toISOString() });
-    const generarPDF = async (row)=>{
+    const generarPDF = async (row, opts)=>{
       let r = row || guardada || rowActual();
       if(!r || !((r.terreno_nombre||"").trim())){ toast("⚠ Pon al menos el nombre del terreno"); return; }
       if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
@@ -16133,8 +16133,31 @@ Respuesta: [respuesta exacta, conversacional]
         try{ doc.deletePage(1); }catch(e){}
 
         const safe=(s)=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,40);
-        doc.save("Cotizacion_"+(safe(nombreCli)||"cliente")+"_"+(safe(r.terreno_nombre)||"terreno")+".pdf");
-        toast("✅ PDF generado");
+        const filename="Cotizacion_"+(safe(nombreCli)||"cliente")+"_"+(safe(r.terreno_nombre)||"terreno")+".pdf";
+        if(opts&&opts.share){
+          // COMPARTIR el PDF de verdad (adjuntándolo), no solo texto.
+          const texto="Hola "+nombreCli+", te comparto la cotización de tu macrolote"+(r.terreno_nombre?(" ("+r.terreno_nombre+")"):"")+". Quedo a tus órdenes para cualquier duda. - "+asesor;
+          let compartido=false;
+          try{
+            const blob=doc.output("blob");
+            const file=new File([blob],filename,{type:"application/pdf"});
+            if(navigator.canShare && navigator.canShare({files:[file]})){
+              await navigator.share({ files:[file], title:"Cotización · Grupo Guía", text:texto });
+              compartido=true; toast("✅ Cotización compartida");
+            }
+          }catch(e){ if(e&&e.name==="AbortError"){ setPdfBusy(false); return; } }
+          if(!compartido){
+            // En computadora no se puede adjuntar desde el navegador: descargo el PDF y abro
+            // WhatsApp con el texto para que lo adjuntes manualmente.
+            doc.save(filename);
+            const tel=String(r.cliente_telefono||"").replace(/\D/g,""); const ph=tel.length===10?("52"+tel):tel;
+            if(ph.length>=10) window.open("https://api.whatsapp.com/send?phone="+ph+"&text="+encodeURIComponent(texto),"_blank");
+            toast("📄 Descargué el PDF. Adjúntalo en el chat de WhatsApp (en computadora no se puede adjuntar solo).");
+          }
+        } else {
+          doc.save(filename);
+          toast("✅ PDF generado");
+        }
       }catch(e){ toast("❌ No se pudo generar el PDF: "+((e&&e.message)||e)); }
       finally{ setPdfBusy(false); }
     };
@@ -16223,7 +16246,7 @@ Respuesta: [respuesta exacta, conversacional]
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4}}>
               <button onClick={guardar} disabled={guardando} style={{padding:"9px 15px",borderRadius:9,border:"none",background:guardando?"#94a3b8":AZUL,color:"#fff",fontSize:13,fontWeight:700,cursor:guardando?"wait":"pointer",fontFamily:"inherit"}}>{guardando?"Guardando…":"💾 Guardar"}</button>
               <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada)} style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+DORADO,background:"transparent",color:(f.terreno_nombre.trim()&&!pdfBusy)?"#92400e":"#cbd5e1",fontSize:13,fontWeight:700,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>{pdfBusy?"Generando…":"📄 Generar PDF"}</button>
-              <button disabled={!puedeWA} onClick={enviarWhatsApp} title={puedeWA?"Enviar por WhatsApp al cliente":"Selecciona un cliente con teléfono"} style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+(puedeWA?"#25D366":"#e5e7eb"),background:"transparent",color:puedeWA?"#15803d":"#94a3b8",fontSize:13,fontWeight:700,cursor:puedeWA?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 WhatsApp</button>
+              <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada,{share:true})} title="Genera el PDF y lo comparte (en celular se adjunta directo en WhatsApp)" style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+((f.terreno_nombre.trim()&&!pdfBusy)?"#25D366":"#e5e7eb"),background:"transparent",color:(f.terreno_nombre.trim()&&!pdfBusy)?"#15803d":"#94a3b8",fontSize:13,fontWeight:700,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 Compartir cotización</button>
             </div>
             {guardada && (<div style={{fontSize:12,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:10,padding:"8px 11px"}}>✅ Guardada (id: {String(guardada.id).slice(0,8)}…). Lista para el PDF del Paso 4.</div>)}
             </div>{/* fin columna izquierda (campos) */}
@@ -19474,7 +19497,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.10</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.11</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
