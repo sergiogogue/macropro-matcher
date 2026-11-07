@@ -15791,8 +15791,14 @@ Respuesta: [respuesta exacta, conversacional]
       if(!puedeWA){ toast("⚠ Captura un teléfono válido (10 dígitos) del cliente"); return; }
       const nom = f.cliente_nombre.trim()||"cliente";
       const ase = f.asesor_nombre.trim()||"Grupo Guía";
-      const msg = "Hola "+nom+", te comparto la cotización y el pitch de tu macrolote. Quedo a tus órdenes para cualquier duda. - "+ase;
-      window.open("https://wa.me/"+waPhone+"?text="+encodeURIComponent(msg), "_blank");
+      // Incluye la liga de aceptación si la cotización ya está guardada (por id o por coincidencia).
+      let cid=(guardada&&guardada.id)||"";
+      if(!cid){ const nT=(f.terreno_nombre||"").trim().toLowerCase(), nC=(f.cliente_nombre||"").trim().toLowerCase();
+        const m=(historial||[]).find(hh=>((hh.terreno_nombre||"").trim().toLowerCase()===nT)&&((hh.cliente_nombre||"").trim().toLowerCase()===nC)); if(m&&m.id) cid=m.id; }
+      const liga=cid?("\n\nRevisa y acepta tu cotización aquí:\nhttps://macrolotes.grupoguia.mx/aceptar?c="+cid):"";
+      const msg = "Hola "+nom+", te comparto la cotización de tu macrolote"+(f.terreno_nombre.trim()?(" ("+f.terreno_nombre.trim()+")"):"")+"."+liga+"\n\nQuedo a tus órdenes para cualquier duda. - "+ase;
+      // api.whatsapp.com/send es más confiable que wa.me para prellenar el texto (WhatsApp Desktop).
+      window.open("https://api.whatsapp.com/send?phone="+waPhone+"&text="+encodeURIComponent(msg), "_blank");
     };
 
     // ── Panel de cotizaciones: carga TODAS las cotizaciones (de todos los clientes) ──
@@ -15860,7 +15866,7 @@ Respuesta: [respuesta exacta, conversacional]
       if(ph.length<10){ toast("⚠ Esta cotización no tiene teléfono del cliente"); return; }
       const nom=(r.cliente_nombre||"cliente").trim();
       const msg="Hola "+nom+", aquí puedes revisar y aceptar tu cotización y subir tus documentos:\n"+ligaAceptar(r);
-      window.open("https://wa.me/"+ph+"?text="+encodeURIComponent(msg),"_blank");
+      window.open("https://api.whatsapp.com/send?phone="+ph+"&text="+encodeURIComponent(msg),"_blank");
     };
     // Eliminar una cotización completa (y sus documentos) para no acumular basura.
     const [borrandoId, setBorrandoId] = useState("");
@@ -15946,7 +15952,7 @@ Respuesta: [respuesta exacta, conversacional]
     // Arma una fila con lo que haya en el formulario (para generar el PDF sin tener que guardar).
     const rowActual = ()=>({ cliente_id:(f.cliente_id||"").trim()||null, cliente_nombre:f.cliente_nombre.trim()||null, cliente_telefono:f.cliente_telefono.trim()||null, cliente_email:f.cliente_email.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, terreno_nombre:f.terreno_nombre.trim(), terreno_ciudad:f.terreno_ciudad.trim()||null, terreno_dimensiones:f.terreno_dimensiones.trim()||null, valor_terreno:f.valor_terreno.trim()||null, monto_comision:f.monto_comision.trim()||null, condiciones:f.condiciones.trim()||CONDICIONES_DEFAULT, estatus:f.estatus||"borrador", created_at:new Date().toISOString() });
     const generarPDF = async (row)=>{
-      const r = row || guardada || rowActual();
+      let r = row || guardada || rowActual();
       if(!r || !((r.terreno_nombre||"").trim())){ toast("⚠ Pon al menos el nombre del terreno"); return; }
       if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
       setPdfBusy(true); toast("📄 Generando PDF…");
@@ -15998,9 +16004,57 @@ Respuesta: [respuesta exacta, conversacional]
           doc.setTextColor(150,160,175); doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.text("Documento confidencial · Grupo Guía",SW/2,SH-5,{align:"center"});
         };
 
-        const cotId=(r&&r.id)||(guardada&&guardada.id)||"";
+        // Resuelve el id de la cotización para la liga de ACEPTO / NO ACEPTO.
+        // Si no hay id en memoria (p.ej. tras recargar la app), reutiliza la cotización
+        // ya guardada que coincida (mismo cliente y terreno); si de plano no existe, la
+        // guarda ahora. Así la liga SIEMPRE lleva ?c=<id> y el cliente sí la encuentra.
+        let cotId=(r&&r.id)||(guardada&&guardada.id)||"";
+        if(!cotId){
+          const nT=(f.terreno_nombre||"").trim().toLowerCase(), nC=(f.cliente_nombre||"").trim().toLowerCase();
+          const match=(historial||[]).find(hh=>((hh.terreno_nombre||"").trim().toLowerCase()===nT)&&((hh.cliente_nombre||"").trim().toLowerCase()===nC));
+          if(match&&match.id){ cotId=match.id; r={...r,id:match.id}; }
+        }
+        if(!cotId && window.sb && (f.terreno_nombre||"").trim()){
+          try{
+            const rowIns={ cliente_id:(f.cliente_id||"").trim()||null, cliente_nombre:f.cliente_nombre.trim()||null, cliente_telefono:f.cliente_telefono.trim()||null, cliente_email:f.cliente_email.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, terreno_nombre:f.terreno_nombre.trim(), terreno_ciudad:f.terreno_ciudad.trim()||null, terreno_dimensiones:f.terreno_dimensiones.trim()||null, valor_terreno:f.valor_terreno.trim()||null, monto_comision:f.monto_comision.trim()||null, condiciones:f.condiciones.trim()||CONDICIONES_DEFAULT, estatus:f.estatus||"borrador" };
+            const { data:ins }=await window.sb.from("cotizaciones_opcionador").insert(rowIns).select().single();
+            if(ins&&ins.id){ cotId=ins.id; r={...r,id:ins.id}; setGuardada(ins); cargarHistorial(); }
+          }catch(e){}
+        }
         const enlace="https://macrolotes.grupoguia.mx/aceptar"+(cotId?("?c="+cotId):"");
         const enlaceRechazo="https://macrolotes.grupoguia.mx/rechazar"+(cotId?("?c="+cotId):"");
+
+        // ══ INGENIERÍA DE COMERCIALIZACIÓN PATRIMONIAL — 5 pasos (ANTES de la cotización) ══
+        doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
+        bandaTitulo("Ingeniería de Comercialización Patrimonial","Cómo convertimos tu terreno en patrimonio vendido");
+        (function(){
+          const intro="En Grupo Guía no solo publicamos tu terreno: aplicamos un método probado que lo posiciona como una verdadera oportunidad de inversión y te acompaña, paso a paso, hasta el cierre seguro de la venta.";
+          doc.setTextColor(70,80,95); doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
+          const iL=doc.splitTextToSize(intro,SW-2*M); doc.text(iL,M,42);
+          const pasos=[
+            ["Diagnóstico profesional","Estudiamos a fondo tu terreno: ubicación, uso de suelo, entorno y demanda real. Sabrás cuánto vale de verdad y a quién le interesa."],
+            ["Ingeniería de Valor","Diseñamos la estrategia que maximiza tu patrimonio: precio óptimo y condiciones para vender mejor y más rápido, sin regalar tu terreno."],
+            ["Empaquetado comercial","Creamos material de venta profesional —ficha, planos, fotos y pitch— que presenta tu propiedad como una oportunidad de inversión seria."],
+            ["Conexión estratégica","Lo exponemos a nuestra red de desarrolladores e inversionistas calificados y a nuestros canales, no solo a quien pase por el lugar."],
+            ["Cierre blindado","Acompañamos la negociación, la revisión de documentos y el cierre con seguridad jurídica, para que recibas tu dinero con tranquilidad."]
+          ];
+          const topY=42+iL.length*4.6+7;
+          const availH=SH-topY-24;
+          const rowH=Math.max(15,Math.min(22,availH/pasos.length));
+          pasos.forEach((p,i)=>{
+            const cy=topY+i*rowH;
+            doc.setFillColor(DO[0],DO[1],DO[2]); doc.circle(M+6,cy+3,5,"F");
+            doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text(String(i+1),M+6,cy+4.4,{align:"center"});
+            doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(12.5); doc.text(p[0],M+16,cy+2);
+            doc.setTextColor(70,80,95); doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.text(doc.splitTextToSize(p[1],SW-2*M-18),M+16,cy+7.5);
+          });
+          const vy=SH-19;
+          doc.setFillColor(AZ[0],AZ[1],AZ[2]); doc.roundedRect(M,vy-6,SW-2*M,12,2,2,"F");
+          doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(9);
+          doc.text("Tú pones el terreno; nosotros ponemos la estrategia, la red y el acompañamiento. Solo cobramos cuando se concreta la venta.",SW/2,vy+1.5,{align:"center"});
+        })();
+        pieDoc();
+        marcaAgua(doc);
 
         // ══ COTIZACIÓN + DOCUMENTOS en UNA sola hoja ══
         doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
@@ -16050,29 +16104,6 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setTextColor(146,104,10); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("Importante",Rx+5,ry+7);
         doc.setTextColor(90,80,60); doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.text(notaLines,Rx+5,ry+12.5);
 
-        pieDoc();
-        marcaAgua(doc);
-
-        // ══ INGENIERÍA DE COMERCIALIZACIÓN PATRIMONIAL — 5 pasos (antes de términos) ══
-        doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
-        bandaTitulo("Ingeniería de Comercialización Patrimonial","Nuestro método en 5 pasos");
-        (function(){
-          const pasos=[
-            ["Diagnóstico","Analizamos tu terreno, su entorno y su potencial real de mercado."],
-            ["Ingeniería de Valor","Diseñamos la estrategia que maximiza el valor de tu patrimonio."],
-            ["Empaquetado","Preparamos la propuesta comercial y el material de venta profesional."],
-            ["Conexión Estratégica","Lo exponemos a nuestra red de compradores e inversionistas calificados."],
-            ["Cierre Blindado","Acompañamos la negociación y el cierre con seguridad jurídica."]
-          ];
-          let py=50; const rowH=Math.max(16,Math.min(24,(SH-py-16)/pasos.length));
-          pasos.forEach((p,i)=>{
-            const cy=py+i*rowH;
-            doc.setFillColor(DO[0],DO[1],DO[2]); doc.circle(M+6,cy+3,5,"F");
-            doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text(String(i+1),M+6,cy+4.4,{align:"center"});
-            doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.text(p[0],M+16,cy+2);
-            doc.setTextColor(70,80,95); doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.text(doc.splitTextToSize(p[1],SW-2*M-16),M+16,cy+8);
-          });
-        })();
         pieDoc();
         marcaAgua(doc);
 
@@ -16192,9 +16223,9 @@ Respuesta: [respuesta exacta, conversacional]
               <textarea style={{...inp,minHeight:80,resize:"vertical"}} value={f.condiciones} onChange={(e)=>set("condiciones",e.target.value)}/>
             </div>
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4}}>
-              <button onClick={guardar} disabled={guardando} style={{padding:"12px 20px",borderRadius:10,border:"none",background:guardando?"#94a3b8":AZUL,color:"#fff",fontSize:14,fontWeight:800,cursor:guardando?"wait":"pointer",fontFamily:"inherit"}}>{guardando?"Guardando…":"💾 Guardar cotización"}</button>
-              <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada)} style={{padding:"12px 20px",borderRadius:10,border:"2px solid "+DORADO,background:(f.terreno_nombre.trim()&&!pdfBusy)?DORADO:"#f1f5f9",color:(f.terreno_nombre.trim()&&!pdfBusy)?AZUL:"#94a3b8",fontSize:14,fontWeight:800,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>{pdfBusy?"Generando…":"📄 Generar PDF"}</button>
-              <button disabled={!puedeWA} onClick={enviarWhatsApp} title={puedeWA?"Enviar por WhatsApp al cliente":"Selecciona un cliente con teléfono"} style={{padding:"12px 20px",borderRadius:10,border:"none",background:puedeWA?"#25D366":"#f1f5f9",color:puedeWA?"#fff":"#94a3b8",fontSize:14,fontWeight:800,cursor:puedeWA?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 Enviar por WhatsApp</button>
+              <button onClick={guardar} disabled={guardando} style={{padding:"9px 15px",borderRadius:9,border:"none",background:guardando?"#94a3b8":AZUL,color:"#fff",fontSize:13,fontWeight:700,cursor:guardando?"wait":"pointer",fontFamily:"inherit"}}>{guardando?"Guardando…":"💾 Guardar"}</button>
+              <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada)} style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+DORADO,background:"transparent",color:(f.terreno_nombre.trim()&&!pdfBusy)?"#92400e":"#cbd5e1",fontSize:13,fontWeight:700,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>{pdfBusy?"Generando…":"📄 Generar PDF"}</button>
+              <button disabled={!puedeWA} onClick={enviarWhatsApp} title={puedeWA?"Enviar por WhatsApp al cliente":"Selecciona un cliente con teléfono"} style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+(puedeWA?"#25D366":"#e5e7eb"),background:"transparent",color:puedeWA?"#15803d":"#94a3b8",fontSize:13,fontWeight:700,cursor:puedeWA?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 WhatsApp</button>
             </div>
             {guardada && (<div style={{fontSize:12,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:10,padding:"8px 11px"}}>✅ Guardada (id: {String(guardada.id).slice(0,8)}…). Lista para el PDF del Paso 4.</div>)}
             </div>{/* fin columna izquierda (campos) */}
@@ -19445,7 +19476,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.7</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.8</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
