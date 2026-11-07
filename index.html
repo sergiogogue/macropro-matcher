@@ -16080,10 +16080,20 @@ Respuesta: [respuesta exacta, conversacional]
         y=bY+bH+8;
         doc.setTextColor(DO[0],DO[1],DO[2]); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text("CONDICIONES",Lx,y); y+=5;
         doc.setTextColor(60,70,85); doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.text(doc.splitTextToSize(r.condiciones||CONDICIONES_DEFAULT,Lw),Lx,y);
-        const fy=SH-22;
-        doc.setDrawColor(222,226,232); doc.setLineWidth(0.3); doc.line(Lx,fy-5,Lx+60,fy-5);
-        doc.setFont("helvetica","bold"); doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFontSize(11); doc.text(asesor,Lx,fy);
-        doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.setTextColor(120,130,145); doc.text("Grupo Guía · Opcionador de Macrolotes",Lx,fy+5);
+        // ── Aceptación en la MISMA hoja: botones chicos + liga de términos ──
+        const ay=SH-22;
+        doc.setDrawColor(222,226,232); doc.setLineWidth(0.3); doc.line(Lx,ay-7,Lx+Lw,ay-7); doc.setLineWidth(0.2);
+        doc.setTextColor(60,70,85); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("¿Aceptas tu cotización?",Lx,ay-2);
+        const bH2=8, awA=42, awR=28, gpA=6, axA=Lx, axR=Lx+awA+gpA;
+        doc.setFillColor(22,163,74); doc.roundedRect(axA,ay,awA,bH2,2,2,"F");
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text("ACEPTO",axA+awA/2,ay+bH2/2+1.1,{align:"center"});
+        try{ doc.link(axA,ay,awA,bH2,{url:enlace}); }catch(e){}
+        doc.setDrawColor(175,183,195); doc.setLineWidth(0.5); doc.roundedRect(axR,ay,awR,bH2,2,2,"S"); doc.setLineWidth(0.2);
+        doc.setTextColor(120,130,145); doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text("No acepto",axR+awR/2,ay+bH2/2+1.1,{align:"center"});
+        try{ doc.link(axR,ay,awR,bH2,{url:enlaceRechazo}); }catch(e){}
+        const vtx=axR+awR+7, vty=ay+bH2/2+1.1;
+        doc.setTextColor(37,99,235); doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.text("Ver términos y condiciones",vtx,vty);
+        try{ const vw=doc.getTextWidth("Ver términos y condiciones"); doc.link(vtx,vty-3.5,vw,5,{url:"https://macrolotes.grupoguia.mx/terminos"}); }catch(e){}
 
         // Derecha — Documentos
         let ry=46;
@@ -16101,31 +16111,6 @@ Respuesta: [respuesta exacta, conversacional]
         doc.setTextColor(146,104,10); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.text("Importante",Rx+5,ry+7);
         doc.setTextColor(90,80,60); doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.text(notaLines,Rx+5,ry+12.5);
 
-        pieDoc();
-        marcaAgua(doc);
-
-        // ══ TÉRMINOS, CONDICIONES Y ALCANCES — ÚLTIMA HOJA ══
-        doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
-        bandaTitulo("Aceptación de la cotización","Confirma tu decisión");
-        let ty=46;
-        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.text("Da el siguiente paso",M,ty); ty+=8;
-        // En el PDF NO va el texto de términos (es estático). Solo se invita a decidir; los
-        // Términos y Condiciones se leen y se aceptan con una casilla en la página en línea.
-        doc.setTextColor(90,100,115); doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
-        const nota="Para continuar, elige una opción. Al dar ACEPTO pasarás a tu página de aceptación en línea, donde podrás leer los Términos y Condiciones y aceptarlos con una casilla antes de confirmar.";
-        doc.text(doc.splitTextToSize(nota,SW-2*M),M,ty);
-        // Botones discretos (clicables): ACEPTO (verde chico) → /aceptar · No acepto (gris outline) → /rechazar
-        const eY=SH-28;
-        doc.setTextColor(95,105,120); doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.text("¿Deseas continuar?",M,eY-4);
-        const btnH=11, btnAw=80, btnRw=46, gap=8, btnAx=M, btnRx=M+btnAw+gap;
-        // ACEPTO — verde, discreto
-        doc.setFillColor(22,163,74); doc.roundedRect(btnAx,eY,btnAw,btnH,2.5,2.5,"F");
-        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.text("ACEPTO ESTA COTIZACIÓN",btnAx+btnAw/2,eY+btnH/2+1.4,{align:"center"});
-        try{ doc.link(btnAx,eY,btnAw,btnH,{url:enlace}); }catch(e){}
-        // No acepto — gris outline, aún más discreto
-        doc.setDrawColor(175,183,195); doc.setLineWidth(0.6); doc.roundedRect(btnRx,eY,btnRw,btnH,2.5,2.5,"S"); doc.setLineWidth(0.2);
-        doc.setTextColor(120,130,145); doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.text("No acepto",btnRx+btnRw/2,eY+btnH/2+1.4,{align:"center"});
-        try{ doc.link(btnRx,eY,btnRw,btnH,{url:enlaceRechazo}); }catch(e){}
         pieDoc();
         marcaAgua(doc);
 
@@ -19497,7 +19482,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.11</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.12</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
