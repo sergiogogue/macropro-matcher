@@ -16434,7 +16434,25 @@ Respuesta: [respuesta exacta, conversacional]
                     {ok&&<button onClick={()=>verOpcDoc(row)} style={{fontSize:11,fontWeight:800,color:B.navy,background:B.offW,border:"1px solid "+B.grey1,borderRadius:7,padding:"6px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Ver</button>}
                   </div>
                 ); })}
-                <button onClick={()=>window.open(OPC_URL,"_blank")} style={{width:"100%",marginTop:14,padding:"11px",borderRadius:9,border:"none",background:B.gold,color:B.navy,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧠 Analizar en Intelligence</button>
+                <button onClick={async()=>{
+                  const dmx=opcDocs[opcSel.id]||{};
+                  // 1) Documentos mínimos obligatorios para el análisis.
+                  const REQ=[{k:"uso_suelo",t:"Uso de Suelo"},{k:"plano",t:"Plano"},{k:"predial",t:"Predial"},{k:"ubicacion",t:"Ubicación"}];
+                  const faltan=REQ.filter(d=>!dmx[d.k]).map(d=>d.t);
+                  if(faltan.length){ alert("Faltan documentos obligatorios para el análisis: "+faltan.join(", ")); return; }
+                  // 2) Firmar las URLs de TODOS los documentos subidos (incluye Escritura e INE).
+                  toast("🧠 Preparando documentos para Intelligence…");
+                  const docs=[];
+                  for(const d of OPC_DOCS){ const row=dmx[d.k]; if(!row||!row.url) continue;
+                    try{ const {data}=await window.sb.storage.from("documentos-opcionador").createSignedUrl(row.url,3600); if(data&&data.signedUrl) docs.push({tipo:d.t,clave:d.k,url:data.signedUrl}); }catch(e){}
+                  }
+                  if(!docs.length){ toast("No se pudieron preparar los documentos"); return; }
+                  // 3) Instrucción de análisis para el Valuador (IA).
+                  const payload={ cotizacion_id:opcSel.id, cliente:opcSel.cliente_nombre||"", terreno:opcSel.terreno_nombre||"", ciudad:opcSel.terreno_ciudad||"", documentos:docs,
+                    instruccion:"Analiza específicamente: (1) la ESCRITURA para validar que todo esté en regla legalmente; (2) la INE para cruzar los datos y confirmar que el propietario es la misma persona que aparece en la escritura; (3) el USO DE SUELO y el PLANO para el análisis técnico y de vocación del terreno." };
+                  try{ localStorage.setItem("valuador_opcionador", JSON.stringify(payload)); }catch(e){}
+                  window.open("intelligence.html?fuente=opcionador&c="+encodeURIComponent(opcSel.id),"_blank");
+                }} style={{width:"100%",marginTop:14,padding:"11px",borderRadius:9,border:"none",background:B.gold,color:B.navy,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧠 Analizar en Intelligence</button>
               </div>
             </div>
           </div>
