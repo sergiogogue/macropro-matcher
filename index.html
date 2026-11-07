@@ -15797,6 +15797,7 @@ Respuesta: [respuesta exacta, conversacional]
 
     // ── Panel de cotizaciones: carga TODAS las cotizaciones (de todos los clientes) ──
     // para ver estadísticas y las ligas de aceptación en un solo lugar.
+    const [docsByCot,setDocsByCot]=useState({});
     const cargarHistorial = async ()=>{
       if(!window.sb){ setHistorial([]); return; }
       setCargandoHist(true);
@@ -15805,6 +15806,10 @@ Respuesta: [respuesta exacta, conversacional]
           .select("*").order("created_at",{ascending:false}).limit(500);
         if(error) throw error;
         setHistorial(data||[]);
+        // Carga también los documentos de todas las cotizaciones (para contar y gestionar).
+        const ids=(data||[]).map(c=>c.id); const map={};
+        if(ids.length){ try{ const { data:dd }=await window.sb.from("documentos_opcionador").select("*").in("cotizacion_id",ids); (dd||[]).forEach(r=>{ (map[r.cotizacion_id]=map[r.cotizacion_id]||{})[r.tipo_documento]=r; }); }catch(e){} }
+        setDocsByCot(map);
       }catch(e){ setHistorial([]); }
       finally{ setCargandoHist(false); }
     };
@@ -15856,6 +15861,67 @@ Respuesta: [respuesta exacta, conversacional]
       const nom=(r.cliente_nombre||"cliente").trim();
       const msg="Hola "+nom+", aquí puedes revisar y aceptar tu cotización y subir tus documentos:\n"+ligaAceptar(r);
       window.open("https://wa.me/"+ph+"?text="+encodeURIComponent(msg),"_blank");
+    };
+    // Eliminar una cotización completa (y sus documentos) para no acumular basura.
+    const [borrandoId, setBorrandoId] = useState("");
+    const eliminarCotizacion = async (r)=>{
+      if(!r||!window.sb) return;
+      if(!window.confirm("¿Eliminar la cotización de "+(r.cliente_nombre||"este cliente")+(r.terreno_nombre?(" — "+r.terreno_nombre):"")+"?\n\nTambién se quitan sus documentos. Esta acción no se puede deshacer.")) return;
+      setBorrandoId(r.id);
+      try{
+        // 1) borra los archivos del storage y las filas de documentos
+        try{ const { data:docs }=await window.sb.from("documentos_opcionador").select("url").eq("cotizacion_id",r.id);
+          const paths=(docs||[]).map(d=>d.url).filter(Boolean);
+          if(paths.length) await window.sb.storage.from("documentos-opcionador").remove(paths);
+        }catch(e){}
+        try{ await window.sb.from("documentos_opcionador").delete().eq("cotizacion_id",r.id); }catch(e){}
+        // 2) borra la cotización
+        const del=await window.sb.from("cotizaciones_opcionador").delete().eq("id",r.id);
+        if(del.error) throw del.error;
+        if(guardada && guardada.id===r.id) setGuardada(null);
+        await cargarHistorial();
+        toast("🗑 Cotización eliminada");
+      }catch(e){ toast("No se pudo eliminar: "+((e&&e.message)||e)); }
+      finally{ setBorrandoId(""); }
+    };
+
+    // ── Documentos de una cotización: ver / subir / eliminar desde el panel ──
+    // Aquí el asesor o un admin sube un documento que el cliente le envió por
+    // WhatsApp o correo, sin salir de la pantalla de cotizaciones.
+    const OPC_TIPOS=[{k:"escrituras",t:"Escrituras"},{k:"uso_suelo",t:"Uso de Suelo"},{k:"libertad_gravamen",t:"Libertad de gravamen"},{k:"ine",t:"INE"},{k:"plano",t:"Plano"},{k:"predial",t:"Predial"},{k:"ubicacion",t:"Ubicación"},{k:"fotos",t:"Fotos"}];
+    const [docCot,setDocCot]=useState(null);
+    const [docBusy,setDocBusy]=useState("");
+    const docCount=(id)=>{ const m=docsByCot[id]||{}; return OPC_TIPOS.filter(d=>m[d.k]).length; };
+    const verDocCot=async(row)=>{ try{ const {data,error}=await window.sb.storage.from("documentos-opcionador").createSignedUrl(row.url,180); if(error) throw error; window.open(data.signedUrl,"_blank"); }catch(e){ toast("No se pudo abrir el archivo"); } };
+    const subirDocCot=async(tipoKey,file)=>{
+      if(!file||!docCot||!window.sb) return;
+      setDocBusy(tipoKey);
+      try{
+        let uemail=null; try{ const u=await window.sb.auth.getUser(); uemail=(u&&u.data&&u.data.user&&u.data.user.email)||null; }catch(e){}
+        const ext=((file.name.split(".").pop())||"bin").toLowerCase();
+        const path=docCot.id+"/"+tipoKey+"."+ext;
+        const up=await window.sb.storage.from("documentos-opcionador").upload(path,file,{upsert:true});
+        if(up.error) throw up.error;
+        const rowDoc={ cotizacion_id:docCot.id, cliente_email:docCot.cliente_email||null, tipo_documento:tipoKey, nombre_archivo:file.name, url:path, subido_por:uemail||"macropro", subido_at:new Date().toISOString() };
+        const ins=await window.sb.from("documentos_opcionador").upsert(rowDoc,{onConflict:"cotizacion_id,tipo_documento"});
+        if(ins.error) throw ins.error;
+        await cargarHistorial();
+        toast("✓ Documento subido");
+      }catch(e){ toast("No se pudo subir: "+((e&&e.message)||e)); }
+      finally{ setDocBusy(""); }
+    };
+    const eliminarDocCot=async(tipoKey,row)=>{
+      if(!row||!window.sb) return;
+      if(!window.confirm("¿Eliminar este documento? No se puede deshacer.")) return;
+      setDocBusy(tipoKey);
+      try{
+        if(row.url){ try{ await window.sb.storage.from("documentos-opcionador").remove([row.url]); }catch(e){} }
+        const del=await window.sb.from("documentos_opcionador").delete().eq("cotizacion_id",row.cotizacion_id).eq("tipo_documento",row.tipo_documento);
+        if(del.error) throw del.error;
+        await cargarHistorial();
+        toast("🗑 Documento eliminado");
+      }catch(e){ toast("No se pudo eliminar: "+((e&&e.message)||e)); }
+      finally{ setDocBusy(""); }
     };
 
     // Marca de agua diagonal, CENTRADA, ajustada para que siempre quepa en la hoja.
@@ -16230,9 +16296,11 @@ Respuesta: [respuesta exacta, conversacional]
                                 <td style={{padding:"8px 10px"}}><span style={{background:m[2],color:m[1],borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800}}>{m[3]||m[0]}</span></td>
                                 <td style={{padding:"8px 10px"}}>
                                   <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                                    <button onClick={()=>setDocCot(r)} title="Ver y subir documentos del cliente" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid "+(docCount(r.id)>0?"#86efac":"#cbd5e1"),background:docCount(r.id)>0?"#f0fdf4":"#fff",color:docCount(r.id)>0?"#15803d":AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📎 {docCount(r.id)}/8</button>
                                     <button onClick={()=>copiarTxt(ligaAceptar(r))} title="Copiar la liga de aceptación del cliente" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📋 Liga</button>
                                     <button onClick={()=>waLiga(r)} title="Enviar la liga por WhatsApp al cliente" style={{padding:"6px 10px",borderRadius:8,border:"none",background:"#25D366",color:"#fff",fontSize:11.5,fontWeight:800,cursor:"pointer"}}>🟢 WA</button>
                                     <button disabled={pdfBusy} onClick={()=>generarPDF(r)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:pdfBusy?"not-allowed":"pointer",opacity:pdfBusy?0.5:1}}>📄 PDF</button>
+                                    <button disabled={borrandoId===r.id} onClick={()=>eliminarCotizacion(r)} title="Eliminar esta cotización y sus documentos" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #fecaca",background:"#fff",color:"#b91c1c",fontSize:11.5,fontWeight:800,cursor:borrandoId===r.id?"wait":"pointer",opacity:borrandoId===r.id?0.5:1}}>{borrandoId===r.id?"…":"🗑"}</button>
                                   </div>
                                 </td>
                               </tr>
@@ -16246,6 +16314,45 @@ Respuesta: [respuesta exacta, conversacional]
           </div>{/* fin cuerpo a 2 columnas */}
         </div>{/* fin card del panel */}
       </div>{/* fin wrapW */}
+
+      {/* ══ Modal: documentos de una cotización (ver / subir / eliminar) ══ */}
+      {docCot && (
+        <div onClick={()=>setDocCot(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:580,width:"100%",maxHeight:"90vh",overflow:"auto",boxShadow:"0 24px 70px rgba(0,0,0,.35)"}}>
+            <div style={{...header,padding:"18px 22px",position:"sticky",top:0}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:DORADO}}>Documentos del cliente</div>
+                <div style={{fontSize:18,fontWeight:800,marginTop:2}}>{docCot.cliente_nombre||"Cliente"}</div>
+                <div style={{fontSize:12,opacity:0.85}}>{docCot.terreno_nombre||""}{docCot.terreno_ciudad?(" · "+docCot.terreno_ciudad):""}</div>
+              </div>
+              <button onClick={()=>setDocCot(null)} style={{background:"transparent",border:"none",color:"#fff",fontSize:24,cursor:"pointer",lineHeight:1,fontFamily:"inherit"}}>×</button>
+            </div>
+            <div style={{padding:"16px 20px"}}>
+              <div style={{fontSize:12.5,color:"#64748b",marginBottom:12,lineHeight:1.5}}>Sube aquí los documentos que te mande el cliente (por WhatsApp o correo). También puedes <b>ver</b> o <b>eliminar</b> los que ya están. Quedan ligados a esta cotización.</div>
+              {OPC_TIPOS.map((d)=>{ const m=docsByCot[docCot.id]||{}; const row=m[d.k]; const ok=!!row; return (
+                <div key={d.k} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid #eef2f7"}}>
+                  <div style={{width:20,height:20,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:ok?"#15803d":"#e2e8f0",color:"#fff",fontWeight:900,fontSize:12}}>{ok?"✓":""}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13.5,fontWeight:700,color:AZUL}}>{d.t}</div>
+                    <div style={{fontSize:11,color:ok?"#15803d":"#94a3b8"}}>{ok?("Subido"+(row.subido_at?" · "+new Date(row.subido_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}):"")):"Pendiente"}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+                    {ok&&<button onClick={()=>verDocCot(row)} style={{fontSize:11,fontWeight:800,color:AZUL,background:"#f1f5f9",border:"1px solid #e5e7eb",borderRadius:7,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit"}}>Ver</button>}
+                    <label style={{fontSize:11,fontWeight:800,color:"#fff",background:docBusy===d.k?"#94a3b8":AZUL,borderRadius:7,padding:"6px 10px",cursor:docBusy===d.k?"wait":"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
+                      {docBusy===d.k?"…":(ok?"Reemplazar":"Subir")}
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" disabled={docBusy===d.k} style={{display:"none"}} onChange={(e)=>{ const fl=e.target.files&&e.target.files[0]; if(fl) subirDocCot(d.k,fl); e.target.value=""; }}/>
+                    </label>
+                    {ok&&<button onClick={()=>eliminarDocCot(d.k,row)} title="Eliminar este documento" style={{fontSize:11,fontWeight:800,color:"#b91c1c",background:"#fff",border:"1px solid #fecaca",borderRadius:7,padding:"6px 9px",cursor:"pointer",fontFamily:"inherit"}}>🗑</button>}
+                  </div>
+                </div>
+              ); })}
+              <div style={{display:"flex",justifyContent:"flex-end",marginTop:16}}>
+                <button onClick={()=>setDocCot(null)} style={{padding:"10px 18px",borderRadius:10,border:"none",background:AZUL,color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Listo</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       </React.Fragment>
     );
   };
@@ -16293,6 +16400,21 @@ Respuesta: [respuesta exacta, conversacional]
         toast("✓ Documento subido");
       }catch(e){ toast("No se pudo subir: "+((e&&e.message)||e)); }
       finally{ setOpcSubiendo(""); }
+    };
+    // Eliminar un documento del opcionador (archivo + fila) para no dejar basura.
+    const [opcBorrando,setOpcBorrando]=React.useState("");
+    const eliminarOpcDoc=async(tipoKey,row)=>{
+      if(!row||!window.sb) return;
+      if(!window.confirm("¿Eliminar este documento? No se puede deshacer.")) return;
+      setOpcBorrando(tipoKey);
+      try{
+        if(row.url){ try{ await window.sb.storage.from("documentos-opcionador").remove([row.url]); }catch(e){} }
+        const del=await window.sb.from("documentos_opcionador").delete().eq("cotizacion_id",row.cotizacion_id).eq("tipo_documento",row.tipo_documento);
+        if(del.error) throw del.error;
+        await cargarOpc();
+        toast("🗑 Documento eliminado");
+      }catch(e){ toast("No se pudo eliminar: "+((e&&e.message)||e)); }
+      finally{ setOpcBorrando(""); }
     };
     const docsDeOpc=(id)=>{ const m=opcDocs[id]||{}; return OPC_DOCS.map(d=>({ ...d, row:null })); };
     const renderOpcCard=(o)=>{ const h=opcHechos(o.id); const listo=h===OPC_TOTAL; return (
@@ -16580,6 +16702,7 @@ Respuesta: [respuesta exacta, conversacional]
                         {opcSubiendo===d.k?"Subiendo…":(ok?"Reemplazar":"Subir")}
                         <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" disabled={opcSubiendo===d.k} style={{display:"none"}} onChange={(e)=>{ const fl=e.target.files&&e.target.files[0]; if(fl) subirOpcDoc(d.k,fl); e.target.value=""; }}/>
                       </label>
+                      {ok&&<button disabled={opcBorrando===d.k} onClick={()=>eliminarOpcDoc(d.k,row)} title="Eliminar este documento" style={{fontSize:11,fontWeight:800,color:"#b91c1c",background:"#fff",border:"1px solid #fecaca",borderRadius:7,padding:"6px 10px",cursor:opcBorrando===d.k?"wait":"pointer",fontFamily:"'DM Sans',sans-serif"}}>{opcBorrando===d.k?"…":"🗑"}</button>}
                     </div>
                   </div>
                 ); })}
@@ -19322,7 +19445,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.6</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.7</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
