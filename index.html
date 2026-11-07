@@ -1824,7 +1824,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const setView=(v)=>{setViewRaw(v);savePersisted(STORAGE_KEYS.view,v);};
   // Back-Office "Option Engine": si al cargar, la vista persistida/por URL es OCULTA, redirige a
   // Captación (solo al montar; la navegación interna no se bloquea). Reversible.
-  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch"];
+  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch","opcionadores"];
     if(!permitidas.includes(view)){ setView("captacion"); try{ if(window.location.hash && window.location.hash!=="#captacion") window.history.replaceState(null,"","#captacion"); }catch(e){} }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -3380,7 +3380,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     // 0) vista directa (?vista=admin, dashboard, clients, lots, crm, metas…)
     if(vista){
       // Back-Office "Option Engine": por URL solo se permiten las 4 vistas visibles; el resto → Captación.
-      const VISTAS_PERMITIDAS=['home','captacion','documentos','admin','pitch'];
+      const VISTAS_PERMITIDAS=['home','captacion','documentos','admin','pitch','opcionadores'];
       deepLinkRef.current = true;
       setView(VISTAS_PERMITIDAS.includes(vista)?vista:'captacion');
       limpiar(); return;
@@ -16098,6 +16098,74 @@ Respuesta: [respuesta exacta, conversacional]
       </div>
     );
   };
+  // ── Bandeja de Opcionadores (lee cotizaciones_opcionador; prospectos desde la Landing) ──
+  const ViewBandejaOpcionadores = () => {
+    const AZUL="#0f172a", DORADO="#d4af37";
+    const OPCIONADORES_URL="https://macrolotes.grupoguia.mx/opcionadores";
+    const [lista,setLista]=useState([]);
+    const [cargando,setCargando]=useState(true);
+    const [err,setErr]=useState(null);
+    React.useEffect(()=>{ (async()=>{
+      if(!window.sb){ setErr("Sin conexión a Supabase"); setCargando(false); return; }
+      try{
+        const { data, error }=await window.sb.from("cotizaciones_opcionador").select("*").order("created_at",{ascending:false}).limit(500);
+        if(error) throw error;
+        setLista(data||[]);
+      }catch(e){ setErr((e&&e.message)||String(e)); }
+      finally{ setCargando(false); }
+    })(); },[]);
+    const SEM={ en_revision:["#fef3c7","#b45309","En revisión"], activo:["#dcfce7","#15803d","Activo"], con_ofertas:["#dbeafe","#1d4ed8","Con ofertas"], vendido:["#ede9fe","#6d28d9","Vendido"], pausado:["#f1f5f9","#475569","Pausado"], cerrado:["#dbeafe","#1d4ed8","Cerrado"] };
+    const enCRM=(o)=>{ const em=(o.cliente_email||"").toString().trim().toLowerCase(); return !!em && (clients||[]).some(c=>((c.email||c.correo||"").toString().trim().toLowerCase())===em); };
+    const convertir=(o)=>{
+      if(enCRM(o)){ toast("Ya está en el CRM"); return; }
+      const email=(o.cliente_email||"").toString().trim().toLowerCase();
+      const id="CLI-"+String((clients?clients.length:0)+1).padStart(3,"0");
+      const nc={ nombre:o.cliente_nombre||"Opcionador", empresa:"", asesor:o.asesor_nombre||"", email, telefono:(o.cliente_telefono||"").toString().trim(), ciudad_interes:o.terreno_ciudad?[o.terreno_ciudad]:[], uso_interes:[], tipo_comprador:"", presupuesto_min:0, presupuesto_max:0, sup_min:0, sup_max:0, status:"Prospecto nuevo", notas:"Opcionador (terreno: "+(o.terreno_nombre||"—")+"). Alta desde la Landing.", id, fecha_contacto:new Date().toISOString().slice(0,10) };
+      setClients(prev=>[...prev,nc]);
+      try{ subirClienteCloud(nc); }catch(e){}
+      toast("✓ Opcionador convertido a cliente");
+    };
+    const wrap={maxWidth:860,margin:"0 auto",padding:"24px 18px",fontFamily:"'DM Sans',system-ui,sans-serif"};
+    const head={display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8};
+    const card={background:"#fff",border:"1px solid #e5e7eb",borderRadius:14,boxShadow:"0 6px 24px rgba(15,23,42,.06)",padding:"14px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"};
+    const badge=(s)=>{const c=SEM[s]||SEM.en_revision;return {background:c[0],color:c[1],borderRadius:999,padding:"4px 11px",fontSize:12,fontWeight:800,whiteSpace:"nowrap"};};
+    const btnDoc={padding:"9px 13px",borderRadius:9,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL,fontSize:13,fontWeight:800,cursor:"pointer"};
+    const btnConv={padding:"9px 13px",borderRadius:9,border:"none",background:AZUL,color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer"};
+    return (
+      <div style={wrap}>
+        <div style={head}>
+          <div>
+            <div style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:DORADO}}>Grupo Guía · Opcionador</div>
+            <div style={{fontSize:22,fontWeight:800,color:AZUL}}>Bandeja de Opcionadores</div>
+            <div style={{fontSize:12.5,color:"#64748b"}}>Prospectos que llegaron desde la Landing{lista.length?(" · "+lista.length):""}</div>
+          </div>
+          <button style={{...btnDoc}} onClick={()=>window.open(OPCIONADORES_URL,"_blank")}>Abrir CRM en la Landing ↗</button>
+        </div>
+        {cargando
+          ? <div style={{textAlign:"center",color:"#64748b",padding:30}}>Cargando…</div>
+          : err
+            ? <div style={{color:"#b91c1c",background:"#fee2e2",border:"1px solid #fecaca",borderRadius:10,padding:"10px 14px"}}>Error: {err}</div>
+            : lista.length===0
+              ? <div style={{textAlign:"center",color:"#64748b",padding:30}}>Aún no hay opcionadores.</div>
+              : <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {lista.map((o)=>{ const ya=enCRM(o); return (
+                    <div key={o.id} style={card}>
+                      <div style={{flex:1,minWidth:200}}>
+                        <div style={{fontSize:15,fontWeight:800,color:AZUL}}>{o.cliente_nombre||"Sin nombre"}{o.cuenta_creada?<span style={{marginLeft:8,fontSize:11,color:"#15803d",fontWeight:700}}>· cuenta creada</span>:null}</div>
+                        <div style={{fontSize:12.5,color:"#64748b"}}>{[o.terreno_nombre,o.terreno_ciudad].filter(Boolean).join(" · ")||"—"}{o.valor_terreno?(" · "+o.valor_terreno):""}</div>
+                        <div style={{fontSize:11.5,color:"#94a3b8"}}>{[o.cliente_telefono,o.cliente_email].filter(Boolean).join("  ·  ")}{o.created_at?("  ·  "+new Date(o.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"})):""}</div>
+                      </div>
+                      <span style={badge(o.estatus_semaforo||"en_revision")}>● {(SEM[o.estatus_semaforo]||SEM.en_revision)[2]}</span>
+                      <button style={btnDoc} onClick={()=>window.open(OPCIONADORES_URL,"_blank")}>📄 Ver Documentos</button>
+                      {ya
+                        ? <span style={{fontSize:12.5,fontWeight:800,color:"#15803d"}}>✓ En CRM</span>
+                        : <button style={btnConv} onClick={()=>convertir(o)}>+ Convertir a Cliente</button>}
+                    </div>
+                  );})}
+                </div>}
+      </div>
+    );
+  };
   const ViewCaptacion = () => {
     const ahoraC = new Date();
     const fechaRelC = (iso)=>{ if(!iso) return "—"; const d=new Date(iso); const dias=Math.floor((ahoraC-d)/(1000*60*60*24)); if(dias===0) return "Hoy"; if(dias===1) return "Ayer"; if(dias<7) return `Hace ${dias}d`; if(dias<30) return `Hace ${Math.floor(dias/7)}sem`; return `Hace ${Math.floor(dias/30)}m`; };
@@ -19053,7 +19121,7 @@ Respuesta: [respuesta exacta, conversacional]
               NO se borran vistas: componentes y render (view===) siguen intactos; reversible re-agregando entradas.
               Ocultas (solo accesibles internamente): dashboard, corretaje, asesores(Buscando), quickSearch,
               matchClient, matchLot, matches, clients, lots(Inventario), crm, metas, ejecutivo, comparador. */}
-          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["admin","⚙️ Admin"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["opcionadores","📥 Opcionadores"],["admin","⚙️ Admin"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
@@ -19107,6 +19175,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="asesores"&&<ViewAsesores/>}
       {view==="captacion"&&<ViewCaptacion/>}
       {view==="pitch"&&<ViewPitchCotizacion/>}
+      {view==="opcionadores"&&<ViewBandejaOpcionadores/>}
       {view==="comparador"&&<ViewComparador/>}
       {view==="matches"&&<ViewMatches/>}
       {/* ⚖️ Barra flotante del Comparador (Spec 61) — visible al seleccionar lotes, fuera de la propia vista */}
