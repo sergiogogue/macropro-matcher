@@ -15887,6 +15887,7 @@ Respuesta: [respuesta exacta, conversacional]
 
         const cotId=(r&&r.id)||(guardada&&guardada.id)||"";
         const enlace="https://macrolotes.grupoguia.mx/aceptar"+(cotId?("?c="+cotId):"");
+        const enlaceRechazo="https://macrolotes.grupoguia.mx/rechazar"+(cotId?("?c="+cotId):"");
 
         // ══ COTIZACIÓN + DOCUMENTOS en UNA sola hoja ══
         doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
@@ -15939,6 +15940,29 @@ Respuesta: [respuesta exacta, conversacional]
         pieDoc();
         marcaAgua(doc);
 
+        // ══ INGENIERÍA DE COMERCIALIZACIÓN PATRIMONIAL — 5 pasos (antes de términos) ══
+        doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
+        bandaTitulo("Ingeniería de Comercialización Patrimonial","Nuestro método en 5 pasos");
+        (function(){
+          const pasos=[
+            ["Diagnóstico","Analizamos tu terreno, su entorno y su potencial real de mercado."],
+            ["Ingeniería de Valor","Diseñamos la estrategia que maximiza el valor de tu patrimonio."],
+            ["Empaquetado","Preparamos la propuesta comercial y el material de venta profesional."],
+            ["Conexión Estratégica","Lo exponemos a nuestra red de compradores e inversionistas calificados."],
+            ["Cierre Blindado","Acompañamos la negociación y el cierre con seguridad jurídica."]
+          ];
+          let py=50; const rowH=Math.max(16,Math.min(24,(SH-py-16)/pasos.length));
+          pasos.forEach((p,i)=>{
+            const cy=py+i*rowH;
+            doc.setFillColor(DO[0],DO[1],DO[2]); doc.circle(M+6,cy+3,5,"F");
+            doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text(String(i+1),M+6,cy+4.4,{align:"center"});
+            doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.text(p[0],M+16,cy+2);
+            doc.setTextColor(70,80,95); doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.text(doc.splitTextToSize(p[1],SW-2*M-16),M+16,cy+8);
+          });
+        })();
+        pieDoc();
+        marcaAgua(doc);
+
         // ══ TÉRMINOS, CONDICIONES Y ALCANCES — ÚLTIMA HOJA ══
         doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
         bandaTitulo("Términos y Condiciones","Alcances del servicio");
@@ -15950,11 +15974,16 @@ Respuesta: [respuesta exacta, conversacional]
           "El propietario declara que la información y documentación proporcionada es veraz y de su legítima propiedad. Los datos personales se tratan conforme al Aviso de Privacidad de Grupo Guía.",
           "Aceptación (PROFECO): De conformidad con la Ley Federal de Protección al Consumidor, el consumidor manifiesta haber leído y comprendido los términos, condiciones, alcances y el costo del servicio aquí descritos antes de su contratación, siendo ésta libre y voluntaria."
         ].forEach((p)=>{ const L=doc.splitTextToSize(p,SW-2*M); doc.text(L,M,ty); ty+=L.length*4.4+3.5; });
-        const eY=SH-32;
-        doc.setDrawColor(DO[0],DO[1],DO[2]); doc.setFillColor(255,249,235); doc.roundedRect(M,eY,SW-2*M,21,3,3,"FD");
-        doc.setTextColor(146,104,10); doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.text("Da seguimiento a tu terreno y sube tu documentación. Crea tu cuenta en:",M+6,eY+8);
-        doc.setTextColor(20,70,140); doc.setFont("helvetica","bold"); doc.setFontSize(10.5); doc.text(enlace,M+6,eY+16);
-        try{ doc.link(M+6,eY+11,SW-2*M-12,7,{url:enlace}); }catch(e){}
+        // Botones de decisión (clicables): ACEPTO (verde) → /aceptar · NO ACEPTO (rojo) → /rechazar
+        const eY=SH-34;
+        doc.setTextColor(60,70,85); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("¿Deseas continuar? Elige una opción:",M,eY-4);
+        const btnW=(SW-2*M-10)/2, btnH=16, btnAx=M, btnRx=M+btnW+10;
+        doc.setFillColor(22,163,74); doc.roundedRect(btnAx,eY,btnW,btnH,3,3,"F");
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text("ACEPTO ESTA COTIZACIÓN",btnAx+btnW/2,eY+btnH/2+1.8,{align:"center"});
+        try{ doc.link(btnAx,eY,btnW,btnH,{url:enlace}); }catch(e){}
+        doc.setFillColor(200,50,50); doc.roundedRect(btnRx,eY,btnW,btnH,3,3,"F");
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text("NO ACEPTO",btnRx+btnW/2,eY+btnH/2+1.8,{align:"center"});
+        try{ doc.link(btnRx,eY,btnW,btnH,{url:enlaceRechazo}); }catch(e){}
         pieDoc();
         marcaAgua(doc);
 
