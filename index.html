@@ -2509,7 +2509,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
     viabilidad:c.viabilidad||null,
     precio_autorizado:_numCap(c.precioAutorizado), observaciones_autorizacion:c.observacionesAutorizacion||null,
     documentos:c.documentos||null, notas:c.notas||null,
-    documentos_urls:Array.isArray(c.documentosUrls)?c.documentosUrls:[],
+    // documentos_urls NO viaja en el guardado general: se escribe de forma atómica con
+    // docsCaptacionCloud (captacion_doc_*). Así, guardar la ficha nunca borra lo que el
+    // propietario subió desde /aceptar mientras la ficha estaba abierta.
     respuestas:Array.isArray(c.respuestas)?c.respuestas:[],
     lote_inventario_id:c.loteInventarioId||null,
     // Back-Office (Tarea 2) — columnas nuevas (sql/captaciones_backoffice_columns.sql)
@@ -15507,11 +15509,10 @@ Respuesta: [respuesta exacta, conversacional]
     if(!url){ try{ const a=document.createElement("a"); a.href=URL.createObjectURL(gen.blob); a.download=nombre; document.body.appendChild(a); a.click(); a.remove(); }catch(e){}
       toast("⚠ No se pudo subir a la nube: falta el bucket 'captaciones-docs' o permisos (corre sql/captaciones_docs_storage.sql). Se descargó el PDF localmente."); }
     const nowISO=new Date().toISOString();
-    const docsPrev=Array.isArray(c.documentosUrls)?c.documentosUrls:[];
-    const docs = url ? [...docsPrev, {nombre, url, tipo:"Dictamen de autorización", fecha:nowISO}] : docsPrev;
-    const upd={...c, documentosUrls:docs, respuestas:[...(Array.isArray(c.respuestas)?c.respuestas:[]), {fecha:nowISO, canal:"archivo", tipo:"dictamen", estado:gen.estado, url:url||"", folio:gen.folio}]};
-    setEditingCaptacion(prev=> (prev&&prev.id===c.id)?upd:prev);
+    const upd={...c, respuestas:[...(Array.isArray(c.respuestas)?c.respuestas:[]), {fecha:nowISO, canal:"archivo", tipo:"dictamen", estado:gen.estado, url:url||"", folio:gen.folio}]};
+    setEditingCaptacion(prev=> (prev&&prev.id===c.id)?{...upd, documentosUrls:prev.documentosUrls}:prev);
     upsertCaptacion(upd);
+    if(url) await docsCaptacionCloud(upd,"agregar",{nombre, url, path:(c.id||"")+"/"+gen.folio+".pdf", bucket:"captaciones-docs", tipo:"Dictamen de autorización", fecha:nowISO});
     if(url) toast("✅ Dictamen ("+gen.estado+") guardado en la ficha");
     return url;
   };
@@ -15519,12 +15520,19 @@ Respuesta: [respuesta exacta, conversacional]
   // El asesor sube desde la ficha; se reutiliza documentos_urls (jsonb) y el mismo bucket
   // del dictamen. Se abren/descargan por su URL pública; se depuran a mano cuando el
   // terreno ya se resolvió (así no se acumulan para siempre).
+  // LISTA ÚNICA de documentos del terreno (8). Es la misma que ve el propietario en
+  // /aceptar (claves → tipos en opc_tipo_ficha del SQL opcionador_flujo_unico).
+  // Los "tipo" existentes NO cambian (los documentos ya guardados siguen contando).
+  // privado:true → bucket privado 'documentos-opcionador' (se abre con URL firmada).
   const DOCS_REQUERIDOS=[
-    {tipo:"Fotos del terreno", icon:"📷", min:4, multiple:true, accept:"image/*"},
-    {tipo:"Certificado de uso de suelo", icon:"📜", accept:"image/*,application/pdf"},
-    {tipo:"Plano del terreno", icon:"🗺️", accept:"image/*,application/pdf"},
-    {tipo:"KMZ", icon:"🗂", accept:".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml"},
-    {tipo:"Boleta registral / predial", icon:"🧾", accept:"image/*,application/pdf"},
+    {tipo:"Escrituras", icon:"📜", accept:"image/*,application/pdf", privado:true, clave:"escrituras"},
+    {tipo:"Certificado de uso de suelo", icon:"📜", accept:"image/*,application/pdf", clave:"uso_suelo"},
+    {tipo:"Certificado de libertad de gravamen", icon:"⚖️", accept:"image/*,application/pdf", privado:true, clave:"libertad_gravamen"},
+    {tipo:"INE del propietario", icon:"🪪", accept:"image/*,application/pdf", privado:true, clave:"ine"},
+    {tipo:"Plano del terreno", icon:"🗺️", accept:"image/*,application/pdf", clave:"plano"},
+    {tipo:"Boleta registral / predial", icon:"🧾", accept:"image/*,application/pdf", clave:"predial"},
+    {tipo:"KMZ", label:"Ubicación (KMZ / KML)", icon:"🗂", accept:".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml", clave:"ubicacion"},
+    {tipo:"Fotos del terreno", icon:"📷", min:4, multiple:true, accept:"image/*", clave:"fotos"},
   ];
   // Back-Office (Tarea 4): documentos que deben estar al 100% para APROBAR Y PUBLICAR a vitrina.
   // (Fotos, Plano, Uso de suelo, KMZ + liga de Maps. La boleta/predial NO bloquea la publicación.)
@@ -15674,42 +15682,124 @@ Respuesta: [respuesta exacta, conversacional]
     const total=DOCS_REQUERIDOS.length+1;
     return { faltan, total, completas:total-faltan.length, listo:faltan.length===0 };
   };
+  // ── Documentos de la ficha: escritura ATÓMICA en la nube ──
+  // Nunca se reescribe la lista completa con el guardado general (eso borraba lo que el
+  // propietario sube desde /aceptar). Cada alta/baja va a captacion_doc_* y la lista que
+  // regresa la nube es la que se muestra.
+  const _bucketDeDoc=(d)=>(d&&d.bucket)||"captaciones-docs";
+  const _llaveDoc=(d)=>(d&&(d.path||d.url))||"";
+  const _aplicarDocsLocal=(capId,arr)=>{
+    const docs=Array.isArray(arr)?arr:[];
+    setCaptaciones(prev=>{ const a=Array.isArray(prev)?[...prev]:[]; const i=a.findIndex(y=>y&&y.id===capId); if(i>=0){ a[i]={...a[i], documentosUrls:docs}; saveCaptaciones(a); } return a; });
+    setEditingCaptacion(prev=>(prev&&prev.id===capId)?{...prev, documentosUrls:docs}:prev);
+    return docs;
+  };
+  const docsCaptacionCloud=async(c,op,arg)=>{
+    const fn={agregar:"captacion_doc_agregar", quitar:"captacion_doc_quitar", vaciar:"captacion_docs_vaciar"}[op];
+    const params=op==="agregar"?{p_cap:c.id,p_doc:arg}:(op==="quitar"?{p_cap:c.id,p_llave:arg}:{p_cap:c.id});
+    const llamar=async()=>{ const {data,error}=await window.sb.rpc(fn,params); if(error) throw error; return data; };
+    try{
+      let data=await llamar();
+      if(data==null){ await subirCaptacionCloud(c); data=await llamar(); }   // la ficha aún no existía en la nube
+      if(Array.isArray(data)) return _aplicarDocsLocal(c.id,data);
+    }catch(e){ console.warn("docs ficha ("+fn+"):",e&&e.message); }
+    // Respaldo (si aún no se corrió el SQL opcionador_flujo_unico): calcula y escribe la columna.
+    const prev=Array.isArray(c.documentosUrls)?c.documentosUrls:[];
+    const next=op==="agregar"?[...prev,arg]:(op==="quitar"?prev.filter(d=>_llaveDoc(d)!==arg):[]);
+    try{ await window.sb.from("captaciones").update({documentos_urls:next, updated_at:new Date().toISOString()}).eq("id",c.id); }catch(e){}
+    return _aplicarDocsLocal(c.id,next);
+  };
+  // Abre un documento: público por su URL; privado con URL firmada (10 min).
+  const abrirDocCaptacion=async(d)=>{
+    if(!d) return;
+    if(d.url){ window.open(d.url,"_blank","noopener"); return; }
+    if(!d.path||!window.sb){ toast("⚠ Documento sin ubicación"); return; }
+    const w=window.open("","_blank");   // se abre ya (si no, el navegador bloquea la ventana tras el await)
+    try{
+      const {data,error}=await window.sb.storage.from(_bucketDeDoc({...d, bucket:d.bucket||"documentos-opcionador"})).createSignedUrl(d.path,600);
+      if(error) throw error;
+      if(w) w.location=data.signedUrl; else window.open(data.signedUrl,"_blank");
+    }catch(e){ if(w) w.close(); toast("⚠ No se pudo abrir el archivo"); }
+  };
+  // URL utilizable de un documento (para Intelligence): pública o firmada por 1 h.
+  const urlDocCaptacion=async(d)=>{
+    if(d&&d.url) return d.url;
+    if(!d||!d.path||!window.sb) return "";
+    try{ const {data}=await window.sb.storage.from(d.bucket||"documentos-opcionador").createSignedUrl(d.path,3600); return (data&&data.signedUrl)||""; }catch(e){ return ""; }
+  };
+  // 🧠 Mandar la ficha a Intelligence (Valuador) con TODOS sus documentos.
+  const analizarCaptacionEnIntelligence=async(c)=>{
+    if(!c) return;
+    const m=docsPorTipo(c);
+    const nombreDe=(t)=>{ const r=DOCS_REQUERIDOS.find(x=>x.tipo===t); return (r&&r.label)||t; };
+    const faltan=["Certificado de uso de suelo","Plano del terreno","Boleta registral / predial"].filter(t=>!(m[t]||[]).length).map(nombreDe);
+    if(!(m["KMZ"]||[]).length && !mapsOkCap(c)) faltan.push("Ubicación (KMZ o liga de Google Maps)");
+    if(faltan.length){ alert("Faltan documentos obligatorios para el análisis: "+faltan.join(", ")); return; }
+    const w=window.open("about:blank","_blank");   // se abre ya para que el navegador no la bloquee
+    toast("🧠 Preparando documentos para Intelligence…");
+    const docs=[];
+    for(const r of DOCS_REQUERIDOS){ for(const d of (m[r.tipo]||[])){ const url=await urlDocCaptacion(d); if(url) docs.push({tipo:r.label||r.tipo, clave:r.clave, url}); } }
+    if(!docs.length){ if(w) w.close(); toast("No se pudieron preparar los documentos"); return; }
+    const payload={ cotizacion_id:c.id, cliente:c.propietario||"", terreno:c.zona||c.ubicacion||"", ciudad:c.ciudad||"", documentos:docs,
+      instruccion:"Analiza específicamente: (1) la ESCRITURA para validar que todo esté en regla legalmente; (2) la INE para cruzar los datos y confirmar que el propietario es la misma persona que aparece en la escritura; (3) el USO DE SUELO y el PLANO para el análisis técnico y de vocación del terreno."+(mapsOkCap(c)?(" Ubicación (Google Maps): "+(c.ligaMaps||"").trim()):"") };
+    try{ localStorage.setItem("valuador_opcionador", JSON.stringify(payload)); }catch(e){}
+    const dest=new URL("intelligence.html?fuente=opcionador&c="+encodeURIComponent(c.id), window.location.href).href;
+    if(w) w.location=dest; else window.open(dest,"_blank");
+  };
   const subirDocCaptacion=async(c,tipo,file)=>{
     if(!c||!file) return;
     if(!window.sb){ toast("⚠ Sin conexión a Supabase"); return; }
-    toast("⬆️ Subiendo "+tipo+"…");
+    const req=DOCS_REQUERIDOS.find(r=>r.tipo===tipo);
+    const privado=!!(req&&req.privado);
+    const bucket=privado?"documentos-opcionador":"captaciones-docs";
+    toast("⬆️ Subiendo "+((req&&req.label)||tipo)+"…");
     try{
       const safe=(file.name||"archivo").replace(/[^a-zA-Z0-9._-]/g,"_").slice(-60);
       const slug=tipo.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
       const path=(c.id||("cap-"+Date.now()))+"/"+slug+"-"+Date.now()+"-"+safe;
-      const up=await window.sb.storage.from("captaciones-docs").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:true});
+      const up=await window.sb.storage.from(bucket).upload(path,file,{contentType:file.type||"application/octet-stream",upsert:true});
       if(up.error) throw up.error;
-      const pu=window.sb.storage.from("captaciones-docs").getPublicUrl(path);
-      const url=(pu&&pu.data&&pu.data.publicUrl)||"";
-      if(!url) throw new Error("sin URL pública");
-      const nowISO=new Date().toISOString();
-      const docsPrev=Array.isArray(c.documentosUrls)?c.documentosUrls:[];
-      const upd={...c, documentosUrls:[...docsPrev, {nombre:file.name||"archivo", url, path, tipo, fecha:nowISO}]};
-      setEditingCaptacion(prev=>(prev&&prev.id===c.id)?upd:prev);
-      upsertCaptacion(upd);
-      toast("✅ "+tipo+" subido");
-    }catch(e){ console.warn("subir doc:",e&&e.message); toast("⚠ No se pudo subir: revisa el bucket 'captaciones-docs' y permisos (corre sql/captaciones_docs_storage.sql + captaciones_docs_auth_upload.sql)."); }
+      let url="";
+      if(!privado){ const pu=window.sb.storage.from(bucket).getPublicUrl(path); url=(pu&&pu.data&&pu.data.publicUrl)||""; if(!url) throw new Error("sin URL pública"); }
+      let quien=""; try{ const u=await window.sb.auth.getUser(); quien=(u&&u.data&&u.data.user&&u.data.user.email)||""; }catch(e){}
+      const doc={nombre:file.name||"archivo", path, bucket, tipo, fecha:new Date().toISOString(), subido_por:quien||"asesor"};
+      if(url) doc.url=url;
+      await docsCaptacionCloud(c,"agregar",doc);
+      toast("✅ "+((req&&req.label)||tipo)+" subido");
+    }catch(e){ console.warn("subir doc:",e&&e.message); toast("⚠ No se pudo subir "+((req&&req.label)||tipo)+": "+((e&&e.message)||e)); }
   };
   const quitarDocCaptacion=async(c,idx)=>{
     const docs=Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]; const d=docs[idx]; if(!d) return;
     if(!window.confirm("¿Quitar este documento? Se borra de la nube.")) return;
-    try{ const p=d.path||_pathDeUrl(d.url); if(window.sb&&p) await window.sb.storage.from("captaciones-docs").remove([p]); }catch(e){ console.warn(e); }
-    const upd={...c, documentosUrls:docs.filter((_,i)=>i!==idx)};
-    setEditingCaptacion(prev=>(prev&&prev.id===c.id)?upd:prev); upsertCaptacion(upd); toast("🗑 Documento quitado");
+    try{ const p=d.path||_pathDeUrl(d.url); if(window.sb&&p) await window.sb.storage.from(_bucketDeDoc(d)).remove([p]); }catch(e){ console.warn(e); }
+    await docsCaptacionCloud(c,"quitar",_llaveDoc(d));
+    toast("🗑 Documento quitado");
   };
   const depurarDocsCaptacion=async(c)=>{
     const docs=Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]; if(!docs.length){ toast("No hay documentos que depurar"); return; }
     if(!window.confirm("¿Depurar los "+docs.length+" documento(s) de esta captación? Se borran de la nube y no se puede deshacer.")) return;
-    try{ const paths=docs.map(d=>d&&(d.path||_pathDeUrl(d.url))).filter(Boolean); if(window.sb&&paths.length) await window.sb.storage.from("captaciones-docs").remove(paths); }catch(e){ console.warn("depurar:",e&&e.message); }
+    try{
+      const porBucket={}; docs.forEach(d=>{ const p=d&&(d.path||_pathDeUrl(d.url)); if(p){ const b=_bucketDeDoc(d); (porBucket[b]=porBucket[b]||[]).push(p); } });
+      if(window.sb) for(const b of Object.keys(porBucket)) await window.sb.storage.from(b).remove(porBucket[b]);
+    }catch(e){ console.warn("depurar:",e&&e.message); }
+    await docsCaptacionCloud(c,"vaciar");
     const nowISO=new Date().toISOString();
     const upd={...c, documentosUrls:[], respuestas:[...(Array.isArray(c.respuestas)?c.respuestas:[]), {fecha:nowISO,canal:"archivo",tipo:"depuracion",texto:"Documentos depurados ("+docs.length+")"}]};
     setEditingCaptacion(prev=>(prev&&prev.id===c.id)?upd:prev); upsertCaptacion(upd); toast("🗑 Documentos depurados");
   };
+  // Al abrir la ficha, trae de la nube su lista de documentos (lo que subió el propietario
+  // mientras tanto aparece sin tener que recargar la app).
+  React.useEffect(()=>{
+    const id=editingCaptacion&&editingCaptacion.id;
+    if(!showCaptacionModal||!id||!window.sb) return;
+    let vivo=true;
+    (async()=>{ try{
+      const {data}=await window.sb.from("captaciones").select("documentos_urls").eq("id",id).limit(1);
+      if(vivo&&data&&data[0]&&Array.isArray(data[0].documentos_urls)) _aplicarDocsLocal(id,data[0].documentos_urls);
+    }catch(e){} })();
+    return ()=>{ vivo=false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCaptacionModal, editingCaptacion && editingCaptacion.id]);
   const descargarReporteCaptacionPDF = async () => {
     if(!window.jspdf){ toast("⚠ jsPDF no disponible"); return; }
     toast("📄 Generando reporte…");
@@ -15867,15 +15957,30 @@ Respuesta: [respuesta exacta, conversacional]
       const msg="Hola "+nom+", aquí puedes revisar y aceptar tu cotización y subir tus documentos:\n"+ligaAceptar(r);
       window.open("https://api.whatsapp.com/send?phone="+ph+"&text="+encodeURIComponent(msg),"_blank");
     };
+    // Abre la ficha de la captación que nació de esta cotización (el lugar único de trabajo).
+    const abrirFichaDeCotizacion = async (r)=>{
+      if(!r||!r.captacion_id) return;
+      let cap=(captaciones||[]).find(x=>x&&x.id===r.captacion_id);
+      if(!cap && window.sb){
+        try{ const { data }=await window.sb.from("captaciones").select("*").eq("id",r.captacion_id).limit(1);
+          if(data&&data[0]){ cap=captacionDeFila(data[0]);
+            setCaptaciones(prev=>{ const a=Array.isArray(prev)?[...prev]:[]; if(!a.some(y=>y&&y.id===cap.id)) a.unshift(cap); saveCaptaciones(a); return a; }); }
+        }catch(e){}
+      }
+      if(!cap){ toast("⚠ No encontré la captación ligada. Recarga la app (o corre el SQL opcionador_flujo_unico)."); return; }
+      setEditingCaptacion(cap); setShowCaptacionModal(true);
+    };
     // Eliminar una cotización completa (y sus documentos) para no acumular basura.
     const [borrandoId, setBorrandoId] = useState("");
     const eliminarCotizacion = async (r)=>{
       if(!r||!window.sb) return;
-      if(!window.confirm("¿Eliminar la cotización de "+(r.cliente_nombre||"este cliente")+(r.terreno_nombre?(" — "+r.terreno_nombre):"")+"?\n\nTambién se quitan sus documentos. Esta acción no se puede deshacer.")) return;
+      const yaCaptacion=!!r.captacion_id;
+      if(!window.confirm("¿Eliminar la cotización de "+(r.cliente_nombre||"este cliente")+(r.terreno_nombre?(" — "+r.terreno_nombre):"")+"?\n\n"+(yaCaptacion?"La captación que generó y sus documentos SE CONSERVAN en Opción/Captación.":"También se quitan sus documentos.")+" Esta acción no se puede deshacer.")) return;
       setBorrandoId(r.id);
       try{
-        // 1) borra los archivos del storage y las filas de documentos
-        try{ const { data:docs }=await window.sb.from("documentos_opcionador").select("url").eq("cotizacion_id",r.id);
+        // 1) borra los archivos del storage y las filas de documentos (solo si NO es ya captación:
+        //    en ese caso los archivos pertenecen a la ficha de la captación)
+        if(!yaCaptacion) try{ const { data:docs }=await window.sb.from("documentos_opcionador").select("url").eq("cotizacion_id",r.id);
           const paths=(docs||[]).map(d=>d.url).filter(Boolean);
           if(paths.length) await window.sb.storage.from("documentos-opcionador").remove(paths);
         }catch(e){}
@@ -16362,7 +16467,13 @@ Respuesta: [respuesta exacta, conversacional]
                                 <td style={{padding:"8px 10px"}}><span style={{background:m[2],color:m[1],borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800}}>{m[3]||m[0]}</span></td>
                                 <td style={{padding:"8px 10px"}}>
                                   <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
-                                    <button onClick={()=>setDocCot(r)} title="Ver y subir documentos del cliente" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid "+(docCount(r.id)>0?"#86efac":"#cbd5e1"),background:docCount(r.id)>0?"#f0fdf4":"#fff",color:docCount(r.id)>0?"#15803d":AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📎 {docCount(r.id)}/8</button>
+                                    {r.captacion_id ? (()=>{ const cap=(captaciones||[]).find(x=>x&&x.id===r.captacion_id); const ed=cap?estadoDocsCaptacion(cap):null; return (
+                                      <button onClick={()=>abrirFichaDeCotizacion(r)} title="Abrir la ficha de la captación (documentos, Intelligence)" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #86efac",background:"#f0fdf4",color:"#15803d",fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📂 Ficha{ed?(" "+ed.completas+"/"+ed.total):""}</button>
+                                    ); })() : (r.terminos_aceptados ? (
+                                      <button onClick={()=>setDocCot(r)} title="Ver documentos del cliente" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid "+(docCount(r.id)>0?"#86efac":"#cbd5e1"),background:docCount(r.id)>0?"#f0fdf4":"#fff",color:docCount(r.id)>0?"#15803d":AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📎 {docCount(r.id)}/8</button>
+                                    ) : (
+                                      <span title="Los documentos se reciben cuando el propietario acepta" style={{padding:"6px 10px",borderRadius:8,border:"1.5px dashed #e5e7eb",color:"#94a3b8",fontSize:11.5,fontWeight:800}}>⏳ Sin aceptar</span>
+                                    ))}
                                     <button onClick={()=>copiarTxt(ligaAceptar(r))} title="Copiar la liga de aceptación del cliente" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📋 Liga</button>
                                     <button onClick={()=>waLiga(r)} title="Enviar la liga por WhatsApp al cliente" style={{padding:"6px 10px",borderRadius:8,border:"none",background:"#25D366",color:"#fff",fontSize:11.5,fontWeight:800,cursor:"pointer"}}>🟢 WA</button>
                                     <button disabled={pdfBusy} onClick={()=>generarPDF(r)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:pdfBusy?"not-allowed":"pointer",opacity:pdfBusy?0.5:1}}>📄 PDF</button>
@@ -16459,8 +16570,11 @@ Respuesta: [respuesta exacta, conversacional]
     },[]);
     React.useEffect(()=>{ cargarOpc(); },[cargarOpc]);
     const opcHechos=(id)=>OPC_DOCS.filter(d=>opcDocs[id]&&opcDocs[id][d.k]).length;
-    const opcEnCot=(opcLista||[]).filter(o=>!o.terminos_aceptados);
-    const opcNueva=(opcLista||[]).filter(o=>!!o.terminos_aceptados);
+    // "En cotización" = esperando que el propietario acepte (las rechazadas se ven en el Panel).
+    const opcEnCot=(opcLista||[]).filter(o=>!o.terminos_aceptados && !String(o.estatus||"").toLowerCase().startsWith("rechaz"));
+    // Aceptadas: ya son CAPTACIONES reales (columna Nueva opción). Solo se muestra tarjeta aparte
+    // si aún no tiene captación ligada (respaldo mientras no se corre el SQL opcionador_flujo_unico).
+    const opcNueva=(opcLista||[]).filter(o=>!!o.terminos_aceptados && !o.captacion_id);
     const verOpcDoc=async(row)=>{ try{ const {data,error}=await window.sb.storage.from("documentos-opcionador").createSignedUrl(row.url,180); if(error) throw error; window.open(data.signedUrl,"_blank"); }catch(e){ toast("No se pudo abrir el archivo"); } };
     // Subir/reemplazar un documento del opcionador desde MacroPro (asesor o admin),
     // por ejemplo cuando el cliente lo manda por WhatsApp/correo. Mismo bucket y tabla
@@ -16499,7 +16613,21 @@ Respuesta: [respuesta exacta, conversacional]
       finally{ setOpcBorrando(""); }
     };
     const docsDeOpc=(id)=>{ const m=opcDocs[id]||{}; return OPC_DOCS.map(d=>({ ...d, row:null })); };
-    const renderOpcCard=(o)=>{ const h=opcHechos(o.id); const listo=h===OPC_TOTAL; return (
+    const ligaAceptarDe=(o)=>"https://macrolotes.grupoguia.mx/aceptar?c="+o.id;
+    const renderOpcPendiente=(o)=>(
+      <div key={"opc-"+o.id} style={{padding:"11px 12px",background:B.white,borderRadius:8,border:"1px solid "+B.grey1,borderLeft:"3px solid "+B.gold,boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
+        <div style={{display:"inline-block",fontSize:8,fontWeight:800,color:"#9a6a00",background:"#fffaf0",border:"1px solid "+B.gold,borderRadius:5,padding:"1px 6px",marginBottom:5,letterSpacing:0.4}}>COTIZACIÓN ENVIADA</div>
+        <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{o.cliente_nombre||"Sin nombre"}</div>
+        <div style={{fontSize:10,color:B.grey4,marginBottom:6}}>{[o.terreno_nombre,o.terreno_ciudad].filter(Boolean).join(" · ")||"—"}{o.valor_terreno?(" · "+o.valor_terreno):""}</div>
+        <div style={{display:"inline-block",fontSize:9,fontWeight:800,borderRadius:6,padding:"2px 7px",marginBottom:7,color:"#b45309",background:"#fff7ed",border:"1px solid #fed7aa"}}>⏳ Esperando que el propietario acepte</div>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={async()=>{ const url=ligaAceptarDe(o); try{ await navigator.clipboard.writeText(url); toast("📋 Liga copiada"); }catch(e){ try{ window.prompt("Copia la liga:", url); }catch(_){ toast(url); } } }} style={{flex:1,fontSize:10,fontWeight:800,color:B.navy,background:B.offW,border:"1px solid "+B.grey1,borderRadius:6,padding:"5px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📋 Copiar liga</button>
+          <button onClick={()=>setView("pitch")} title="Ver en la pestaña Cotización" style={{fontSize:10,fontWeight:800,color:B.navy,background:"#fffaf0",border:"1px solid "+B.gold,borderRadius:6,padding:"5px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧾 Cotización</button>
+        </div>
+        <div style={{fontSize:9,color:B.grey4,marginTop:6}}>Al aceptar, se convierte en captación en "Nueva opción" y ahí recibes sus documentos.</div>
+      </div>
+    );
+    const renderOpcCard=(o)=>{ if(!o.terminos_aceptados) return renderOpcPendiente(o); const h=opcHechos(o.id); const listo=h===OPC_TOTAL; return (
       <div key={"opc-"+o.id} onClick={()=>setOpcSel(o)} style={{padding:"11px 12px",background:B.white,borderRadius:8,border:"1px solid "+B.grey1,borderLeft:"3px solid "+B.gold,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
         <div style={{display:"inline-block",fontSize:8,fontWeight:800,color:"#9a6a00",background:"#fffaf0",border:"1px solid "+B.gold,borderRadius:5,padding:"1px 6px",marginBottom:5,letterSpacing:0.4}}>OPCIONADOR · LANDING</div>
         <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{o.cliente_nombre||"Sin nombre"}</div>
@@ -19527,7 +19655,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.15</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.16</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
@@ -19621,7 +19749,15 @@ Respuesta: [respuesta exacta, conversacional]
                 </div>
                 <div style={{padding:"20px 26px",maxHeight:"62vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:16}}>
                   {/* 🔗 Liga Mágica: link único para que el propietario suba su expediente legal */}
-                  {f.id && (
+                  {/* Captación que nació de una cotización aceptada: su liga de propietario es /aceptar
+                      (ahí sube sus documentos a ESTA misma ficha). Una sola liga por terreno. */}
+                  {f.id && String(f.id).indexOf("capta-opc-")===0 && (
+                    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 12px",borderRadius:10,border:"1px dashed "+B.gold,background:"#fffdf5"}}>
+                      <button onClick={async()=>{ const url="https://macrolotes.grupoguia.mx/aceptar?c="+String(f.id).slice("capta-opc-".length); try{ await navigator.clipboard.writeText(url); toast("🔗 Liga del propietario copiada"); }catch(e){ try{ window.prompt("Copia la liga del propietario:", url); }catch(_){ toast(url); } } }} style={{padding:"8px 14px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🔗 Copiar liga del propietario</button>
+                      <span style={{fontSize:10.5,color:B.grey4}}>Viene de una cotización aceptada. Con esta liga el dueño sube sus documentos y aparecen aquí abajo.</span>
+                    </div>
+                  )}
+                  {f.id && String(f.id).indexOf("capta-opc-")!==0 && (
                     <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 12px",borderRadius:10,border:"1px dashed "+B.gold,background:"#fffdf5"}}>
                       <button onClick={()=>copiarLigaMagica(f)} style={{padding:"8px 14px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🔗 Copiar Liga Mágica</button>
                       <span style={{fontSize:10.5,color:B.grey4}}>Link para que el dueño suba INE, escrituras, etc. y vea el avance de su expediente.</span>
@@ -19832,7 +19968,9 @@ Respuesta: [respuesta exacta, conversacional]
                         {f.firma_nombre&&f.firma_fecha&&<div style={{fontSize:10,color:B.grey3,marginTop:3}}>Firmado: {(()=>{try{return new Date(f.firma_fecha).toLocaleString("es-MX",{dateStyle:"medium",timeStyle:"short"});}catch(e){return "";}})()}</div>}
                       </div>
                     </div>
-                    {/* ⚖️ Expediente Legal (FASE D): documentos que sube el propietario vía Liga Mágica */}
+                    {/* ⚖️ Expediente Legal (FASE D): documentos que sube el propietario vía Liga Mágica.
+                        En captaciones que vienen de cotización no aplica (sus docs van en la lista única). */}
+                    {!(String(f.id||"").indexOf("capta-opc-")===0 && legalDocs.length===0) && (
                     <div style={{marginBottom:12,padding:"12px 14px",borderRadius:10,border:"1px solid "+B.grey1,background:"#fbfdff"}}>
                       <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>⚖️ Expediente Legal <span style={{fontSize:10,fontWeight:700,color:B.grey4}}>(lo sube el dueño con la Liga Mágica)</span></div>
                       {legalDocs.length===0 ? (
@@ -19860,10 +19998,11 @@ Respuesta: [respuesta exacta, conversacional]
                         </div>
                       )}
                     </div>
+                    )}
                     <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>📄 Documentos y seguimiento</div>
                     <div><span style={lbStyle}>Documentos (escrituras, predial, etc.)</span><input style={inStyle} value={f.documentos||""} onChange={e=>setF({documentos:e.target.value})} placeholder="Qué tenemos / qué falta"/></div>
                     {(()=>{ const est=estadoDocsCaptacion(f); const m=docsPorTipo(f); const reqSet=new Set(DOCS_REQUERIDOS.map(r=>r.tipo));
-                      const otros=(Array.isArray(f.documentosUrls)?f.documentosUrls:[]).map((d,i)=>({d,i})).filter(x=>x.d&&x.d.url&&!reqSet.has(x.d.tipo));
+                      const otros=(Array.isArray(f.documentosUrls)?f.documentosUrls:[]).map((d,i)=>({d,i})).filter(x=>x.d&&(x.d.url||x.d.path)&&!reqSet.has(x.d.tipo));
                       return (
                       <div style={{marginTop:12, border:"1px solid "+B.grey1, borderRadius:10, overflow:"hidden"}}>
                         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",padding:"9px 12px",background:est.listo?"#ecfdf5":"#fff7ed",borderBottom:"1px solid "+B.grey1}}>
@@ -19874,7 +20013,7 @@ Respuesta: [respuesta exacta, conversacional]
                           {DOCS_REQUERIDOS.map(r=>{ const items=m[r.tipo]||[]; const n=items.length; const req=r.min||1; const ok=n>=req; return (
                             <div key={r.tipo} style={{display:"flex",flexDirection:"column",gap:5}}>
                               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-                                <span style={{fontSize:12,fontWeight:700,color:B.navy}}>{ok?"✅":"⬜"} {r.icon} {r.tipo}{req>1?<span style={{fontSize:10,fontWeight:800,color:ok?"#0f6b3f":"#b45309"}}> ({n}/{req})</span>:null}</span>
+                                <span style={{fontSize:12,fontWeight:700,color:B.navy}}>{ok?"✅":"⬜"} {r.icon} {r.label||r.tipo}{r.privado?<span title="Documento privado: solo el equipo lo puede abrir" style={{fontSize:10,marginLeft:4}}>🔒</span>:null}{req>1?<span style={{fontSize:10,fontWeight:800,color:ok?"#0f6b3f":"#b45309"}}> ({n}/{req})</span>:null}</span>
                                 <label style={{fontSize:11,fontWeight:800,color:"#1d4ed8",cursor:"pointer",border:"1px solid #bfdbfe",background:"#eff6ff",borderRadius:7,padding:"4px 10px"}}>
                                   ⬆️ Subir
                                   <input type="file" hidden accept={r.accept} multiple={!!r.multiple} onChange={e=>{ const fs=Array.from(e.target.files||[]); fs.forEach(file=>subirDocCaptacion(f,r.tipo,file)); e.target.value=""; }}/>
@@ -19882,7 +20021,7 @@ Respuesta: [respuesta exacta, conversacional]
                               </div>
                               {items.map((d,i)=>{ const gi=(f.documentosUrls||[]).indexOf(d); return (
                                 <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"5px 9px",borderRadius:7,border:"1px solid "+B.grey1,background:B.offW}}>
-                                  <a href={d.url} target="_blank" rel="noopener noreferrer" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"none",color:B.navy,fontSize:11,fontWeight:700}}>📄 {d.nombre||"archivo"} <span style={{color:"#1d4ed8",fontWeight:800}}>· Abrir/Descargar ↗</span></a>
+                                  <a onClick={()=>abrirDocCaptacion(d)} style={{cursor:"pointer",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"none",color:B.navy,fontSize:11,fontWeight:700}}>📄 {d.nombre||"archivo"}{d.subido_por==="cliente"?<span style={{marginLeft:6,fontSize:9,fontWeight:800,color:"#7c3aed",background:"#f3e8ff",borderRadius:5,padding:"1px 5px"}}>del propietario</span>:null} <span style={{color:"#1d4ed8",fontWeight:800}}>· Abrir ↗</span></a>
                                   <button onClick={()=>quitarDocCaptacion(f,gi)} title="Quitar" style={{border:"none",background:"transparent",color:"#dc2626",cursor:"pointer",fontSize:12,fontWeight:800,flexShrink:0}}>✕</button>
                                 </div>
                               ); })}
@@ -19899,7 +20038,7 @@ Respuesta: [respuesta exacta, conversacional]
                               <span style={{fontSize:11,fontWeight:800,color:B.grey4}}>📎 Otros archivos ({otros.length})</span>
                               {otros.map(({d,i})=>(
                                 <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"5px 9px",borderRadius:7,border:"1px solid "+B.grey1,background:B.offW}}>
-                                  <a href={d.url} target="_blank" rel="noopener noreferrer" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"none",color:B.navy,fontSize:11,fontWeight:700}}>📄 {d.tipo?<b style={{color:"#0f6b3f"}}>{d.tipo}: </b>:null}{d.nombre||"archivo"} <span style={{color:"#1d4ed8",fontWeight:800}}>↗</span></a>
+                                  <a onClick={()=>abrirDocCaptacion(d)} style={{cursor:"pointer",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textDecoration:"none",color:B.navy,fontSize:11,fontWeight:700}}>📄 {d.tipo?<b style={{color:"#0f6b3f"}}>{d.tipo}: </b>:null}{d.nombre||"archivo"} <span style={{color:"#1d4ed8",fontWeight:800}}>↗</span></a>
                                   <button onClick={()=>quitarDocCaptacion(f,i)} title="Quitar" style={{border:"none",background:"transparent",color:"#dc2626",cursor:"pointer",fontSize:12,fontWeight:800,flexShrink:0}}>✕</button>
                                 </div>
                               ))}
@@ -19908,6 +20047,7 @@ Respuesta: [respuesta exacta, conversacional]
                           {Array.isArray(f.documentosUrls)&&f.documentosUrls.length>0&&(
                             <button onClick={()=>depurarDocsCaptacion(f)} title="Borra los documentos de la nube (úsalo cuando el terreno ya se resolvió)" style={{alignSelf:"flex-start",marginTop:2,fontSize:11,fontWeight:800,color:"#dc2626",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:7,padding:"5px 11px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗑 Depurar documentos</button>
                           )}
+                          <button onClick={()=>analizarCaptacionEnIntelligence(f)} style={{marginTop:4,padding:"10px",borderRadius:9,border:"none",background:B.gold,color:B.navy,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧠 Analizar en Intelligence</button>
                         </div>
                       </div>
                     ); })()}
