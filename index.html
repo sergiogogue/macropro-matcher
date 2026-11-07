@@ -15795,21 +15795,67 @@ Respuesta: [respuesta exacta, conversacional]
       window.open("https://wa.me/"+waPhone+"?text="+encodeURIComponent(msg), "_blank");
     };
 
-    // Historial de cotizaciones del cliente seleccionado (tabla cotizaciones_opcionador).
-    const cargarHistorial = async (cid)=>{
+    // ── Panel de cotizaciones: carga TODAS las cotizaciones (de todos los clientes) ──
+    // para ver estadísticas y las ligas de aceptación en un solo lugar.
+    const cargarHistorial = async ()=>{
       if(!window.sb){ setHistorial([]); return; }
       setCargandoHist(true);
       try{
-        let q = window.sb.from("cotizaciones_opcionador").select("*").order("created_at",{ascending:false}).limit(cid?200:20);
-        if(cid) q = q.eq("cliente_id",cid);
-        const { data, error } = await q;
+        const { data, error } = await window.sb.from("cotizaciones_opcionador")
+          .select("*").order("created_at",{ascending:false}).limit(500);
         if(error) throw error;
         setHistorial(data||[]);
       }catch(e){ setHistorial([]); }
       finally{ setCargandoHist(false); }
     };
-    // Al abrir muestra las últimas 20; si eliges un cliente, filtra por ese cliente.
-    React.useEffect(()=>{ cargarHistorial(f.cliente_id||null); }, [f.cliente_id]);
+    // Carga al abrir y se refresca cada vez que se guarda una cotización nueva.
+    React.useEffect(()=>{ cargarHistorial(); }, [guardada]);
+
+    // Normaliza el estatus (la Landing guarda "Aceptada"/"Rechazado"; aquí "borrador"/"enviada").
+    const normEst = (e)=>{ const s=(e||"").toString().trim().toLowerCase();
+      if(s.startsWith("acept")) return "aceptada";
+      if(s.startsWith("rechaz")) return "rechazada";
+      if(s.startsWith("envi")) return "enviada";
+      return "borrador"; };
+    // [etiqueta, colorTexto, colorFondo] por estatus; "todas" para el tile/total.
+    const EST_META = { todas:["Todas","#0f172a","#e2e8f0"], enviada:["Enviadas","#1d4ed8","#dbeafe"], aceptada:["Aceptadas","#15803d","#dcfce7"], rechazada:["Rechazadas","#b91c1c","#fee2e2"], borrador:["Borradores","#475569","#f1f5f9"] };
+    const numMoneda = (s)=>{ const n=parseFloat(String(s||"").replace(/[^0-9.]/g,"")); return isNaN(n)?0:n; };
+    const numPct = (s)=>{ const n=parseFloat(String(s||"").replace(/[^0-9.]/g,"")); return isNaN(n)?0:n; };
+
+    const [filtroTxt, setFiltroTxt] = useState("");
+    const [estFiltro, setEstFiltro] = useState("todas");
+
+    // Estadísticas sobre TODAS las cotizaciones (los contadores no dependen del filtro).
+    const stats = React.useMemo(()=>{
+      const s={ total:0, borrador:0, enviada:0, aceptada:0, rechazada:0, valor:0, comision:0 };
+      (historial||[]).forEach((r)=>{ s.total++; s[normEst(r.estatus)]++;
+        const v=numMoneda(r.valor_terreno); s.valor+=v; s.comision+=v*numPct(r.monto_comision)/100; });
+      return s;
+    }, [historial]);
+
+    // Lista filtrada (por estatus y por texto: cliente, terreno, ciudad o asesor).
+    const lista = React.useMemo(()=>{
+      const q=filtroTxt.trim().toLowerCase();
+      return (historial||[]).filter((r)=>{
+        if(estFiltro!=="todas" && normEst(r.estatus)!==estFiltro) return false;
+        if(!q) return true;
+        return ((r.cliente_nombre||"")+" "+(r.terreno_nombre||"")+" "+(r.terreno_ciudad||"")+" "+(r.asesor_nombre||"")).toLowerCase().includes(q);
+      });
+    }, [historial, filtroTxt, estFiltro]);
+
+    // Liga de aceptación del cliente (Landing) + utilidades para copiar/compartir.
+    const ligaAceptar = (r)=> "https://macrolotes.grupoguia.mx/aceptar?c="+r.id;
+    const copiarTxt = async (txt)=>{
+      try{ await navigator.clipboard.writeText(txt); toast("📋 Liga copiada"); }
+      catch(e){ try{ const t=document.createElement("textarea"); t.value=txt; t.style.position="fixed"; t.style.opacity="0"; document.body.appendChild(t); t.select(); document.execCommand("copy"); document.body.removeChild(t); toast("📋 Liga copiada"); }catch(_){ toast("No se pudo copiar"); } }
+    };
+    const waLiga = (r)=>{
+      const tel=String(r.cliente_telefono||"").replace(/\D/g,""); const ph=tel.length===10?("52"+tel):tel;
+      if(ph.length<10){ toast("⚠ Esta cotización no tiene teléfono del cliente"); return; }
+      const nom=(r.cliente_nombre||"cliente").trim();
+      const msg="Hola "+nom+", aquí puedes revisar y aceptar tu cotización y subir tus documentos:\n"+ligaAceptar(r);
+      window.open("https://wa.me/"+ph+"?text="+encodeURIComponent(msg),"_blank");
+    };
 
     // Marca de agua diagonal, CENTRADA, ajustada para que siempre quepa en la hoja.
     const marcaAgua = (doc)=>{
@@ -16077,17 +16123,51 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
         </div>
 
-        {/* ── Historial de cotizaciones del cliente ── */}
+        {/* ── Panel / Dashboard de cotizaciones (todos los clientes) ── */}
         <div style={{...card, marginTop:18}}>
-          <div style={{...header, padding:"16px 26px"}}>
-            <div style={{fontSize:15,fontWeight:800}}>Historial de cotizaciones</div>
-            <div style={{fontSize:12,color:DORADO,fontWeight:800}}>{clienteSel?clienteSel.nombre:(f.cliente_nombre?f.cliente_nombre:"Últimas 20")}</div>
+          <div style={{...header, padding:"16px 26px", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10}}>
+            <div style={{fontSize:15,fontWeight:800}}>📊 Panel de cotizaciones</div>
+            <button onClick={()=>cargarHistorial()} disabled={cargandoHist} style={{padding:"7px 14px",borderRadius:8,border:"1.5px solid "+DORADO,background:"transparent",color:DORADO,fontSize:12,fontWeight:800,cursor:cargandoHist?"wait":"pointer",fontFamily:"inherit"}}>{cargandoHist?"Actualizando…":"↻ Actualizar"}</button>
           </div>
-          <div style={{padding:"16px 20px"}}>
+          <div style={{padding:"18px 20px"}}>
+
+            {/* Tiles de estadísticas (los de estatus funcionan también como filtro) */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:14}}>
+              {["total","enviada","aceptada","rechazada","borrador"].map((k)=>{
+                const key=k==="total"?"todas":k; const m=EST_META[key];
+                const activo=estFiltro===key; const n=k==="total"?stats.total:stats[k];
+                return (
+                  <button key={k} onClick={()=>setEstFiltro(key)} style={{textAlign:"left",cursor:"pointer",border:activo?("2px solid "+m[1]):"1px solid #e5e7eb",background:activo?m[2]:"#fff",borderRadius:12,padding:"12px 14px",fontFamily:"inherit"}}>
+                    <div style={{fontSize:24,fontWeight:900,color:m[1],lineHeight:1}}>{n}</div>
+                    <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginTop:5,textTransform:"uppercase",letterSpacing:0.4}}>{k==="total"?"Total":m[0]}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Tiles de dinero */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:16}}>
+              <div style={{background:AZUL,color:"#fff",borderRadius:12,padding:"14px 16px"}}>
+                <div style={{fontSize:11,fontWeight:800,opacity:0.8,textTransform:"uppercase",letterSpacing:0.4}}>Valor total de terrenos</div>
+                <div style={{fontSize:21,fontWeight:900,marginTop:4}}>{fmtMXN(stats.valor)}</div>
+              </div>
+              <div style={{background:"#fffbeb",border:"1.5px solid "+DORADO,borderRadius:12,padding:"14px 16px"}}>
+                <div style={{fontSize:11,fontWeight:800,color:"#92400e",textTransform:"uppercase",letterSpacing:0.4}}>Comisión estimada total</div>
+                <div style={{fontSize:21,fontWeight:900,marginTop:4,color:"#b45309"}}>{fmtMXN(stats.comision)}</div>
+              </div>
+            </div>
+
+            {/* Buscador */}
+            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12,flexWrap:"wrap"}}>
+              <input value={filtroTxt} onChange={(e)=>setFiltroTxt(e.target.value)} placeholder="🔎 Buscar por cliente, terreno, ciudad o asesor…" style={{...inp,flex:1,minWidth:220}}/>
+              <div style={{fontSize:12,color:"#64748b",fontWeight:700}}>{lista.length} de {stats.total}</div>
+            </div>
+
+            {/* Tabla */}
             {cargandoHist
-              ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Cargando…</div>
-              : historial.length===0
-                ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"14px 0"}}>Aún no hay cotizaciones guardadas.</div>
+              ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"18px 0"}}>Cargando…</div>
+              : lista.length===0
+                ? <div style={{fontSize:13,color:"#64748b",textAlign:"center",padding:"18px 0"}}>{stats.total===0?"Aún no hay cotizaciones guardadas.":"No hay cotizaciones que coincidan con el filtro."}</div>
                 : (
                     <div style={{overflowX:"auto"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -16099,22 +16179,27 @@ Respuesta: [respuesta exacta, conversacional]
                             <th style={{padding:"8px 10px"}}>Valor</th>
                             <th style={{padding:"8px 10px"}}>Comisión</th>
                             <th style={{padding:"8px 10px"}}>Estatus</th>
-                            <th style={{padding:"8px 10px",textAlign:"right"}}>PDF</th>
+                            <th style={{padding:"8px 10px",textAlign:"right"}}>Acciones</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {historial.map((r)=>{
-                            const est=(r.estatus||"borrador");
-                            const col={borrador:["#f1f5f9","#475569"],enviada:["#dbeafe","#1d4ed8"],aceptada:["#dcfce7","#15803d"],rechazada:["#fee2e2","#b91c1c"]}[est]||["#f1f5f9","#475569"];
+                          {lista.map((r)=>{
+                            const est=normEst(r.estatus); const m=EST_META[est];
                             return (
                               <tr key={r.id} style={{borderBottom:"1px solid #eef2f7"}}>
-                                <td style={{padding:"8px 10px",color:"#334155"}}>{r.created_at?new Date(r.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}):"—"}</td>
+                                <td style={{padding:"8px 10px",color:"#334155",whiteSpace:"nowrap"}}>{r.created_at?new Date(r.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}):"—"}</td>
                                 <td style={{padding:"8px 10px",color:"#334155"}}>{r.cliente_nombre||"—"}</td>
-                                <td style={{padding:"8px 10px",color:AZUL,fontWeight:600}}>{r.terreno_nombre||"—"}</td>
-                                <td style={{padding:"8px 10px",color:"#334155"}}>{r.valor_terreno||"—"}</td>
+                                <td style={{padding:"8px 10px",color:AZUL,fontWeight:600}}>{r.terreno_nombre||"—"}{r.terreno_ciudad?<span style={{display:"block",fontSize:11,color:"#94a3b8",fontWeight:500}}>{r.terreno_ciudad}</span>:null}</td>
+                                <td style={{padding:"8px 10px",color:"#334155",whiteSpace:"nowrap"}}>{r.valor_terreno||"—"}</td>
                                 <td style={{padding:"8px 10px",color:"#334155"}}>{r.monto_comision||"—"}</td>
-                                <td style={{padding:"8px 10px"}}><span style={{background:col[0],color:col[1],borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800,textTransform:"capitalize"}}>{est}</span></td>
-                                <td style={{padding:"8px 10px",textAlign:"right"}}><button disabled={pdfBusy} onClick={()=>generarPDF(r)} style={{padding:"6px 12px",borderRadius:8,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL,fontSize:12,fontWeight:800,cursor:pdfBusy?"not-allowed":"pointer",opacity:pdfBusy?0.5:1}}>📄 PDF</button></td>
+                                <td style={{padding:"8px 10px"}}><span style={{background:m[2],color:m[1],borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800}}>{m[0].replace(/s$/,"")}</span></td>
+                                <td style={{padding:"8px 10px"}}>
+                                  <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                                    <button onClick={()=>copiarTxt(ligaAceptar(r))} title="Copiar la liga de aceptación del cliente" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📋 Liga</button>
+                                    <button onClick={()=>waLiga(r)} title="Enviar la liga por WhatsApp al cliente" style={{padding:"6px 10px",borderRadius:8,border:"none",background:"#25D366",color:"#fff",fontSize:11.5,fontWeight:800,cursor:"pointer"}}>🟢 WA</button>
+                                    <button disabled={pdfBusy} onClick={()=>generarPDF(r)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:pdfBusy?"not-allowed":"pointer",opacity:pdfBusy?0.5:1}}>📄 PDF</button>
+                                  </div>
+                                </td>
                               </tr>
                             );
                           })}
@@ -19173,7 +19258,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.2</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.3</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
