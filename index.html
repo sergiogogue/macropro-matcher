@@ -16098,23 +16098,37 @@ Respuesta: [respuesta exacta, conversacional]
       </div>
     );
   };
-  // ── Bandeja de Opcionadores (lee cotizaciones_opcionador; prospectos desde la Landing) ──
+  // ── Bandeja de Opcionadores · KANBAN (lee cotizaciones_opcionador + documentos_opcionador) ──
   const ViewBandejaOpcionadores = () => {
     const AZUL="#0f172a", DORADO="#d4af37";
     const OPCIONADORES_URL="https://macrolotes.grupoguia.mx/opcionadores";
+    const DOCS=[{k:"escrituras",t:"Escrituras"},{k:"uso_suelo",t:"Uso de Suelo"},{k:"libertad_gravamen",t:"Libertad de gravamen"},{k:"ine",t:"INE"},{k:"plano",t:"Plano"},{k:"predial",t:"Predial"},{k:"ubicacion",t:"Ubicación"},{k:"fotos",t:"Fotos"}];
+    const TOTAL=DOCS.length;
+    const COLS=[["en_revision","En revisión",["#fffbeb","#fde68a","#b45309"]],["activo","Activo",["#f0fdf4","#bbf7d0","#15803d"]],["con_ofertas","Con ofertas",["#eff6ff","#bfdbfe","#1d4ed8"]],["vendido","Vendido",["#f5f3ff","#ddd6fe","#6d28d9"]]];
+    const bucket=(s)=>["en_revision","activo","con_ofertas","vendido"].includes(s)?s:"en_revision";
     const [lista,setLista]=useState([]);
+    const [docsByCot,setDocsByCot]=useState({});
     const [cargando,setCargando]=useState(true);
     const [err,setErr]=useState(null);
-    React.useEffect(()=>{ (async()=>{
+    const cargar=async()=>{
       if(!window.sb){ setErr("Sin conexión a Supabase"); setCargando(false); return; }
+      setCargando(true); setErr(null);
       try{
-        const { data, error }=await window.sb.from("cotizaciones_opcionador").select("*").order("created_at",{ascending:false}).limit(500);
+        const { data:cc, error }=await window.sb.from("cotizaciones_opcionador").select("*").order("created_at",{ascending:false}).limit(500);
         if(error) throw error;
-        setLista(data||[]);
+        setLista(cc||[]);
+        const ids=(cc||[]).map(c=>c.id); const map={};
+        if(ids.length){
+          const { data:dd }=await window.sb.from("documentos_opcionador").select("cotizacion_id,tipo_documento").in("cotizacion_id",ids);
+          (dd||[]).forEach(r=>{ (map[r.cotizacion_id]=map[r.cotizacion_id]||{})[r.tipo_documento]=true; });
+        }
+        setDocsByCot(map);
       }catch(e){ setErr((e&&e.message)||String(e)); }
       finally{ setCargando(false); }
-    })(); },[]);
-    const SEM={ en_revision:["#fef3c7","#b45309","En revisión"], activo:["#dcfce7","#15803d","Activo"], con_ofertas:["#dbeafe","#1d4ed8","Con ofertas"], vendido:["#ede9fe","#6d28d9","Vendido"], pausado:["#f1f5f9","#475569","Pausado"], cerrado:["#dbeafe","#1d4ed8","Cerrado"] };
+    };
+    React.useEffect(()=>{ cargar(); },[]);
+    const hechos=(id)=>DOCS.filter(d=>docsByCot[id]&&docsByCot[id][d.k]).length;
+    const faltan=(id)=>DOCS.filter(d=>!(docsByCot[id]&&docsByCot[id][d.k])).map(d=>d.t);
     const enCRM=(o)=>{ const em=(o.cliente_email||"").toString().trim().toLowerCase(); return !!em && (clients||[]).some(c=>((c.email||c.correo||"").toString().trim().toLowerCase())===em); };
     const convertir=(o)=>{
       if(enCRM(o)){ toast("Ya está en el CRM"); return; }
@@ -16123,46 +16137,73 @@ Respuesta: [respuesta exacta, conversacional]
       const nc={ nombre:o.cliente_nombre||"Opcionador", empresa:"", asesor:o.asesor_nombre||"", email, telefono:(o.cliente_telefono||"").toString().trim(), ciudad_interes:o.terreno_ciudad?[o.terreno_ciudad]:[], uso_interes:[], tipo_comprador:"", presupuesto_min:0, presupuesto_max:0, sup_min:0, sup_max:0, status:"Prospecto nuevo", notas:"Opcionador (terreno: "+(o.terreno_nombre||"—")+"). Alta desde la Landing.", id, fecha_contacto:new Date().toISOString().slice(0,10) };
       setClients(prev=>[...prev,nc]);
       try{ subirClienteCloud(nc); }catch(e){}
-      toast("✓ Opcionador convertido a cliente");
+      toast("✓ Convertido a cliente — ya puedes darle seguimiento en el CRM");
     };
-    const wrap={maxWidth:860,margin:"0 auto",padding:"24px 18px",fontFamily:"'DM Sans',system-ui,sans-serif"};
-    const head={display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8};
-    const card={background:"#fff",border:"1px solid #e5e7eb",borderRadius:14,boxShadow:"0 6px 24px rgba(15,23,42,.06)",padding:"14px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"};
-    const badge=(s)=>{const c=SEM[s]||SEM.en_revision;return {background:c[0],color:c[1],borderRadius:999,padding:"4px 11px",fontSize:12,fontWeight:800,whiteSpace:"nowrap"};};
-    const btnDoc={padding:"9px 13px",borderRadius:9,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL,fontSize:13,fontWeight:800,cursor:"pointer"};
-    const btnConv={padding:"9px 13px",borderRadius:9,border:"none",background:AZUL,color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer"};
+    const cambiarSemaforo=async(o,val)=>{
+      try{ const {error}=await window.sb.from("cotizaciones_opcionador").update({estatus_semaforo:val}).eq("id",o.id); if(error) throw error;
+        setLista(ls=>ls.map(x=>x.id===o.id?{...x,estatus_semaforo:val}:x)); }
+      catch(e){ toast("No se pudo cambiar el estatus"); }
+    };
+    const eliminar=async(o)=>{
+      if(!window.confirm("¿Eliminar al opcionador \""+(o.cliente_nombre||"sin nombre")+"\" y su cotización? No se puede deshacer.")) return;
+      try{ const {error}=await window.sb.from("cotizaciones_opcionador").delete().eq("id",o.id); if(error) throw error;
+        setLista(ls=>ls.filter(x=>x.id!==o.id)); toast("✓ Opcionador eliminado"); }
+      catch(e){ toast("No se pudo eliminar: "+((e&&e.message)||e)); }
+    };
+    const wrap={maxWidth:1280,margin:"0 auto",padding:"20px 16px",fontFamily:"'DM Sans',system-ui,sans-serif"};
+    const mini={padding:"6px 9px",borderRadius:8,fontSize:11.5,fontWeight:800,cursor:"pointer",border:"none"};
     return (
       <div style={wrap}>
-        <div style={head}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,marginBottom:10}}>
           <div>
             <div style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:DORADO}}>Grupo Guía · Opcionador</div>
             <div style={{fontSize:22,fontWeight:800,color:AZUL}}>Bandeja de Opcionadores</div>
-            <div style={{fontSize:12.5,color:"#64748b"}}>Prospectos que llegaron desde la Landing{lista.length?(" · "+lista.length):""}</div>
           </div>
-          <button style={{...btnDoc}} onClick={()=>window.open(OPCIONADORES_URL,"_blank")}>Abrir CRM en la Landing ↗</button>
+          <button style={{...mini,padding:"9px 13px",fontSize:13,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL}} onClick={()=>window.open(OPCIONADORES_URL,"_blank")}>Abrir CRM en la Landing ↗</button>
+        </div>
+        <div style={{fontSize:12.5,color:"#475569",background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10,padding:"9px 13px",marginBottom:14}}>
+          Las columnas son el <b>semáforo</b> del opcionador. La tarjeta muestra el <b>avance de documentos (X/8)</b> y qué falta. Cuando reúna sus 8 documentos, <b>conviértelo a Cliente</b> para darle seguimiento en tu CRM.
         </div>
         {cargando
           ? <div style={{textAlign:"center",color:"#64748b",padding:30}}>Cargando…</div>
           : err
             ? <div style={{color:"#b91c1c",background:"#fee2e2",border:"1px solid #fecaca",borderRadius:10,padding:"10px 14px"}}>Error: {err}</div>
-            : lista.length===0
-              ? <div style={{textAlign:"center",color:"#64748b",padding:30}}>Aún no hay opcionadores.</div>
-              : <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                  {lista.map((o)=>{ const ya=enCRM(o); return (
-                    <div key={o.id} style={card}>
-                      <div style={{flex:1,minWidth:200}}>
-                        <div style={{fontSize:15,fontWeight:800,color:AZUL}}>{o.cliente_nombre||"Sin nombre"}{o.cuenta_creada?<span style={{marginLeft:8,fontSize:11,color:"#15803d",fontWeight:700}}>· cuenta creada</span>:null}</div>
-                        <div style={{fontSize:12.5,color:"#64748b"}}>{[o.terreno_nombre,o.terreno_ciudad].filter(Boolean).join(" · ")||"—"}{o.valor_terreno?(" · "+o.valor_terreno):""}</div>
-                        <div style={{fontSize:11.5,color:"#94a3b8"}}>{[o.cliente_telefono,o.cliente_email].filter(Boolean).join("  ·  ")}{o.created_at?("  ·  "+new Date(o.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"})):""}</div>
+            : <div style={{display:"flex",gap:12,overflowX:"auto",paddingBottom:10,alignItems:"flex-start"}}>
+                {COLS.map(([cv,ct,cc])=>{
+                  const items=lista.filter(o=>bucket(o.estatus_semaforo)===cv);
+                  return (
+                    <div key={cv} style={{flex:"0 0 300px",minWidth:300,background:cc[0],border:"1px solid "+cc[1],borderRadius:12,padding:10}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"4px 6px 10px"}}>
+                        <span style={{fontSize:12.5,fontWeight:800,color:cc[2],textTransform:"uppercase",letterSpacing:.4}}>{ct}</span>
+                        <span style={{fontSize:12,fontWeight:800,color:cc[2],background:"#fff",borderRadius:999,padding:"1px 9px",border:"1px solid "+cc[1]}}>{items.length}</span>
                       </div>
-                      <span style={badge(o.estatus_semaforo||"en_revision")}>● {(SEM[o.estatus_semaforo]||SEM.en_revision)[2]}</span>
-                      <button style={btnDoc} onClick={()=>window.open(OPCIONADORES_URL,"_blank")}>📄 Ver Documentos</button>
-                      {ya
-                        ? <span style={{fontSize:12.5,fontWeight:800,color:"#15803d"}}>✓ En CRM</span>
-                        : <button style={btnConv} onClick={()=>convertir(o)}>+ Convertir a Cliente</button>}
+                      <div style={{display:"flex",flexDirection:"column",gap:9}}>
+                        {items.length===0 && <div style={{fontSize:12,color:"#94a3b8",textAlign:"center",padding:"14px 0"}}>Vacío</div>}
+                        {items.map((o)=>{ const h=hechos(o.id), ya=enCRM(o), fl=faltan(o.id); return (
+                          <div key={o.id} style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:11,padding:11,boxShadow:"0 2px 8px rgba(15,23,42,.05)"}}>
+                            <div style={{fontSize:14,fontWeight:800,color:AZUL}}>{o.cliente_nombre||"Sin nombre"}</div>
+                            <div style={{fontSize:11.5,color:"#64748b",marginTop:1}}>{[o.terreno_nombre,o.terreno_ciudad].filter(Boolean).join(" · ")||"—"}</div>
+                            {o.valor_terreno?<div style={{fontSize:11.5,color:"#334155",fontWeight:600}}>{o.valor_terreno}</div>:null}
+                            <div style={{display:"flex",alignItems:"center",gap:7,marginTop:7,flexWrap:"wrap"}}>
+                              <span style={{background:h===TOTAL?"#dcfce7":"#fef3c7",color:h===TOTAL?"#15803d":"#b45309",borderRadius:999,padding:"3px 9px",fontSize:11,fontWeight:800}}>Docs {h}/{TOTAL}</span>
+                              {o.cuenta_creada?<span style={{fontSize:10.5,color:"#15803d",fontWeight:700}}>cuenta ✓</span>:<span style={{fontSize:10.5,color:"#94a3b8"}}>sin cuenta</span>}
+                            </div>
+                            <div style={{fontSize:11,color:h===TOTAL?"#15803d":"#b45309",marginTop:4}}>{h===TOTAL?"✓ Documentos completos — listo para seguimiento":("Falta: "+fl.slice(0,2).join(", ")+(fl.length>2?(" +"+(fl.length-2)):""))}</div>
+                            <div style={{display:"flex",gap:6,marginTop:9,flexWrap:"wrap"}}>
+                              <button style={{...mini,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL}} onClick={()=>window.open(OPCIONADORES_URL,"_blank")}>📄 Docs</button>
+                              {ya?<span style={{...mini,background:"#ecfdf5",color:"#15803d",cursor:"default"}}>✓ Cliente</span>:<button style={{...mini,background:AZUL,color:"#fff"}} onClick={()=>convertir(o)}>+ Cliente</button>}
+                              <button style={{...mini,background:"#fff",border:"1.5px solid #fecaca",color:"#b91c1c"}} onClick={()=>eliminar(o)}>🗑 Eliminar</button>
+                            </div>
+                            <select value={bucket(o.estatus_semaforo)} onChange={(e)=>cambiarSemaforo(o,e.target.value)} style={{width:"100%",marginTop:8,padding:"7px 9px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:12,fontWeight:700,color:AZUL,background:"#fff",colorScheme:"light"}}>
+                              {COLS.map(([v,t])=><option key={v} value={v}>{t}</option>)}
+                            </select>
+                          </div>
+                        );})}
+                      </div>
                     </div>
-                  );})}
-                </div>}
+                  );
+                })}
+              </div>}
       </div>
     );
   };
