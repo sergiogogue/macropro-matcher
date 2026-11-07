@@ -15820,6 +15820,8 @@ Respuesta: [respuesta exacta, conversacional]
     React.useEffect(()=>{ cargarHistorial(); }, [guardada]);
 
     // Normaliza el estatus (la Landing guarda "Aceptada"/"Rechazado"; aquí "borrador"/"enviada").
+    // Estatus efectivo: si el cliente ya aceptó en línea (terminos_aceptados), cuenta como "aceptada".
+    const estDe = (r)=>{ const e=normEst(r&&r.estatus); return (r&&r.terminos_aceptados&&e!=="rechazada")?"aceptada":e; };
     const normEst = (e)=>{ const s=(e||"").toString().trim().toLowerCase();
       if(s.startsWith("acept")) return "aceptada";
       if(s.startsWith("rechaz")) return "rechazada";
@@ -15837,7 +15839,7 @@ Respuesta: [respuesta exacta, conversacional]
     // Estadísticas sobre TODAS las cotizaciones (los contadores no dependen del filtro).
     const stats = React.useMemo(()=>{
       const s={ total:0, borrador:0, enviada:0, aceptada:0, rechazada:0, valor:0, comision:0 };
-      (historial||[]).forEach((r)=>{ s.total++; s[normEst(r.estatus)]++;
+      (historial||[]).forEach((r)=>{ s.total++; s[estDe(r)]++;
         const v=numMoneda(r.valor_terreno); s.valor+=v; s.comision+=v*numPct(r.monto_comision)/100; });
       return s;
     }, [historial]);
@@ -15846,7 +15848,7 @@ Respuesta: [respuesta exacta, conversacional]
     const lista = React.useMemo(()=>{
       const q=filtroTxt.trim().toLowerCase();
       return (historial||[]).filter((r)=>{
-        if(estFiltro!=="todas" && normEst(r.estatus)!==estFiltro) return false;
+        if(estFiltro!=="todas" && estDe(r)!==estFiltro) return false;
         if(!q) return true;
         return ((r.cliente_nombre||"")+" "+(r.terreno_nombre||"")+" "+(r.terreno_ciudad||"")+" "+(r.asesor_nombre||"")).toLowerCase().includes(q);
       });
@@ -16349,7 +16351,7 @@ Respuesta: [respuesta exacta, conversacional]
                         </thead>
                         <tbody>
                           {lista.map((r)=>{
-                            const est=normEst(r.estatus); const m=EST_META[est];
+                            const est=estDe(r); const m=EST_META[est];
                             return (
                               <tr key={r.id} style={{borderBottom:"1px solid #eef2f7"}}>
                                 <td style={{padding:"8px 10px",color:"#334155",whiteSpace:"nowrap"}}>{r.created_at?new Date(r.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}):"—"}</td>
@@ -16410,7 +16412,23 @@ Respuesta: [respuesta exacta, conversacional]
                   </div>
                 </div>
               ); })}
-              <div style={{display:"flex",justifyContent:"flex-end",marginTop:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginTop:16}}>
+                <button onClick={async()=>{
+                  const dmx=docsByCot[docCot.id]||{};
+                  const REQ=[{k:"uso_suelo",t:"Uso de Suelo"},{k:"plano",t:"Plano"},{k:"predial",t:"Predial"},{k:"ubicacion",t:"Ubicación"}];
+                  const faltan=REQ.filter(d=>!dmx[d.k]).map(d=>d.t);
+                  if(faltan.length){ alert("Faltan documentos obligatorios para el análisis: "+faltan.join(", ")); return; }
+                  toast("🧠 Preparando documentos para Intelligence…");
+                  const docs=[];
+                  for(const d of OPC_TIPOS){ const row=dmx[d.k]; if(!row||!row.url) continue;
+                    try{ const {data}=await window.sb.storage.from("documentos-opcionador").createSignedUrl(row.url,3600); if(data&&data.signedUrl) docs.push({tipo:d.t,clave:d.k,url:data.signedUrl}); }catch(e){}
+                  }
+                  if(!docs.length){ toast("No se pudieron preparar los documentos"); return; }
+                  const payload={ cotizacion_id:docCot.id, cliente:docCot.cliente_nombre||"", terreno:docCot.terreno_nombre||"", ciudad:docCot.terreno_ciudad||"", documentos:docs,
+                    instruccion:"Analiza específicamente: (1) la ESCRITURA para validar que todo esté en regla legalmente; (2) la INE para cruzar los datos y confirmar que el propietario es la misma persona que aparece en la escritura; (3) el USO DE SUELO y el PLANO para el análisis técnico y de vocación del terreno." };
+                  try{ localStorage.setItem("valuador_opcionador", JSON.stringify(payload)); }catch(e){}
+                  window.open("intelligence.html?fuente=opcionador&c="+encodeURIComponent(docCot.id),"_blank");
+                }} style={{padding:"10px 18px",borderRadius:10,border:"none",background:DORADO,color:AZUL,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🧠 Analizar en Intelligence</button>
                 <button onClick={()=>setDocCot(null)} style={{padding:"10px 18px",borderRadius:10,border:"none",background:AZUL,color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Listo</button>
               </div>
             </div>
@@ -19509,7 +19527,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.14</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.15</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
