@@ -2780,17 +2780,40 @@ const LOGO_GM_OFICIAL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAESsAAAJ8C
 
 
 // ── STATE ──────────────────────────────────────────────────────────────────────
-// ── PROXY ABSOLUTO (Plan B) — la IA funciona aunque se abra local o en github.io ──
+// ── PROXY DE IA — Intelligence vive en github.io; la IA pasa por la Landing ──
+// Antes apuntaba a grupoguia-macrolotes.netlify.app/.netlify/functions/claude, que
+// NUNCA existió en ese sitio → "Failed to fetch". Ahora va a la edge function
+// /api/ia-intelligence de la Landing (ahí vive la API key) con la sesión de MacroPro
+// (mismo origen github.io → misma sesión de Supabase guardada en localStorage).
+const IA_PROXY_URL = 'https://macrolotes.grupoguia.mx/api/ia-intelligence';
+function iaTokenSesion(){
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(!/^sb-.*-auth-token$/.test(k||'')) continue;
+      const v=JSON.parse(localStorage.getItem(k)||'null');
+      const s=(v&&v.currentSession)?v.currentSession:v;
+      if(s&&s.access_token) return s.access_token;
+    }
+  }catch(e){}
+  return '';
+}
 (function(){
   const _origFetch = window.fetch.bind(window);
-  const PROXY_ABS = 'https://grupoguia-macrolotes.netlify.app/.netlify/functions/claude';
   window.fetch = function(url, opts){
     try{
       if (typeof url === 'string' && url.indexOf('/.netlify/functions/claude') !== -1){
-        opts = opts || {};
-        // "petición simple" (text/plain, sin headers custom) => evita el preflight CORS
-        opts.headers = { 'Content-Type': 'text/plain' };
-        return _origFetch(PROXY_ABS, opts);
+        opts = Object.assign({}, opts||{}, { method:'POST' });
+        try{
+          const b=(typeof opts.body==='string')?JSON.parse(opts.body):(opts.body||{});
+          delete b.token; delete b.rtoken; delete b.modulo;
+          opts.body=JSON.stringify(b);
+        }catch(e){}
+        opts.headers = { 'Content-Type':'application/json', 'Authorization':'Bearer '+iaTokenSesion() };
+        return _origFetch(IA_PROXY_URL, opts).catch(function(e){
+          // Sin red / bloqueado: mensaje claro en vez de "Failed to fetch".
+          throw new Error('No hubo conexión con el servicio de IA ('+((e&&e.message)||e)+'). Revisa tu internet e intenta de nuevo.');
+        });
       }
     }catch(e){}
     return _origFetch(url, opts);
@@ -4075,22 +4098,34 @@ async function analizarOpcionador(){
   const orden=['escrituras','ine','uso_suelo','plano','predial','ubicacion','libertad_gravamen','fotos'];
   const rank=(c)=>{ const i=orden.indexOf(c); return i<0?99:i; };
   const docsOrdenados=[...payload.documentos].sort((a,b)=>rank(a.clave)-rank(b.clave));
-  const docsContent=[], listaPrompt=[];
+  // Cada documento se REVISA aquí (que exista y su formato) y se manda a la IA por su
+  // URL (la IA lo descarga): así la petición pesa unos KB aunque los PDFs pesen MB.
+  // PDF → documento · JPG/PNG/GIF/WEBP → imagen · KMZ/KML → se abre aquí y se mandan
+  // sus coordenadas como texto (la IA no lee KMZ). Otro formato → se avisa, no se manda.
+  const IMG_OK=/^image\/(jpeg|png|gif|webp)$/;
+  const extDe=(u)=>{ try{ const p=new URL(u).pathname; const i=p.lastIndexOf('.'); return i<0?'':p.slice(i+1).toLowerCase(); }catch(e){ return ''; } };
+  const docsContent=[], listaPrompt=[], omitidos=[];
   for(const d of docsOrdenados){
     try{
       const r=await fetch(d.url); if(!r.ok) throw new Error('HTTP '+r.status);
-      const blob=await r.blob(); const b64=await aB64(blob); const mt=blob.type||'';
-      if(/pdf/i.test(mt)||/\.pdf(\?|$)/i.test(d.url)) docsContent.push({type:'pdf',b64,name:d.tipo});
-      else docsContent.push({type:'image',b64,mediaType:mt||'image/jpeg',name:d.tipo});
-      listaPrompt.push(docsContent.length+') '+d.tipo);
-      chips.appendChild(chip(d.tipo,true));
-    }catch(e){ chips.appendChild(chip(d.tipo,false)); }
+      const blob=await r.blob(); const mt=(blob.type||'').toLowerCase().split(';')[0]; const x=extDe(d.url);
+      let item=null, nota='';
+      if(mt==='application/pdf'||x==='pdf') item={type:'pdf',url:d.url,blob,name:d.tipo};
+      else if(IMG_OK.test(mt)) item={type:'image',url:d.url,blob,mediaType:mt,name:d.tipo};
+      else if(['jpg','jpeg','png','gif','webp'].includes(x)) item={type:'image',url:d.url,blob,mediaType:'image/'+(x==='jpg'?'jpeg':x),name:d.tipo};
+      else if(x==='kmz'||x==='kml'||/kml|kmz|zip/.test(mt)){ item={type:'text',text:await opcKmlATexto(blob,x),name:d.tipo}; nota=' (coordenadas)'; }
+      if(!item){ omitidos.push(d.tipo+' (formato .'+(x||mt||'?')+' no legible)'); chips.appendChild(chip(d.tipo+' · formato no legible',false)); continue; }
+      docsContent.push(item);
+      listaPrompt.push(docsContent.length+') '+d.tipo+nota);
+      chips.appendChild(chip(d.tipo+nota,true));
+    }catch(e){ omitidos.push(d.tipo+' (no se pudo abrir: '+((e&&e.message)||e)+')'); chips.appendChild(chip(d.tipo,false)); }
   }
-  if(!docsContent.length){ estado.textContent='⚠ No se pudieron descargar los documentos.'; return; }
+  if(!docsContent.length){ estado.textContent='⚠ No se pudo abrir ningún documento: '+omitidos.join('; '); return; }
 
-  estado.textContent='🧠 Analizando con IA…';
+  estado.textContent='🧠 La IA está leyendo '+docsContent.length+' documento(s)… (puede tardar hasta un minuto)';
   const prompt='Eres un valuador y abogado inmobiliario senior de Grupo Guía. Te envío '+docsContent.length
     +' documentos de un terreno en opción, EN ESTE ORDEN:\n'+listaPrompt.join('\n')+'\n\n'
+    +(omitidos.length?('NO se incluyeron (avísalo en el dictamen): '+omitidos.join('; ')+'\n\n'):'')
     +(payload.instruccion||'')+'\n\n'
     +'Entrega un DICTAMEN claro y estructurado con estas secciones:\n'
     +'1) LEGAL (Escritura): ¿está en regla? superficie, colindancias, régimen (privado/ejidal), gravamenes, riesgos.\n'
@@ -4098,11 +4133,47 @@ async function analizarOpcionador(){
     +'3) TÉCNICO (Uso de Suelo + Plano): vocación, uso permitido, restricciones y viabilidad técnica.\n'
     +'4) VEREDICTO: AUTORIZADO / REVISAR / NO AUTORIZADO, con 1-2 líneas de justificación.\n'
     +'Si algún documento no fue incluido o es ilegible, dilo explícitamente. Responde en español, conciso.';
+  let out;
   try{
-    const out=await callClaude(prompt, docsContent, 2000);
-    estado.textContent='✅ Análisis completo';
-    resultado.textContent=(out||'').trim()||'La IA no devolvió texto.';
-  }catch(e){ estado.textContent='⚠ No se pudo completar el análisis: '+((e&&e.message)||e); }
+    out=await callClaude(prompt, docsContent, 2000);
+  }catch(e){
+    // Si la IA no pudo DESCARGAR alguna URL, se reintenta mandando los archivos dentro
+    // de la petición (base64), siempre que no pasen de ~20 MB en total.
+    const msg=String((e&&e.message)||e);
+    const total=docsContent.reduce((s,d)=>s+((d.blob&&d.blob.size)||0),0);
+    if(/^\[400\]/.test(msg) && /url|download|fetch|retriev|obtain|access/i.test(msg) && total<20e6){
+      try{
+        estado.textContent='🧠 Reintentando con los archivos adjuntos…';
+        for(const d of docsContent){ if(d.blob&&d.type!=='text'){ d.b64=await aB64(d.blob); delete d.url; } }
+        out=await callClaude(prompt, docsContent, 2000);
+      }catch(e2){ estado.textContent='⚠ No se pudo completar el análisis: '+((e2&&e2.message)||e2); return; }
+    } else { estado.textContent='⚠ No se pudo completar el análisis: '+msg; return; }
+  }
+  estado.textContent='✅ Análisis completo';
+  resultado.textContent=(out||'').trim()||'La IA no devolvió texto.';
+}
+// KMZ (zip con un KML adentro) o KML → texto con nombres, coordenadas y centro.
+async function opcKmlATexto(blob, ext){
+  let kml='';
+  if(ext==='kml') kml=await blob.text();
+  else{
+    if(typeof JSZip==='undefined') throw new Error('no se pudo abrir el KMZ');
+    const zip=await JSZip.loadAsync(blob);
+    const f=Object.values(zip.files).find(z=>/\.kml$/i.test(z.name));
+    if(!f) throw new Error('el KMZ no trae un KML');
+    kml=await f.async('string');
+  }
+  const xml=new DOMParser().parseFromString(kml,'application/xml');
+  const nombres=[...xml.getElementsByTagName('name')].map(n=>n.textContent.trim()).filter(Boolean).slice(0,10);
+  const geoms=[...xml.getElementsByTagName('coordinates')].map(c=>c.textContent.trim().split(/\s+/).filter(Boolean)).filter(a=>a.length);
+  if(!geoms.length) throw new Error('el KMZ no trae coordenadas');
+  const pts=[].concat(...geoms).map(p=>p.split(',').map(Number)).filter(p=>isFinite(p[0])&&isFinite(p[1]));
+  const lon=pts.reduce((s,p)=>s+p[0],0)/pts.length, lat=pts.reduce((s,p)=>s+p[1],0)/pts.length;
+  const txt='Archivo de ubicación KMZ/KML.\nNombres: '+(nombres.join(' | ')||'—')
+    +'\nCentro aproximado: lat '+lat.toFixed(6)+', lon '+lon.toFixed(6)+' (https://maps.google.com/?q='+lat.toFixed(6)+','+lon.toFixed(6)+')'
+    +'\nGeometrías: '+geoms.length+' · vértices: '+pts.length
+    +'\nCoordenadas (lon,lat[,alt]):\n'+geoms.map(g=>g.join(' ')).join('\n');
+  return txt.slice(0,8000);
 }
 if(typeof window!=='undefined' && new URLSearchParams(location.search).get('fuente')==='opcionador'){
   window.addEventListener('load', ()=>{ try{ analizarOpcionador(); }catch(e){ console.error('[opcionador]',e); } });
@@ -4111,7 +4182,10 @@ if(typeof window!=='undefined' && new URLSearchParams(location.search).get('fuen
 async function callClaude(prompt, docsContent, maxTokens=1500) {
   const content = [];
   for (const doc of docsContent) {
-    if (doc.type==='pdf') content.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:doc.b64 } });
+    // Con url y sin b64 → la IA descarga el archivo (petición ligera).
+    if (doc.type==='pdf' && doc.url && !doc.b64) content.push({ type:'document', source:{ type:'url', url:doc.url } });
+    else if (doc.type==='image' && doc.url && !doc.b64) content.push({ type:'image', source:{ type:'url', url:doc.url } });
+    else if (doc.type==='pdf') content.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:doc.b64 } });
     else if (doc.type==='image') content.push({ type:'image', source:{ type:'base64', media_type:doc.mediaType||'image/jpeg', data:doc.b64 } });
     else content.push({ type:'text', text:`[DOCUMENTO: ${doc.name}]\n${doc.text}` });
   }
