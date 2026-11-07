@@ -15818,7 +15818,8 @@ Respuesta: [respuesta exacta, conversacional]
       if(s.startsWith("envi")) return "enviada";
       return "borrador"; };
     // [etiqueta, colorTexto, colorFondo] por estatus; "todas" para el tile/total.
-    const EST_META = { todas:["Todas","#0f172a","#e2e8f0"], enviada:["Enviadas","#1d4ed8","#dbeafe"], aceptada:["Aceptadas","#15803d","#dcfce7"], rechazada:["Rechazadas","#b91c1c","#fee2e2"], borrador:["Borradores","#475569","#f1f5f9"] };
+    // [etiqueta plural, colorTexto, colorFondo, etiqueta singular (para el pill)]
+    const EST_META = { todas:["Todas","#0f172a","#e2e8f0","Todas"], enviada:["Enviadas","#1d4ed8","#dbeafe","Enviada"], aceptada:["Aceptadas","#15803d","#dcfce7","Aceptada"], rechazada:["Rechazadas","#b91c1c","#fee2e2","Rechazada"], borrador:["Borradores","#475569","#f1f5f9","Borrador"] };
     const numMoneda = (s)=>{ const n=parseFloat(String(s||"").replace(/[^0-9.]/g,"")); return isNaN(n)?0:n; };
     const numPct = (s)=>{ const n=parseFloat(String(s||"").replace(/[^0-9.]/g,"")); return isNaN(n)?0:n; };
 
@@ -16057,6 +16058,7 @@ Respuesta: [respuesta exacta, conversacional]
       finally{ setGuardando(false); }
     };
     const wrap={maxWidth:720,margin:"0 auto",padding:"24px 18px",fontFamily:"'DM Sans',system-ui,sans-serif"};
+    const wrapW={maxWidth:1240,margin:"0 auto",padding:"0 18px 30px",fontFamily:"'DM Sans',system-ui,sans-serif"};
     const card={background:"#fff",border:"1px solid #e5e7eb",borderRadius:16,overflow:"hidden",boxShadow:"0 10px 40px rgba(15,23,42,.08)"};
     const header={background:AZUL,color:"#fff",padding:"22px 26px",display:"flex",alignItems:"center",justifyContent:"space-between"};
     const bodyS={padding:"22px 26px",display:"flex",flexDirection:"column",gap:14};
@@ -16064,6 +16066,7 @@ Respuesta: [respuesta exacta, conversacional]
     const inp={width:"100%",padding:"11px 12px",borderRadius:10,border:"1.5px solid #e5e7eb",fontSize:14,color:AZUL,outline:"none",fontFamily:"inherit",background:"#fff"};
     const grid2={display:"grid",gridTemplateColumns:"1fr 1fr",gap:12};
     return (
+      <React.Fragment>
       <div style={wrap}>
         <div style={card}>
           <div style={header}>
@@ -16123,45 +16126,59 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
         </div>
 
-        {/* ── Panel / Dashboard de cotizaciones (todos los clientes) ── */}
-        <div style={{...card, marginTop:18}}>
-          <div style={{...header, padding:"16px 26px", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10}}>
-            <div style={{fontSize:15,fontWeight:800}}>📊 Panel de cotizaciones</div>
-            <button onClick={()=>cargarHistorial()} disabled={cargandoHist} style={{padding:"7px 14px",borderRadius:8,border:"1.5px solid "+DORADO,background:"transparent",color:DORADO,fontSize:12,fontWeight:800,cursor:cargandoHist?"wait":"pointer",fontFamily:"inherit"}}>{cargandoHist?"Actualizando…":"↻ Actualizar"}</button>
+      </div>{/* ── cierra la columna del formulario (720px) ── */}
+
+      {/* ══════ PANEL DE COTIZACIONES — ancho completo, 2 columnas ══════ */}
+      <div style={wrapW}>
+        <div style={card}>
+          <div style={{...header, padding:"20px 26px", flexWrap:"wrap", gap:12}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:DORADO}}>Grupo Guía · Opcionador</div>
+              <div style={{fontSize:22,fontWeight:800,marginTop:2}}>📊 Panel de cotizaciones</div>
+            </div>
+            <button onClick={()=>cargarHistorial()} disabled={cargandoHist} style={{padding:"9px 16px",borderRadius:9,border:"1.5px solid "+DORADO,background:"transparent",color:DORADO,fontSize:13,fontWeight:800,cursor:cargandoHist?"wait":"pointer",fontFamily:"inherit"}}>{cargandoHist?"Actualizando…":"↻ Actualizar"}</button>
           </div>
-          <div style={{padding:"18px 20px"}}>
 
-            {/* Tiles de estadísticas (los de estatus funcionan también como filtro) */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:14}}>
-              {["total","enviada","aceptada","rechazada","borrador"].map((k)=>{
-                const key=k==="total"?"todas":k; const m=EST_META[key];
-                const activo=estFiltro===key; const n=k==="total"?stats.total:stats[k];
-                return (
-                  <button key={k} onClick={()=>setEstFiltro(key)} style={{textAlign:"left",cursor:"pointer",border:activo?("2px solid "+m[1]):"1px solid #e5e7eb",background:activo?m[2]:"#fff",borderRadius:12,padding:"12px 14px",fontFamily:"inherit"}}>
-                    <div style={{fontSize:24,fontWeight:900,color:m[1],lineHeight:1}}>{n}</div>
-                    <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginTop:5,textTransform:"uppercase",letterSpacing:0.4}}>{k==="total"?"Total":m[0]}</div>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Cuerpo a 2 columnas: barra lateral (filtros + totales) + lista */}
+          <div style={{display:"flex",flexWrap:"wrap",alignItems:"stretch"}}>
 
-            {/* Tiles de dinero */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:16}}>
-              <div style={{background:AZUL,color:"#fff",borderRadius:12,padding:"14px 16px"}}>
-                <div style={{fontSize:11,fontWeight:800,opacity:0.8,textTransform:"uppercase",letterSpacing:0.4}}>Valor total de terrenos</div>
-                <div style={{fontSize:21,fontWeight:900,marginTop:4}}>{fmtMXN(stats.valor)}</div>
+            {/* ── Izquierda: navegación por estatus (fichas) + totales ── */}
+            <div style={{flex:"1 1 260px",maxWidth:"100%",background:"#f8fafc",borderRight:"1px solid #eef2f7",padding:"20px 18px",boxSizing:"border-box"}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.6,marginBottom:10}}>Ver</div>
+              <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:22}}>
+                {["total","enviada","aceptada","rechazada","borrador"].map((k)=>{
+                  const key=k==="total"?"todas":k; const m=EST_META[key];
+                  const activo=estFiltro===key; const n=k==="total"?stats.total:stats[k];
+                  return (
+                    <button key={k} onClick={()=>setEstFiltro(key)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,cursor:"pointer",textAlign:"left",border:activo?("2px solid "+m[1]):"1.5px solid #e5e7eb",background:activo?m[2]:"#fff",borderRadius:11,padding:"11px 13px",fontFamily:"inherit"}}>
+                      <span style={{display:"flex",alignItems:"center",gap:9}}>
+                        <span style={{width:9,height:9,borderRadius:999,background:m[1],display:"inline-block"}}></span>
+                        <span style={{fontSize:13.5,fontWeight:800,color:activo?m[1]:AZUL}}>{k==="total"?"Todas":m[0]}</span>
+                      </span>
+                      <span style={{fontSize:15,fontWeight:900,color:m[1],background:activo?"#fff":m[2],borderRadius:8,padding:"1px 9px",minWidth:26,textAlign:"center"}}>{n}</span>
+                    </button>
+                  );
+                })}
               </div>
-              <div style={{background:"#fffbeb",border:"1.5px solid "+DORADO,borderRadius:12,padding:"14px 16px"}}>
-                <div style={{fontSize:11,fontWeight:800,color:"#92400e",textTransform:"uppercase",letterSpacing:0.4}}>Comisión estimada total</div>
-                <div style={{fontSize:21,fontWeight:900,marginTop:4,color:"#b45309"}}>{fmtMXN(stats.comision)}</div>
+              <div style={{fontSize:11,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.6,marginBottom:10}}>Totales</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{background:AZUL,color:"#fff",borderRadius:12,padding:"14px 15px"}}>
+                  <div style={{fontSize:10.5,fontWeight:800,opacity:0.8,textTransform:"uppercase",letterSpacing:0.4}}>Valor de terrenos</div>
+                  <div style={{fontSize:20,fontWeight:900,marginTop:4}}>{fmtMXN(stats.valor)}</div>
+                </div>
+                <div style={{background:"#fffbeb",border:"1.5px solid "+DORADO,borderRadius:12,padding:"14px 15px"}}>
+                  <div style={{fontSize:10.5,fontWeight:800,color:"#92400e",textTransform:"uppercase",letterSpacing:0.4}}>Comisión estimada</div>
+                  <div style={{fontSize:20,fontWeight:900,marginTop:4,color:"#b45309"}}>{fmtMXN(stats.comision)}</div>
+                </div>
               </div>
             </div>
 
-            {/* Buscador */}
-            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12,flexWrap:"wrap"}}>
-              <input value={filtroTxt} onChange={(e)=>setFiltroTxt(e.target.value)} placeholder="🔎 Buscar por cliente, terreno, ciudad o asesor…" style={{...inp,flex:1,minWidth:220}}/>
-              <div style={{fontSize:12,color:"#64748b",fontWeight:700}}>{lista.length} de {stats.total}</div>
-            </div>
+            {/* ── Derecha: buscador + lista de cotizaciones ── */}
+            <div style={{flex:"999 1 480px",minWidth:0,padding:"20px 22px",boxSizing:"border-box"}}>
+              <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
+                <input value={filtroTxt} onChange={(e)=>setFiltroTxt(e.target.value)} placeholder="🔎 Buscar por cliente, terreno, ciudad o asesor…" style={{...inp,flex:1,minWidth:200}}/>
+                <div style={{fontSize:12.5,color:"#64748b",fontWeight:800,whiteSpace:"nowrap"}}>{lista.length} de {stats.total}</div>
+              </div>
 
             {/* Tabla */}
             {cargandoHist
@@ -16192,7 +16209,7 @@ Respuesta: [respuesta exacta, conversacional]
                                 <td style={{padding:"8px 10px",color:AZUL,fontWeight:600}}>{r.terreno_nombre||"—"}{r.terreno_ciudad?<span style={{display:"block",fontSize:11,color:"#94a3b8",fontWeight:500}}>{r.terreno_ciudad}</span>:null}</td>
                                 <td style={{padding:"8px 10px",color:"#334155",whiteSpace:"nowrap"}}>{r.valor_terreno||"—"}</td>
                                 <td style={{padding:"8px 10px",color:"#334155"}}>{r.monto_comision||"—"}</td>
-                                <td style={{padding:"8px 10px"}}><span style={{background:m[2],color:m[1],borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800}}>{m[0].replace(/s$/,"")}</span></td>
+                                <td style={{padding:"8px 10px"}}><span style={{background:m[2],color:m[1],borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800}}>{m[3]||m[0]}</span></td>
                                 <td style={{padding:"8px 10px"}}>
                                   <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
                                     <button onClick={()=>copiarTxt(ligaAceptar(r))} title="Copiar la liga de aceptación del cliente" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📋 Liga</button>
@@ -16207,9 +16224,11 @@ Respuesta: [respuesta exacta, conversacional]
                       </table>
                     </div>
                   )}
-          </div>
-        </div>
-      </div>
+            </div>{/* fin columna derecha */}
+          </div>{/* fin cuerpo a 2 columnas */}
+        </div>{/* fin card del panel */}
+      </div>{/* fin wrapW */}
+      </React.Fragment>
     );
   };
   const ViewCaptacion = () => {
@@ -19258,7 +19277,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.3</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.4</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
