@@ -15791,12 +15791,9 @@ Respuesta: [respuesta exacta, conversacional]
       if(!puedeWA){ toast("⚠ Captura un teléfono válido (10 dígitos) del cliente"); return; }
       const nom = f.cliente_nombre.trim()||"cliente";
       const ase = f.asesor_nombre.trim()||"Grupo Guía";
-      // Incluye la liga de aceptación si la cotización ya está guardada (por id o por coincidencia).
-      let cid=(guardada&&guardada.id)||"";
-      if(!cid){ const nT=(f.terreno_nombre||"").trim().toLowerCase(), nC=(f.cliente_nombre||"").trim().toLowerCase();
-        const m=(historial||[]).find(hh=>((hh.terreno_nombre||"").trim().toLowerCase()===nT)&&((hh.cliente_nombre||"").trim().toLowerCase()===nC)); if(m&&m.id) cid=m.id; }
-      const liga=cid?("\n\nRevisa y acepta tu cotización aquí:\nhttps://macrolotes.grupoguia.mx/aceptar?c="+cid):"";
-      const msg = "Hola "+nom+", te comparto la cotización de tu macrolote"+(f.terreno_nombre.trim()?(" ("+f.terreno_nombre.trim()+")"):"")+"."+liga+"\n\nQuedo a tus órdenes para cualquier duda. - "+ase;
+      // Mensaje para acompañar el PDF (que se adjunta aparte). SIN liga a crear cuenta:
+      // la aceptación va dentro del PDF (botones ACEPTO / NO ACEPTO).
+      const msg = "Hola "+nom+", te comparto la cotización de tu macrolote"+(f.terreno_nombre.trim()?(" ("+f.terreno_nombre.trim()+")"):"")+". Te adjunto el PDF con todos los detalles. Quedo a tus órdenes para cualquier duda. - "+ase;
       // api.whatsapp.com/send es más confiable que wa.me para prellenar el texto (WhatsApp Desktop).
       window.open("https://api.whatsapp.com/send?phone="+waPhone+"&text="+encodeURIComponent(msg), "_blank");
     };
@@ -16110,24 +16107,25 @@ Respuesta: [respuesta exacta, conversacional]
         // ══ TÉRMINOS, CONDICIONES Y ALCANCES — ÚLTIMA HOJA ══
         doc.addPage([SW,SH], SW>=SH?"landscape":"portrait");
         bandaTitulo("Términos y Condiciones","Alcances del servicio");
-        let ty=42;
-        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text("Términos, Condiciones y Alcances del Servicio",M,ty); ty+=7;
-        doc.setTextColor(55,65,80); doc.setFont("helvetica","normal"); doc.setFontSize(8.6);
-        [ "Grupo Guía es una empresa de tecnología inmobiliaria que ofrece servicios de intermediación y comercialización (opción) de terrenos y macrolotes, vinculando al propietario con desarrolladores e inversionistas. Este documento es una cotización informativa; no constituye contrato de compraventa ni garantiza la venta del inmueble.",
-          "Alcance del servicio: (i) análisis y estructuración de la opción de venta; (ii) difusión y vinculación con compradores potenciales; (iii) acompañamiento documental y seguimiento. La comisión indicada se causa conforme a las condiciones señaladas y únicamente al concretarse la operación, salvo pacto por escrito en contrario.",
-          "El propietario declara que la información y documentación proporcionada es veraz y de su legítima propiedad. Los datos personales se tratan conforme al Aviso de Privacidad de Grupo Guía.",
-          "Aceptación (PROFECO): De conformidad con la Ley Federal de Protección al Consumidor, el consumidor manifiesta haber leído y comprendido los términos, condiciones, alcances y el costo del servicio aquí descritos antes de su contratación, siendo ésta libre y voluntaria."
-        ].forEach((p)=>{ const L=doc.splitTextToSize(p,SW-2*M); doc.text(L,M,ty); ty+=L.length*4.4+3.5; });
-        // Botones de decisión (clicables): ACEPTO (verde) → /aceptar · NO ACEPTO (rojo) → /rechazar
-        const eY=SH-34;
-        doc.setTextColor(60,70,85); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text("¿Deseas continuar? Elige una opción:",M,eY-4);
-        const btnW=(SW-2*M-10)/2, btnH=16, btnAx=M, btnRx=M+btnW+10;
-        doc.setFillColor(22,163,74); doc.roundedRect(btnAx,eY,btnW,btnH,3,3,"F");
-        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text("ACEPTO ESTA COTIZACIÓN",btnAx+btnW/2,eY+btnH/2+1.8,{align:"center"});
-        try{ doc.link(btnAx,eY,btnW,btnH,{url:enlace}); }catch(e){}
-        doc.setFillColor(200,50,50); doc.roundedRect(btnRx,eY,btnW,btnH,3,3,"F");
-        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text("NO ACEPTO",btnRx+btnW/2,eY+btnH/2+1.8,{align:"center"});
-        try{ doc.link(btnRx,eY,btnW,btnH,{url:enlaceRechazo}); }catch(e){}
+        let ty=44;
+        doc.setTextColor(AZ[0],AZ[1],AZ[2]); doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.text("Términos y Condiciones",M,ty); ty+=7;
+        // Versión compacta y discreta; los Términos completos se consultan (y se aceptan con
+        // casilla) en la página de aceptación en línea.
+        doc.setTextColor(95,105,120); doc.setFont("helvetica","normal"); doc.setFontSize(8.4);
+        const tcCorto="Grupo Guía ofrece servicios de intermediación y comercialización (opción) de terrenos y macrolotes. Este documento es una cotización informativa; no constituye contrato de compraventa ni garantiza la venta. La comisión se causa únicamente al concretarse la operación, salvo pacto por escrito. Podrás leer los Términos y Condiciones completos en la página de aceptación en línea; al dar ACEPTO manifiestas haberlos leído y aceptado de forma libre y voluntaria (Ley Federal de Protección al Consumidor · PROFECO).";
+        doc.text(doc.splitTextToSize(tcCorto,SW-2*M),M,ty);
+        // Botones discretos (clicables): ACEPTO (verde chico) → /aceptar · No acepto (gris outline) → /rechazar
+        const eY=SH-28;
+        doc.setTextColor(95,105,120); doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.text("¿Deseas continuar?",M,eY-4);
+        const btnH=11, btnAw=80, btnRw=46, gap=8, btnAx=M, btnRx=M+btnAw+gap;
+        // ACEPTO — verde, discreto
+        doc.setFillColor(22,163,74); doc.roundedRect(btnAx,eY,btnAw,btnH,2.5,2.5,"F");
+        doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.text("ACEPTO ESTA COTIZACIÓN",btnAx+btnAw/2,eY+btnH/2+1.4,{align:"center"});
+        try{ doc.link(btnAx,eY,btnAw,btnH,{url:enlace}); }catch(e){}
+        // No acepto — gris outline, aún más discreto
+        doc.setDrawColor(175,183,195); doc.setLineWidth(0.6); doc.roundedRect(btnRx,eY,btnRw,btnH,2.5,2.5,"S"); doc.setLineWidth(0.2);
+        doc.setTextColor(120,130,145); doc.setFont("helvetica","bold"); doc.setFontSize(9.5); doc.text("No acepto",btnRx+btnRw/2,eY+btnH/2+1.4,{align:"center"});
+        try{ doc.link(btnRx,eY,btnRw,btnH,{url:enlaceRechazo}); }catch(e){}
         pieDoc();
         marcaAgua(doc);
 
@@ -19476,7 +19474,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.8</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.9</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
