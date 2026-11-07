@@ -16006,11 +16006,17 @@ Respuesta: [respuesta exacta, conversacional]
         // ya guardada que coincida (mismo cliente y terreno); si de plano no existe, la
         // guarda ahora. Así la liga SIEMPRE lleva ?c=<id> y el cliente sí la encuentra.
         let cotId=(r&&r.id)||(guardada&&guardada.id)||"";
-        if(!cotId){
-          const nT=(f.terreno_nombre||"").trim().toLowerCase(), nC=(f.cliente_nombre||"").trim().toLowerCase();
-          const match=(historial||[]).find(hh=>((hh.terreno_nombre||"").trim().toLowerCase()===nT)&&((hh.cliente_nombre||"").trim().toLowerCase()===nC));
-          if(match&&match.id){ cotId=match.id; r={...r,id:match.id}; }
+        // Si no hay id, BUSCA EN LA BASE (no en memoria, que puede estar desactualizada) una
+        // cotización existente del mismo cliente+terreno. Así NUNCA se duplica al generar/compartir.
+        if(!cotId && window.sb && (f.terreno_nombre||"").trim()){
+          try{
+            let q=window.sb.from("cotizaciones_opcionador").select("id").ilike("terreno_nombre",f.terreno_nombre.trim()).order("created_at",{ascending:false}).limit(1);
+            if((f.cliente_nombre||"").trim()) q=q.ilike("cliente_nombre",f.cliente_nombre.trim());
+            const { data:ex }=await q;
+            if(ex&&ex.length){ cotId=ex[0].id; r={...r,id:cotId}; }
+          }catch(e){}
         }
+        // Solo si de plano NO existe ninguna, la crea una vez.
         if(!cotId && window.sb && (f.terreno_nombre||"").trim()){
           try{
             const rowIns={ cliente_id:(f.cliente_id||"").trim()||null, cliente_nombre:f.cliente_nombre.trim()||null, cliente_telefono:f.cliente_telefono.trim()||null, cliente_email:f.cliente_email.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, terreno_nombre:f.terreno_nombre.trim(), terreno_ciudad:f.terreno_ciudad.trim()||null, terreno_dimensiones:f.terreno_dimensiones.trim()||null, valor_terreno:f.valor_terreno.trim()||null, monto_comision:f.monto_comision.trim()||null, condiciones:f.condiciones.trim()||CONDICIONES_DEFAULT, estatus:f.estatus||"borrador" };
@@ -16159,6 +16165,15 @@ Respuesta: [respuesta exacta, conversacional]
         if(!existente){
           const nT=row.terreno_nombre.toLowerCase(), nC=(row.cliente_nombre||"").toLowerCase();
           existente = (historial||[]).find(hh=>((hh.terreno_nombre||"").trim().toLowerCase()===nT)&&((hh.cliente_nombre||"").trim().toLowerCase()===nC)) || null;
+        }
+        // Respaldo: si no estaba en memoria, búscala en la BASE (evita duplicar si el historial no cargó).
+        if(!existente){
+          try{
+            let q=window.sb.from("cotizaciones_opcionador").select("id").ilike("terreno_nombre",row.terreno_nombre).order("created_at",{ascending:false}).limit(1);
+            if(row.cliente_nombre) q=q.ilike("cliente_nombre",row.cliente_nombre);
+            const { data:ex }=await q;
+            if(ex&&ex.length) existente={id:ex[0].id};
+          }catch(e){}
         }
         let data, error;
         if(existente && existente.id){
@@ -19494,7 +19509,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.13</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.14</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
