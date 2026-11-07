@@ -4044,6 +4044,70 @@ function parseJSON(text) {
 }
 
 // ── LLAMADA A LA API ──────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// OPCIONADOR · Análisis legal automático. Cuando el Valuador se abre con
+// ?fuente=opcionador, lee los documentos que MacroPro dejó en localStorage
+// ('valuador_opcionador'), los descarga, los MUESTRA en pantalla y corre un
+// dictamen con la IA (reusa callClaude). Autónomo: solo actúa con ese parámetro,
+// así que NO afecta el flujo normal del Valuador.
+// ════════════════════════════════════════════════════════════════════════════
+async function analizarOpcionador(){
+  let payload=null;
+  try{ payload=JSON.parse(localStorage.getItem('valuador_opcionador')||'null'); }catch(e){}
+  if(!payload||!Array.isArray(payload.documentos)||!payload.documentos.length) return;
+
+  const panel=document.createElement('div');
+  panel.id='opc-panel';
+  panel.style.cssText='position:relative;z-index:50;margin:16px auto;max-width:900px;background:#0f1b2e;border:1px solid #d4af37;border-radius:14px;padding:18px 20px;color:#e8eef7;font-family:system-ui,-apple-system,sans-serif;box-shadow:0 10px 40px rgba(0,0,0,.4)';
+  const tituloTerreno=[payload.terreno,payload.ciudad].filter(Boolean).join(' · ');
+  panel.innerHTML='<div style="font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#d4af37">Opcionador · Análisis legal con IA</div>'
+    +'<div style="font-size:18px;font-weight:800;margin-top:2px">'+((payload.cliente||'Opcionador').replace(/</g,'&lt;'))+'</div>'
+    +(tituloTerreno?'<div style="font-size:13px;color:#9fb3cc">'+tituloTerreno.replace(/</g,'&lt;')+'</div>':'')
+    +'<div style="margin-top:12px;font-size:12px;font-weight:700;color:#9fb3cc">Documentos en análisis</div>'
+    +'<div id="opc-docs" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:8px"></div>'
+    +'<div id="opc-estado" style="margin-top:14px;font-size:13px;color:#d4af37">⏳ Descargando documentos…</div>'
+    +'<div id="opc-resultado" style="margin-top:12px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;color:#e8eef7"></div>';
+  document.body.insertBefore(panel, document.body.firstChild);
+  const chips=panel.querySelector('#opc-docs'), estado=panel.querySelector('#opc-estado'), resultado=panel.querySelector('#opc-resultado');
+  const chip=(t,ok)=>{ const c=document.createElement('span'); c.style.cssText='font-size:12px;font-weight:700;border-radius:20px;padding:4px 11px;background:'+(ok?'#14321f':'#2a2a2a')+';color:'+(ok?'#86efac':'#9fb3cc')+';border:1px solid '+(ok?'#166534':'#3a3a3a'); c.textContent=(ok?'✓ ':'✗ ')+t; return c; };
+
+  const aB64=(blob)=>new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=rej; r.readAsDataURL(blob); });
+  const orden=['escrituras','ine','uso_suelo','plano','predial','ubicacion','libertad_gravamen','fotos'];
+  const rank=(c)=>{ const i=orden.indexOf(c); return i<0?99:i; };
+  const docsOrdenados=[...payload.documentos].sort((a,b)=>rank(a.clave)-rank(b.clave));
+  const docsContent=[], listaPrompt=[];
+  for(const d of docsOrdenados){
+    try{
+      const r=await fetch(d.url); if(!r.ok) throw new Error('HTTP '+r.status);
+      const blob=await r.blob(); const b64=await aB64(blob); const mt=blob.type||'';
+      if(/pdf/i.test(mt)||/\.pdf(\?|$)/i.test(d.url)) docsContent.push({type:'pdf',b64,name:d.tipo});
+      else docsContent.push({type:'image',b64,mediaType:mt||'image/jpeg',name:d.tipo});
+      listaPrompt.push(docsContent.length+') '+d.tipo);
+      chips.appendChild(chip(d.tipo,true));
+    }catch(e){ chips.appendChild(chip(d.tipo,false)); }
+  }
+  if(!docsContent.length){ estado.textContent='⚠ No se pudieron descargar los documentos.'; return; }
+
+  estado.textContent='🧠 Analizando con IA…';
+  const prompt='Eres un valuador y abogado inmobiliario senior de Grupo Guía. Te envío '+docsContent.length
+    +' documentos de un terreno en opción, EN ESTE ORDEN:\n'+listaPrompt.join('\n')+'\n\n'
+    +(payload.instruccion||'')+'\n\n'
+    +'Entrega un DICTAMEN claro y estructurado con estas secciones:\n'
+    +'1) LEGAL (Escritura): ¿está en regla? superficie, colindancias, régimen (privado/ejidal), gravamenes, riesgos.\n'
+    +'2) IDENTIDAD (INE vs Escritura): ¿el titular de la INE coincide con el propietario de la escritura? Di el nombre que aparece en cada uno y si coinciden.\n'
+    +'3) TÉCNICO (Uso de Suelo + Plano): vocación, uso permitido, restricciones y viabilidad técnica.\n'
+    +'4) VEREDICTO: AUTORIZADO / REVISAR / NO AUTORIZADO, con 1-2 líneas de justificación.\n'
+    +'Si algún documento no fue incluido o es ilegible, dilo explícitamente. Responde en español, conciso.';
+  try{
+    const out=await callClaude(prompt, docsContent, 2000);
+    estado.textContent='✅ Análisis completo';
+    resultado.textContent=(out||'').trim()||'La IA no devolvió texto.';
+  }catch(e){ estado.textContent='⚠ No se pudo completar el análisis: '+((e&&e.message)||e); }
+}
+if(typeof window!=='undefined' && new URLSearchParams(location.search).get('fuente')==='opcionador'){
+  window.addEventListener('load', ()=>{ try{ analizarOpcionador(); }catch(e){ console.error('[opcionador]',e); } });
+}
+
 async function callClaude(prompt, docsContent, maxTokens=1500) {
   const content = [];
   for (const doc of docsContent) {
