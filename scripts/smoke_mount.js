@@ -43,12 +43,14 @@ function q(table) {
     get(_, k) {
       if (k === 'then') return (ok, ko) => Promise.resolve(res).then(ok, ko);
       if (k === 'single' || k === 'maybeSingle') return () => Promise.resolve({ data: (res.data || [])[0] || null, error: null });
+      if (k === 'insert' || k === 'update' || k === 'upsert') return (arg) => { writes.push([table, k, arg]); return p; };
       return () => p;
     },
   });
   return p;
 }
 const rpcCalls = [];
+const writes = []; // inserts/updates capturados (tabla, op, fila)
 const rpcData = {}; // respuesta simulada por RPC (p. ej. acuerdos_lista)
 const sb = {
   from: (t) => q(t),
@@ -222,7 +224,7 @@ async function run(view) {
   console.log('▶ PASO 1 arriba de Cotización: primero el acuerdo del asesor, luego la cotización');
   rpcData.acuerdos_lista = [
     { id: 'p1-pend', folio: 'AC-2026-0010', estado: 'pendiente', token: 'tkp', asesor_nombre: 'Ana Martínez López', asesor_email: 'ana.martinez@grupoguia.mx', terreno_nombre: 'Lote Norte', propietario_nombre: 'Luis Ruiz' },
-    { id: 'p1-firm', folio: 'AC-2026-0011', estado: 'firmado', esquema: '60/40', token: 'tkf', asesor_nombre: 'Ana Martínez López', asesor_email: 'ana.martinez@grupoguia.mx', terreno_nombre: 'Rancho Las Palmas', propietario_nombre: 'Juan Pérez', pdf_path: 'pdf/p1/AC-2026-0011.pdf', origen: 'alta_sin_cuenta', asesor_celular: '33 1234 5678', propietario_celular: '33 9876 5432', propietario_correo: 'juan@correo.com', terreno_ubicacion: 'Zapotlanejo, Jalisco', terreno_superficie: '3.4 ha', terreno_precio: '$18,600,000', ubicacion_maps: 'https://maps.app.goo.gl/abc123', plano: { nombre: 'plano.pdf', path: 'evidencia/p1-firm/plano.pdf', bucket: 'acuerdos-comision' } },
+    { id: 'p1-firm', folio: 'AC-2026-0011', estado: 'firmado', esquema: '60/40', token: 'tkf', asesor_nombre: 'Ana Martínez López', asesor_email: 'ana.martinez@grupoguia.mx', terreno_nombre: 'Rancho Las Palmas', propietario_nombre: 'Juan Pérez', pdf_path: 'pdf/p1/AC-2026-0011.pdf', origen: 'alta_sin_cuenta', captacion_id: 'capta-acu-p1-firm', asesor_celular: '33 1234 5678', propietario_celular: '33 9876 5432', propietario_correo: 'juan@correo.com', terreno_ubicacion: 'Zapotlanejo, Jalisco', terreno_superficie: '3.4 ha', terreno_precio: '$18,600,000', ubicacion_maps: 'https://maps.app.goo.gl/abc123', plano: { nombre: 'plano.pdf', path: 'evidencia/p1-firm/plano.pdf', bucket: 'acuerdos-comision' } },
     { id: 'p1-cot', folio: 'AC-2026-0012', estado: 'firmado', esquema: '100/0', token: 'tkc', asesor_nombre: 'Pedro', asesor_email: 'pedro@grupoguia.mx', terreno_nombre: 'Predio Sur', propietario_nombre: 'Rosa', cotizacion_id: '11111111-1111-1111-1111-111111111111' },
   ];
   rpcData.acuerdo_crear = { id: 'nuevo', token: 'tknuevo', folio: 'AC-2026-0013', estado: 'pendiente' };
@@ -239,7 +241,7 @@ async function run(view) {
   check(!E.querySelector('input[placeholder="Ej. Rancho Las Palmas"]') && !/Mandar acuerdo al asesor/.test(te), 'ya no hay formulario: no hay que llenar nada para mandarlo');
   check(/mándame el acuerdo de comisión/.test(te), 'indica que también lo da G-IA');
   const t2 = e.text();
-  check(/⏳ Esperando firma del asesor/.test(t2) && /🚦 Firmó 60\/40 · dar de alta en semáforo y hacer cotización/.test(t2) && /🧾 Cotización con el cliente/.test(t2), 'la lista de trámites muestra en qué paso va cada asesor (incluye los que él mismo inició)');
+  check(/⏳ Esperando firma del asesor/.test(t2) && /🚦 Firmó 60\/40 · en Viabilidad: falta semáforo y cotización/.test(t2) && /🧾 Cotización con el cliente/.test(t2), 'la lista de trámites muestra en qué paso va cada asesor (incluye los que él mismo inició)');
   check(/Zapotlanejo, Jalisco · 3\.4 ha · pide \$18,600,000/.test(t2) && /Juan Pérez · 33 9876 5432 · juan@correo\.com/.test(t2) && /33 1234 5678/.test(t2), 'cada trámite muestra terreno, superficie, precio y contactos del asesor y del cliente');
   check([...E.querySelectorAll('a')].some((x) => /📍 Mapa/.test(x.textContent) && x.getAttribute('href') === 'https://maps.app.goo.gl/abc123') && [...E.querySelectorAll('button')].some((x) => /📐 Plano/.test(x.textContent)), 'botones 📍 Mapa (liga de Google) y 📐 Plano');
   const bP2 = [...E.querySelectorAll('button')].find((x) => /🧾 Paso 2: Hacer cotización/.test(x.textContent));
@@ -257,6 +259,8 @@ async function run(view) {
   if (bG) { bG.dispatchEvent(new e.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 1200)); }
   const lc = rpcCalls.find((c) => c[0] === 'acuerdo_ligar_cotizacion');
   check(!!lc && lc[1].p_acuerdo_id === 'p1-firm' && !!lc[1].p_cotizacion_id, 'al guardar, la cotización queda ligada al acuerdo del asesor');
+  const wcot = writes.filter((w) => w[0] === 'cotizaciones_opcionador').pop();
+  check(!!wcot && wcot[2] && wcot[2].captacion_id === 'capta-acu-p1-firm', 'la cotización NACE colgada de la tarjeta del Kanban (captacion_id) → siempre ligada y sin duplicar');
   check(e.errs.length === 0, 'sin errores en el Paso 1 / Paso 2' + (e.errs.length ? ': ' + e.errs.slice(0, 2).join(' | ') : ''));
 
   console.log(fallos ? `\n❌ ${fallos} verificación(es) fallaron` : '\n✅ TODO OK');
