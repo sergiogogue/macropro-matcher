@@ -231,20 +231,15 @@ async function run(view) {
   const te = e.text();
   const iP1 = te.indexOf('Paso 1 · Un asesor quiere opcionar un terreno'), iP2 = te.indexOf('Paso 2 · Cuando el asesor ya firmó su acuerdo');
   check(iP1 >= 0 && iP2 > iP1, 'Paso 1 está ARRIBA de la cotización (Paso 2)');
-  check(/Mándale primero su Acuerdo de Comisión/.test(te), 'título claro: "Mándale primero su Acuerdo de Comisión"');
-  const bMandar = [...E.querySelectorAll('button')].find((x) => /🤝 Mandar acuerdo al asesor/.test(x.textContent));
-  check(!!bMandar && bMandar.disabled, 'el botón espera asesor y terreno');
-  const setV = (el, v) => { const proto = el.tagName === 'SELECT' ? e.w.HTMLSelectElement.prototype : e.w.HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v); el.dispatchEvent(new e.w.Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); };
-  const selA = [...E.querySelectorAll('select')].find((x) => /— Selecciona asesor —/.test(x.textContent) && [...x.options].some((o) => o.value === 'ana.martinez@grupoguia.mx'));
-  const inT = E.querySelector('input[placeholder="Ej. Rancho Las Palmas"]'), inC = E.querySelector('input[placeholder="Nombre del propietario"]');
-  if (selA && inT && inC) { setV(selA, 'ana.martinez@grupoguia.mx'); setV(inT, 'Terreno Nuevo'); setV(inC, 'Cliente X'); await new Promise((r) => setTimeout(r, 200)); }
-  check(!!selA && !!inT && !!inC && !bMandar.disabled, 'con asesor y terreno se habilita');
-  rpcCalls.length = 0; bMandar.dispatchEvent(new e.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 800));
-  const cc = rpcCalls.find((c) => c[0] === 'acuerdo_crear');
-  check(!!cc && cc[1].p_terreno_nombre === 'Terreno Nuevo' && cc[1].p_propietario_nombre === 'Cliente X' && !cc[1].p_cotizacion_id && !cc[1].p_captacion_id, 'genera el acuerdo SOLO con asesor + terreno (sin cotización)');
-  check(abiertos.some((u) => /wa\.me/.test(u) && /acuerdo%2Ftknuevo/.test(u)), 'abre WhatsApp al asesor con la liga de su acuerdo');
+  check(/Mándale primero el Acuerdo de Comisión/.test(te) && /él llena todo/.test(te), 'título claro: liga y PDF fijos, el asesor llena todo');
+  const aWA = [...E.querySelectorAll('a')].find((x) => /📱 Mandar por WhatsApp/.test(x.textContent));
+  const href = aWA ? decodeURIComponent(aWA.getAttribute('href')) : '';
+  check(/^https:\/\/wa\.me\/\?text=/.test(href) && href.includes('https://macrolotes.grupoguia.mx/acuerdo\n') && href.includes('https://macrolotes.grupoguia.mx/acuerdo-comision.pdf'), 'WhatsApp lleva la liga fija /acuerdo y el PDF');
+  check([...E.querySelectorAll('button')].some((x) => /📄 Compartir PDF/.test(x.textContent)) && [...E.querySelectorAll('a')].some((x) => /👁 Ver PDF/.test(x.textContent) && /acuerdo-comision\.pdf$/.test(x.getAttribute('href'))), 'botones Compartir PDF y Ver PDF');
+  check(!E.querySelector('input[placeholder="Ej. Rancho Las Palmas"]') && !/Mandar acuerdo al asesor/.test(te), 'ya no hay formulario: no hay que llenar nada para mandarlo');
+  check(/mándame el acuerdo de comisión/.test(te), 'indica que también lo da G-IA');
   const t2 = e.text();
-  check(/⏳ Esperando firma del asesor/.test(t2) && /✍️ Firmó 60\/40 · falta cotización/.test(t2) && /🧾 Cotización con el cliente/.test(t2), 'la lista de trámites muestra en qué paso va cada asesor');
+  check(/⏳ Esperando firma del asesor/.test(t2) && /✍️ Firmó 60\/40 · falta cotización/.test(t2) && /🧾 Cotización con el cliente/.test(t2), 'la lista de trámites muestra en qué paso va cada asesor (incluye los que él mismo inició)');
   const bP2 = [...E.querySelectorAll('button')].find((x) => /🧾 Paso 2: Hacer cotización/.test(x.textContent));
   check(!!bP2, 'acuerdo firmado sin cotización → botón "🧾 Paso 2: Hacer cotización"');
   check([...E.querySelectorAll('button')].some((x) => /📱 Mandar cotización al asesor/.test(x.textContent)), 'con cotización → "📱 Mandar cotización al asesor"');

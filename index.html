@@ -1661,11 +1661,18 @@ function AcuerdoComisionCaptacion({ cap, cotizacion, asesores, onToast, asegurar
 function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
   const AZ="#0f172a", DO="#d4af37";
   const [catLanding,setCatLanding]=React.useState([]);
-  const [email,setEmail]=React.useState("");
-  const [terreno,setTerreno]=React.useState("");
-  const [cliente,setCliente]=React.useState("");
-  const [busy,setBusy]=React.useState(false);
   const [msg,setMsg]=React.useState("");
+  // Liga y PDF FIJOS (los mismos para todos los asesores; también los da G-IA).
+  const URL_FIJA=LANDING_URL+"/acuerdo", PDF_FIJO=LANDING_URL+"/acuerdo-comision.pdf";
+  const textoFijo="Hola 👋 Para iniciar la opción de tu terreno, primero firma tu *Acuerdo de Comisión* con Grupo Guía · Macrolotes. Entra con tu cuenta, llena el terreno y tu cliente, elige tu esquema (100/0 ó 60/40) y firma aquí:\n"+URL_FIJA+"\n\nAquí está la explicación de los esquemas (PDF):\n"+PDF_FIJO;
+  const compartirPdf=async()=>{
+    try{
+      const r=await fetch(PDF_FIJO); const blob=await r.blob();
+      const file=new File([blob],"Acuerdo-de-Comision-Grupo-Guia.pdf",{type:"application/pdf"});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file],text:textoFijo,title:"Acuerdo de Comisión"}); return; }
+    }catch(e){ if(e&&e.name==="AbortError") return; }
+    window.open(PDF_FIJO,"_blank","noopener"); setMsg("En computadora: descarga el PDF y adjúntalo en WhatsApp, o usa “Mandar por WhatsApp” (lleva la liga y el PDF).");
+  };
   const [lista,setLista]=React.useState(null);
   const [verTodos,setVerTodos]=React.useState(false);
   React.useEffect(()=>{ if(!window.sb) return; window.sb.rpc("landing_asesores_catalogo").then(({data})=>setCatLanding((data||[]).map(x=>({nombre:x.nombre||"",email:String(x.email||"").trim().toLowerCase()})))).catch(()=>{}); },[]);
@@ -1682,25 +1689,11 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
   const waAsesor=(a,texto)=>window.open("https://wa.me/"+telDe(a.asesor_email,a.asesor_celular)+"?text="+encodeURIComponent(texto),"_blank","noopener");
   const msgAcuerdo=(a)=>"Hola "+String(a.asesor_nombre||"").split(" ")[0]+", para iniciar la opción del terreno *"+(a.terreno_nombre||"")+"*"+(a.propietario_nombre?(" (cliente: "+a.propietario_nombre+")"):"")+" primero firma tu *Acuerdo de Comisión*: entra con tu cuenta de Grupo Guía, elige tu esquema (100/0 ó 60/40) y fírmalo aquí:\n"+ligaAc(a)+"\n\nEn cuanto lo firmes te mando la cotización para tu cliente.";
   const msgCotizacion=(a)=>"Hola "+String(a.asesor_nombre||"").split(" ")[0]+", ya está la *cotización* del terreno *"+(a.terreno_nombre||"")+"*. Compártesela a tu cliente"+(a.propietario_nombre?(" "+a.propietario_nombre):"")+" para que acepte las condiciones y suba sus documentos (no necesita cuenta):\n"+ligaCli(a);
-  const generar=async()=>{
-    setBusy(true); setMsg("");
-    try{
-      const sel=opciones.find(a=>a.email===email);
-      const {data,error}=await window.sb.rpc("acuerdo_crear",{p_asesor_email:email,p_asesor_nombre:(sel&&sel.nombre)||null,p_terreno_nombre:terreno.trim(),p_propietario_nombre:cliente.trim()||null});
-      if(error) throw error;
-      const a={...data,asesor_email:email,asesor_nombre:(sel&&sel.nombre)||email,terreno_nombre:terreno.trim(),propietario_nombre:cliente.trim()};
-      waAsesor(a,msgAcuerdo(a));
-      onToast&&onToast("🤝 Acuerdo "+data.folio+" listo · se abrió WhatsApp para el asesor");
-      setMsg("✅ Folio "+data.folio+" · liga: "+ligaAc(a)); setTerreno(""); setCliente(""); cargar();
-    }catch(e){ setMsg("⚠ "+(e.message||e)); }
-    setBusy(false);
-  };
   const copiar=async(t)=>{ try{ await navigator.clipboard.writeText(t); setMsg("📋 Copiado: "+t); }catch(e){ setMsg(t); } };
   const verPdf=async(a)=>{ const w=window.open("","_blank"); try{ const {data,error}=await window.sb.storage.from("acuerdos-comision").createSignedUrl(a.pdf_path,600); if(error) throw error; if(w) w.location=data.signedUrl; }catch(e){ if(w) w.close(); setMsg("⚠ No se pudo abrir el PDF"); } };
   const inp={width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:9,border:"1.5px solid #cbd5e1",fontSize:13.5,fontFamily:"inherit",color:AZ,background:"#fff"};
   const lb={fontSize:11,fontWeight:800,color:AZ,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5,display:"block"};
   const bt=(bg,col,bd)=>({padding:"6px 10px",borderRadius:8,border:"1.5px solid "+(bd||bg),background:bg,color:col,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
-  const puede=!!email&&!!terreno.trim()&&!busy;
   const filas=(lista||[]).slice(0, verTodos?200:6);
   const etapa=(a)=> a.estado==="pendiente"?["⏳ Esperando firma del asesor","#92400e","#fffbeb"]
     : (!a.cotizacion_id&&!a.captacion_id&&!a.lote_id)?["✍️ Firmó "+a.esquema+" · falta cotización","#1d4ed8","#eff6ff"]
@@ -1713,19 +1706,16 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
           <div style={{width:40,height:40,borderRadius:10,background:DO,color:AZ,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20}}>1</div>
           <div style={{flex:1,minWidth:240}}>
             <div style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:DO}}>Paso 1 · Un asesor quiere opcionar un terreno</div>
-            <div style={{fontSize:20,fontWeight:800,marginTop:2}}>Mándale primero su Acuerdo de Comisión</div>
-            <div style={{fontSize:12.5,color:"#cbd5e1",marginTop:2}}>Él entra con su cuenta, elige 100/0 ó 60/40 y firma (le llega su PDF). Cuando firme → <b style={{color:DO}}>Paso 2: haces la cotización</b> y se la mandas para su cliente.</div>
+            <div style={{fontSize:20,fontWeight:800,marginTop:2}}>Mándale primero el Acuerdo de Comisión</div>
+            <div style={{fontSize:12.5,color:"#cbd5e1",marginTop:2}}>Una liga y un PDF fijos: <b style={{color:"#fff"}}>él llena todo</b> (terreno, cliente, plano y ubicación), elige 100/0 ó 60/40 y firma. Cuando firme → <b style={{color:DO}}>Paso 2: haces la cotización</b> y se la mandas.</div>
           </div>
         </div>
-        <div style={{padding:"16px 22px",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12,alignItems:"end"}}>
-          <div><span style={lb}>Asesor</span>
-            <select value={email} onChange={e=>setEmail(e.target.value)} style={inp}>
-              <option value="">— Selecciona asesor —</option>
-              {opciones.map(a=><option key={a.email} value={a.email}>{a.nombre||a.email} · {a.email}</option>)}
-            </select></div>
-          <div><span style={lb}>Terreno que quiere opcionar</span><input value={terreno} onChange={e=>setTerreno(e.target.value)} placeholder="Ej. Rancho Las Palmas" style={inp}/></div>
-          <div><span style={lb}>Cliente opcionador (opcional)</span><input value={cliente} onChange={e=>setCliente(e.target.value)} placeholder="Nombre del propietario" style={inp}/></div>
-          <button disabled={!puede} onClick={generar} style={{padding:"11px 16px",borderRadius:10,border:"none",background:puede?DO:"#e5e7eb",color:puede?AZ:"#94a3b8",fontSize:14,fontWeight:900,cursor:puede?"pointer":"not-allowed",fontFamily:"inherit",boxShadow:puede?"0 3px 12px rgba(212,175,55,.45)":"none"}}>{busy?"Generando…":"🤝 Mandar acuerdo al asesor"}</button>
+        <div style={{padding:"16px 22px",display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+          <a href={"https://wa.me/?text="+encodeURIComponent(textoFijo)} target="_blank" rel="noopener noreferrer" style={{padding:"12px 18px",borderRadius:10,background:"#25D366",color:"#fff",fontSize:14.5,fontWeight:900,textDecoration:"none",boxShadow:"0 3px 12px rgba(37,211,102,.35)"}}>📱 Mandar por WhatsApp</a>
+          <button onClick={compartirPdf} style={{padding:"12px 18px",borderRadius:10,border:"none",background:DO,color:AZ,fontSize:14.5,fontWeight:900,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 3px 12px rgba(212,175,55,.45)"}}>📄 Compartir PDF</button>
+          <button onClick={()=>copiar(URL_FIJA)} style={{padding:"12px 16px",borderRadius:10,border:"1.5px solid #cbd5e1",background:"#fff",color:AZ,fontSize:13.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📋 Copiar liga</button>
+          <a href={PDF_FIJO} target="_blank" rel="noopener noreferrer" style={{padding:"12px 16px",borderRadius:10,border:"1.5px solid "+DO,background:"#fff",color:AZ,fontSize:13.5,fontWeight:800,textDecoration:"none"}}>👁 Ver PDF</a>
+          <span style={{fontSize:12,color:"#64748b",flex:"1 1 220px"}}>{URL_FIJA} · también te lo da G-IA: <i>“mándame el acuerdo de comisión”</i></span>
         </div>
         {msg&&<div style={{padding:"0 22px 10px",fontSize:12,color:AZ,wordBreak:"break-all"}}>{msg}</div>}
         <div style={{borderTop:"1px solid #eef2f7",padding:"12px 22px 16px"}}>
@@ -19955,7 +19945,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.22</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.23</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
