@@ -219,6 +219,47 @@ async function run(view) {
   check(!/Generar Acuerdo de Comisión/.test(td), 'con acuerdo firmado ya no ofrece generar otro (solo adenda)');
   check(d.errs.length === 0, 'sin errores con el acuerdo firmado' + (d.errs.length ? ':\n     ' + d.errs.slice(0, 3).join('\n     ') : ''));
 
+  console.log('▶ PASO 1 arriba de Cotización: primero el acuerdo del asesor, luego la cotización');
+  rpcData.acuerdos_lista = [
+    { id: 'p1-pend', folio: 'AC-2026-0010', estado: 'pendiente', token: 'tkp', asesor_nombre: 'Ana Martínez López', asesor_email: 'ana.martinez@grupoguia.mx', terreno_nombre: 'Lote Norte', propietario_nombre: 'Luis Ruiz' },
+    { id: 'p1-firm', folio: 'AC-2026-0011', estado: 'firmado', esquema: '60/40', token: 'tkf', asesor_nombre: 'Ana Martínez López', asesor_email: 'ana.martinez@grupoguia.mx', terreno_nombre: 'Rancho Las Palmas', propietario_nombre: 'Juan Pérez', pdf_path: 'pdf/p1/AC-2026-0011.pdf' },
+    { id: 'p1-cot', folio: 'AC-2026-0012', estado: 'firmado', esquema: '100/0', token: 'tkc', asesor_nombre: 'Pedro', asesor_email: 'pedro@grupoguia.mx', terreno_nombre: 'Predio Sur', propietario_nombre: 'Rosa', cotizacion_id: '11111111-1111-1111-1111-111111111111' },
+  ];
+  rpcData.acuerdo_crear = { id: 'nuevo', token: 'tknuevo', folio: 'AC-2026-0013', estado: 'pendiente' };
+  const e = await run('pitch');
+  const E = e.w.document; const abiertos = []; e.w.open = (u) => { abiertos.push(String(u)); return null; };
+  const te = e.text();
+  const iP1 = te.indexOf('Paso 1 · Un asesor quiere opcionar un terreno'), iP2 = te.indexOf('Paso 2 · Cuando el asesor ya firmó su acuerdo');
+  check(iP1 >= 0 && iP2 > iP1, 'Paso 1 está ARRIBA de la cotización (Paso 2)');
+  check(/Mándale primero su Acuerdo de Comisión/.test(te), 'título claro: "Mándale primero su Acuerdo de Comisión"');
+  const bMandar = [...E.querySelectorAll('button')].find((x) => /🤝 Mandar acuerdo al asesor/.test(x.textContent));
+  check(!!bMandar && bMandar.disabled, 'el botón espera asesor y terreno');
+  const setV = (el, v) => { const proto = el.tagName === 'SELECT' ? e.w.HTMLSelectElement.prototype : e.w.HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v); el.dispatchEvent(new e.w.Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); };
+  const selA = [...E.querySelectorAll('select')].find((x) => /— Selecciona asesor —/.test(x.textContent) && [...x.options].some((o) => o.value === 'ana.martinez@grupoguia.mx'));
+  const inT = E.querySelector('input[placeholder="Ej. Rancho Las Palmas"]'), inC = E.querySelector('input[placeholder="Nombre del propietario"]');
+  if (selA && inT && inC) { setV(selA, 'ana.martinez@grupoguia.mx'); setV(inT, 'Terreno Nuevo'); setV(inC, 'Cliente X'); await new Promise((r) => setTimeout(r, 200)); }
+  check(!!selA && !!inT && !!inC && !bMandar.disabled, 'con asesor y terreno se habilita');
+  rpcCalls.length = 0; bMandar.dispatchEvent(new e.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 800));
+  const cc = rpcCalls.find((c) => c[0] === 'acuerdo_crear');
+  check(!!cc && cc[1].p_terreno_nombre === 'Terreno Nuevo' && cc[1].p_propietario_nombre === 'Cliente X' && !cc[1].p_cotizacion_id && !cc[1].p_captacion_id, 'genera el acuerdo SOLO con asesor + terreno (sin cotización)');
+  check(abiertos.some((u) => /wa\.me/.test(u) && /acuerdo%2Ftknuevo/.test(u)), 'abre WhatsApp al asesor con la liga de su acuerdo');
+  const t2 = e.text();
+  check(/⏳ Esperando firma del asesor/.test(t2) && /✍️ Firmó 60\/40 · falta cotización/.test(t2) && /🧾 Cotización con el cliente/.test(t2), 'la lista de trámites muestra en qué paso va cada asesor');
+  const bP2 = [...E.querySelectorAll('button')].find((x) => /🧾 Paso 2: Hacer cotización/.test(x.textContent));
+  check(!!bP2, 'acuerdo firmado sin cotización → botón "🧾 Paso 2: Hacer cotización"');
+  check([...E.querySelectorAll('button')].some((x) => /📱 Mandar cotización al asesor/.test(x.textContent)), 'con cotización → "📱 Mandar cotización al asesor"');
+  if (bP2) { bP2.dispatchEvent(new e.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 900)); }
+  const E2 = e.w.document;
+  const terrenoForm = [...E2.querySelectorAll('input')].find((x) => x.value === 'Rancho Las Palmas');
+  check(!!terrenoForm, 'Paso 2 llena la cotización con el terreno del acuerdo');
+  check(/Esta cotización se ligará al acuerdo AC-2026-0011/.test(e.text()), 'avisa que la cotización se ligará al acuerdo');
+  rpcCalls.length = 0;
+  const bG = [...E2.querySelectorAll('button')].find((x) => /💾 Guardar/.test(x.textContent));
+  if (bG) { bG.dispatchEvent(new e.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 1200)); }
+  const lc = rpcCalls.find((c) => c[0] === 'acuerdo_ligar_cotizacion');
+  check(!!lc && lc[1].p_acuerdo_id === 'p1-firm' && !!lc[1].p_cotizacion_id, 'al guardar, la cotización queda ligada al acuerdo del asesor');
+  check(e.errs.length === 0, 'sin errores en el Paso 1 / Paso 2' + (e.errs.length ? ': ' + e.errs.slice(0, 2).join(' | ') : ''));
+
   console.log(fallos ? `\n❌ ${fallos} verificación(es) fallaron` : '\n✅ TODO OK');
   process.exit(fallos ? 1 : 0);
 })();

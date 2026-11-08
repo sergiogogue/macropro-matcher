@@ -1654,6 +1654,109 @@ function AcuerdoComisionCaptacion({ cap, cotizacion, asesores, onToast, asegurar
   );
 }
 
+// ─── PASO 1 DEL PROCESO DE OPCIÓN (arriba de Cotización) ──────────────────────
+// Orden real: (1) el asesor quiere opcionar un terreno → se le manda PRIMERO su Acuerdo de
+// Comisión y lo firma; (2) después se hace la cotización (Paso 2) y se le manda para que la
+// trabaje con su cliente opcionador. Aquí se generan las ligas y se ve cada trámite.
+function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
+  const AZ="#0f172a", DO="#d4af37";
+  const [catLanding,setCatLanding]=React.useState([]);
+  const [email,setEmail]=React.useState("");
+  const [terreno,setTerreno]=React.useState("");
+  const [cliente,setCliente]=React.useState("");
+  const [busy,setBusy]=React.useState(false);
+  const [msg,setMsg]=React.useState("");
+  const [lista,setLista]=React.useState(null);
+  const [verTodos,setVerTodos]=React.useState(false);
+  React.useEffect(()=>{ if(!window.sb) return; window.sb.rpc("landing_asesores_catalogo").then(({data})=>setCatLanding((data||[]).map(x=>({nombre:x.nombre||"",email:String(x.email||"").trim().toLowerCase()})))).catch(()=>{}); },[]);
+  const opciones=React.useMemo(()=>{ const m=new Map(); [...catLanding,...(Array.isArray(asesores)?asesores:[])].forEach(a=>{ const em=String(a&&a.email||"").trim().toLowerCase(); if(!em) return; if(!m.has(em)) m.set(em,{...a,email:em}); else if(a.telefono&&!m.get(em).telefono) m.set(em,{...m.get(em),telefono:a.telefono}); }); return [...m.values()].sort((x,y)=>String(x.nombre).localeCompare(String(y.nombre),"es")); },[catLanding,asesores]);
+  const cargar=async()=>{
+    if(!window.sb) return;
+    try{ const {data,error}=await window.sb.rpc("acuerdos_lista",{p_captacion_id:null,p_lote_id:null}); if(error) throw error; setLista((data||[]).filter(a=>a.estado!=="anulado")); }
+    catch(e){ setLista([]); setMsg(/does not exist|schema cache|function/i.test(String(e.message))?"Falta correr el SQL del acuerdo (acuerdo_comision_paso1.sql).":String(e.message||e)); }
+  };
+  React.useEffect(()=>{ cargar(); }, [ver]); // eslint-disable-line
+  const telDe=(em,cel)=>{ const o=opciones.find(x=>x.email===String(em||"").toLowerCase())||{}; const t=String(o.telefono||cel||"").replace(/\D/g,""); return t?(t.length===10?"52"+t:t):""; };
+  const ligaAc=(a)=>LANDING_URL+"/acuerdo/"+a.token;
+  const ligaCli=(a)=>LANDING_URL+"/aceptar?c="+a.cotizacion_id;
+  const waAsesor=(a,texto)=>window.open("https://wa.me/"+telDe(a.asesor_email,a.asesor_celular)+"?text="+encodeURIComponent(texto),"_blank","noopener");
+  const msgAcuerdo=(a)=>"Hola "+String(a.asesor_nombre||"").split(" ")[0]+", para iniciar la opción del terreno *"+(a.terreno_nombre||"")+"*"+(a.propietario_nombre?(" (cliente: "+a.propietario_nombre+")"):"")+" primero firma tu *Acuerdo de Comisión*: entra con tu cuenta de Grupo Guía, elige tu esquema (100/0 ó 60/40) y fírmalo aquí:\n"+ligaAc(a)+"\n\nEn cuanto lo firmes te mando la cotización para tu cliente.";
+  const msgCotizacion=(a)=>"Hola "+String(a.asesor_nombre||"").split(" ")[0]+", ya está la *cotización* del terreno *"+(a.terreno_nombre||"")+"*. Compártesela a tu cliente"+(a.propietario_nombre?(" "+a.propietario_nombre):"")+" para que acepte las condiciones y suba sus documentos (no necesita cuenta):\n"+ligaCli(a);
+  const generar=async()=>{
+    setBusy(true); setMsg("");
+    try{
+      const sel=opciones.find(a=>a.email===email);
+      const {data,error}=await window.sb.rpc("acuerdo_crear",{p_asesor_email:email,p_asesor_nombre:(sel&&sel.nombre)||null,p_terreno_nombre:terreno.trim(),p_propietario_nombre:cliente.trim()||null});
+      if(error) throw error;
+      const a={...data,asesor_email:email,asesor_nombre:(sel&&sel.nombre)||email,terreno_nombre:terreno.trim(),propietario_nombre:cliente.trim()};
+      waAsesor(a,msgAcuerdo(a));
+      onToast&&onToast("🤝 Acuerdo "+data.folio+" listo · se abrió WhatsApp para el asesor");
+      setMsg("✅ Folio "+data.folio+" · liga: "+ligaAc(a)); setTerreno(""); setCliente(""); cargar();
+    }catch(e){ setMsg("⚠ "+(e.message||e)); }
+    setBusy(false);
+  };
+  const copiar=async(t)=>{ try{ await navigator.clipboard.writeText(t); setMsg("📋 Copiado: "+t); }catch(e){ setMsg(t); } };
+  const verPdf=async(a)=>{ const w=window.open("","_blank"); try{ const {data,error}=await window.sb.storage.from("acuerdos-comision").createSignedUrl(a.pdf_path,600); if(error) throw error; if(w) w.location=data.signedUrl; }catch(e){ if(w) w.close(); setMsg("⚠ No se pudo abrir el PDF"); } };
+  const inp={width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:9,border:"1.5px solid #cbd5e1",fontSize:13.5,fontFamily:"inherit",color:AZ,background:"#fff"};
+  const lb={fontSize:11,fontWeight:800,color:AZ,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5,display:"block"};
+  const bt=(bg,col,bd)=>({padding:"6px 10px",borderRadius:8,border:"1.5px solid "+(bd||bg),background:bg,color:col,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+  const puede=!!email&&!!terreno.trim()&&!busy;
+  const filas=(lista||[]).slice(0, verTodos?200:6);
+  const etapa=(a)=> a.estado==="pendiente"?["⏳ Esperando firma del asesor","#92400e","#fffbeb"]
+    : (!a.cotizacion_id&&!a.captacion_id&&!a.lote_id)?["✍️ Firmó "+a.esquema+" · falta cotización","#1d4ed8","#eff6ff"]
+    : (a.cotizacion_id&&!a.captacion_id)?["🧾 Cotización con el cliente","#7c3aed","#f5f3ff"]
+    : (a.estado==="validado"?["✅ "+a.esquema+" validado","#15803d","#f0fdf4"]:["📂 Cliente aceptó · validar en ficha","#15803d","#f0fdf4"]);
+  return (
+    <div style={{maxWidth:1240,margin:"0 auto",padding:"22px 18px 0",fontFamily:"'DM Sans',system-ui,sans-serif"}}>
+      <div style={{background:"#fff",border:"2px solid "+DO,borderRadius:16,overflow:"hidden",boxShadow:"0 10px 40px rgba(15,23,42,.08)"}}>
+        <div style={{background:AZ,color:"#fff",padding:"16px 22px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+          <div style={{width:40,height:40,borderRadius:10,background:DO,color:AZ,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20}}>1</div>
+          <div style={{flex:1,minWidth:240}}>
+            <div style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:DO}}>Paso 1 · Un asesor quiere opcionar un terreno</div>
+            <div style={{fontSize:20,fontWeight:800,marginTop:2}}>Mándale primero su Acuerdo de Comisión</div>
+            <div style={{fontSize:12.5,color:"#cbd5e1",marginTop:2}}>Él entra con su cuenta, elige 100/0 ó 60/40 y firma (le llega su PDF). Cuando firme → <b style={{color:DO}}>Paso 2: haces la cotización</b> y se la mandas para su cliente.</div>
+          </div>
+        </div>
+        <div style={{padding:"16px 22px",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12,alignItems:"end"}}>
+          <div><span style={lb}>Asesor</span>
+            <select value={email} onChange={e=>setEmail(e.target.value)} style={inp}>
+              <option value="">— Selecciona asesor —</option>
+              {opciones.map(a=><option key={a.email} value={a.email}>{a.nombre||a.email} · {a.email}</option>)}
+            </select></div>
+          <div><span style={lb}>Terreno que quiere opcionar</span><input value={terreno} onChange={e=>setTerreno(e.target.value)} placeholder="Ej. Rancho Las Palmas" style={inp}/></div>
+          <div><span style={lb}>Cliente opcionador (opcional)</span><input value={cliente} onChange={e=>setCliente(e.target.value)} placeholder="Nombre del propietario" style={inp}/></div>
+          <button disabled={!puede} onClick={generar} style={{padding:"11px 16px",borderRadius:10,border:"none",background:puede?DO:"#e5e7eb",color:puede?AZ:"#94a3b8",fontSize:14,fontWeight:900,cursor:puede?"pointer":"not-allowed",fontFamily:"inherit",boxShadow:puede?"0 3px 12px rgba(212,175,55,.45)":"none"}}>{busy?"Generando…":"🤝 Mandar acuerdo al asesor"}</button>
+        </div>
+        {msg&&<div style={{padding:"0 22px 10px",fontSize:12,color:AZ,wordBreak:"break-all"}}>{msg}</div>}
+        <div style={{borderTop:"1px solid #eef2f7",padding:"12px 22px 16px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
+            <div style={{fontSize:12,fontWeight:800,color:AZ,textTransform:"uppercase",letterSpacing:0.6}}>Trámites de opción con asesores {lista?("("+lista.length+")"):""}</div>
+            {lista&&lista.length>6&&<button onClick={()=>setVerTodos(v=>!v)} style={{...bt("#fff",AZ,"#cbd5e1")}}>{verTodos?"Ver menos":"Ver todos"}</button>}
+          </div>
+          {lista===null?<div style={{fontSize:12.5,color:"#64748b"}}>Cargando…</div>
+          : lista.length===0?<div style={{fontSize:12.5,color:"#64748b"}}>Aún no hay trámites. Empieza arriba: elige al asesor y el terreno.</div>
+          : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {filas.map(a=>{ const et=etapa(a); return (
+              <div key={a.id} style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",border:"1px solid #e5e7eb",borderRadius:10,padding:"9px 12px"}}>
+                <div style={{flex:"1 1 260px",minWidth:0}}>
+                  <div style={{fontSize:13.5,fontWeight:800,color:AZ}}>{a.terreno_nombre||"Terreno"} <span style={{fontSize:11,color:"#94a3b8",fontWeight:600}}>· {a.folio}</span></div>
+                  <div style={{fontSize:12,color:"#475569"}}>Asesor: <b>{a.asesor_nombre||a.asesor_email}</b>{a.propietario_nombre?(" · Cliente: "+a.propietario_nombre):""}</div>
+                </div>
+                <span style={{fontSize:11.5,fontWeight:800,color:et[1],background:et[2],borderRadius:999,padding:"4px 10px"}}>{et[0]}</span>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {a.estado==="pendiente"&&<><button onClick={()=>waAsesor(a,msgAcuerdo(a))} style={bt("#25D366","#fff")}>📱 Reenviar acuerdo</button><button onClick={()=>copiar(ligaAc(a))} style={bt("#fff",AZ,"#cbd5e1")}>📋 Liga</button></>}
+                  {a.estado!=="pendiente"&&!a.cotizacion_id&&!a.captacion_id&&!a.lote_id&&<button onClick={()=>onCotizar&&onCotizar(a)} style={{...bt(DO,AZ),fontSize:12.5,padding:"8px 12px",boxShadow:"0 2px 8px rgba(212,175,55,.4)"}}>🧾 Paso 2: Hacer cotización</button>}
+                  {a.cotizacion_id&&!a.captacion_id&&<><button onClick={()=>waAsesor(a,msgCotizacion(a))} style={bt("#25D366","#fff")}>📱 Mandar cotización al asesor</button><button onClick={()=>copiar(ligaCli(a))} style={bt("#fff",AZ,"#cbd5e1")}>📋 Liga del cliente</button></>}
+                  {a.pdf_path&&<button onClick={()=>verPdf(a)} style={bt("#fff",AZ,DO)}>📄 Acuerdo</button>}
+                </div>
+              </div>); })}
+          </div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── SAMPLE INVENTORY ─────────────────────────────────────────────
 const SAMPLE_INVENTORY = [
   { id:"CN-001", nombre:"G2-10B", desarrollo:"Capital Norte", desarrollador:"TYA Inmobiliaria", ciudad:"Zapopan", estado:"Jalisco", uso:"Habitacional Vertical", sup_m2:9145.41, precio_m2:8000, precio_total:73163280, status:"Disponible", entrega:"Inmediata", cos:0.7, cus:2.1, niveles:"Según COS y CUS", viv_max:76, agua:"Sí", luz:"Sí", drenaje:"Sí", acceso:"Avenida principal", fortaleza:"Habitacional vertical con vistas directas a reserva natural protegida, a pie de avenida principal.", atributos:"Vistas a reserva natural. Acceso directo a desarrollo consolidado. 76 viviendas máx.", comprador:"Desarrollador habitacional vertical", asesor:"" },
@@ -15986,6 +16089,20 @@ Respuesta: [respuesta exacta, conversacional]
   const [acuerdoCotG,setAcuerdoCotG]=React.useState(null);
   const [acuerdosVer,setAcuerdosVer]=React.useState(0);
   const pitchFns=React.useRef({});
+  // Paso 2: la cotización que se hace para un acuerdo ya firmado se liga a ese acuerdo al guardar.
+  const acuerdoParaCotRef=React.useRef(null);
+  const [cotPrefillVer,setCotPrefillVer]=React.useState(0);
+  const iniciarCotizacionDeAcuerdo=(a)=>{
+    try{
+      const DK="macropro_cotizador_draft_v1";
+      const prev=JSON.parse(localStorage.getItem(DK)||"{}")||{};
+      localStorage.setItem(DK, JSON.stringify({ ...prev, cliente_id:"", cliente_nombre:a.propietario_nombre||"", cliente_telefono:"", cliente_email:"", asesor_nombre:a.asesor_nombre||"", terreno_nombre:a.terreno_nombre||"", terreno_ciudad:"", terreno_dimensiones:"", valor_terreno:"" }));
+    }catch(e){}
+    acuerdoParaCotRef.current={ id:a.id, folio:a.folio, terreno:a.terreno_nombre };
+    setCotPrefillVer(v=>v+1);
+    toast("🧾 Paso 2: completa la cotización de "+(a.terreno_nombre||"el terreno")+" y pulsa Guardar (queda ligada al acuerdo "+a.folio+")");
+    setTimeout(()=>{ try{ const el=document.getElementById("cotizacion-form"); if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }, 300);
+  };
   const ViewPitchCotizacion = () => {
     const AZUL = "#0f172a", DORADO = "#d4af37";
     const DRAFT_KEY = "macropro_cotizador_draft_v1";
@@ -16460,6 +16577,13 @@ Respuesta: [respuesta exacta, conversacional]
         }
         if(error) throw error;
         setGuardada(data); toast("💾 Cotización guardada");
+        // Paso 2: si viene de un acuerdo firmado, queda ligada a él.
+        if(acuerdoParaCotRef.current&&data&&data.id){
+          const ac=acuerdoParaCotRef.current;
+          try{ const {error:el}=await window.sb.rpc("acuerdo_ligar_cotizacion",{p_acuerdo_id:ac.id,p_cotizacion_id:data.id}); if(el) throw el;
+            acuerdoParaCotRef.current=null; toast("🔗 Cotización ligada al acuerdo "+ac.folio+" · ya puedes mandársela al asesor"); setAcuerdosVer(v=>v+1);
+          }catch(e){ toast("⚠ No se pudo ligar al acuerdo: "+((e&&e.message)||e)); }
+        }
         cargarHistorial();
         return data;
       }catch(e){ toast("❌ No se pudo guardar: "+((e&&e.message)||e)); }
@@ -16485,10 +16609,11 @@ Respuesta: [respuesta exacta, conversacional]
       <React.Fragment>
       <div style={wrapW}>
         <div style={card}>
-          <div style={header}>
+          <div style={header} id="cotizacion-form">
             <div>
-              <div style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:DORADO}}>Grupo Guía · Opcionador</div>
-              <div style={{fontSize:22,fontWeight:800,marginTop:2}}>Pitch / Cotización</div>
+              <div style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:DORADO}}>Paso 2 · Cuando el asesor ya firmó su acuerdo</div>
+              <div style={{fontSize:22,fontWeight:800,marginTop:2}}>Cotización para su cliente opcionador</div>
+              {acuerdoParaCotRef.current&&<div style={{marginTop:6,fontSize:12.5,fontWeight:800,color:AZUL,background:DORADO,borderRadius:8,padding:"5px 10px",display:"inline-block"}}>🔗 Esta cotización se ligará al acuerdo {acuerdoParaCotRef.current.folio} ({acuerdoParaCotRef.current.terreno}) al guardar</div>}
             </div>
             <div style={{width:44,height:44,borderRadius:10,background:DORADO,color:AZUL,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20}}>G</div>
           </div>
@@ -19830,7 +19955,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.21</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.22</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
@@ -19890,7 +20015,8 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="admin"&&<ViewAdmin/>}
       {view==="asesores"&&<ViewAsesores/>}
       {view==="captacion"&&<ViewCaptacion/>}
-      {view==="pitch"&&<ViewPitchCotizacion/>}
+      {view==="pitch"&&<TramiteOpcionPaso1 asesores={asesoresCloud} onToast={toast} onCotizar={iniciarCotizacionDeAcuerdo} ver={acuerdosVer+"-"+cotPrefillVer}/>}
+      {view==="pitch"&&<ViewPitchCotizacion key={"cot-"+cotPrefillVer}/>}
       {view==="pitch" && acuerdoCotG && (
         <div onClick={()=>{ setAcuerdoCotG(null); setAcuerdosVer(v=>v+1); }} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:640,width:"100%",maxHeight:"90vh",overflow:"auto",boxShadow:"0 24px 70px rgba(0,0,0,.35)"}}>
