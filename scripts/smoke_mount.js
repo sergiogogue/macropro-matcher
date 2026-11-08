@@ -228,6 +228,7 @@ async function run(view) {
     { id: 'p1-cot', folio: 'AC-2026-0012', estado: 'firmado', esquema: '100/0', token: 'tkc', asesor_nombre: 'Pedro', asesor_email: 'pedro@grupoguia.mx', terreno_nombre: 'Predio Sur', propietario_nombre: 'Rosa', cotizacion_id: '11111111-1111-1111-1111-111111111111' },
   ];
   rpcData.acuerdo_crear = { id: 'nuevo', token: 'tknuevo', folio: 'AC-2026-0013', estado: 'pendiente' };
+  rpcData.portal_seguimiento = { ok: true, esquema: '60/40', terreno: 'Rancho Las Palmas', metricas: { visitas_landing: 10, brokers_interesados: 2, ofertas_recibidas: 0 }, hitos: [{ hito: 'Brochure', orden: 3, completado: false }, { hito: 'Landing de brokers', orden: 4, completado: false }], notas: [] };
   const e = await run('pitch');
   const E = e.w.document; const abiertos = []; e.w.open = (u) => { abiertos.push(String(u)); return null; };
   const te = e.text();
@@ -261,6 +262,12 @@ async function run(view) {
   check(!!lc && lc[1].p_acuerdo_id === 'p1-firm' && !!lc[1].p_cotizacion_id, 'al guardar, la cotización queda ligada al acuerdo del asesor');
   const wcot = writes.filter((w) => w[0] === 'cotizaciones_opcionador').pop();
   check(!!wcot && wcot[2] && wcot[2].captacion_id === 'capta-acu-p1-firm', 'la cotización NACE colgada de la tarjeta del Kanban (captacion_id) → siempre ligada y sin duplicar');
+  const bSeg = [...E2.querySelectorAll('button')].find((x) => /📍 Seguimiento/.test(x.textContent));
+  check(!!bSeg, 'cada trámite con tarjeta tiene botón "📍 Seguimiento"');
+  if (bSeg) { bSeg.dispatchEvent(new e.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 700)); }
+  const tseg = e.text();
+  check(/Métricas en vivo/.test(tseg) && /Landing de brokers/.test(tseg), 'el modal de Seguimiento muestra métricas e hitos del portal');
+  check([...e.w.document.querySelectorAll('button')].some((x) => /Marcar listo/.test(x.textContent)), 'permite marcar un hito como listo (dispara el correo)');
   check(e.errs.length === 0, 'sin errores en el Paso 1 / Paso 2' + (e.errs.length ? ': ' + e.errs.slice(0, 2).join(' | ') : ''));
 
   console.log(fallos ? `\n❌ ${fallos} verificación(es) fallaron` : '\n✅ TODO OK');
