@@ -1665,7 +1665,7 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
   const [msg,setMsg]=React.useState("");
   // Liga y PDF FIJOS (los mismos para todos los asesores; también los da G-IA).
   const URL_FIJA=LANDING_URL+"/acuerdo", PDF_FIJO=LANDING_URL+"/acuerdo-comision.pdf";
-  const textoFijo="Hola 👋 Para iniciar la opción de tu terreno con Grupo Guía · Macrolotes, llena aquí el *Alta de terreno y Acuerdo de Comisión* (no necesitas cuenta, son 5 minutos): tus datos, tu cliente, el terreno con la liga de Google Maps o Earth, eliges tu esquema (100/0 ó 60/40) y firmas:\n"+URL_FIJA+"\n\nExplicación de los esquemas (PDF):\n"+PDF_FIJO+"\n\nDudas: llamada o WhatsApp al 33 1605 7715";
+  const textoFijo="Hola 👋 Para iniciar la opción de tu terreno con Grupo Guía · Macrolotes, llena aquí el *Alta de terreno y Acuerdo de Comisión* (no necesitas cuenta, son 5 minutos): tus datos, tu cliente, el terreno con la liga de Google Maps o Earth, eliges tu esquema (100/0 ó 60/40) y firmas:\n"+URL_FIJA+"\n\nAquí tienes el *Acuerdo de Comisión* completo en PDF (esquemas, actividades y cláusulas):\n"+PDF_FIJO+"\n\nDudas: llamada o WhatsApp al 33 1605 7715";
   const compartirPdf=async()=>{
     try{
       const r=await fetch(PDF_FIJO); const blob=await r.blob();
@@ -19958,7 +19958,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.25</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.26</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
