@@ -1664,7 +1664,7 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
   const [msg,setMsg]=React.useState("");
   // Liga y PDF FIJOS (los mismos para todos los asesores; también los da G-IA).
   const URL_FIJA=LANDING_URL+"/acuerdo", PDF_FIJO=LANDING_URL+"/acuerdo-comision.pdf";
-  const textoFijo="Hola 👋 Para iniciar la opción de tu terreno, primero firma tu *Acuerdo de Comisión* con Grupo Guía · Macrolotes. Entra con tu cuenta, llena el terreno y tu cliente, elige tu esquema (100/0 ó 60/40) y firma aquí:\n"+URL_FIJA+"\n\nAquí está la explicación de los esquemas (PDF):\n"+PDF_FIJO;
+  const textoFijo="Hola 👋 Para iniciar la opción de tu terreno con Grupo Guía · Macrolotes, llena aquí el *Alta de terreno y Acuerdo de Comisión* (no necesitas cuenta, son 5 minutos): tus datos, tu cliente, el terreno con la liga de Google Maps o Earth, eliges tu esquema (100/0 ó 60/40) y firmas:\n"+URL_FIJA+"\n\nExplicación de los esquemas (PDF):\n"+PDF_FIJO+"\n\nDudas: llamada o WhatsApp al 33 1605 7715";
   const compartirPdf=async()=>{
     try{
       const r=await fetch(PDF_FIJO); const blob=await r.blob();
@@ -1690,13 +1690,14 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
   const msgAcuerdo=(a)=>"Hola "+String(a.asesor_nombre||"").split(" ")[0]+", para iniciar la opción del terreno *"+(a.terreno_nombre||"")+"*"+(a.propietario_nombre?(" (cliente: "+a.propietario_nombre+")"):"")+" primero firma tu *Acuerdo de Comisión*: entra con tu cuenta de Grupo Guía, elige tu esquema (100/0 ó 60/40) y fírmalo aquí:\n"+ligaAc(a)+"\n\nEn cuanto lo firmes te mando la cotización para tu cliente.";
   const msgCotizacion=(a)=>"Hola "+String(a.asesor_nombre||"").split(" ")[0]+", ya está la *cotización* del terreno *"+(a.terreno_nombre||"")+"*. Compártesela a tu cliente"+(a.propietario_nombre?(" "+a.propietario_nombre):"")+" para que acepte las condiciones y suba sus documentos (no necesita cuenta):\n"+ligaCli(a);
   const copiar=async(t)=>{ try{ await navigator.clipboard.writeText(t); setMsg("📋 Copiado: "+t); }catch(e){ setMsg(t); } };
+  const verArchivo=async(f)=>{ const w=window.open("","_blank"); try{ const {data,error}=await window.sb.storage.from(f.bucket||"acuerdos-comision").createSignedUrl(f.path,600); if(error) throw error; if(w) w.location=data.signedUrl; }catch(e){ if(w) w.close(); setMsg("⚠ No se pudo abrir el archivo"); } };
   const verPdf=async(a)=>{ const w=window.open("","_blank"); try{ const {data,error}=await window.sb.storage.from("acuerdos-comision").createSignedUrl(a.pdf_path,600); if(error) throw error; if(w) w.location=data.signedUrl; }catch(e){ if(w) w.close(); setMsg("⚠ No se pudo abrir el PDF"); } };
   const inp={width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:9,border:"1.5px solid #cbd5e1",fontSize:13.5,fontFamily:"inherit",color:AZ,background:"#fff"};
   const lb={fontSize:11,fontWeight:800,color:AZ,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5,display:"block"};
   const bt=(bg,col,bd)=>({padding:"6px 10px",borderRadius:8,border:"1.5px solid "+(bd||bg),background:bg,color:col,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
   const filas=(lista||[]).slice(0, verTodos?200:6);
   const etapa=(a)=> a.estado==="pendiente"?["⏳ Esperando firma del asesor","#92400e","#fffbeb"]
-    : (!a.cotizacion_id&&!a.captacion_id&&!a.lote_id)?["✍️ Firmó "+a.esquema+" · falta cotización","#1d4ed8","#eff6ff"]
+    : (!a.cotizacion_id&&!a.captacion_id&&!a.lote_id)?["🚦 Firmó "+a.esquema+" · dar de alta en semáforo y hacer cotización","#b45309","#fffbeb"]
     : (a.cotizacion_id&&!a.captacion_id)?["🧾 Cotización con el cliente","#7c3aed","#f5f3ff"]
     : (a.estado==="validado"?["✅ "+a.esquema+" validado","#15803d","#f0fdf4"]:["📂 Cliente aceptó · validar en ficha","#15803d","#f0fdf4"]);
   return (
@@ -1706,8 +1707,8 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
           <div style={{width:40,height:40,borderRadius:10,background:DO,color:AZ,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20}}>1</div>
           <div style={{flex:1,minWidth:240}}>
             <div style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:DO}}>Paso 1 · Un asesor quiere opcionar un terreno</div>
-            <div style={{fontSize:20,fontWeight:800,marginTop:2}}>Mándale primero el Acuerdo de Comisión</div>
-            <div style={{fontSize:12.5,color:"#cbd5e1",marginTop:2}}>Una liga y un PDF fijos: <b style={{color:"#fff"}}>él llena todo</b> (terreno, cliente, plano y ubicación), elige 100/0 ó 60/40 y firma. Cuando firme → <b style={{color:DO}}>Paso 2: haces la cotización</b> y se la mandas.</div>
+            <div style={{fontSize:20,fontWeight:800,marginTop:2}}>Mándale el Alta de terreno y Acuerdo de Comisión</div>
+            <div style={{fontSize:12.5,color:"#cbd5e1",marginTop:2}}>Una liga y un PDF fijos, <b style={{color:"#fff"}}>sin cuenta</b>: él llena sus datos, su cliente y el terreno (liga de Google Maps / Earth), elige 100/0 ó 60/40 y firma. Te llega aquí abajo → das de alta el semáforo y <b style={{color:DO}}>Paso 2: haces la cotización</b> (se llena sola).</div>
           </div>
         </div>
         <div style={{padding:"16px 22px",display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
@@ -1715,7 +1716,7 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
           <button onClick={compartirPdf} style={{padding:"12px 18px",borderRadius:10,border:"none",background:DO,color:AZ,fontSize:14.5,fontWeight:900,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 3px 12px rgba(212,175,55,.45)"}}>📄 Compartir PDF</button>
           <button onClick={()=>copiar(URL_FIJA)} style={{padding:"12px 16px",borderRadius:10,border:"1.5px solid #cbd5e1",background:"#fff",color:AZ,fontSize:13.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📋 Copiar liga</button>
           <a href={PDF_FIJO} target="_blank" rel="noopener noreferrer" style={{padding:"12px 16px",borderRadius:10,border:"1.5px solid "+DO,background:"#fff",color:AZ,fontSize:13.5,fontWeight:800,textDecoration:"none"}}>👁 Ver PDF</a>
-          <span style={{fontSize:12,color:"#64748b",flex:"1 1 220px"}}>{URL_FIJA} · también te lo da G-IA: <i>“mándame el acuerdo de comisión”</i></span>
+          <span style={{fontSize:12,color:"#64748b",flex:"1 1 220px"}}>{URL_FIJA} · también te lo da G-IA: <i>“mándame el acuerdo de comisión”</i> · dudas de los asesores: 33 1605 7715</span>
         </div>
         {msg&&<div style={{padding:"0 22px 10px",fontSize:12,color:AZ,wordBreak:"break-all"}}>{msg}</div>}
         <div style={{borderTop:"1px solid #eef2f7",padding:"12px 22px 16px"}}>
@@ -1724,19 +1725,24 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
             {lista&&lista.length>6&&<button onClick={()=>setVerTodos(v=>!v)} style={{...bt("#fff",AZ,"#cbd5e1")}}>{verTodos?"Ver menos":"Ver todos"}</button>}
           </div>
           {lista===null?<div style={{fontSize:12.5,color:"#64748b"}}>Cargando…</div>
-          : lista.length===0?<div style={{fontSize:12.5,color:"#64748b"}}>Aún no hay trámites. Empieza arriba: elige al asesor y el terreno.</div>
+          : lista.length===0?<div style={{fontSize:12.5,color:"#64748b"}}>Aún no hay trámites. Mándale la liga a un asesor con los botones de arriba; cuando la llene y firme, aparece aquí.</div>
           : <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {filas.map(a=>{ const et=etapa(a); return (
               <div key={a.id} style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",border:"1px solid #e5e7eb",borderRadius:10,padding:"9px 12px"}}>
                 <div style={{flex:"1 1 260px",minWidth:0}}>
                   <div style={{fontSize:13.5,fontWeight:800,color:AZ}}>{a.terreno_nombre||"Terreno"} <span style={{fontSize:11,color:"#94a3b8",fontWeight:600}}>· {a.folio}</span></div>
-                  <div style={{fontSize:12,color:"#475569"}}>Asesor: <b>{a.asesor_nombre||a.asesor_email}</b>{a.propietario_nombre?(" · Cliente: "+a.propietario_nombre):""}</div>
+                  {(a.terreno_ubicacion||a.terreno_superficie||a.terreno_precio)&&<div style={{fontSize:12,color:"#475569"}}>{[a.terreno_ubicacion,a.terreno_superficie,a.terreno_precio&&("pide "+a.terreno_precio)].filter(Boolean).join(" · ")}</div>}
+                  <div style={{fontSize:12,color:"#475569"}}>Asesor: <b>{a.asesor_nombre||a.asesor_email}</b>{a.asesor_celular?(" · "+a.asesor_celular):""}{a.esquema?<span style={{marginLeft:6,fontSize:11,fontWeight:800,borderRadius:999,padding:"1px 8px",background:a.esquema==="60/40"?"#fdf3d0":"#e0e7ff",color:a.esquema==="60/40"?"#7a5b06":"#1e3a8a"}}>{a.esquema}</span>:null}</div>
+                  {a.propietario_nombre&&<div style={{fontSize:12,color:"#475569"}}>Cliente: <b>{a.propietario_nombre}</b>{a.propietario_celular?(" · "+a.propietario_celular):""}{a.propietario_correo?(" · "+a.propietario_correo):""}</div>}
                 </div>
                 <span style={{fontSize:11.5,fontWeight:800,color:et[1],background:et[2],borderRadius:999,padding:"4px 10px"}}>{et[0]}</span>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                   {a.estado==="pendiente"&&<><button onClick={()=>waAsesor(a,msgAcuerdo(a))} style={bt("#25D366","#fff")}>📱 Reenviar acuerdo</button><button onClick={()=>copiar(ligaAc(a))} style={bt("#fff",AZ,"#cbd5e1")}>📋 Liga</button></>}
                   {a.estado!=="pendiente"&&!a.cotizacion_id&&!a.captacion_id&&!a.lote_id&&<button onClick={()=>onCotizar&&onCotizar(a)} style={{...bt(DO,AZ),fontSize:12.5,padding:"8px 12px",boxShadow:"0 2px 8px rgba(212,175,55,.4)"}}>🧾 Paso 2: Hacer cotización</button>}
                   {a.cotizacion_id&&!a.captacion_id&&<><button onClick={()=>waAsesor(a,msgCotizacion(a))} style={bt("#25D366","#fff")}>📱 Mandar cotización al asesor</button><button onClick={()=>copiar(ligaCli(a))} style={bt("#fff",AZ,"#cbd5e1")}>📋 Liga del cliente</button></>}
+                  {a.ubicacion_maps&&<a href={a.ubicacion_maps} target="_blank" rel="noopener noreferrer" style={{...bt("#fff",AZ,"#cbd5e1"),textDecoration:"none"}}>📍 Mapa</a>}
+                  {a.ubicacion_kmz&&a.ubicacion_kmz.path&&<button onClick={()=>verArchivo(a.ubicacion_kmz)} style={bt("#fff",AZ,"#cbd5e1")}>🗺️ KMZ</button>}
+                  {a.plano&&a.plano.path&&<button onClick={()=>verArchivo(a.plano)} style={bt("#fff",AZ,"#cbd5e1")}>📐 Plano</button>}
                   {a.pdf_path&&<button onClick={()=>verPdf(a)} style={bt("#fff",AZ,DO)}>📄 Acuerdo</button>}
                 </div>
               </div>); })}
@@ -16086,7 +16092,7 @@ Respuesta: [respuesta exacta, conversacional]
     try{
       const DK="macropro_cotizador_draft_v1";
       const prev=JSON.parse(localStorage.getItem(DK)||"{}")||{};
-      localStorage.setItem(DK, JSON.stringify({ ...prev, cliente_id:"", cliente_nombre:a.propietario_nombre||"", cliente_telefono:"", cliente_email:"", asesor_nombre:a.asesor_nombre||"", terreno_nombre:a.terreno_nombre||"", terreno_ciudad:"", terreno_dimensiones:"", valor_terreno:"" }));
+      localStorage.setItem(DK, JSON.stringify({ ...prev, cliente_id:"", cliente_nombre:a.propietario_nombre||"", cliente_telefono:a.propietario_celular||"", cliente_email:a.propietario_correo||"", asesor_nombre:a.asesor_nombre||"", terreno_nombre:a.terreno_nombre||"", terreno_ciudad:a.terreno_ubicacion||"", terreno_dimensiones:a.terreno_superficie||"", valor_terreno:String(a.terreno_precio||"").replace(/[^0-9.]/g,"") }));
     }catch(e){}
     acuerdoParaCotRef.current={ id:a.id, folio:a.folio, terreno:a.terreno_nombre };
     setCotPrefillVer(v=>v+1);
@@ -19945,7 +19951,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.23</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.24</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
