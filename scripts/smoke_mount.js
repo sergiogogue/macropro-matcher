@@ -49,9 +49,10 @@ function q(table) {
   return p;
 }
 const rpcCalls = [];
+const rpcData = {}; // respuesta simulada por RPC (p. ej. acuerdos_lista)
 const sb = {
   from: (t) => q(t),
-  rpc: (fn, args) => { rpcCalls.push([fn, args]); return Promise.resolve({ data: null, error: null }); },
+  rpc: (fn, args) => { rpcCalls.push([fn, args]); const d = rpcData[fn]; return Promise.resolve({ data: typeof d === 'function' ? d(args) : (d === undefined ? null : d), error: null }); },
   auth: {
     getSession: () => Promise.resolve({ data: { session: { user: { email: 'sergio@grupoguia.mx', id: 'u1' } } } }),
     getUser: () => Promise.resolve({ data: { user: { email: 'sergio@grupoguia.mx' } } }),
@@ -87,6 +88,8 @@ async function run(view) {
   let fallos = 0;
   const check = (cond, msg) => { console.log((cond ? '  ✅ ' : '  ❌ ') + msg); if (!cond) fallos++; };
 
+  rpcData.landing_asesores_catalogo = [{ nombre: 'Ana Martínez López', email: 'ana.martinez@grupoguia.mx' }];
+  rpcData.acuerdo_crear = { id: 'x', token: 'tok', folio: 'AC-2026-0007', estado: 'pendiente' };
   console.log('▶ Vista Opción / Captación');
   const a = await run('captacion');
   const ta = a.text();
@@ -115,6 +118,27 @@ async function run(view) {
   check(/🧠 Analizar en Intelligence/.test(tc), 'botón "Analizar en Intelligence" en la ficha');
   check(!/Expediente Legal/.test(tc), 'no muestra el Expediente Legal vacío de la Liga Mágica');
   check(b.errs.length === 0, 'sin errores tras abrir la ficha' + (b.errs.length ? ':\n     ' + b.errs.slice(0, 3).join('\n     ') : ''));
+
+  console.log('▶ Acuerdo de comisión en la ficha (reemplaza la "Firma digital" escrita)');
+  check(/🤝 Acuerdo de comisión con el asesor opcionador/.test(tc), 'la ficha tiene el bloque del Acuerdo de comisión');
+  check(!/Firma digital \(nombre completo del asesor\)/.test(tc) && !b.w.document.querySelector('input[name=esquema_comision]'), 'ya no hay firma escrita a mano ni radio 100/0 · 40/60');
+  check(/Semáforo de Viabilidad al 100%/.test(tc), 'se conserva la casilla del semáforo (condición de entrada)');
+  {
+    const D2 = b.w.document;
+    const sel = [...D2.querySelectorAll('select')].find((x) => /Asesor opcionador \(con correo\)/.test(x.textContent));
+    check(!!sel && [...sel.options].some((o) => o.value === 'ana.martinez@grupoguia.mx'), 'el selector de asesor trae el catálogo de cuentas (Landing)');
+    if (sel) {
+      const setter = Object.getOwnPropertyDescriptor(b.w.HTMLSelectElement.prototype, 'value').set;
+      setter.call(sel, 'ana.martinez@grupoguia.mx'); sel.dispatchEvent(new b.w.Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 200));
+      const gen = [...D2.querySelectorAll('button')].find((x) => /Generar Acuerdo de Comisión/.test(x.textContent));
+      rpcCalls.length = 0
+      if (gen) { gen.dispatchEvent(new b.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 800)); }
+      const call = rpcCalls.find((c) => c[0] === 'acuerdo_crear');
+      check(!!call && /^capta-opc-/.test(call[1].p_captacion_id) && call[1].p_asesor_email === 'ana.martinez@grupoguia.mx' && call[1].p_lote_id === null, 'Generar crea el acuerdo de ESTA captación a nombre del asesor elegido');
+      check(/Liga lista · folio AC-2026-0007/.test(b.text()), 'muestra el folio de la liga generada');
+    }
+  }
 
   console.log('▶ Acciones en la ficha');
   const W = b.w, D = W.document;
@@ -149,6 +173,19 @@ async function run(view) {
   check(pl && pl.documentos.length === 4 && pl.documentos.every((d) => /^https:\/\/signed/.test(d.url)), 'Intelligence recibe los 4 documentos con URL firmada');
   check(abierto && /intelligence\.html\?fuente=opcionador&c=capta-opc-/.test(String(abierto.location)), 'abre intelligence.html con la captación → ' + (abierto && abierto.location));
   check(c2.errs.length === 0, 'sin errores en el flujo de Intelligence' + (c2.errs.length ? ':\n     ' + c2.errs.slice(0, 3).join('\n     ') : ''));
+
+  console.log('▶ Acuerdo ya firmado 60/40: estatus, PDF y validar');
+  rpcData.acuerdos_lista = [{ id: '11111111-2222-3333-4444-555555555555', folio: 'AC-2026-0001', estado: 'firmado', esquema: '60/40', asesor_nombre: 'Ana Martínez López', asesor_email: 'ana.martinez@grupoguia.mx', firmado_at: '2026-11-08T00:42:15Z', firma_ip: '189.203.45.12', pdf_path: 'pdf/x/AC-2026-0001.pdf', token: 't' }];
+  const d = await run('pitch');
+  const bd = [...d.w.document.querySelectorAll('button')].find((x) => /📂 Ficha/.test(x.textContent));
+  if (bd) { bd.dispatchEvent(new d.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 1500)); }
+  const td = d.text();
+  check(/AC-2026-0001/.test(td) && /Firmado · falta validar/.test(td), 'muestra folio y "Firmado · falta validar"');
+  check(/60\/40 · Macrolotes vende/.test(td) && /Asesor 60%/.test(td) && /Macrolotes 40%/.test(td), 'esquema 60/40 con asesor 60% · Macrolotes 40%');
+  check(/IP 189\.203\.45\.12/.test(td), 'muestra la IP de la firma');
+  check(/✅ Validar acuerdo/.test(td) && /📄 Ver PDF/.test(td) && /Adenda \(cambiar esquema\)/.test(td), 'botones Validar, Ver PDF y Adenda');
+  check(!/Generar Acuerdo de Comisión/.test(td), 'con acuerdo firmado ya no ofrece generar otro (solo adenda)');
+  check(d.errs.length === 0, 'sin errores con el acuerdo firmado' + (d.errs.length ? ':\n     ' + d.errs.slice(0, 3).join('\n     ') : ''));
 
   console.log(fallos ? `\n❌ ${fallos} verificación(es) fallaron` : '\n✅ TODO OK');
   process.exit(fallos ? 1 : 0);
