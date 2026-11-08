@@ -1655,6 +1655,82 @@ function AcuerdoComisionCaptacion({ cap, cotizacion, asesores, onToast, asegurar
   );
 }
 
+// ─── SEGUIMIENTO (Portal): el Equipo marca hitos (manda correo) y fija métricas en vivo ──
+function SeguimientoModal({ cap, onClose, onToast }){
+  const AZ="#0f172a", DO="#d4af37";
+  const [d,setD]=React.useState(null);
+  const [err,setErr]=React.useState("");
+  const [busy,setBusy]=React.useState("");
+  const [nota,setNota]=React.useState({});
+  const [met,setMet]=React.useState(null);
+  const portal = LANDING_URL+"/mi-portal/"+encodeURIComponent(cap);
+  const cargar=async()=>{
+    if(!window.sb) return;
+    const {data,error}=await window.sb.rpc("portal_seguimiento",{p_cap:cap});
+    if(error){ setErr(/does not exist|schema cache|function/i.test(String(error.message))?"Falta correr supabase/portal_seguimiento.sql.":String(error.message)); return; }
+    if(!data||data.error){ setErr("No se pudo abrir el seguimiento."); return; }
+    setD(data); setMet(data.metricas||{visitas_landing:0,brokers_interesados:0,ofertas_recibidas:0});
+  };
+  React.useEffect(()=>{ cargar(); },[cap]); // eslint-disable-line
+  const marcar=async(h)=>{
+    setBusy(h);
+    try{
+      const {data:s}=await window.sb.auth.getSession();
+      const r=await fetch(LANDING_URL+"/.netlify/functions/portal-hito",{method:"POST",headers:{"content-type":"application/json",Authorization:"Bearer "+((s&&s.session&&s.session.access_token)||"")},body:JSON.stringify({captacion_id:cap,hito:h,completado:true,nota:(nota[h]||"").trim()||null})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok||!j.ok){ onToast&&onToast("⚠ "+(j.error||"No se pudo marcar")); }
+      else { onToast&&onToast(j.correo_enviado?("✅ '"+h+"' marcado · correo enviado al asesor y cliente"):("✅ '"+h+"' marcado"+(j.correo_error?(" · ⚠ correo: "+j.correo_error):""))); await cargar(); }
+    }catch(e){ onToast&&onToast("⚠ "+((e&&e.message)||e)); }
+    setBusy("");
+  };
+  const guardarMet=async()=>{
+    setBusy("met");
+    try{ const {error}=await window.sb.rpc("portal_set_metricas",{p_cap:cap,p_visitas:Number(met.visitas_landing)||0,p_brokers:Number(met.brokers_interesados)||0,p_ofertas:Number(met.ofertas_recibidas)||0}); if(error) throw error; onToast&&onToast("📊 Métricas actualizadas"); }
+    catch(e){ onToast&&onToast("⚠ "+((e&&e.message)||e)); }
+    setBusy("");
+  };
+  const inp={width:64,padding:"6px 8px",borderRadius:8,border:"1.5px solid #cbd5e1",fontSize:13,fontFamily:"inherit",textAlign:"center"};
+  const bt=(bg,col,bd)=>({padding:"6px 10px",borderRadius:8,border:"1.5px solid "+(bd||bg),background:bg,color:col,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:120,display:"flex",alignItems:"center",justifyContent:"center",padding:16,fontFamily:"'DM Sans',system-ui,sans-serif"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:560,width:"100%",maxHeight:"88vh",overflow:"auto",boxShadow:"0 24px 60px rgba(0,0,0,.35)"}}>
+        <div style={{background:AZ,color:"#fff",padding:"16px 20px",borderBottom:"3px solid "+DO,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+          <div><div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,color:DO,textTransform:"uppercase"}}>Seguimiento</div><b style={{fontSize:16}}>{d?(d.terreno||"Terreno"):"Cargando…"}</b>{d&&d.esquema?<span style={{marginLeft:8,fontSize:11,fontWeight:800,borderRadius:999,padding:"1px 8px",background:d.esquema==="60/40"?"#fdf3d0":"#e0e7ff",color:d.esquema==="60/40"?"#7a5b06":"#1e3a8a"}}>{d.esquema}</span>:null}</div>
+          <button onClick={onClose} style={{background:"transparent",border:0,color:"#fff",fontSize:22,cursor:"pointer"}}>×</button>
+        </div>
+        <div style={{padding:"18px 20px"}}>
+          {err?<div style={{color:"#b91c1c",fontSize:13}}>{err}</div>:!d?<div style={{color:"#64748b",fontSize:13}}>Cargando…</div>:<>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end",marginBottom:16,paddingBottom:14,borderBottom:"1px solid #eef2f7"}}>
+              <div style={{fontSize:12,fontWeight:800,color:AZ,width:"100%"}}>📊 Métricas en vivo</div>
+              {[["brokers_interesados","Brokers"],["visitas_landing","Visitas"],["ofertas_recibidas","Ofertas"]].map(([k,l])=>(
+                <label key={k} style={{fontSize:11,color:"#64748b",textAlign:"center"}}>{l}<br/><input style={inp} type="number" min="0" value={(met||d.metricas||{})[k]||0} onChange={e=>setMet(m=>({...(m||d.metricas||{}),[k]:e.target.value}))}/></label>
+              ))}
+              <button onClick={guardarMet} disabled={busy==="met"} style={bt(DO,AZ)}>{busy==="met"?"…":"Guardar métricas"}</button>
+            </div>
+            <div style={{fontSize:12,fontWeight:800,color:AZ,marginBottom:8}}>🗺️ Hitos {d.esquema==="60/40"?"(al marcar listo se avisa por correo al asesor y al cliente)":"(tareas del asesor)"}</div>
+            <div style={{display:"grid",gap:8}}>
+              {(d.hitos||[]).map(h=>(
+                <div key={h.hito} style={{border:"1px solid #e5e7eb",borderRadius:10,padding:"9px 12px",background:h.completado?"#f0fdf4":"#fff"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                    <div style={{fontSize:13.5,fontWeight:700,color:h.completado?"#15803d":AZ}}>{h.completado?"✓ ":""}{h.hito}{h.completado&&h.fecha?<span style={{fontWeight:500,color:"#64748b",fontSize:11}}> · {new Date(h.fecha).toLocaleDateString("es-MX")}</span>:null}</div>
+                    {!h.completado&&<button onClick={()=>marcar(h.hito)} disabled={busy===h.hito} style={bt("#25D366","#fff")}>{busy===h.hito?"…":"Marcar listo"}</button>}
+                  </div>
+                  {!h.completado&&<input placeholder="Nota para el reporte (opcional)" value={nota[h.hito]||""} onChange={e=>setNota(n=>({...n,[h.hito]:e.target.value}))} style={{width:"100%",boxSizing:"border-box",marginTop:7,padding:"7px 10px",borderRadius:8,border:"1px solid #e5e7eb",fontSize:12.5,fontFamily:"inherit"}}/>}
+                  {h.completado&&h.nota?<div style={{fontSize:12,color:"#475569",marginTop:4}}>📣 {h.nota}</div>:null}
+                </div>
+              ))}
+            </div>
+            <div style={{marginTop:14,display:"flex",gap:8,flexWrap:"wrap"}}>
+              <a href={portal} target="_blank" rel="noopener noreferrer" style={{...bt("#fff",AZ,"#cbd5e1"),textDecoration:"none"}}>👁 Ver el portal del asesor/cliente</a>
+              <button onClick={()=>{try{navigator.clipboard.writeText(portal);onToast&&onToast("📋 Liga del portal copiada");}catch(e){}}} style={bt("#fff",AZ,"#cbd5e1")}>📋 Copiar liga del portal</button>
+            </div>
+          </>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── PASO 1 DEL PROCESO DE OPCIÓN (arriba de Cotización) ──────────────────────
 // Orden real: (1) el asesor quiere opcionar un terreno → se le manda PRIMERO su Acuerdo de
 // Comisión y lo firma; (2) después se hace la cotización (Paso 2) y se le manda para que la
@@ -1696,6 +1772,7 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
   const inp={width:"100%",boxSizing:"border-box",padding:"10px 12px",borderRadius:9,border:"1.5px solid #cbd5e1",fontSize:13.5,fontFamily:"inherit",color:AZ,background:"#fff"};
   const lb={fontSize:11,fontWeight:800,color:AZ,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5,display:"block"};
   const bt=(bg,col,bd)=>({padding:"6px 10px",borderRadius:8,border:"1.5px solid "+(bd||bg),background:bg,color:col,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+  const [segCap,setSegCap]=React.useState(null);
   const filas=(lista||[]).slice(0, verTodos?200:6);
   // El estado se lee por firma + cotización (ya NO por "tiene captación": el alta nace con su
   // tarjeta del Kanban). El avance fino (semáforo, cliente aceptó, publicado) se ve en el Kanban.
@@ -1730,6 +1807,7 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
           {lista===null?<div style={{fontSize:12.5,color:"#64748b"}}>Cargando…</div>
           : lista.length===0?<div style={{fontSize:12.5,color:"#64748b"}}>Aún no hay trámites. Mándale la liga a un asesor con los botones de arriba; cuando la llene y firme, aparece aquí.</div>
           : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {segCap&&<SeguimientoModal cap={segCap} onClose={()=>{setSegCap(null);cargar();}} onToast={onToast}/>}
             {filas.map(a=>{ const et=etapa(a); return (
               <div key={a.id} style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",border:"1px solid #e5e7eb",borderRadius:10,padding:"9px 12px"}}>
                 <div style={{flex:"1 1 260px",minWidth:0}}>
@@ -1746,6 +1824,7 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
                   {a.ubicacion_maps&&<a href={a.ubicacion_maps} target="_blank" rel="noopener noreferrer" style={{...bt("#fff",AZ,"#cbd5e1"),textDecoration:"none"}}>📍 Mapa</a>}
                   {a.ubicacion_kmz&&a.ubicacion_kmz.path&&<button onClick={()=>verArchivo(a.ubicacion_kmz)} style={bt("#fff",AZ,"#cbd5e1")}>🗺️ KMZ</button>}
                   {a.plano&&a.plano.path&&<button onClick={()=>verArchivo(a.plano)} style={bt("#fff",AZ,"#cbd5e1")}>📐 Plano</button>}
+                  {a.captacion_id&&<button onClick={()=>setSegCap(a.captacion_id)} style={bt(AZ,"#fff")}>📍 Seguimiento</button>}
                   {a.pdf_path&&<button onClick={()=>verPdf(a)} style={bt("#fff",AZ,DO)}>📄 Acuerdo</button>}
                 </div>
               </div>); })}
@@ -19958,7 +20037,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.26</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.27</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
