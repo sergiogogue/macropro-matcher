@@ -1058,10 +1058,11 @@ function saveSolicitudesAsesor(arr){
 // ══════════ CAPTACIÓN DE TERRENOS (opcionamiento) ══════════
 // Seguimiento de terrenos que un propietario nos ofrece para vender/opcionar.
 const CAPTACION_KEY = "macropro_captacion_v1";
-const CAPTACION_PIPELINE = ["Nueva opción","Viabilidad","Contactado / visita","En negociación","Documentación","Contrato","Firmado","Descartado"];
+const CAPTACION_PIPELINE = ["Nueva opción","Viabilidad","Cotización con el cliente","Contactado / visita","En negociación","Documentación","Contrato","Firmado","Descartado"];
 const CAPTACION_PIPELINE_COLORS = {
   "Nueva opción":            { bg:"#e0e7ff", color:"#4338ca", border:"#6366f1" },
   "Viabilidad":          { bg:"#fef9c3", color:"#854d0e", border:"#eab308" },
+  "Cotización con el cliente": { bg:"#f3e8ff", color:"#6b21a8", border:"#a855f7" },
   "Contactado / visita": { bg:"#dbeafe", color:"#1e40af", border:"#3b82f6" },
   "En negociación":      { bg:"#fed7aa", color:"#9a3412", border:"#ea580c" },
   "Documentación":       { bg:"#fae8ff", color:"#86198f", border:"#c026d3" },
@@ -1069,7 +1070,7 @@ const CAPTACION_PIPELINE_COLORS = {
   "Firmado":             { bg:"#dcfce7", color:"#15803d", border:"#16a34a" },
   "Descartado":          { bg:"#f1f5f9", color:"#475569", border:"#94a3b8" }
 };
-const CAPTACION_PIPELINE_ICONS = { "Nueva opción":"📥","Viabilidad":"🚦","Contactado / visita":"📞","En negociación":"🤝","Documentación":"📄","Contrato":"✍️","Firmado":"✅","Descartado":"🗑" };
+const CAPTACION_PIPELINE_ICONS = { "Nueva opción":"📥","Viabilidad":"🚦","Cotización con el cliente":"🧾","Contactado / visita":"📞","En negociación":"🤝","Documentación":"📄","Contrato":"✍️","Firmado":"✅","Descartado":"🗑" };
 const TIPOS_ACUERDO_CAPTACION = ["Exclusiva","Abierto / No exclusiva","Opción de compra","Consignación","Comisión mercantil","Por definir"];
 const MOTIVOS_DESCARTE = ["💰 Precio alto","📍 Ubicación / zona","📐 Superficie","🏗 Uso de suelo / zonificación","📄 Documentación / legal","🚰 Servicios / infraestructura","⏱ Tiempos / entrega","💵 Forma de pago / financiamiento","🌳 Topografía / forma del terreno","🤝 Eligió otra opción / desistió","🔇 No le interesó / sin respuesta","📝 Otro"];
 const VIABILIDAD_CAPTACION = [
@@ -1696,10 +1697,12 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
   const lb={fontSize:11,fontWeight:800,color:AZ,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5,display:"block"};
   const bt=(bg,col,bd)=>({padding:"6px 10px",borderRadius:8,border:"1.5px solid "+(bd||bg),background:bg,color:col,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
   const filas=(lista||[]).slice(0, verTodos?200:6);
+  // El estado se lee por firma + cotización (ya NO por "tiene captación": el alta nace con su
+  // tarjeta del Kanban). El avance fino (semáforo, cliente aceptó, publicado) se ve en el Kanban.
   const etapa=(a)=> a.estado==="pendiente"?["⏳ Esperando firma del asesor","#92400e","#fffbeb"]
-    : (!a.cotizacion_id&&!a.captacion_id&&!a.lote_id)?["🚦 Firmó "+a.esquema+" · dar de alta en semáforo y hacer cotización","#b45309","#fffbeb"]
-    : (a.cotizacion_id&&!a.captacion_id)?["🧾 Cotización con el cliente","#7c3aed","#f5f3ff"]
-    : (a.estado==="validado"?["✅ "+a.esquema+" validado","#15803d","#f0fdf4"]:["📂 Cliente aceptó · validar en ficha","#15803d","#f0fdf4"]);
+    : a.estado==="validado"?["✅ "+a.esquema+" validado","#15803d","#f0fdf4"]
+    : (!a.cotizacion_id&&!a.lote_id)?["🚦 Firmó "+a.esquema+" · en Viabilidad: falta semáforo y cotización","#b45309","#fffbeb"]
+    : ["🧾 Cotización con el cliente","#7c3aed","#f5f3ff"];
   return (
     <div style={{maxWidth:1240,margin:"0 auto",padding:"22px 18px 0",fontFamily:"'DM Sans',system-ui,sans-serif"}}>
       <div style={{background:"#fff",border:"2px solid "+DO,borderRadius:16,overflow:"hidden",boxShadow:"0 10px 40px rgba(15,23,42,.08)"}}>
@@ -1738,8 +1741,8 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
                 <span style={{fontSize:11.5,fontWeight:800,color:et[1],background:et[2],borderRadius:999,padding:"4px 10px"}}>{et[0]}</span>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                   {a.estado==="pendiente"&&<><button onClick={()=>waAsesor(a,msgAcuerdo(a))} style={bt("#25D366","#fff")}>📱 Reenviar acuerdo</button><button onClick={()=>copiar(ligaAc(a))} style={bt("#fff",AZ,"#cbd5e1")}>📋 Liga</button></>}
-                  {a.estado!=="pendiente"&&!a.cotizacion_id&&!a.captacion_id&&!a.lote_id&&<button onClick={()=>onCotizar&&onCotizar(a)} style={{...bt(DO,AZ),fontSize:12.5,padding:"8px 12px",boxShadow:"0 2px 8px rgba(212,175,55,.4)"}}>🧾 Paso 2: Hacer cotización</button>}
-                  {a.cotizacion_id&&!a.captacion_id&&<><button onClick={()=>waAsesor(a,msgCotizacion(a))} style={bt("#25D366","#fff")}>📱 Mandar cotización al asesor</button><button onClick={()=>copiar(ligaCli(a))} style={bt("#fff",AZ,"#cbd5e1")}>📋 Liga del cliente</button></>}
+                  {a.estado==="firmado"&&!a.cotizacion_id&&!a.lote_id&&<button onClick={()=>onCotizar&&onCotizar(a)} style={{...bt(DO,AZ),fontSize:12.5,padding:"8px 12px",boxShadow:"0 2px 8px rgba(212,175,55,.4)"}}>🧾 Paso 2: Hacer cotización</button>}
+                  {a.cotizacion_id&&a.estado!=="validado"&&<><button onClick={()=>waAsesor(a,msgCotizacion(a))} style={bt("#25D366","#fff")}>📱 Mandar cotización al asesor</button><button onClick={()=>copiar(ligaCli(a))} style={bt("#fff",AZ,"#cbd5e1")}>📋 Liga del cliente</button></>}
                   {a.ubicacion_maps&&<a href={a.ubicacion_maps} target="_blank" rel="noopener noreferrer" style={{...bt("#fff",AZ,"#cbd5e1"),textDecoration:"none"}}>📍 Mapa</a>}
                   {a.ubicacion_kmz&&a.ubicacion_kmz.path&&<button onClick={()=>verArchivo(a.ubicacion_kmz)} style={bt("#fff",AZ,"#cbd5e1")}>🗺️ KMZ</button>}
                   {a.plano&&a.plano.path&&<button onClick={()=>verArchivo(a.plano)} style={bt("#fff",AZ,"#cbd5e1")}>📐 Plano</button>}
@@ -16094,7 +16097,7 @@ Respuesta: [respuesta exacta, conversacional]
       const prev=JSON.parse(localStorage.getItem(DK)||"{}")||{};
       localStorage.setItem(DK, JSON.stringify({ ...prev, cliente_id:"", cliente_nombre:a.propietario_nombre||"", cliente_telefono:a.propietario_celular||"", cliente_email:a.propietario_correo||"", asesor_nombre:a.asesor_nombre||"", terreno_nombre:a.terreno_nombre||"", terreno_ciudad:a.terreno_ubicacion||"", terreno_dimensiones:a.terreno_superficie||"", valor_terreno:String(a.terreno_precio||"").replace(/[^0-9.]/g,"") }));
     }catch(e){}
-    acuerdoParaCotRef.current={ id:a.id, folio:a.folio, terreno:a.terreno_nombre };
+    acuerdoParaCotRef.current={ id:a.id, folio:a.folio, terreno:a.terreno_nombre, captacion_id:a.captacion_id||null };
     setCotPrefillVer(v=>v+1);
     toast("🧾 Paso 2: completa la cotización de "+(a.terreno_nombre||"el terreno")+" y pulsa Guardar (queda ligada al acuerdo "+a.folio+")");
     setTimeout(()=>{ try{ const el=document.getElementById("cotizacion-form"); if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }, 300);
@@ -16549,6 +16552,10 @@ Respuesta: [respuesta exacta, conversacional]
       setGuardando(true); setGuardada(null);
       try{
         const row = { cliente_id:(f.cliente_id||"").trim()||null, cliente_nombre:f.cliente_nombre.trim()||null, cliente_telefono:f.cliente_telefono.trim()||null, cliente_email:f.cliente_email.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, terreno_nombre:f.terreno_nombre.trim(), terreno_ciudad:f.terreno_ciudad.trim()||null, terreno_dimensiones:f.terreno_dimensiones.trim()||null, valor_terreno:f.valor_terreno.trim()||null, monto_comision:f.monto_comision.trim()||null, condiciones:f.condiciones.trim()||CONDICIONES_DEFAULT, estatus:f.estatus||"borrador" };
+        // Paso 2: si viene de un acuerdo (alta), la cotización NACE colgada de su tarjeta del
+        // Kanban (captacion_id). Así siempre queda ligada y, al aceptar el cliente, se reutiliza
+        // la MISMA tarjeta (no se duplica).
+        if(acuerdoParaCotRef.current&&acuerdoParaCotRef.current.captacion_id) row.captacion_id=acuerdoParaCotRef.current.captacion_id;
         // EVITA DUPLICADOS: si ya hay una cotización del mismo cliente+terreno, la ACTUALIZA
         // (antes cada "Guardar" creaba una fila nueva → tarjetas repetidas).
         let existente = (guardada && guardada.id) ? guardada : null;
@@ -19951,7 +19958,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.24</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.25</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
