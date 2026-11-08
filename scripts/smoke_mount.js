@@ -222,7 +222,7 @@ async function run(view) {
   console.log('▶ PASO 1 arriba de Cotización: primero el acuerdo del asesor, luego la cotización');
   rpcData.acuerdos_lista = [
     { id: 'p1-pend', folio: 'AC-2026-0010', estado: 'pendiente', token: 'tkp', asesor_nombre: 'Ana Martínez López', asesor_email: 'ana.martinez@grupoguia.mx', terreno_nombre: 'Lote Norte', propietario_nombre: 'Luis Ruiz' },
-    { id: 'p1-firm', folio: 'AC-2026-0011', estado: 'firmado', esquema: '60/40', token: 'tkf', asesor_nombre: 'Ana Martínez López', asesor_email: 'ana.martinez@grupoguia.mx', terreno_nombre: 'Rancho Las Palmas', propietario_nombre: 'Juan Pérez', pdf_path: 'pdf/p1/AC-2026-0011.pdf' },
+    { id: 'p1-firm', folio: 'AC-2026-0011', estado: 'firmado', esquema: '60/40', token: 'tkf', asesor_nombre: 'Ana Martínez López', asesor_email: 'ana.martinez@grupoguia.mx', terreno_nombre: 'Rancho Las Palmas', propietario_nombre: 'Juan Pérez', pdf_path: 'pdf/p1/AC-2026-0011.pdf', origen: 'alta_sin_cuenta', asesor_celular: '33 1234 5678', propietario_celular: '33 9876 5432', propietario_correo: 'juan@correo.com', terreno_ubicacion: 'Zapotlanejo, Jalisco', terreno_superficie: '3.4 ha', terreno_precio: '$18,600,000', ubicacion_maps: 'https://maps.app.goo.gl/abc123', plano: { nombre: 'plano.pdf', path: 'evidencia/p1-firm/plano.pdf', bucket: 'acuerdos-comision' } },
     { id: 'p1-cot', folio: 'AC-2026-0012', estado: 'firmado', esquema: '100/0', token: 'tkc', asesor_nombre: 'Pedro', asesor_email: 'pedro@grupoguia.mx', terreno_nombre: 'Predio Sur', propietario_nombre: 'Rosa', cotizacion_id: '11111111-1111-1111-1111-111111111111' },
   ];
   rpcData.acuerdo_crear = { id: 'nuevo', token: 'tknuevo', folio: 'AC-2026-0013', estado: 'pendiente' };
@@ -231,15 +231,17 @@ async function run(view) {
   const te = e.text();
   const iP1 = te.indexOf('Paso 1 · Un asesor quiere opcionar un terreno'), iP2 = te.indexOf('Paso 2 · Cuando el asesor ya firmó su acuerdo');
   check(iP1 >= 0 && iP2 > iP1, 'Paso 1 está ARRIBA de la cotización (Paso 2)');
-  check(/Mándale primero el Acuerdo de Comisión/.test(te) && /él llena todo/.test(te), 'título claro: liga y PDF fijos, el asesor llena todo');
+  check(/Mándale el Alta de terreno y Acuerdo de Comisión/.test(te) && /sin cuenta/.test(te), 'título claro: liga y PDF fijos, sin cuenta, el asesor llena todo');
   const aWA = [...E.querySelectorAll('a')].find((x) => /📱 Mandar por WhatsApp/.test(x.textContent));
   const href = aWA ? decodeURIComponent(aWA.getAttribute('href')) : '';
-  check(/^https:\/\/wa\.me\/\?text=/.test(href) && href.includes('https://macrolotes.grupoguia.mx/acuerdo\n') && href.includes('https://macrolotes.grupoguia.mx/acuerdo-comision.pdf'), 'WhatsApp lleva la liga fija /acuerdo y el PDF');
+  check(/^https:\/\/wa\.me\/\?text=/.test(href) && href.includes('https://macrolotes.grupoguia.mx/acuerdo\n') && href.includes('https://macrolotes.grupoguia.mx/acuerdo-comision.pdf') && /no necesitas cuenta/.test(href) && /33 1605 7715/.test(href), 'WhatsApp lleva la liga fija /acuerdo, el PDF, "no necesitas cuenta" y el teléfono de dudas');
   check([...E.querySelectorAll('button')].some((x) => /📄 Compartir PDF/.test(x.textContent)) && [...E.querySelectorAll('a')].some((x) => /👁 Ver PDF/.test(x.textContent) && /acuerdo-comision\.pdf$/.test(x.getAttribute('href'))), 'botones Compartir PDF y Ver PDF');
   check(!E.querySelector('input[placeholder="Ej. Rancho Las Palmas"]') && !/Mandar acuerdo al asesor/.test(te), 'ya no hay formulario: no hay que llenar nada para mandarlo');
   check(/mándame el acuerdo de comisión/.test(te), 'indica que también lo da G-IA');
   const t2 = e.text();
-  check(/⏳ Esperando firma del asesor/.test(t2) && /✍️ Firmó 60\/40 · falta cotización/.test(t2) && /🧾 Cotización con el cliente/.test(t2), 'la lista de trámites muestra en qué paso va cada asesor (incluye los que él mismo inició)');
+  check(/⏳ Esperando firma del asesor/.test(t2) && /🚦 Firmó 60\/40 · dar de alta en semáforo y hacer cotización/.test(t2) && /🧾 Cotización con el cliente/.test(t2), 'la lista de trámites muestra en qué paso va cada asesor (incluye los que él mismo inició)');
+  check(/Zapotlanejo, Jalisco · 3\.4 ha · pide \$18,600,000/.test(t2) && /Juan Pérez · 33 9876 5432 · juan@correo\.com/.test(t2) && /33 1234 5678/.test(t2), 'cada trámite muestra terreno, superficie, precio y contactos del asesor y del cliente');
+  check([...E.querySelectorAll('a')].some((x) => /📍 Mapa/.test(x.textContent) && x.getAttribute('href') === 'https://maps.app.goo.gl/abc123') && [...E.querySelectorAll('button')].some((x) => /📐 Plano/.test(x.textContent)), 'botones 📍 Mapa (liga de Google) y 📐 Plano');
   const bP2 = [...E.querySelectorAll('button')].find((x) => /🧾 Paso 2: Hacer cotización/.test(x.textContent));
   check(!!bP2, 'acuerdo firmado sin cotización → botón "🧾 Paso 2: Hacer cotización"');
   check([...E.querySelectorAll('button')].some((x) => /📱 Mandar cotización al asesor/.test(x.textContent)), 'con cotización → "📱 Mandar cotización al asesor"');
@@ -247,6 +249,8 @@ async function run(view) {
   const E2 = e.w.document;
   const terrenoForm = [...E2.querySelectorAll('input')].find((x) => x.value === 'Rancho Las Palmas');
   check(!!terrenoForm, 'Paso 2 llena la cotización con el terreno del acuerdo');
+  const vals = [...E2.querySelectorAll('input')].map((x) => x.value);
+  check(vals.includes('33 9876 5432') && vals.includes('juan@correo.com') && vals.includes('Zapotlanejo, Jalisco') && vals.includes('3.4 ha') && vals.some((v) => /18,?600,?000/.test(v)), 'la cotización se llena sola: celular y correo del cliente, municipio, superficie y precio');
   check(/Esta cotización se ligará al acuerdo AC-2026-0011/.test(e.text()), 'avisa que la cotización se ligará al acuerdo');
   rpcCalls.length = 0;
   const bG = [...E2.querySelectorAll('button')].find((x) => /💾 Guardar/.test(x.textContent));
