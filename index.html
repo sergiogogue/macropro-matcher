@@ -16158,11 +16158,17 @@ Respuesta: [respuesta exacta, conversacional]
     };
     React.useEffect(()=>{ cargarAcuerdos(); }, [guardada, acuerdosVer]);
     const acuerdoDe=(r)=> r ? (acuerdosIdx.cot[r.id] || (r.captacion_id && acuerdosIdx.cap[r.captacion_id]) || null) : null;
-    const botonAcuerdo=(r, grande)=>{
+    // Botón del ASESOR (acuerdo de comisión): dorado y con su estatus a la vista.
+    const botonAcuerdo=(r)=>{
       const ac=acuerdoDe(r); const st=ac&&ac.estado;
-      const lbl=!ac?"🤝 Asesor":(st==="pendiente"?"🤝 Por firmar":(st==="firmado"?("🤝 "+ac.esquema+" · validar"):("🤝 "+ac.esquema+" ✓")));
-      const c=!ac?["#cbd5e1","#fff",AZUL]:(st==="pendiente"?["#fcd34d","#fffbeb","#92400e"]:(st==="firmado"?["#93c5fd","#eff6ff","#1d4ed8"]:["#86efac","#f0fdf4","#15803d"]));
-      return <button onClick={()=>setAcuerdoCot(r)} title="Acuerdo de comisión del asesor: mándale la liga para que inicie el trámite de opción y firme su esquema" style={{padding:grande?"9px 15px":"6px 10px",borderRadius:grande?9:8,border:"1.5px solid "+c[0],background:c[1],color:c[2],fontSize:grande?13:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{grande&&!ac?"🤝 Enviar al asesor":lbl}</button>;
+      const lbl=!ac?"🤝 Enviar al asesor":(st==="pendiente"?"⏳ Asesor: por firmar":(st==="firmado"?("✍️ "+ac.esquema+" firmado · validar"):("✅ "+ac.esquema+" validado")));
+      const c=!ac?[DORADO,DORADO,AZUL]:(st==="pendiente"?["#f59e0b","#fffbeb","#92400e"]:(st==="firmado"?["#3b82f6","#eff6ff","#1d4ed8"]:["#22c55e","#f0fdf4","#15803d"]));
+      return (
+        <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"flex-start"}}>
+          <button onClick={()=>setAcuerdoCot(r)} title="Mándale al asesor su Acuerdo de Comisión y la liga de la cotización para su cliente" style={{padding:"8px 12px",borderRadius:9,border:"2px solid "+c[0],background:c[1],color:c[2],fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",boxShadow:!ac?"0 2px 8px rgba(212,175,55,.35)":"none"}}>{lbl}</button>
+          <span style={{fontSize:11,color:"#64748b",paddingLeft:2}}>{ac?(ac.asesor_nombre||ac.asesor_email):(r.asesor_nombre?("Asesor: "+r.asesor_nombre):"Sin asesor")}</span>
+        </div>
+      );
     };
     const [docBusy,setDocBusy]=useState("");
     const docCount=(id)=>{ const m=docsByCot[id]||{}; return OPC_TIPOS.filter(d=>m[d.k]).length; };
@@ -16455,6 +16461,7 @@ Respuesta: [respuesta exacta, conversacional]
         if(error) throw error;
         setGuardada(data); toast("💾 Cotización guardada");
         cargarHistorial();
+        return data;
       }catch(e){ toast("❌ No se pudo guardar: "+((e&&e.message)||e)); }
       finally{ setGuardando(false); }
     };
@@ -16531,7 +16538,7 @@ Respuesta: [respuesta exacta, conversacional]
               <button onClick={guardar} disabled={guardando} style={{padding:"9px 15px",borderRadius:9,border:"none",background:guardando?"#94a3b8":AZUL,color:"#fff",fontSize:13,fontWeight:700,cursor:guardando?"wait":"pointer",fontFamily:"inherit"}}>{guardando?"Guardando…":"💾 Guardar"}</button>
               <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada)} style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+DORADO,background:"transparent",color:(f.terreno_nombre.trim()&&!pdfBusy)?"#92400e":"#cbd5e1",fontSize:13,fontWeight:700,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>{pdfBusy?"Generando…":"📄 Generar PDF"}</button>
               <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada,{share:true})} title="Genera el PDF y lo comparte (en celular se adjunta directo en WhatsApp)" style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+((f.terreno_nombre.trim()&&!pdfBusy)?"#25D366":"#e5e7eb"),background:"transparent",color:(f.terreno_nombre.trim()&&!pdfBusy)?"#15803d":"#94a3b8",fontSize:13,fontWeight:700,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 Compartir cotización</button>
-              {guardada&&botonAcuerdo(guardada,true)}
+              <button disabled={guardando||!f.terreno_nombre.trim()} onClick={async()=>{ const d=guardada||await guardar(); if(d) setAcuerdoCot(d); }} title="Guarda la cotización y le manda al asesor su Acuerdo de Comisión + la liga para su cliente" style={{padding:"9px 15px",borderRadius:9,border:"none",background:f.terreno_nombre.trim()?DORADO:"#e5e7eb",color:f.terreno_nombre.trim()?AZUL:"#94a3b8",fontSize:13,fontWeight:800,cursor:f.terreno_nombre.trim()?"pointer":"not-allowed",fontFamily:"inherit",boxShadow:f.terreno_nombre.trim()?"0 2px 10px rgba(212,175,55,.4)":"none"}}>🤝 Enviar al asesor</button>
             </div>
             {guardada && (<div style={{fontSize:12,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:10,padding:"8px 11px"}}>✅ Guardada (id: {String(guardada.id).slice(0,8)}…). Lista para el PDF del Paso 4.</div>)}
             </div>{/* fin columna izquierda (campos) */}
@@ -16617,6 +16624,7 @@ Respuesta: [respuesta exacta, conversacional]
                             <th style={{padding:"8px 10px"}}>Valor</th>
                             <th style={{padding:"8px 10px"}}>Comisión</th>
                             <th style={{padding:"8px 10px"}}>Estatus</th>
+                            <th style={{padding:"8px 10px"}}>Asesor · Acuerdo</th>
                             <th style={{padding:"8px 10px",textAlign:"right"}}>Acciones</th>
                           </tr>
                         </thead>
@@ -16631,6 +16639,7 @@ Respuesta: [respuesta exacta, conversacional]
                                 <td style={{padding:"8px 10px",color:"#334155",whiteSpace:"nowrap"}}>{r.valor_terreno||"—"}</td>
                                 <td style={{padding:"8px 10px",color:"#334155"}}>{r.monto_comision||"—"}</td>
                                 <td style={{padding:"8px 10px"}}><span style={{background:m[2],color:m[1],borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800}}>{m[3]||m[0]}</span></td>
+                                <td style={{padding:"8px 10px"}}>{botonAcuerdo(r)}</td>
                                 <td style={{padding:"8px 10px"}}>
                                   <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
                                     {r.captacion_id ? (()=>{ const cap=(captaciones||[]).find(x=>x&&x.id===r.captacion_id); const ed=cap?estadoDocsCaptacion(cap):null; return (
@@ -16640,7 +16649,6 @@ Respuesta: [respuesta exacta, conversacional]
                                     ) : (
                                       <span title="Los documentos se reciben cuando el propietario acepta" style={{padding:"6px 10px",borderRadius:8,border:"1.5px dashed #e5e7eb",color:"#94a3b8",fontSize:11.5,fontWeight:800}}>⏳ Sin aceptar</span>
                                     ))}
-                                    {botonAcuerdo(r)}
                                     <button onClick={()=>copiarTxt(ligaAceptar(r))} title="Copiar la liga de aceptación del cliente" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📋 Liga</button>
                                     <button onClick={()=>waLiga(r)} title="Enviar la liga por WhatsApp al cliente" style={{padding:"6px 10px",borderRadius:8,border:"none",background:"#25D366",color:"#fff",fontSize:11.5,fontWeight:800,cursor:"pointer"}}>🟢 WA</button>
                                     <button disabled={pdfBusy} onClick={()=>generarPDF(r)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:pdfBusy?"not-allowed":"pointer",opacity:pdfBusy?0.5:1}}>📄 PDF</button>
@@ -19822,7 +19830,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.20</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.21</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
