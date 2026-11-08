@@ -107,6 +107,34 @@ async function run(view) {
   check(/📂 Ficha/.test(tb), 'Sergio (aceptada) muestra "📂 Ficha"');
   check(/⏳ Sin aceptar/.test(tb), 'julio (pendiente) muestra "⏳ Sin aceptar"');
 
+  console.log('▶ Panel: 🤝 mandar al asesor desde la COTIZACIÓN');
+  {
+    const D = b.w.document;
+    const bAs = [...D.querySelectorAll('button')].filter((x) => /^🤝 Asesor$/.test(x.textContent.trim()));
+    check(bAs.length >= 2, 'cada cotización del Panel tiene el botón "🤝 Asesor" (' + bAs.length + ')');
+    const filaJulio = [...D.querySelectorAll('tr')].find((tr) => /julio/i.test(tr.textContent) && /🤝/.test(tr.textContent));
+    const btnJ = filaJulio && [...filaJulio.querySelectorAll('button')].find((x) => /🤝/.test(x.textContent));
+    if (btnJ) { btnJ.dispatchEvent(new b.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 1500)); }
+    const tm = b.text();
+    check(/Trámite de opción · Asesor/.test(tm) && /una sola liga por WhatsApp/.test(tm), 'se abre el modal del trámite (también para cotizaciones SIN aceptar)');
+    check(/📄 PDF de la cotización/.test(tm) && /📋 Liga para el cliente/.test(tm), 'el modal trae el PDF de la cotización y la liga para el cliente');
+    const sel = [...D.querySelectorAll('select')].find((x) => /Asesor opcionador \(con correo\)/.test(x.textContent));
+    if (sel) {
+      const setter = Object.getOwnPropertyDescriptor(b.w.HTMLSelectElement.prototype, 'value').set;
+      setter.call(sel, 'ana.martinez@grupoguia.mx'); sel.dispatchEvent(new b.w.Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    rpcCalls.length = 0
+    const gen = [...D.querySelectorAll('button')].find((x) => /Generar Acuerdo de Comisión/.test(x.textContent));
+    if (gen) { gen.dispatchEvent(new b.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 800)); }
+    const call = rpcCalls.find((c) => c[0] === 'acuerdo_crear');
+    check(!!call && call[1].p_cotizacion_id && !call[1].p_captacion_id && call[1].p_asesor_email === 'ana.martinez@grupoguia.mx', 'genera el acuerdo DESDE LA COTIZACIÓN (aunque el propietario no haya aceptado)');
+    const cerrar = [...D.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Listo');
+    if (cerrar) { cerrar.dispatchEvent(new b.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 300)); }
+    check(!/Trámite de opción · Asesor/.test(b.text()), '"Listo" cierra el modal');
+    check(b.errs.length === 0, 'sin errores en el trámite con el asesor' + (b.errs.length ? ': ' + b.errs.slice(0, 2).join(' | ') : ''));
+  }
+
   console.log('▶ Abrir la ficha desde el Panel');
   const btn = [...b.w.document.querySelectorAll('button')].find((x) => /📂 Ficha/.test(x.textContent));
   if (btn) { btn.dispatchEvent(new b.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 1500)); }
@@ -175,8 +203,9 @@ async function run(view) {
   check(c2.errs.length === 0, 'sin errores en el flujo de Intelligence' + (c2.errs.length ? ':\n     ' + c2.errs.slice(0, 3).join('\n     ') : ''));
 
   console.log('▶ Acuerdo ya firmado 60/40: estatus, PDF y validar');
-  rpcData.acuerdos_lista = [{ id: '11111111-2222-3333-4444-555555555555', folio: 'AC-2026-0001', estado: 'firmado', esquema: '60/40', asesor_nombre: 'Ana Martínez López', asesor_email: 'ana.martinez@grupoguia.mx', firmado_at: '2026-11-08T00:42:15Z', firma_ip: '189.203.45.12', pdf_path: 'pdf/x/AC-2026-0001.pdf', token: 't' }];
+  rpcData.acuerdos_lista = [{ id: '11111111-2222-3333-4444-555555555555', folio: 'AC-2026-0001', estado: 'firmado', esquema: '60/40', cotizacion_id: '0f1ccddf-61b2-4e87-bdde-a8303b399e2e', captacion_id: 'capta-opc-0f1ccddf-61b2-4e87-bdde-a8303b399e2e', asesor_nombre: 'Ana Martínez López', asesor_email: 'ana.martinez@grupoguia.mx', firmado_at: '2026-11-08T00:42:15Z', firma_ip: '189.203.45.12', pdf_path: 'pdf/x/AC-2026-0001.pdf', token: 't' }];
   const d = await run('pitch');
+  check(/🤝 60\/40 · validar/.test(d.text()), 'en el Panel, la cotización con acuerdo firmado muestra "🤝 60/40 · validar"');
   const bd = [...d.w.document.querySelectorAll('button')].find((x) => /📂 Ficha/.test(x.textContent));
   if (bd) { bd.dispatchEvent(new d.w.MouseEvent('click', { bubbles: true })); await new Promise((r) => setTimeout(r, 1500)); }
   const td = d.text();

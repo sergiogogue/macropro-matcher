@@ -1525,13 +1525,15 @@ const B = {
 // SQL: grupoguiamacrolotes-landing/supabase/acuerdo_comision.sql
 const LANDING_URL = "https://macrolotes.grupoguia.mx";
 const ESQ_ACUERDO = { "100/0":{nombre:"Asesor opcionador lo trabaja", asesor:100, macrolotes:0}, "60/40":{nombre:"Macrolotes vende", asesor:60, macrolotes:40} };
-function AcuerdoComisionCaptacion({ cap, asesores, onToast, asegurarNube }){
+function AcuerdoComisionCaptacion({ cap, cotizacion, asesores, onToast, asegurarNube, onCambio }){
   const [acuerdo,setAcuerdo]=React.useState(undefined); // undefined = cargando · null = no hay
   const [email,setEmail]=React.useState("");
   const [busy,setBusy]=React.useState("");
   const [msg,setMsg]=React.useState("");
   const [adenda,setAdenda]=React.useState(false);
   const capId=cap&&cap.id;
+  const cot=cotizacion||null;   // desde la COTIZACIÓN (antes de que el propietario acepte)
+  const ligaCliente=cot?(LANDING_URL+"/aceptar?c="+cot.id):"";
   const norm=(s)=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().trim();
   // Cuentas que pueden firmar: catálogo de asesores de la Landing (landing_colaboradores)
   // + public.asesores. Sin duplicar correos.
@@ -1539,29 +1541,30 @@ function AcuerdoComisionCaptacion({ cap, asesores, onToast, asegurarNube }){
   React.useEffect(()=>{ if(!window.sb) return; window.sb.rpc("landing_asesores_catalogo").then(({data})=>setCatLanding((data||[]).map(x=>({nombre:x.nombre||"",email:String(x.email||"").trim().toLowerCase()})))).catch(()=>{}); },[]);
   const lista=React.useMemo(()=>{ const m=new Map(); [...catLanding,...(Array.isArray(asesores)?asesores:[])].forEach(a=>{ const em=String(a&&a.email||"").trim().toLowerCase(); if(em&&!m.has(em)) m.set(em,{...a,email:em}); else if(em&&a.telefono&&!m.get(em).telefono) m.set(em,{...m.get(em),telefono:a.telefono}); }); return [...m.values()].sort((x,y)=>String(x.nombre).localeCompare(String(y.nombre),"es")); },[catLanding,asesores]);
   const cargar=async()=>{
-    if(!window.sb||!capId){ setAcuerdo(null); return; }
+    if(!window.sb||(!capId&&!cot)){ setAcuerdo(null); return; }
     try{
-      const {data,error}=await window.sb.rpc("acuerdos_lista",{p_captacion_id:capId,p_lote_id:null});
+      const {data,error}=await window.sb.rpc("acuerdos_lista",capId?{p_captacion_id:capId,p_lote_id:null}:{p_captacion_id:null,p_lote_id:null,p_cotizacion_id:cot.id});
       if(error) throw error;
-      setAcuerdo((data||[]).find(a=>a.estado!=="anulado")||null);
+      const vig=(data||[]).find(a=>a.estado!=="anulado")||null;
+      setAcuerdo(vig); if(onCambio) onCambio(vig);
     }catch(e){ setAcuerdo(null); setMsg(/does not exist|schema cache/i.test(String(e.message))?"Falta correr supabase/acuerdo_comision.sql en Supabase.":String(e.message||e)); }
   };
-  React.useEffect(()=>{ cargar(); }, [capId]); // eslint-disable-line
+  React.useEffect(()=>{ cargar(); }, [capId, cot&&cot.id]); // eslint-disable-line
   // Sugerir el asesor responsable de la captación (por nombre) si tiene correo.
   React.useEffect(()=>{
     if(email) return;
-    const n=norm(cap&&cap.asesorResponsableGG);
+    const n=norm((cap&&cap.asesorResponsableGG)||(cot&&cot.asesor_nombre));
     const m=n&&lista.find(a=>norm(a.nombre)===n);
     if(m) setEmail(m.email);
-  }, [cap&&cap.asesorResponsableGG, lista.length]); // eslint-disable-line
+  }, [cap&&cap.asesorResponsableGG, cot&&cot.asesor_nombre, lista.length]); // eslint-disable-line
   const liga=acuerdo&&acuerdo.token?(LANDING_URL+"/acuerdo/"+acuerdo.token):"";
   const sesionToken=async()=>{ try{ const {data}=await window.sb.auth.getSession(); return (data&&data.session&&data.session.access_token)||""; }catch(e){ return ""; } };
   const generar=async()=>{
     setBusy("gen"); setMsg("");
     try{
-      if(asegurarNube) await asegurarNube();
+      if(asegurarNube&&capId) await asegurarNube();
       const sel=lista.find(a=>a.email===email);
-      const {data,error}=await window.sb.rpc("acuerdo_crear",{p_captacion_id:capId,p_lote_id:null,p_asesor_email:email,p_asesor_nombre:(sel&&sel.nombre)||null,p_adenda:adenda,p_motivo:adenda?"Adenda: cambio de esquema solicitado":null,p_semaforo_ok:null});
+      const {data,error}=await window.sb.rpc("acuerdo_crear",{...(capId?{p_captacion_id:capId}:{p_captacion_id:null,p_cotizacion_id:cot.id}),p_lote_id:null,p_asesor_email:email,p_asesor_nombre:(sel&&sel.nombre)||null,p_adenda:adenda,p_motivo:adenda?"Adenda: cambio de esquema solicitado":null,p_semaforo_ok:null});
       if(error) throw error;
       setAdenda(false); await cargar();
       setMsg("Liga lista · folio "+data.folio+". Mándasela al asesor.");
@@ -1571,7 +1574,10 @@ function AcuerdoComisionCaptacion({ cap, asesores, onToast, asegurarNube }){
   const whatsapp=()=>{
     const sel=lista.find(a=>a.email===acuerdo.asesor_email)||{};
     const tel=String(sel.telefono||acuerdo.asesor_celular||"").replace(/\D/g,"");
-    const t="Hola "+String(acuerdo.asesor_nombre||"").split(" ")[0]+", te comparto tu *Acuerdo de Comisión* del terreno *"+(acuerdo.terreno_nombre||"")+"* (propietario: "+(acuerdo.propietario_nombre||"—")+"). Entra con tu cuenta de Grupo Guía, elige tu esquema (100/0 ó 60/40) y fírmalo aquí:\n"+liga;
+    const cli=ligaCliente||(acuerdo.cotizacion_id?(LANDING_URL+"/aceptar?c="+acuerdo.cotizacion_id):"");
+    const t="Hola "+String(acuerdo.asesor_nombre||"").split(" ")[0]+", iniciamos el trámite de opción del terreno *"+(acuerdo.terreno_nombre||"")+"* (propietario: "+(acuerdo.propietario_nombre||"—")+").\n\n"
+      +"1️⃣ *Tu Acuerdo de Comisión*: entra con tu cuenta de Grupo Guía, elige tu esquema (100/0 ó 60/40) y fírmalo aquí:\n"+liga
+      +(cli&&!acuerdo.captacion_id?("\n\n2️⃣ *Cotización para tu cliente*: compártela para que acepte las condiciones y suba sus documentos:\n"+cli):"");
     window.open("https://wa.me/"+(tel?(tel.length===10?"52"+tel:tel):"")+"?text="+encodeURIComponent(t),"_blank","noopener");
   };
   const funcion=async(accion)=>{
@@ -1615,7 +1621,8 @@ function AcuerdoComisionCaptacion({ cap, asesores, onToast, asegurarNube }){
           {e&&<div style={{marginTop:6,fontSize:12.5,color:B.navy}}>Esquema <b>{acuerdo.esquema} · {e.nombre}</b> — Asesor <b>{e.asesor}%</b> · Macrolotes <b>{e.macrolotes}%</b> · firmado {fmt(acuerdo.firmado_at)}{acuerdo.firma_ip?(" · IP "+acuerdo.firma_ip):""}</div>}
           {acuerdo.validado_at&&<div style={{fontSize:11.5,color:"#15803d",marginTop:3}}>Validado {fmt(acuerdo.validado_at)} por {acuerdo.validado_por}</div>}
           {acuerdo.estado==="pendiente"&&<div style={{fontSize:11,color:B.grey4,marginTop:4,wordBreak:"break-all"}}>{liga}</div>}
-          {acuerdo.estado==="pendiente"&&!cap.viabilidad_100&&<div style={{fontSize:11.5,color:"#b45309",marginTop:4}}>⚠ El asesor no podrá firmar hasta que marques “Semáforo de Viabilidad al 100%” y guardes la ficha.</div>}
+          {acuerdo.estado==="firmado"&&cap&&!cap.viabilidad_100&&<div style={{fontSize:11.5,color:"#b45309",marginTop:4}}>⚠ Para validar: marca “Semáforo de Viabilidad al 100%” y guarda la ficha (condición de entrada).</div>}
+          {!acuerdo.captacion_id&&acuerdo.cotizacion_id&&<div style={{fontSize:11.5,color:"#b45309",marginTop:4}}>⏳ El propietario aún no acepta la cotización. El asesor ya puede firmar; se valida cuando sea captación con semáforo al 100%.</div>}
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
             {acuerdo.estado==="pendiente"&&<>
               <button type="button" style={bt(true)} onClick={whatsapp}>📱 Mandar liga por WhatsApp</button>
@@ -1639,7 +1646,7 @@ function AcuerdoComisionCaptacion({ cap, asesores, onToast, asegurarNube }){
             </select>
             <button type="button" disabled={!email||!!busy} style={{...bt(true),opacity:(!email||busy)?0.5:1}} onClick={generar}>{busy==="gen"?"Generando…":(acuerdo&&acuerdo.estado==="pendiente"?"Actualizar liga":(adenda?"Generar adenda":"Generar Acuerdo de Comisión"))}</button>
           </div>
-          <div style={{fontSize:11,color:B.grey4,marginTop:6}}>El asesor elige su esquema (100/0 ó 60/40) y firma con su cuenta. Requisitos para firmar: semáforo al 100%, plano y ubicación (Maps o KMZ). Le llega el PDF por correo y queda en su ficha.</div>
+          <div style={{fontSize:11,color:B.grey4,marginTop:6}}>El asesor elige su esquema (100/0 ó 60/40) y firma con su cuenta; para firmar sube plano y ubicación (Maps o KMZ). Le llega el PDF por correo y queda en su ficha. El esquema surte efecto con el semáforo al 100% (se exige al validar).</div>
         </div>
       )}
       {msg&&<div style={{fontSize:11.5,color:B.navy,marginTop:6,wordBreak:"break-all"}}>{msg}</div>}
@@ -15973,6 +15980,12 @@ Respuesta: [respuesta exacta, conversacional]
     "4 fotos del terreno",
   ];
   const DOCS_NOTA = "Los documentos deben enviarse en PDF (no fotos), salvo las 4 fotos del terreno. Si aún no hay escritura, envíe copia del contrato de compraventa.";
+  // Trámite de opción con el asesor (🤝): el estado vive AQUÍ (componente principal) y el
+  // modal se dibuja fuera de ViewPitchCotizacion, porque esa vista se reconstruye cada vez
+  // que MacroPro se actualiza y perdería el modal abierto.
+  const [acuerdoCotG,setAcuerdoCotG]=React.useState(null);
+  const [acuerdosVer,setAcuerdosVer]=React.useState(0);
+  const pitchFns=React.useRef({});
   const ViewPitchCotizacion = () => {
     const AZUL = "#0f172a", DORADO = "#d4af37";
     const DRAFT_KEY = "macropro_cotizador_draft_v1";
@@ -16134,6 +16147,23 @@ Respuesta: [respuesta exacta, conversacional]
     // WhatsApp o correo, sin salir de la pantalla de cotizaciones.
     const OPC_TIPOS=[{k:"escrituras",t:"Escrituras"},{k:"uso_suelo",t:"Uso de Suelo"},{k:"libertad_gravamen",t:"Libertad de gravamen"},{k:"ine",t:"INE"},{k:"plano",t:"Plano"},{k:"predial",t:"Predial"},{k:"ubicacion",t:"Ubicación"},{k:"fotos",t:"Fotos"}];
     const [docCot,setDocCot]=useState(null);
+    // 🤝 Acuerdo de comisión del asesor por cotización (para que inicie el trámite de opción).
+    const setAcuerdoCot=setAcuerdoCotG;
+    const [acuerdosIdx,setAcuerdosIdx]=useState({cot:{},cap:{}});
+    const cargarAcuerdos=async()=>{
+      if(!window.sb) return;
+      try{ const {data,error}=await window.sb.rpc("acuerdos_lista",{p_captacion_id:null,p_lote_id:null}); if(error) throw error;
+        const idx={cot:{},cap:{}}; (data||[]).filter(a=>a&&a.estado!=="anulado").forEach(a=>{ if(a.cotizacion_id) idx.cot[a.cotizacion_id]=a; if(a.captacion_id) idx.cap[a.captacion_id]=a; }); setAcuerdosIdx(idx);
+      }catch(e){ /* sin el SQL del acuerdo: el botón sigue funcionando y muestra el aviso */ }
+    };
+    React.useEffect(()=>{ cargarAcuerdos(); }, [guardada, acuerdosVer]);
+    const acuerdoDe=(r)=> r ? (acuerdosIdx.cot[r.id] || (r.captacion_id && acuerdosIdx.cap[r.captacion_id]) || null) : null;
+    const botonAcuerdo=(r, grande)=>{
+      const ac=acuerdoDe(r); const st=ac&&ac.estado;
+      const lbl=!ac?"🤝 Asesor":(st==="pendiente"?"🤝 Por firmar":(st==="firmado"?("🤝 "+ac.esquema+" · validar"):("🤝 "+ac.esquema+" ✓")));
+      const c=!ac?["#cbd5e1","#fff",AZUL]:(st==="pendiente"?["#fcd34d","#fffbeb","#92400e"]:(st==="firmado"?["#93c5fd","#eff6ff","#1d4ed8"]:["#86efac","#f0fdf4","#15803d"]));
+      return <button onClick={()=>setAcuerdoCot(r)} title="Acuerdo de comisión del asesor: mándale la liga para que inicie el trámite de opción y firme su esquema" style={{padding:grande?"9px 15px":"6px 10px",borderRadius:grande?9:8,border:"1.5px solid "+c[0],background:c[1],color:c[2],fontSize:grande?13:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{grande&&!ac?"🤝 Enviar al asesor":lbl}</button>;
+    };
     const [docBusy,setDocBusy]=useState("");
     const docCount=(id)=>{ const m=docsByCot[id]||{}; return OPC_TIPOS.filter(d=>m[d.k]).length; };
     const verDocCot=async(row)=>{ try{ const {data,error}=await window.sb.storage.from("documentos-opcionador").createSignedUrl(row.url,180); if(error) throw error; window.open(data.signedUrl,"_blank"); }catch(e){ toast("No se pudo abrir el archivo"); } };
@@ -16432,6 +16462,7 @@ Respuesta: [respuesta exacta, conversacional]
     const wrapW={maxWidth:1240,margin:"0 auto",padding:"22px 18px 26px",fontFamily:"'DM Sans',system-ui,sans-serif"};
     const card={background:"#fff",border:"1px solid #e5e7eb",borderRadius:16,overflow:"hidden",boxShadow:"0 10px 40px rgba(15,23,42,.08)"};
     const header={background:AZUL,color:"#fff",padding:"22px 26px",display:"flex",alignItems:"center",justifyContent:"space-between"};
+    pitchFns.current={ generarPDF, copiarTxt, ligaAceptar };
     const bodyS={padding:"22px 26px",display:"flex",flexDirection:"column",gap:14};
     const lb={fontSize:11,fontWeight:800,color:AZUL,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5,display:"block"};
     const inp={width:"100%",padding:"11px 12px",borderRadius:10,border:"1.5px solid #e5e7eb",fontSize:14,color:AZUL,outline:"none",fontFamily:"inherit",background:"#fff"};
@@ -16500,6 +16531,7 @@ Respuesta: [respuesta exacta, conversacional]
               <button onClick={guardar} disabled={guardando} style={{padding:"9px 15px",borderRadius:9,border:"none",background:guardando?"#94a3b8":AZUL,color:"#fff",fontSize:13,fontWeight:700,cursor:guardando?"wait":"pointer",fontFamily:"inherit"}}>{guardando?"Guardando…":"💾 Guardar"}</button>
               <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada)} style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+DORADO,background:"transparent",color:(f.terreno_nombre.trim()&&!pdfBusy)?"#92400e":"#cbd5e1",fontSize:13,fontWeight:700,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>{pdfBusy?"Generando…":"📄 Generar PDF"}</button>
               <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada,{share:true})} title="Genera el PDF y lo comparte (en celular se adjunta directo en WhatsApp)" style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+((f.terreno_nombre.trim()&&!pdfBusy)?"#25D366":"#e5e7eb"),background:"transparent",color:(f.terreno_nombre.trim()&&!pdfBusy)?"#15803d":"#94a3b8",fontSize:13,fontWeight:700,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 Compartir cotización</button>
+              {guardada&&botonAcuerdo(guardada,true)}
             </div>
             {guardada && (<div style={{fontSize:12,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:10,padding:"8px 11px"}}>✅ Guardada (id: {String(guardada.id).slice(0,8)}…). Lista para el PDF del Paso 4.</div>)}
             </div>{/* fin columna izquierda (campos) */}
@@ -16608,6 +16640,7 @@ Respuesta: [respuesta exacta, conversacional]
                                     ) : (
                                       <span title="Los documentos se reciben cuando el propietario acepta" style={{padding:"6px 10px",borderRadius:8,border:"1.5px dashed #e5e7eb",color:"#94a3b8",fontSize:11.5,fontWeight:800}}>⏳ Sin aceptar</span>
                                     ))}
+                                    {botonAcuerdo(r)}
                                     <button onClick={()=>copiarTxt(ligaAceptar(r))} title="Copiar la liga de aceptación del cliente" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📋 Liga</button>
                                     <button onClick={()=>waLiga(r)} title="Enviar la liga por WhatsApp al cliente" style={{padding:"6px 10px",borderRadius:8,border:"none",background:"#25D366",color:"#fff",fontSize:11.5,fontWeight:800,cursor:"pointer"}}>🟢 WA</button>
                                     <button disabled={pdfBusy} onClick={()=>generarPDF(r)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:pdfBusy?"not-allowed":"pointer",opacity:pdfBusy?0.5:1}}>📄 PDF</button>
@@ -19789,7 +19822,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.19</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.20</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
@@ -19850,6 +19883,29 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="asesores"&&<ViewAsesores/>}
       {view==="captacion"&&<ViewCaptacion/>}
       {view==="pitch"&&<ViewPitchCotizacion/>}
+      {view==="pitch" && acuerdoCotG && (
+        <div onClick={()=>{ setAcuerdoCotG(null); setAcuerdosVer(v=>v+1); }} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:640,width:"100%",maxHeight:"90vh",overflow:"auto",boxShadow:"0 24px 70px rgba(0,0,0,.35)"}}>
+            <div style={{background:"#0f172a",color:"#fff",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,padding:"18px 22px",position:"sticky",top:0,zIndex:1,borderBottom:"3px solid #d4af37"}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:"#d4af37"}}>Trámite de opción · Asesor</div>
+                <div style={{fontSize:18,fontWeight:800,marginTop:2}}>{acuerdoCotG.terreno_nombre||"Terreno"}</div>
+                <div style={{fontSize:12.5,color:"#cbd5e1"}}>Cliente: {acuerdoCotG.cliente_nombre||"—"}{acuerdoCotG.asesor_nombre?(" · Asesor: "+acuerdoCotG.asesor_nombre):""}</div>
+              </div>
+              <button onClick={()=>{ setAcuerdoCotG(null); setAcuerdosVer(v=>v+1); }} style={{background:"transparent",border:"1px solid rgba(255,255,255,.3)",color:"#fff",borderRadius:8,padding:"6px 10px",cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+            </div>
+            <div style={{padding:"16px 20px"}}>
+              <div style={{fontSize:12.5,color:"#475569",marginBottom:12,lineHeight:1.55}}>Mándale al asesor <b>una sola liga por WhatsApp</b> con su <b>Acuerdo de Comisión</b> (entra con su cuenta, elige 100/0 ó 60/40 y firma; le llega el PDF y queda en su ficha) y la <b>liga de la cotización para su cliente</b> (acepta las condiciones y sube sus documentos).</div>
+              <AcuerdoComisionCaptacion cotizacion={acuerdoCotG} asesores={asesoresCloud} onToast={toast} onCambio={()=>{}}/>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",borderTop:"1px solid #eef2f7",paddingTop:12}}>
+                <button onClick={()=>pitchFns.current.generarPDF&&pitchFns.current.generarPDF(acuerdoCotG)} style={{padding:"8px 13px",borderRadius:8,border:"1.5px solid #d4af37",background:"#fff",color:"#0f172a",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📄 PDF de la cotización</button>
+                <button onClick={()=>pitchFns.current.copiarTxt&&pitchFns.current.copiarTxt(pitchFns.current.ligaAceptar(acuerdoCotG))} style={{padding:"8px 13px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:"#0f172a",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📋 Liga para el cliente</button>
+                <button onClick={()=>{ setAcuerdoCotG(null); setAcuerdosVer(v=>v+1); }} style={{marginLeft:"auto",padding:"8px 16px",borderRadius:8,border:"none",background:"#0f172a",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Listo</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {view==="comparador"&&<ViewComparador/>}
       {view==="matches"&&<ViewMatches/>}
       {/* ⚖️ Barra flotante del Comparador (Spec 61) — visible al seleccionar lotes, fuera de la propia vista */}
