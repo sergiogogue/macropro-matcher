@@ -19865,6 +19865,7 @@ Respuesta: [respuesta exacta, conversacional]
     // ── CONTROL DE RIESGO · Convenios pendientes de firma ──
     // Terrenos en inventario (captaciones activas) SIN convenio firmado/validado.
     const [verPend,setVerPend]=React.useState(false);
+    const [genId,setGenId]=React.useState(""); // captación cuyo convenio se está generando
     const URL_ACUERDO=LANDING_URL+"/acuerdo"; // formulario de alta/firma (sin cuenta)
     const acuerdoDeCap=(capId)=> acuerdos.find(a=>a&&a.captacion_id===capId) || null;
     const convenioOK=(c)=>{ const a=acuerdoDeCap(c.id); if(a&&(a.estado==="firmado"||a.estado==="validado")) return true; if(c.firma_nombre&&c.esquema_comision) return true; return false; };
@@ -19872,17 +19873,33 @@ Respuesta: [respuesta exacta, conversacional]
     const nombreTerreno=(c)=> (String(c.zona||"").trim()||String(c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"")||String(c.ciudad||"").trim()||"Terreno");
     const pendientes=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && !convenioOK(c) && (!cf || norm(c.ciudad)===cf));
     const estatusPend=(c)=>{ const a=acuerdoDeCap(c.id); if(!a) return "Sin convenio"; if(a.estado==="pendiente") return "Enviado · por firmar"; return a.estado||"Sin convenio"; };
-    const mandarFirma=(c)=>{
+    const mandarFirma=async(c)=>{
       const ai=asesorInfo(c.asesorResponsableGG);
-      const a=acuerdoDeCap(c.id);
-      const link=(a&&a.token)?(LANDING_URL+"/acuerdo/"+a.token):URL_ACUERDO;
       const nom=String(c.asesorResponsableGG||"asesor").trim().split(/\s+/)[0]||"asesor";
       const terr=nombreTerreno(c);
-      const msg="Hola "+nom+", te recordamos que el terreno *"+terr+"* está en inventario pero necesitamos que firmes tu convenio de comisiones para poder publicarlo. Fírmalo aquí:\n"+link;
       const tel=String((ai&&ai.telefono)||"").replace(/\D/g,""); const ph=tel.length===10?("52"+tel):tel;
+      // Abrimos la pestaña YA (dentro del gesto del usuario) para que el navegador no la
+      // bloquee después del await; luego le fijamos la URL de WhatsApp.
+      const w=window.open("","_blank");
+      let a=acuerdoDeCap(c.id); let token=a&&a.token;
+      if(!token){
+        if(!(ai&&ai.email)){ if(w) w.close(); toast("Ese asesor no tiene correo en el catálogo; agrégalo en Admin para generar su convenio."); return; }
+        setGenId(c.id);
+        try{
+          // Genera el convenio ligado a ESTE terreno + asesor (token pre-llenado).
+          const {data,error}=await window.sb.rpc("acuerdo_crear",{p_captacion_id:c.id,p_cotizacion_id:null,p_lote_id:null,p_asesor_email:ai.email,p_asesor_nombre:(ai.nombre||c.asesorResponsableGG||null),p_adenda:false,p_motivo:null,p_semaforo_ok:null});
+          if(error) throw error;
+          token=(data&&(data.token||(Array.isArray(data)&&data[0]&&data[0].token)))||null;
+          if(!token){ const {data:lst}=await window.sb.rpc("acuerdos_lista",{p_captacion_id:c.id,p_lote_id:null}); const f=(lst||[]).find(x=>x&&x.captacion_id===c.id&&x.token); token=f&&f.token; }
+          recargar();
+        }catch(e){ if(w) w.close(); setGenId(""); toast("No se pudo generar el convenio: "+((e&&e.message)||e)); return; }
+        setGenId("");
+      }
+      const link=token?(LANDING_URL+"/acuerdo/"+token):URL_ACUERDO;
+      const msg="Hola "+nom+", te recordamos que el terreno *"+terr+"* está en inventario pero necesitamos que firmes tu convenio de comisiones para poder publicarlo. Fírmalo aquí:\n"+link;
       const url=ph?("https://wa.me/"+ph+"?text="+encodeURIComponent(msg)):("https://api.whatsapp.com/send?text="+encodeURIComponent(msg));
       if(!ph) toast("Ese asesor no tiene teléfono en el catálogo — se abrirá WhatsApp para elegir contacto.");
-      window.open(url,"_blank","noopener");
+      if(w){ w.location.href=url; } else { window.open(url,"_blank","noopener"); }
     };
 
     // GENERAL
@@ -20042,7 +20059,7 @@ Respuesta: [respuesta exacta, conversacional]
                           <td style={{padding:"10px 14px",color:B.grey5}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td>
                           <td style={{padding:"10px 14px"}}>{pill(estatusPend(c), estatusPend(c)==="Sin convenio"?"#b91c1c":"#b45309", estatusPend(c)==="Sin convenio"?"#fee2e2":"#fff7ed")}</td>
                           <td style={{padding:"10px 14px",textAlign:"right"}}>
-                            <button onClick={()=>mandarFirma(c)} style={{...s.btn("sm"),background:"#25D366",color:"#fff",boxShadow:"none"}}>🟢 Mandar link de firma</button>
+                            <button disabled={genId===c.id} onClick={()=>mandarFirma(c)} style={{...s.btn("sm"),background:genId===c.id?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer"}}>{genId===c.id?"Generando…":"🟢 Mandar link de firma"}</button>
                           </td>
                         </tr>
                       ))}
@@ -20371,7 +20388,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.35</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.36</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
