@@ -630,6 +630,7 @@ function clienteFromSupabase(r) {
     sup_max: Number(r.sup_max) || 0,
     status: r.status || "Prospecto",
     activo: r.activo !== false,
+    fecha: r.fecha_contacto || r.updated_at || r.created_at || null, // para ordenar "más nuevo primero"
   };
 }
 
@@ -19785,10 +19786,13 @@ Respuesta: [respuesta exacta, conversacional]
     );
   };
 
-  // ─── 👔 FICHA DEL ASESOR · convenio de comisión + peticiones + clientes ───────────
-  // Por asesor: su Acuerdo de Comisión (firmado/validado, esquema, PDF), sus
-  // cotizaciones/opcionadores, y sus clientes. Lee acuerdos_lista (RPC),
-  // cotizaciones_opcionador y el estado local `clients` + catálogo de asesores.
+
+  // ─── 👔 FICHA DEL ASESOR · convenio + OPCIONES + REQUERIMIENTOS ────────────────────
+  // Dashboard por asesor, con dos bloques SEPARADOS y bien distintos:
+  //   • OPCIONES      = terrenos que el asesor está opcionando (cotizaciones_opcionador).
+  //   • REQUERIMIENTOS= clientes-COMPRADORES que el asesor tiene buscando terreno
+  //                     (estado local `clients`: ciudad/uso/presupuesto que BUSCAN).
+  // Más su Convenio de comisión (acuerdos_lista). Todo del más nuevo al más viejo.
   const ViewFichaAsesores = () => {
     const [acuerdos,setAcuerdos]=React.useState([]);
     const [cots,setCots]=React.useState([]);
@@ -19813,34 +19817,39 @@ Respuesta: [respuesta exacta, conversacional]
     const norm=(s)=>String(s||"").trim().toLowerCase();
     const asesores=(()=>{ const m=new Map(); const add=(a)=>{ if(!a||!a.nombre) return; const k=norm(a.nombre); if(!m.has(k)) m.set(k,{nombre:String(a.nombre).trim(),email:norm(a.email),telefono:a.telefono||""}); else { const e=m.get(k); if(!e.email&&a.email) e.email=norm(a.email); } };
       (asesoresCatalog||[]).forEach(add); (asesoresCloud||[]).forEach(add); return [...m.values()].sort((x,y)=>x.nombre.localeCompare(y.nombre)); })();
-
     const sa = asesores.find(a=>norm(a.nombre)===norm(sel)) || asesores[0] || null;
+
     const acDe=(a)=> a? acuerdos.filter(x=> (x.asesor_email&&norm(x.asesor_email)===norm(a.email)) || norm(x.asesor_nombre)===norm(a.nombre)) : [];
-    const cotDe=(a)=> a? cots.filter(x=> norm(x.asesor_nombre)===norm(a.nombre)) : [];
-    const cliDe=(a)=> a? (clients||[]).filter(c=> norm(c.asesor)===norm(a.nombre)) : [];
+    // OPCIONES (terrenos opcionados) — más nuevo primero (ya vienen por created_at desc)
+    const opcDe=(a)=> a? cots.filter(x=> norm(x.asesor_nombre)===norm(a.nombre)) : [];
+    // REQUERIMIENTOS (compradores que buscan) — más nuevo primero por fecha
+    const reqDe=(a)=> a? (clients||[]).filter(c=> norm(c.asesor)===norm(a.nombre)).slice().sort((x,y)=> new Date(y.fecha||0)-new Date(x.fecha||0)) : [];
 
     const verPdf=async(a)=>{ if(!a||!a.pdf_path){ toast("Este convenio aún no tiene PDF (falta firmarlo)."); return; } try{ const {data,error}=await window.sb.storage.from("acuerdos-comision").createSignedUrl(a.pdf_path,600); if(error) throw error; window.open(data.signedUrl,"_blank"); }catch(e){ toast("No se pudo abrir el PDF"); } };
     const fAMD=(iso)=>{ if(!iso) return "—"; try{ return new Date(iso).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}); }catch(e){ return "—"; } };
+    const iniciales=(n)=>String(n||"").trim().split(/\s+/).slice(0,2).map(w=>w[0]||"").join("").toUpperCase()||"?";
     const estAc=(e)=> e==="validado"?["✅ Validado",B.green,B.greenL] : e==="firmado"?["✍️ Firmado",B.blue,B.blueL] : e==="pendiente"?["⏳ Por firmar","#b45309","#fff7ed"] : [(e||"—"),B.grey4,B.grey1];
     const estCot=(r)=>{ const e=norm(r&&r.estatus); if(r&&r.terminos_aceptados) return ["✓ Aceptada",B.green,B.greenL]; if(e==="enviada") return ["Enviada",B.blue,B.blueL]; if(e.startsWith("rechaz")) return ["Rechazada",B.red,B.redL]; if(e==="borrador") return ["Borrador",B.grey4,B.grey1]; return [(r&&r.estatus)||"—",B.grey4,B.grey1]; };
 
     const card={background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,boxShadow:"0 4px 16px rgba(0,0,0,.05)"};
-    const secTit={fontSize:15,fontWeight:800,color:B.navy,fontFamily:"'DM Sans',sans-serif",margin:"0 0 10px",display:"flex",alignItems:"center",gap:8};
-    const kpi=(label,val,color)=>(<div style={{...card,flex:1,minWidth:120,textAlign:"center",padding:16}}><div style={{fontSize:24,fontWeight:800,color:color||B.navy}}>{val}</div><div style={{fontSize:11,color:B.grey4,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginTop:3}}>{label}</div></div>);
+    const secWrap={...card,marginBottom:16,overflow:"hidden"};
+    const secHead=(ic,txt,color)=>(<div style={{display:"flex",alignItems:"center",gap:8,padding:"14px 18px",borderBottom:"1px solid "+B.grey1,background:B.offW}}><span style={{fontSize:16}}>{ic}</span><span style={{fontSize:15,fontWeight:800,color:B.navy}}>{txt}</span></div>);
+    const kpi=(label,val,color)=>(<div style={{...card,flex:1,minWidth:120,textAlign:"center",padding:16}}><div style={{fontSize:26,fontWeight:800,color:color||B.navy}}>{val}</div><div style={{fontSize:11,color:B.grey4,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginTop:3}}>{label}</div></div>);
     const pill=(txt,fg,bg)=>(<span style={{background:bg,color:fg,borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800,whiteSpace:"nowrap"}}>{txt}</span>);
+    const tag=(txt,color)=>(<span style={{background:color+"14",color:color,border:"1px solid "+color+"33",borderRadius:7,padding:"2px 8px",fontSize:11,fontWeight:700}}>{txt}</span>);
 
     if(cargando) return <div style={{padding:50,textAlign:"center",color:B.grey4,fontFamily:"'DM Sans',sans-serif"}}>Cargando asesores…</div>;
 
-    const acs=acDe(sa), cts2=cotDe(sa), cls=cliDe(sa);
-    const validados=acs.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
+    const acs=acDe(sa), ops=opcDe(sa), reqs=reqDe(sa);
+    const firmados=acs.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
 
     return (
       <div style={{background:B.offW,minHeight:"calc(100vh - 56px)",padding:"22px 20px",fontFamily:"'DM Sans',sans-serif"}}>
         <div style={{maxWidth:1120,margin:"0 auto"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}}>
             <div>
               <h1 style={{fontSize:22,fontWeight:800,color:B.navy,margin:0}}>👔 Ficha del Asesor</h1>
-              <div style={{fontSize:13,color:B.grey4}}>Convenio de comisión, peticiones y clientes de cada asesor.</div>
+              <div style={{fontSize:13,color:B.grey4}}>Convenio de comisión, <b style={{color:B.navy}}>Opciones</b> (terrenos que opciona) y <b style={{color:B.navy}}>Requerimientos</b> (clientes que buscan).</div>
             </div>
             <button onClick={recargar} style={{padding:"9px 16px",border:"1px solid "+B.grey2,borderRadius:9,background:"#fff",color:B.navy,fontWeight:800,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>↻ Actualizar</button>
           </div>
@@ -19854,80 +19863,81 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
 
           {sa && (<>
-            <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
-              {kpi("Convenios firmados",validados,B.green)}
-              {kpi("Peticiones",cts2.length,B.navy)}
-              {kpi("Clientes",cls.length,B.blue)}
-              <div style={{...card,flex:2,minWidth:200,padding:16,display:"flex",flexDirection:"column",justifyContent:"center"}}>
-                <div style={{fontSize:16,fontWeight:800,color:B.navy}}>{sa.nombre}</div>
-                <div style={{fontSize:12.5,color:B.grey4}}>{sa.email||"sin correo"}{sa.telefono?(" · "+sa.telefono):""}</div>
+            {/* Encabezado del asesor + KPIs */}
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
+              <div style={{...card,flex:"2 1 280px",minWidth:240,padding:18,display:"flex",alignItems:"center",gap:14}}>
+                <div style={{width:54,height:54,borderRadius:"50%",flexShrink:0,background:B.navy,color:B.gold,display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,fontWeight:800}}>{iniciales(sa.nombre)}</div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:19,fontWeight:800,color:B.navy,lineHeight:1.1}}>{sa.nombre}</div>
+                  <div style={{fontSize:12.5,color:B.grey4,marginTop:3}}>{sa.email||"sin correo"}{sa.telefono?(" · "+sa.telefono):""}</div>
+                </div>
               </div>
+              {kpi("Opciones",ops.length,B.gold)}
+              {kpi("Requerimientos",reqs.length,B.blue)}
+              {kpi("Convenios firmados",firmados,B.green)}
             </div>
 
             {/* 1 · Convenio de comisión */}
-            <div style={{...card,padding:18,marginBottom:14}}>
-              <h2 style={secTit}>🤝 Convenio de comisión</h2>
-              {acs.length===0 ? <div style={{fontSize:13,color:B.grey4}}>Sin convenio registrado. (Se crea desde Cotización → “Enviar al asesor”.)</div> : (
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  {acs.map(a=>{ const e=estAc(a.estado); return (
-                    <div key={a.id||a.folio} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",borderTop:"1px solid "+B.grey1,paddingTop:10}}>
-                      <div style={{flex:1,minWidth:180}}>
-                        <div style={{fontSize:13.5,fontWeight:800,color:B.navy}}>{a.esquema?("Esquema "+a.esquema):"Esquema —"} {a.folio?<span style={{fontSize:11,color:B.grey4,fontWeight:600}}>· {a.folio}</span>:null}</div>
-                        <div style={{fontSize:12,color:B.grey4}}>{[a.terreno_nombre,a.propietario_nombre].filter(Boolean).join(" · ")||"—"}{a.firmado_at?(" · firmado "+fAMD(a.firmado_at)):""}</div>
+            <div style={secWrap}>
+              {secHead("🤝","Convenio de comisión")}
+              <div style={{padding:"4px 18px 14px"}}>
+                {acs.length===0 ? <div style={{fontSize:13,color:B.grey4,padding:"10px 0"}}>Sin convenio registrado. (Se crea desde Cotización → “Enviar al asesor”.)</div> : (
+                  <div style={{display:"flex",flexDirection:"column"}}>
+                    {acs.map(a=>{ const e=estAc(a.estado); return (
+                      <div key={a.id||a.folio} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",borderTop:"1px solid "+B.grey1,padding:"10px 0"}}>
+                        <div style={{flex:1,minWidth:180}}>
+                          <div style={{fontSize:13.5,fontWeight:800,color:B.navy}}>{a.esquema?("Esquema "+a.esquema):"Esquema —"} {a.folio?<span style={{fontSize:11,color:B.grey4,fontWeight:600}}>· {a.folio}</span>:null}</div>
+                          <div style={{fontSize:12,color:B.grey4}}>{[a.terreno_nombre,a.propietario_nombre].filter(Boolean).join(" · ")||"—"}{a.firmado_at?(" · firmado "+fAMD(a.firmado_at)):""}</div>
+                        </div>
+                        {pill(e[0],e[1],e[2])}
+                        <button onClick={()=>verPdf(a)} style={{padding:"6px 12px",borderRadius:8,border:"1.5px solid "+B.gold,background:"#fff",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📄 PDF</button>
                       </div>
-                      {pill(e[0],e[1],e[2])}
-                      <button onClick={()=>verPdf(a)} style={{padding:"6px 12px",borderRadius:8,border:"1.5px solid "+B.gold,background:"#fff",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📄 PDF</button>
+                    ); })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 2 · OPCIONES (terrenos que el asesor está opcionando) */}
+            <div style={secWrap}>
+              {secHead("🌱","Opciones · terrenos que está opcionando ("+ops.length+")")}
+              {ops.length===0 ? <div style={{padding:"14px 18px",fontSize:13,color:B.grey4}}>Este asesor no tiene terrenos en opción.</div> : (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:12,padding:16}}>
+                  {ops.map((r,i)=>{ const e=estCot(r); return (
+                    <div key={r.id||i} style={{border:"1px solid "+B.grey1,borderLeft:"3px solid "+B.gold,borderRadius:10,padding:"12px 14px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                        <div style={{fontSize:14,fontWeight:800,color:B.navy}}>{r.terreno_nombre||"Terreno sin nombre"}</div>
+                        {pill(e[0],e[1],e[2])}
+                      </div>
+                      <div style={{fontSize:12,color:B.grey4,marginTop:2}}>Propietario: <b style={{color:B.grey5}}>{r.cliente_nombre||"—"}</b>{r.terreno_ciudad?(" · "+r.terreno_ciudad):""}</div>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+                        {r.valor_terreno?tag("💰 "+r.valor_terreno,B.navy):null}
+                        {r.monto_comision?tag("Comisión "+r.monto_comision,B.gold):null}
+                      </div>
+                      <div style={{fontSize:11,color:B.grey3,marginTop:8}}>Recibido {fAMD(r.created_at)}</div>
                     </div>
                   ); })}
                 </div>
               )}
             </div>
 
-            {/* 2 · Peticiones */}
-            <div style={{...card,padding:0,marginBottom:14,overflow:"hidden"}}>
-              <div style={{padding:"16px 18px 0"}}><h2 style={secTit}>🧾 Peticiones ({cts2.length})</h2></div>
-              {cts2.length===0 ? <div style={{padding:"0 18px 18px",fontSize:13,color:B.grey4}}>Sin cotizaciones/opcionadores.</div> : (
-                <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                    <thead><tr style={{background:B.offW,textAlign:"left",color:B.grey5}}>
-                      <th style={{padding:"9px 14px"}}>Cliente</th><th style={{padding:"9px 14px"}}>Terreno</th>
-                      <th style={{padding:"9px 14px"}}>Valor</th><th style={{padding:"9px 14px"}}>Com.</th>
-                      <th style={{padding:"9px 14px"}}>Estatus</th><th style={{padding:"9px 14px"}}>Fecha</th>
-                    </tr></thead>
-                    <tbody>{cts2.map((r,i)=>{ const e=estCot(r); return (
-                      <tr key={r.id||i} style={{borderTop:"1px solid "+B.grey1}}>
-                        <td style={{padding:"9px 14px",fontWeight:700,color:B.navy}}>{r.cliente_nombre||"—"}</td>
-                        <td style={{padding:"9px 14px",color:B.grey5}}>{r.terreno_nombre||"—"}{r.terreno_ciudad?(" · "+r.terreno_ciudad):""}</td>
-                        <td style={{padding:"9px 14px",color:B.grey5,whiteSpace:"nowrap"}}>{r.valor_terreno||"—"}</td>
-                        <td style={{padding:"9px 14px",color:B.grey5}}>{r.monto_comision||"—"}</td>
-                        <td style={{padding:"9px 14px"}}>{pill(e[0],e[1],e[2])}</td>
-                        <td style={{padding:"9px 14px",color:B.grey4,whiteSpace:"nowrap"}}>{fAMD(r.created_at)}</td>
-                      </tr>); })}</tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            {/* 3 · Clientes */}
-            <div style={{...card,padding:0,marginBottom:30,overflow:"hidden"}}>
-              <div style={{padding:"16px 18px 0"}}><h2 style={secTit}>👥 Clientes ({cls.length})</h2></div>
-              {cls.length===0 ? <div style={{padding:"0 18px 18px",fontSize:13,color:B.grey4}}>Sin clientes ligados a este asesor.</div> : (
-                <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                    <thead><tr style={{background:B.offW,textAlign:"left",color:B.grey5}}>
-                      <th style={{padding:"9px 14px"}}>Nombre</th><th style={{padding:"9px 14px"}}>Empresa</th>
-                      <th style={{padding:"9px 14px"}}>Teléfono</th><th style={{padding:"9px 14px"}}>Correo</th>
-                      <th style={{padding:"9px 14px"}}>Ciudades de interés</th>
-                    </tr></thead>
-                    <tbody>{cls.map((c,i)=>(
-                      <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1}}>
-                        <td style={{padding:"9px 14px",fontWeight:700,color:B.navy}}>{c.nombre||"—"}</td>
-                        <td style={{padding:"9px 14px",color:B.grey5}}>{c.empresa||"—"}</td>
-                        <td style={{padding:"9px 14px",color:B.grey5,whiteSpace:"nowrap"}}>{c.telefono||"—"}</td>
-                        <td style={{padding:"9px 14px",color:B.grey5}}>{c.correo||c.email||"—"}</td>
-                        <td style={{padding:"9px 14px",color:B.grey5}}>{(Array.isArray(c.ciudad_interes)?c.ciudad_interes.join(", "):"")||"—"}</td>
-                      </tr>))}</tbody>
-                  </table>
+            {/* 3 · REQUERIMIENTOS (clientes compradores que buscan terreno) */}
+            <div style={{...secWrap,marginBottom:30}}>
+              {secHead("🔍","Requerimientos · clientes que buscan terreno ("+reqs.length+")")}
+              {reqs.length===0 ? <div style={{padding:"14px 18px",fontSize:13,color:B.grey4}}>Este asesor no tiene clientes compradores registrados.</div> : (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:12,padding:16}}>
+                  {reqs.map((c,i)=>{ const ciu=Array.isArray(c.ciudad_interes)?c.ciudad_interes.filter(Boolean):[]; const uso=Array.isArray(c.uso_interes)?c.uso_interes.filter(Boolean):[]; const pMin=Number(c.presupuesto_min)||0, pMax=Number(c.presupuesto_max)||0;
+                    return (
+                    <div key={c.id||i} style={{border:"1px solid "+B.grey1,borderLeft:"3px solid "+B.blue,borderRadius:10,padding:"12px 14px"}}>
+                      <div style={{fontSize:14,fontWeight:800,color:B.navy}}>{c.nombre||"Cliente sin nombre"}</div>
+                      <div style={{fontSize:12,color:B.grey4,marginTop:2}}>{c.empresa||"—"}{c.telefono?(" · "+c.telefono):""}</div>
+                      <div style={{marginTop:8,fontSize:12,color:B.grey5}}>
+                        <div><b style={{color:B.navy}}>Busca en:</b> {ciu.length?ciu.join(", "):"—"}</div>
+                        {uso.length?<div style={{marginTop:2}}><b style={{color:B.navy}}>Uso:</b> {uso.join(", ")}</div>:null}
+                        {(pMin||pMax)?<div style={{marginTop:2}}><b style={{color:B.navy}}>Presupuesto:</b> {fmtM(pMin)} – {fmtM(pMax)}</div>:null}
+                      </div>
+                    </div>
+                  ); })}
                 </div>
               )}
             </div>
@@ -20199,7 +20209,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.30</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.31</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
