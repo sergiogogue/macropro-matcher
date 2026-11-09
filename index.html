@@ -19790,18 +19790,22 @@ Respuesta: [respuesta exacta, conversacional]
 
 
 
-  // ─── 👔 FICHA DEL ASESOR · dashboard (Opciones + Requerimientos + Convenio) ─────────
-  // Estilo de la casa (s.hero / s.filterBar / s.resultCard). Separa claramente:
-  //   • OPCIONES      = terrenos que el asesor está opcionando (cotizaciones_opcionador).
-  //   • REQUERIMIENTOS= clientes compradores que BUSCAN terreno (estado local clients).
-  // Filtros: buscador de asesor + ciudad. Convenio de comisión (acuerdos_lista).
+
+  // ─── 👔 ASESORES · dashboard del equipo ────────────────────────────────────────────
+  // Dos modos: GENERAL (todas las opciones + requerimientos + estadísticas) y POR ASESOR
+  // (se elige al asesor en el filtro, no en chips). Estilo de la casa (s.*) + Chart.js.
+  //   • OPCIÓN       = terreno que un asesor está opcionando (cotizaciones_opcionador).
+  //   • REQUERIMIENTO= cliente-comprador que BUSCA terreno (estado local clients).
   const ViewFichaAsesores = () => {
     const [acuerdos,setAcuerdos]=React.useState([]);
     const [cots,setCots]=React.useState([]);
     const [cargando,setCargando]=React.useState(true);
+    const [modo,setModo]=React.useState("general"); // general | asesor
     const [sel,setSel]=React.useState("");
-    const [buscaAsesor,setBuscaAsesor]=React.useState("");
     const [ciudadF,setCiudadF]=React.useState("");
+    const [chartReady,setChartReady]=React.useState(typeof window!=="undefined" && !!window.Chart);
+    const refCiu=useRef(null), refAse=useRef(null), chartsRef=useRef({});
+    const PALETA=["#002B49","#F5B335","#2563AC","#1a8a4a","#c0392b","#8B5CF6","#0a3d5c","#d4952a","#16a34a","#e07a1f"];
 
     const recargar=React.useCallback(async()=>{
       if(!window.sb){ setCargando(false); return; }
@@ -19809,7 +19813,7 @@ Respuesta: [respuesta exacta, conversacional]
       try{
         const [ac,ct]=await Promise.all([
           window.sb.rpc("acuerdos_lista",{p_captacion_id:null,p_lote_id:null}),
-          window.sb.from("cotizaciones_opcionador").select("id,cliente_nombre,terreno_nombre,terreno_ciudad,estatus,terminos_aceptados,asesor_nombre,created_at,valor_terreno,monto_comision").order("created_at",{ascending:false}).limit(500),
+          window.sb.from("cotizaciones_opcionador").select("id,cliente_nombre,terreno_nombre,terreno_ciudad,estatus,terminos_aceptados,asesor_nombre,created_at,valor_terreno,monto_comision").order("created_at",{ascending:false}).limit(1000),
         ]);
         setAcuerdos(((ac&&ac.data)||[]).filter(a=>a&&a.estado!=="anulado"));
         setCots((ct&&ct.data)||[]);
@@ -19818,7 +19822,20 @@ Respuesta: [respuesta exacta, conversacional]
     },[]);
     React.useEffect(()=>{ recargar(); },[recargar]);
 
+    // Chart.js diferido
+    React.useEffect(()=>{
+      if(window.Chart){ setChartReady(true); return; }
+      const SRC="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js";
+      const marcar=()=>{ if(window.Chart) setChartReady(true); };
+      let sc=document.querySelector("script[data-chartjs]");
+      if(!sc){ sc=document.createElement("script"); sc.src=SRC; sc.async=true; sc.setAttribute("data-chartjs","1"); sc.onload=marcar; document.head.appendChild(sc); } else sc.addEventListener("load",marcar);
+      const t=setInterval(()=>{ if(window.Chart){ setChartReady(true); clearInterval(t); } },300);
+      const to=setTimeout(()=>clearInterval(t),12000);
+      return ()=>{ clearInterval(t); clearTimeout(to); };
+    },[]);
+
     const norm=(s2)=>String(s2||"").trim().toLowerCase();
+    const cap=(s2)=>{ s2=String(s2||"").trim(); return s2? s2.charAt(0).toUpperCase()+s2.slice(1):"—"; };
     const asesores=(()=>{ const m=new Map(); const add=(a)=>{ if(!a||!a.nombre) return; const k=norm(a.nombre); if(!m.has(k)) m.set(k,{nombre:String(a.nombre).trim(),email:norm(a.email),telefono:a.telefono||""}); else { const e=m.get(k); if(!e.email&&a.email) e.email=norm(a.email); } };
       (asesoresCatalog||[]).forEach(add); (asesoresCloud||[]).forEach(add); return [...m.values()].sort((x,y)=>x.nombre.localeCompare(y.nombre)); })();
     const sa = asesores.find(a=>norm(a.nombre)===norm(sel)) || asesores[0] || null;
@@ -19833,75 +19850,173 @@ Respuesta: [respuesta exacta, conversacional]
     const estAc=(e)=> e==="validado"?["✅ Validado",B.green,B.greenL] : e==="firmado"?["✍️ Firmado",B.blue,B.blueL] : e==="pendiente"?["⏳ Por firmar","#b45309","#fff7ed"] : [(e||"—"),B.grey4,B.grey1];
     const estCot=(r)=>{ const e=norm(r&&r.estatus); if(r&&r.terminos_aceptados) return ["✓ Aceptada",B.green,B.greenL]; if(e==="enviada") return ["Enviada",B.blue,B.blueL]; if(e.startsWith("rechaz")) return ["Rechazada",B.red,B.redL]; if(e==="borrador") return ["Borrador",B.grey4,B.grey1]; return [(r&&r.estatus)||"—",B.grey4,B.grey1]; };
 
-    const asesoresF = buscaAsesor.trim()? asesores.filter(a=>norm(a.nombre).includes(norm(buscaAsesor))) : asesores;
-    const acs=acDe(sa);
-    const opsAll=opcDe(sa), reqsAll=reqDe(sa);
-    const ciudadesSet=new Set();
-    opsAll.forEach(o=>{ const c=String(o.terreno_ciudad||"").trim(); if(c) ciudadesSet.add(c); });
-    reqsAll.forEach(r=>{ (Array.isArray(r.ciudad_interes)?r.ciudad_interes:[]).forEach(c=>{ c=String(c||"").trim(); if(c) ciudadesSet.add(c); }); });
-    const ciudades=[...ciudadesSet].sort((a,b)=>a.localeCompare(b));
+    // Ciudades para el filtro (de TODO)
+    const allOps=cots, allReqs=(clients||[]);
+    const ciudSet=new Set();
+    allOps.forEach(o=>{ const c=String(o.terreno_ciudad||"").trim(); if(c) ciudSet.add(c); });
+    allReqs.forEach(r=>{ (Array.isArray(r.ciudad_interes)?r.ciudad_interes:[]).forEach(c=>{ c=String(c||"").trim(); if(c) ciudSet.add(c); }); });
+    const ciudades=[...ciudSet].sort((a,b)=>a.localeCompare(b));
     const cf=norm(ciudadF);
-    const ops = cf? opsAll.filter(o=>norm(o.terreno_ciudad)===cf) : opsAll;
-    const reqs = cf? reqsAll.filter(r=>(Array.isArray(r.ciudad_interes)?r.ciudad_interes:[]).some(c=>norm(c)===cf)) : reqsAll;
-    const firmados=acs.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
+    const inCiuOp=(o)=> !cf || norm(o.terreno_ciudad)===cf;
+    const inCiuReq=(r)=> !cf || (Array.isArray(r.ciudad_interes)?r.ciudad_interes:[]).some(c=>norm(c)===cf);
+
+    const firmadosTot=acuerdos.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
+
+    // GENERAL
+    const gOps=allOps.filter(inCiuOp);
+    const gReqs=allReqs.filter(inCiuReq);
+    // POR ASESOR
+    const acs=acDe(sa);
+    const aOps=opcDe(sa).filter(inCiuOp);
+    const aReqs=reqDe(sa).filter(inCiuReq);
+    const firmadosSa=acs.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
+
+    // ── Gráficas (modo general) ──
+    React.useEffect(()=>{
+      if(modo!=="general" || !chartReady || !window.Chart) return;
+      const Chart=window.Chart;
+      const kill=()=>{ Object.values(chartsRef.current).forEach(c=>{ try{c.destroy();}catch(_){}}); chartsRef.current={}; };
+      kill();
+      const baseOpts=(t)=>({responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:"top",labels:{font:{size:10}}},title:{display:!!t,text:t,font:{size:13,weight:"700"}}},scales:{x:{ticks:{autoSkip:false,maxRotation:55,font:{size:10}}},y:{beginAtZero:true,ticks:{precision:0}}}});
+      // Opciones vs Requerimientos por ciudad
+      const oc={},rc={};
+      gOps.forEach(o=>{ const k=cap(o.terreno_ciudad); if(k!=="—"){ oc[k]=(oc[k]||0)+1; } });
+      gReqs.forEach(r=>{ (Array.isArray(r.ciudad_interes)?r.ciudad_interes:[]).forEach(c=>{ c=cap(c); if(c!=="—"){ rc[c]=(rc[c]||0)+1; } }); });
+      const cset=[...new Set([...Object.keys(oc),...Object.keys(rc)])].sort((a,b)=>((rc[b]||0)+(oc[b]||0))-((rc[a]||0)+(oc[a]||0))).slice(0,10);
+      if(refCiu.current && cset.length){ chartsRef.current.ciu=new Chart(refCiu.current,{type:"bar",data:{labels:cset,datasets:[
+        {label:"Opciones",data:cset.map(c=>oc[c]||0),backgroundColor:B.gold,borderRadius:4},
+        {label:"Requerimientos",data:cset.map(c=>rc[c]||0),backgroundColor:B.navy,borderRadius:4},
+      ]},options:baseOpts("Opciones vs Requerimientos por ciudad")}); }
+      // Opciones por asesor
+      const ba={};
+      gOps.forEach(o=>{ const k=String(o.asesor_nombre||"Sin asesor").trim()||"Sin asesor"; ba[k]=(ba[k]||0)+1; });
+      const top=Object.entries(ba).sort((a,b)=>b[1]-a[1]).slice(0,8);
+      if(refAse.current && top.length){ chartsRef.current.ase=new Chart(refAse.current,{type:"bar",data:{labels:top.map(x=>x[0]),datasets:[{label:"Opciones",data:top.map(x=>x[1]),backgroundColor:top.map((_,i)=>PALETA[i%PALETA.length]),borderRadius:4}]},options:{...baseOpts("Producción por asesor (opciones)"),plugins:{legend:{display:false},title:{display:true,text:"Producción por asesor (opciones)",font:{size:13,weight:"700"}}}}}); }
+      return kill;
+    },[modo,chartReady,cots,clients,ciudadF]);
 
     const pill=(txt,fg,bg)=>(<span style={{background:bg,color:fg,borderRadius:999,padding:"3px 11px",fontSize:11,fontWeight:800,whiteSpace:"nowrap"}}>{txt}</span>);
     const tag=(txt,color)=>(<span style={{background:color+"14",color:color,border:"1px solid "+color+"33",borderRadius:7,padding:"2px 9px",fontSize:11.5,fontWeight:700}}>{txt}</span>);
     const vacio=(txt)=>(<div style={{...s.resultCard(1),textAlign:"center",color:B.grey3,fontSize:13,marginBottom:0}}>{txt}</div>);
-    const chip=(a)=>{ const activo=sa&&norm(a.nombre)===norm(sa.nombre); return (
-      <button key={a.nombre} onClick={()=>setSel(a.nombre)} style={{padding:"8px 15px",borderRadius:999,border:"1.5px solid "+(activo?B.gold:B.grey1),background:activo?B.navy:B.white,color:activo?B.white:B.navy,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:activo?"0 4px 14px "+B.gold+"44":"none",transition:"all .15s"}}>{a.nombre}</button>
+    const cardOpc=(r,i,showAse)=>{ const e=estCot(r); return (
+      <div key={r.id||i} style={{...s.resultCard(1),marginBottom:0,borderLeft:"3px solid "+B.gold}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:4}}>
+          <div style={{fontSize:15.5,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{r.terreno_nombre||"Terreno sin nombre"}</div>
+          {pill(e[0],e[1],e[2])}
+        </div>
+        <div style={{fontSize:12.5,color:B.grey4}}>👤 {r.cliente_nombre||"—"}{r.terreno_ciudad?(" · 📍 "+r.terreno_ciudad):""}</div>
+        {showAse?<div style={{fontSize:12,color:B.grey4,marginTop:2}}>🧑‍💼 {r.asesor_nombre||"Sin asesor"}</div>:null}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
+          {r.valor_terreno?tag("💰 "+r.valor_terreno,B.navy):null}
+          {r.monto_comision?tag("Comisión "+r.monto_comision,B.goldD):null}
+        </div>
+        <div style={{fontSize:11,color:B.grey3,marginTop:10}}>Recibido {fAMD(r.created_at)}</div>
+      </div>
     ); };
+    const cardReq=(c,i,showAse)=>{ const ciu=Array.isArray(c.ciudad_interes)?c.ciudad_interes.filter(Boolean):[]; const uso=Array.isArray(c.uso_interes)?c.uso_interes.filter(Boolean):[]; const pMin=Number(c.presupuesto_min)||0, pMax=Number(c.presupuesto_max)||0; return (
+      <div key={c.id||i} style={{...s.resultCard(1),marginBottom:0,borderLeft:"3px solid "+B.blue}}>
+        <div style={{fontSize:15.5,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{c.nombre||"Cliente sin nombre"}</div>
+        <div style={{fontSize:12.5,color:B.grey4,marginTop:2}}>{c.empresa||"—"}{c.telefono?(" · "+c.telefono):""}</div>
+        {showAse?<div style={{fontSize:12,color:B.grey4,marginTop:2}}>🧑‍💼 {c.asesor||"Sin asesor"}</div>:null}
+        <div style={{marginTop:10,fontSize:12.5,color:B.grey5,lineHeight:1.7}}>
+          <div>📍 <b style={{color:B.navy}}>Busca en:</b> {ciu.length?ciu.join(", "):"—"}</div>
+          {uso.length?<div>🏗️ <b style={{color:B.navy}}>Uso:</b> {uso.join(", ")}</div>:null}
+          {(pMin||pMax)?<div>💰 <b style={{color:B.navy}}>Presupuesto:</b> {fmtM(pMin)} – {fmtM(pMax)}</div>:null}
+        </div>
+      </div>
+    ); };
+    const grid={display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))",gap:16};
+    const tabBtn=(id,label)=>(<button onClick={()=>setModo(id)} style={{padding:"9px 18px",borderRadius:10,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13.5,fontWeight:800,background:modo===id?B.navy:"transparent",color:modo===id?B.white:B.grey4}}>{label}</button>);
 
-    if(cargando) return <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}><div style={{...s.page,textAlign:"center",color:B.grey3,paddingTop:60}}>Cargando asesores…</div></div>;
+    if(cargando) return <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}><div style={{...s.page,textAlign:"center",color:B.grey3,paddingTop:60}}>Cargando dashboard…</div></div>;
 
     return (
       <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}>
         <div style={s.page}>
-          {/* HERO — el asesor como protagonista */}
-          <div style={{...s.hero,padding:"34px 36px",marginBottom:20}}>
+          {/* HERO */}
+          <div style={{...s.hero,padding:"30px 36px",marginBottom:18}}>
             <div style={s.heroDecor}/>
             <button onClick={recargar} style={{position:"absolute",top:22,right:26,zIndex:2,...s.btn("sm"),background:"rgba(255,255,255,.12)",color:B.white,boxShadow:"none",border:"1px solid rgba(255,255,255,.25)"}}>↻ Actualizar</button>
-            <div style={{position:"relative",display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
-              <div style={{width:72,height:72,borderRadius:"50%",flexShrink:0,background:B.gold,color:B.navy,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,fontWeight:800,fontFamily:"'Playfair Display',serif",boxShadow:"0 6px 20px "+B.gold+"55"}}>{iniciales(sa?sa.nombre:"")}</div>
-              <div style={{minWidth:0}}>
-                <div style={s.heroEyebrow}>Ficha del Asesor · Grupo Guía</div>
-                <div style={{...s.heroTitle,fontSize:34,marginBottom:6}}>{sa? sa.nombre : "Selecciona un asesor"}</div>
-                <div style={{...s.heroSub,fontSize:13.5}}>{sa? ((sa.email||"sin correo")+(sa.telefono?(" · "+sa.telefono):"")) : "Elige un asesor abajo para ver su convenio, opciones y requerimientos."}</div>
+            {modo==="general" ? (
+              <div style={{position:"relative"}}>
+                <div style={s.heroEyebrow}>Dashboard del Equipo · Grupo Guía</div>
+                <div style={{...s.heroTitle,fontSize:34,marginBottom:6}}>Asesores</div>
+                <div style={{...s.heroSub,fontSize:13.5}}>Todas las opciones y requerimientos del equipo, con estadísticas. Cambia a “Por asesor” para ver a cada uno.</div>
+                <div style={s.statsRow}>
+                  <div style={s.stat}><div style={s.statNum}>{gOps.length}</div><div style={s.statLabel}>Opciones</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{gReqs.length}</div><div style={s.statLabel}>Requerimientos</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{firmadosTot}</div><div style={s.statLabel}>Convenios firmados</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{asesores.length}</div><div style={s.statLabel}>Asesores</div></div>
+                </div>
               </div>
-            </div>
-            {sa && (
-              <div style={s.statsRow}>
-                <div style={s.stat}><div style={s.statNum}>{ops.length}</div><div style={s.statLabel}>Opciones</div></div>
-                <div style={s.stat}><div style={s.statNum}>{reqs.length}</div><div style={s.statLabel}>Requerimientos</div></div>
-                <div style={s.stat}><div style={s.statNum}>{firmados}</div><div style={s.statLabel}>Convenios firmados</div></div>
+            ) : (
+              <div style={{position:"relative",display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+                <div style={{width:66,height:66,borderRadius:"50%",flexShrink:0,background:B.gold,color:B.navy,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,fontWeight:800,fontFamily:"'Playfair Display',serif",boxShadow:"0 6px 20px "+B.gold+"55"}}>{iniciales(sa?sa.nombre:"")}</div>
+                <div style={{minWidth:0}}>
+                  <div style={s.heroEyebrow}>Ficha del Asesor · Grupo Guía</div>
+                  <div style={{...s.heroTitle,fontSize:30,marginBottom:4}}>{sa? sa.nombre : "Selecciona un asesor"}</div>
+                  <div style={{...s.heroSub,fontSize:13}}>{sa? ((sa.email||"sin correo")+(sa.telefono?(" · "+sa.telefono):"")) : "Elige un asesor en el filtro."}</div>
+                </div>
+                {sa && <div style={{...s.statsRow,marginTop:0,marginLeft:"auto"}}>
+                  <div style={s.stat}><div style={s.statNum}>{aOps.length}</div><div style={s.statLabel}>Opciones</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{aReqs.length}</div><div style={s.statLabel}>Requerim.</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{firmadosSa}</div><div style={s.statLabel}>Convenios</div></div>
+                </div>}
               </div>
             )}
           </div>
 
-          {/* FILTROS */}
-          <div style={s.filterBar}>
-            <div style={{flex:"1 1 240px",display:"flex",flexDirection:"column",gap:5}}>
-              <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Buscar asesor</label>
-              <input value={buscaAsesor} onChange={e=>setBuscaAsesor(e.target.value)} placeholder="Nombre del asesor…" style={{...s.select,width:"100%",cursor:"text",colorScheme:"light"}}/>
+          {/* TABS + FILTROS */}
+          <div style={{...s.filterBar,justifyContent:"space-between"}}>
+            <div style={{display:"flex",gap:4,background:B.grey1,borderRadius:12,padding:4}}>
+              {tabBtn("general","📊 General")}
+              {tabBtn("asesor","👤 Por asesor")}
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:5}}>
-              <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Ciudad</label>
-              <select value={ciudadF} onChange={e=>setCiudadF(e.target.value)} style={{...s.select,minWidth:160}}>
-                <option value="">Todas</option>
-                {ciudades.map(c=><option key={c} value={c}>{c}</option>)}
-              </select>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
+              {modo==="asesor" && (
+                <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                  <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Asesor</label>
+                  <select value={sa?sa.nombre:""} onChange={e=>setSel(e.target.value)} style={{...s.select,minWidth:200}}>
+                    {asesores.map(a=><option key={a.nombre} value={a.nombre}>{a.nombre}</option>)}
+                  </select>
+                </div>
+              )}
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Ciudad</label>
+                <select value={ciudadF} onChange={e=>setCiudadF(e.target.value)} style={{...s.select,minWidth:150}}>
+                  <option value="">Todas</option>
+                  {ciudades.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              {ciudadF && <button onClick={()=>setCiudadF("")} style={s.btn("sm")}>Limpiar</button>}
             </div>
-            {(buscaAsesor||ciudadF) && <button onClick={()=>{setBuscaAsesor("");setCiudadF("");}} style={s.btn("sm")}>Limpiar</button>}
           </div>
 
-          {/* CHIPS de asesores */}
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:26}}>
-            {asesores.length===0 && <div style={{color:B.grey3,fontSize:13}}>No hay asesores registrados.</div>}
-            {asesores.length>0 && asesoresF.length===0 && <div style={{color:B.grey3,fontSize:13}}>Ningún asesor coincide con “{buscaAsesor}”.</div>}
-            {asesoresF.map(chip)}
-          </div>
+          {modo==="general" ? (<>
+            {/* ESTADÍSTICAS */}
+            <div style={{marginBottom:10}}><div style={s.sectionTitle}>📊 Estadísticas</div><div style={s.sectionSub}>Panorama del equipo{cf?(" · "+ciudadF):""}.</div></div>
+            {!chartReady && <div style={{fontSize:12,color:B.grey3,marginBottom:10}}>Cargando librería de gráficos…</div>}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:16,marginBottom:28}}>
+              <div style={{...s.resultCard(1),marginBottom:0,height:320}}><canvas ref={refCiu}/></div>
+              <div style={{...s.resultCard(1),marginBottom:0,height:320}}><canvas ref={refAse}/></div>
+            </div>
 
-          {sa && (<>
+            {/* TODAS LAS OPCIONES */}
+            <div style={{marginBottom:28}}>
+              <div style={s.sectionTitle}>🌱 Opciones del equipo</div>
+              <div style={s.sectionSub}>Terrenos en opción · {gOps.length}{cf?(" en "+ciudadF):""} (del más nuevo al viejo).</div>
+              {gOps.length===0 ? vacio("Sin opciones.") : (<div style={grid}>{gOps.slice(0,120).map((r,i)=>cardOpc(r,i,true))}</div>)}
+              {gOps.length>120 && <div style={{fontSize:12,color:B.grey3,marginTop:10,textAlign:"center"}}>Mostrando 120 de {gOps.length}. Usa el filtro de ciudad o “Por asesor” para acotar.</div>}
+            </div>
+
+            {/* TODOS LOS REQUERIMIENTOS */}
+            <div style={{marginBottom:40}}>
+              <div style={s.sectionTitle}>🔍 Requerimientos del equipo</div>
+              <div style={s.sectionSub}>Clientes que buscan terreno · {gReqs.length}{cf?(" en "+ciudadF):""}.</div>
+              {gReqs.length===0 ? vacio("Sin requerimientos.") : (<div style={grid}>{gReqs.slice(0,120).map((c,i)=>cardReq(c,i,true))}</div>)}
+              {gReqs.length>120 && <div style={{fontSize:12,color:B.grey3,marginTop:10,textAlign:"center"}}>Mostrando 120 de {gReqs.length}. Usa el filtro de ciudad o “Por asesor” para acotar.</div>}
+            </div>
+          </>) : (sa && (<>
             {/* CONVENIO */}
             <div style={{marginBottom:28}}>
               <div style={s.sectionTitle}>🤝 Convenio de comisión</div>
@@ -19917,52 +20032,19 @@ Respuesta: [respuesta exacta, conversacional]
                 </div>
               ); })}
             </div>
-
-            {/* OPCIONES */}
+            {/* OPCIONES del asesor */}
             <div style={{marginBottom:28}}>
               <div style={s.sectionTitle}>🌱 Opciones</div>
-              <div style={s.sectionSub}>Terrenos que {sa.nombre} está opcionando · {ops.length}{cf?(" en "+ciudadF):""}.</div>
-              {ops.length===0 ? vacio(cf?("Sin opciones en "+ciudadF+"."):"Este asesor no tiene terrenos en opción.") : (
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))",gap:16}}>
-                  {ops.map((r,i)=>{ const e=estCot(r); return (
-                    <div key={r.id||i} style={{...s.resultCard(1),marginBottom:0}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:4}}>
-                        <div style={{fontSize:15.5,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{r.terreno_nombre||"Terreno sin nombre"}</div>
-                        {pill(e[0],e[1],e[2])}
-                      </div>
-                      <div style={{fontSize:12.5,color:B.grey4}}>👤 {r.cliente_nombre||"—"}{r.terreno_ciudad?(" · 📍 "+r.terreno_ciudad):""}</div>
-                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
-                        {r.valor_terreno?tag("💰 "+r.valor_terreno,B.navy):null}
-                        {r.monto_comision?tag("Comisión "+r.monto_comision,B.goldD):null}
-                      </div>
-                      <div style={{fontSize:11,color:B.grey3,marginTop:10}}>Recibido {fAMD(r.created_at)}</div>
-                    </div>
-                  ); })}
-                </div>
-              )}
+              <div style={s.sectionSub}>Terrenos que {sa.nombre} está opcionando · {aOps.length}{cf?(" en "+ciudadF):""}.</div>
+              {aOps.length===0 ? vacio("Este asesor no tiene terrenos en opción.") : (<div style={grid}>{aOps.map((r,i)=>cardOpc(r,i,false))}</div>)}
             </div>
-
-            {/* REQUERIMIENTOS */}
+            {/* REQUERIMIENTOS del asesor */}
             <div style={{marginBottom:40}}>
               <div style={s.sectionTitle}>🔍 Requerimientos</div>
-              <div style={s.sectionSub}>Clientes que {sa.nombre} tiene buscando terreno · {reqs.length}{cf?(" en "+ciudadF):""}.</div>
-              {reqs.length===0 ? vacio(cf?("Sin requerimientos en "+ciudadF+"."):"Este asesor no tiene clientes compradores registrados.") : (
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))",gap:16}}>
-                  {reqs.map((c,i)=>{ const ciu=Array.isArray(c.ciudad_interes)?c.ciudad_interes.filter(Boolean):[]; const uso=Array.isArray(c.uso_interes)?c.uso_interes.filter(Boolean):[]; const pMin=Number(c.presupuesto_min)||0, pMax=Number(c.presupuesto_max)||0; return (
-                    <div key={c.id||i} style={{...s.resultCard(1),marginBottom:0,borderLeft:"3px solid "+B.blue}}>
-                      <div style={{fontSize:15.5,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{c.nombre||"Cliente sin nombre"}</div>
-                      <div style={{fontSize:12.5,color:B.grey4,marginTop:2}}>{c.empresa||"—"}{c.telefono?(" · "+c.telefono):""}</div>
-                      <div style={{marginTop:10,fontSize:12.5,color:B.grey5,lineHeight:1.7}}>
-                        <div>📍 <b style={{color:B.navy}}>Busca en:</b> {ciu.length?ciu.join(", "):"—"}</div>
-                        {uso.length?<div>🏗️ <b style={{color:B.navy}}>Uso:</b> {uso.join(", ")}</div>:null}
-                        {(pMin||pMax)?<div>💰 <b style={{color:B.navy}}>Presupuesto:</b> {fmtM(pMin)} – {fmtM(pMax)}</div>:null}
-                      </div>
-                    </div>
-                  ); })}
-                </div>
-              )}
+              <div style={s.sectionSub}>Clientes que {sa.nombre} tiene buscando terreno · {aReqs.length}{cf?(" en "+ciudadF):""}.</div>
+              {aReqs.length===0 ? vacio("Este asesor no tiene clientes compradores registrados.") : (<div style={grid}>{aReqs.map((c,i)=>cardReq(c,i,false))}</div>)}
             </div>
-          </>)}
+          </>))}
         </div>
       </div>
     );
@@ -20230,7 +20312,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.33</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.34</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
