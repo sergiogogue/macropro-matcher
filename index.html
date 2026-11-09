@@ -17175,7 +17175,10 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
             {CAPTACION_PIPELINE.map(stage=>{
               const colors = CAPTACION_PIPELINE_COLORS[stage];
-              const items = porEtapaC[stage]||[];
+              // Las captaciones nacidas de un opcionador (id "capta-opc-…") van FIJADAS
+              // arriba de su columna, para que siempre estén ordenadas y visibles.
+              const esOpcCap = (c)=>String((c&&c.id)||"").startsWith("capta-opc-");
+              const items = (()=>{ const a=porEtapaC[stage]||[]; return [...a.filter(esOpcCap), ...a.filter(c=>!esOpcCap(c))]; })();
               const icon = CAPTACION_PIPELINE_ICONS[stage]||"";
               return (
                 <div key={stage} style={{minWidth:270, maxWidth:270, flexShrink:0}}>
@@ -17195,6 +17198,7 @@ Respuesta: [respuesta exacta, conversacional]
                           style={{padding:"11px 12px", background:B.white, borderRadius:8, border:"1px solid "+(stale?"#dc2626":B.grey1), cursor:"pointer", boxShadow:"0 1px 3px rgba(0,0,0,0.05)", transition:"transform 0.1s, box-shadow 0.1s", borderLeft:stale?"3px solid #dc2626":"3px solid "+colors.border}}
                           onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-1px)"; e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,0.1)";}}
                           onMouseLeave={e=>{e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="0 1px 3px rgba(0,0,0,0.05)";}}>
+                          {esOpcCap(c) && <div style={{display:"inline-block", fontSize:8, fontWeight:800, color:"#9a6a00", background:"#fffaf0", border:"1px solid "+B.gold, borderRadius:5, padding:"1px 6px", marginBottom:5, letterSpacing:0.4}}>🌱 OPCIONADOR · LANDING</div>}
                           <div style={{fontSize:13, fontWeight:800, color:B.navy, marginBottom:2}}>{c.propietario||"Propietario sin nombre"}</div>
                           <div style={{fontSize:10, color:B.grey4, marginBottom:6}}>{c.contacto?c.contacto:""}{c.telefono?(c.contacto?" · ":"")+c.telefono:""}</div>
                           <div style={{display:"inline-flex", alignItems:"center", gap:4, fontSize:10, fontWeight:800, color:c.asesorResponsableGG?"#0f6b3f":"#b45309", background:c.asesorResponsableGG?"#dcfce7":"#fef3c7", border:"1px solid "+(c.asesorResponsableGG?"#86efac":"#fde68a"), borderRadius:6, padding:"3px 8px", marginBottom:7}}>👤 {c.asesorResponsableGG||"Sin asesor asignado"}</div>
@@ -20043,7 +20047,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.28</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.29</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
