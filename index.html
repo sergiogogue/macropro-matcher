@@ -16060,7 +16060,9 @@ Respuesta: [respuesta exacta, conversacional]
     const payload={ cotizacion_id:c.id, cliente:c.propietario||"", terreno:c.zona||c.ubicacion||"", ciudad:c.ciudad||"", documentos:docs,
       instruccion:"Analiza específicamente: (1) la ESCRITURA para validar que todo esté en regla legalmente; (2) la INE para cruzar los datos y confirmar que el propietario es la misma persona que aparece en la escritura; (3) el USO DE SUELO y el PLANO para el análisis técnico y de vocación del terreno."+(mapsOkCap(c)?(" Ubicación (Google Maps): "+(c.ligaMaps||"").trim()):"") };
     try{ localStorage.setItem("valuador_opcionador", JSON.stringify(payload)); }catch(e){}
-    const dest=new URL("intelligence.html?fuente=opcionador&c="+encodeURIComponent(c.id), window.location.href).href;
+    // Consolidado: abre la ÚNICA Intelligence (v341 en macrolotes.grupoguia.mx), que lee los
+    // documentos frescos de Supabase por ?c= (no depende del localStorage ni de esta app).
+    const dest="https://macrolotes.grupoguia.mx/intelligence.html?fuente=opcionador&c="+encodeURIComponent(c.id);
     if(w) w.location=dest; else window.open(dest,"_blank");
   };
   const subirDocCaptacion=async(c,tipo,file)=>{
@@ -16922,7 +16924,7 @@ Respuesta: [respuesta exacta, conversacional]
                   const payload={ cotizacion_id:docCot.id, cliente:docCot.cliente_nombre||"", terreno:docCot.terreno_nombre||"", ciudad:docCot.terreno_ciudad||"", documentos:docs,
                     instruccion:"Analiza específicamente: (1) la ESCRITURA para validar que todo esté en regla legalmente; (2) la INE para cruzar los datos y confirmar que el propietario es la misma persona que aparece en la escritura; (3) el USO DE SUELO y el PLANO para el análisis técnico y de vocación del terreno." };
                   try{ localStorage.setItem("valuador_opcionador", JSON.stringify(payload)); }catch(e){}
-                  window.open("intelligence.html?fuente=opcionador&c="+encodeURIComponent(docCot.id),"_blank");
+                  window.open("https://macrolotes.grupoguia.mx/intelligence.html?fuente=opcionador&c="+encodeURIComponent(docCot.id),"_blank");
                 }} style={{padding:"10px 18px",borderRadius:10,border:"none",background:DORADO,color:AZUL,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🧠 Analizar en Intelligence</button>
                 <button onClick={()=>setDocCot(null)} style={{padding:"10px 18px",borderRadius:10,border:"none",background:AZUL,color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Listo</button>
               </div>
@@ -17325,7 +17327,7 @@ Respuesta: [respuesta exacta, conversacional]
                   const payload={ cotizacion_id:opcSel.id, cliente:opcSel.cliente_nombre||"", terreno:opcSel.terreno_nombre||"", ciudad:opcSel.terreno_ciudad||"", documentos:docs,
                     instruccion:"Analiza específicamente: (1) la ESCRITURA para validar que todo esté en regla legalmente; (2) la INE para cruzar los datos y confirmar que el propietario es la misma persona que aparece en la escritura; (3) el USO DE SUELO y el PLANO para el análisis técnico y de vocación del terreno." };
                   try{ localStorage.setItem("valuador_opcionador", JSON.stringify(payload)); }catch(e){}
-                  window.open("intelligence.html?fuente=opcionador&c="+encodeURIComponent(opcSel.id),"_blank");
+                  window.open("https://macrolotes.grupoguia.mx/intelligence.html?fuente=opcionador&c="+encodeURIComponent(opcSel.id),"_blank");
                 }} style={{width:"100%",marginTop:14,padding:"11px",borderRadius:9,border:"none",background:B.gold,color:B.navy,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧠 Analizar en Intelligence</button>
               </div>
             </div>
