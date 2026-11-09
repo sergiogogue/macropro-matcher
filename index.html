@@ -4865,6 +4865,61 @@ function MacroProMatcher({ sessionEmail } = {}) {
           <div style={s.stat}><span style={s.statNum}>{fmtM(srcInv.reduce((a,l)=>a+l.precio_total,0))}</span><span style={s.statLabel}>Valor portafolio</span></div>
         </div>
       </div>
+      {/* 📊 DASHBOARD DE OPCIONES · estado real de las captaciones (Option Engine) */}
+      {(()=>{
+        const caps=(captaciones||[]).filter(c=>c&&c.pipeline!=="Descartado");
+        const bucket=(c)=> c.publicadaLoteId?"pub": (c.aprobadaPublicar?"listo": ((c.ligaToken&&!c.firma_nombre)?"firma":"proceso"));
+        const n={pub:0,listo:0,firma:0,proceso:0}; caps.forEach(c=>{ n[bucket(c)]++; });
+        const diasDe=(c)=>{ const f=c.fechaUltimaActividad||c.fechaCreacion; if(!f) return Infinity; const d=Math.floor((Date.now()-new Date(f).getTime())/86400000); return isNaN(d)?Infinity:d; };
+        const sinDocs=(c)=> !!c.ligaToken && (!Array.isArray(c.documentosUrls)||c.documentosUrls.length===0);
+        const alerta=(c)=> sinDocs(c) && diasDe(c)>=7;
+        const nombreT=(c)=> (String(c.zona||"").trim()||String(c.ubicacion||"").trim()||c.propietario||String(c.ciudad||"").trim()||"Terreno");
+        const BL={proceso:["🟡 En proceso",B.gold],firma:["🔴 Pend. firma",B.red],listo:["🟢 Listo publicar",B.green],pub:["🚀 Publicado",B.blue]};
+        const ult=caps.slice().sort((a,b)=> new Date(b.fechaUltimaActividad||b.fechaCreacion||0)-new Date(a.fechaUltimaActividad||a.fechaCreacion||0)).slice(0,10);
+        const fFecha=(c)=>{ const f=c.fechaUltimaActividad||c.fechaCreacion; if(!f) return "—"; try{ return new Date(f).toLocaleDateString("es-MX",{day:"2-digit",month:"short"}); }catch(e){ return "—"; } };
+        const kpi=(emoji,label,val,color)=>(<div onClick={()=>setView("captacion")} style={{background:B.white,borderRadius:16,padding:"20px 22px",border:"1px solid "+B.grey1,borderTop:"4px solid "+color,boxShadow:"0 2px 12px rgba(0,43,73,0.06)",cursor:"pointer",transition:"transform .12s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-3px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+          <div style={{fontSize:30,fontWeight:800,color:color,fontFamily:"'Playfair Display',serif",lineHeight:1}}>{emoji} {val}</div>
+          <div style={{fontSize:12.5,color:B.grey4,fontWeight:700,marginTop:6}}>{label}</div>
+        </div>);
+        return (
+        <div style={{marginBottom:22}}>
+          <div style={{marginBottom:12}}>
+            <div style={s.sectionTitle}>Dashboard de Opciones</div>
+            <div style={s.sectionSub}>Estado real de tus captaciones · {caps.length} activas.</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:14,marginBottom:18}}>
+            {kpi("🟡","En proceso (borrador / esperando docs)",n.proceso,B.gold)}
+            {kpi("🔴","Pendientes de firma",n.firma,B.red)}
+            {kpi("🟢","Listos para publicar",n.listo,B.green)}
+            {kpi("🚀","Publicados",n.pub,B.blue)}
+          </div>
+          <div style={{background:B.white,borderRadius:16,border:"1px solid "+B.grey1,boxShadow:"0 2px 12px rgba(0,43,73,0.06)",overflow:"hidden"}}>
+            <div style={{padding:"13px 18px",borderBottom:"1px solid "+B.grey1,fontSize:14,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>Últimos 10 movimientos</div>
+            {ult.length===0 ? <div style={{padding:"18px",textAlign:"center",color:B.grey3,fontSize:13}}>Aún no hay captaciones.</div> : (
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                  <thead><tr style={{textAlign:"left",color:B.grey4,background:B.offW}}>
+                    <th style={{padding:"9px 16px"}}>Terreno</th><th style={{padding:"9px 16px"}}>Asesor</th>
+                    <th style={{padding:"9px 16px"}}>Estatus</th><th style={{padding:"9px 16px"}}>Actualizado</th><th style={{padding:"9px 16px"}}>Alerta</th>
+                  </tr></thead>
+                  <tbody>
+                    {ult.map((c,i)=>{ const b=BL[bucket(c)]; return (
+                      <tr key={c.id||i} onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} style={{borderTop:"1px solid "+B.grey1,cursor:"pointer"}}>
+                        <td style={{padding:"9px 16px",fontWeight:700,color:B.navy}}>{nombreT(c)}{c.ciudad?<span style={{display:"block",fontSize:11,color:B.grey4,fontWeight:500}}>{c.ciudad}</span>:null}</td>
+                        <td style={{padding:"9px 16px",color:B.grey5}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td>
+                        <td style={{padding:"9px 16px"}}><span style={{background:b[1]+"18",color:b[1],borderRadius:999,padding:"3px 10px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>{b[0]}</span></td>
+                        <td style={{padding:"9px 16px",color:B.grey4,whiteSpace:"nowrap"}}>{fFecha(c)}</td>
+                        <td style={{padding:"9px 16px"}}>{alerta(c)? <span style={{color:B.red,fontSize:11.5,fontWeight:800}}>⚠️ Sin documentos desde hace {diasDe(c)===Infinity?"7+":diasDe(c)} días</span> : <span style={{color:B.grey3}}>—</span>}</td>
+                      </tr>
+                    ); })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+        );
+      })()}
       {/* Back-Office "Option Engine": Home apunta solo a las vistas visibles */}
       <div style={{marginBottom:10}}>
         <div style={s.sectionTitle}>Back-Office · Captación</div>
@@ -15875,6 +15930,22 @@ Respuesta: [respuesta exacta, conversacional]
     try{ await navigator.clipboard.writeText(url); toast("🔗 Liga Mágica copiada al portapapeles"); }
     catch(e){ try{ window.prompt("Copia la Liga Mágica:", url); }catch(_){ toast(url); } }
   };
+  // Regenera el token (nuevo link) y extiende 15 días más (RPC legal_regenerar_liga).
+  const regenerarLigaMagica = async (f)=>{
+    if(!f||!f.id){ toast("⚠ Guarda la captación primero"); return; }
+    if(!window.sb){ toast("⚠ Sin conexión"); return; }
+    if(!window.confirm("¿Regenerar la Liga Mágica?\n\nEl link anterior dejará de funcionar y el nuevo durará 15 días.")) return;
+    try{
+      const { data, error } = await window.sb.rpc("legal_regenerar_liga", { p_captacion_id: f.id });
+      if(error) throw error;
+      const token = data;
+      if(!token) throw new Error("No se recibió el token nuevo (¿corriste liga_magica_vencimiento.sql?)");
+      setEditingCaptacion(prev=>({ ...prev, ligaToken:token }));
+      const url = "https://sergiogogue.github.io/macropro-matcher/captar.html?token="+token;
+      try{ await navigator.clipboard.writeText(url); toast("♻ Liga regenerada (15 días) y copiada"); }
+      catch(e){ try{ window.prompt("Nueva Liga Mágica:", url); }catch(_){ toast(url); } }
+    }catch(e){ toast("No se pudo regenerar: "+((e&&e.message)||e)); }
+  };
   // FASE D: Expediente Legal — documentos que sube el propietario (tabla captaciones_legal).
   const [legalDocs, setLegalDocs] = React.useState([]);
   const cargarLegalModal = React.useCallback(async (capId)=>{
@@ -20390,7 +20461,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.37</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.38</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
@@ -20520,6 +20591,7 @@ Respuesta: [respuesta exacta, conversacional]
                   {f.id && String(f.id).indexOf("capta-opc-")!==0 && (
                     <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 12px",borderRadius:10,border:"1px dashed "+B.gold,background:"#fffdf5"}}>
                       <button onClick={()=>copiarLigaMagica(f)} style={{padding:"8px 14px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🔗 Copiar Liga Mágica</button>
+                      <button onClick={()=>regenerarLigaMagica(f)} title="Crea un link nuevo y extiende 15 días (el anterior deja de servir)" style={{padding:"8px 14px",borderRadius:8,border:"1.5px solid "+B.gold,background:"transparent",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginLeft:8}}>♻ Regenerar Liga</button>
                       <span style={{fontSize:10.5,color:B.grey4}}>Link para que el dueño suba INE, escrituras, etc. y vea el avance de su expediente.</span>
                     </div>
                   )}

@@ -323,6 +323,11 @@ async function cargarPortal(token){
     return;
   }
   const cap = (est && est.captacion) || {};
+  // Vencimiento de la Liga Mágica (15 días): si expiró, se bloquea la subida.
+  if(cap.expirado){
+    body.innerHTML = '<div style="padding:28px 18px;text-align:center;line-height:1.6"><div style="font-size:40px">⏳</div><div style="font-size:17px;font-weight:800;color:var(--navy);margin-top:6px">Este enlace ha expirado</div><div style="font-size:14px;color:var(--mut);margin-top:8px">Por favor, contacta a tu asesor de Grupo Guía para renovarlo.</div></div>';
+    return;
+  }
   const docs = (est && est.documentos) || [];
   window.__capId = cap.id || "";
   const hayDocs = docs.length>0;
