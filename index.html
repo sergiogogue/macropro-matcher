@@ -2142,7 +2142,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const setView=(v)=>{setViewRaw(v);savePersisted(STORAGE_KEYS.view,v);};
   // Back-Office "Option Engine": si al cargar, la vista persistida/por URL es OCULTA, redirige a
   // Captación (solo al montar; la navegación interna no se bloquea). Reversible.
-  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch"];
+  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch","analytics"];
     if(!permitidas.includes(view)){ setView("captacion"); try{ if(window.location.hash && window.location.hash!=="#captacion") window.history.replaceState(null,"","#captacion"); }catch(e){} }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -3700,7 +3700,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     // 0) vista directa (?vista=admin, dashboard, clients, lots, crm, metas…)
     if(vista){
       // Back-Office "Option Engine": por URL solo se permiten las 4 vistas visibles; el resto → Captación.
-      const VISTAS_PERMITIDAS=['home','captacion','documentos','admin','pitch'];
+      const VISTAS_PERMITIDAS=['home','captacion','documentos','admin','pitch','analytics'];
       deepLinkRef.current = true;
       setView(VISTAS_PERMITIDAS.includes(vista)?vista:'captacion');
       limpiar(); return;
@@ -19775,6 +19775,168 @@ Respuesta: [respuesta exacta, conversacional]
     );
   };
 
+  // ─── 📊 ANALYTICS · Inteligencia Comercial y Analítica ───────────────────────────
+  // Lee 3 VISTAS de Supabase (vw_analisis_compradores, vw_inventario_vs_demanda,
+  // vw_estrategia_ventas) y pinta gráficos con Chart.js (carga diferida por CDN).
+  // Autocontenida: no toca el motor de matching ni el estado local de lotes/clientes.
+  const ViewAnalytics = () => {
+    const [estado,setEstado]   = useState("cargando"); // cargando | ok | error | sinsb
+    const [err,setErr]         = useState("");
+    const [data,setData]       = useState({perfil:[], oferta:[], rend:[]});
+    const [chartReady,setChartReady] = useState(typeof window!=="undefined" && !!window.Chart);
+    const refCiudades = useRef(null), refUsos = useRef(null), refOferta = useRef(null);
+    const chartsRef   = useRef({});
+
+    const cap = (s)=>{ s=(s==null?"":String(s)).trim(); return s? s.charAt(0).toUpperCase()+s.slice(1) : "—"; };
+    const PALETA = ["#002B49","#F5B335","#2563AC","#1a8a4a","#c0392b","#8B5CF6","#0a3d5c","#d4952a"];
+    const baseOpts = (titulo)=>({responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:"top"},title:{display:!!titulo,text:titulo,font:{size:13,weight:"700"}}},scales:{x:{ticks:{autoSkip:false,maxRotation:60,minRotation:0,font:{size:10}}},y:{beginAtZero:true,ticks:{precision:0}}}});
+
+    // 1) Carga diferida de Chart.js (UMD global window.Chart)
+    React.useEffect(()=>{
+      if(window.Chart){ setChartReady(true); return; }
+      const SRC="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js";
+      const marcar=()=>{ if(window.Chart) setChartReady(true); };
+      let s=document.querySelector("script[data-chartjs]");
+      if(!s){ s=document.createElement("script"); s.src=SRC; s.async=true; s.setAttribute("data-chartjs","1"); s.onload=marcar; s.onerror=()=>setErr("No se pudo cargar la librería de gráficos (Chart.js)."); document.head.appendChild(s); }
+      else { s.addEventListener("load",marcar); }
+      const t=setInterval(()=>{ if(window.Chart){ setChartReady(true); clearInterval(t); } },300);
+      const to=setTimeout(()=>clearInterval(t),12000);
+      return ()=>{ clearInterval(t); clearTimeout(to); };
+    },[]);
+
+    // 2) Carga de datos desde las 3 vistas
+    const cargar = React.useCallback(async()=>{
+      if(!window.sb){ setEstado("sinsb"); return; }
+      setEstado("cargando"); setErr("");
+      try{
+        const [a,b,c]=await Promise.all([
+          window.sb.from("vw_analisis_compradores").select("*"),
+          window.sb.from("vw_inventario_vs_demanda").select("*"),
+          window.sb.from("vw_estrategia_ventas").select("*"),
+        ]);
+        const e=a.error||b.error||c.error;
+        if(e){ setErr((e.message||String(e))+"  · ¿Ya corriste el SQL de las vistas en Supabase?"); setEstado("error"); return; }
+        setData({perfil:a.data||[], oferta:b.data||[], rend:c.data||[]});
+        setEstado("ok");
+      }catch(ex){ setErr(ex&&ex.message||String(ex)); setEstado("error"); }
+    },[]);
+    React.useEffect(()=>{ cargar(); },[cargar]);
+
+    // 3) Dibujar / redibujar los gráficos
+    React.useEffect(()=>{
+      if(!chartReady || estado!=="ok" || !window.Chart) return;
+      const Chart=window.Chart;
+      const destruir=()=>{ Object.values(chartsRef.current).forEach(ch=>{ try{ch.destroy();}catch(_){} }); chartsRef.current={}; };
+      destruir();
+      // Perfil · ciudades más buscadas
+      const porCiudad={}; (data.perfil||[]).forEach(r=>{ const k=cap(r.ciudad); porCiudad[k]=(porCiudad[k]||0)+(Number(r.clientes)||0); });
+      const ciu=Object.entries(porCiudad).filter(x=>x[0]!=="—").sort((x,y)=>y[1]-x[1]).slice(0,10);
+      if(refCiudades.current && ciu.length){ chartsRef.current.ciu=new Chart(refCiudades.current,{type:"bar",data:{labels:ciu.map(x=>x[0]),datasets:[{label:"Clientes buscando",data:ciu.map(x=>x[1]),backgroundColor:B.navy,borderRadius:4}]},options:baseOpts("Ciudades más buscadas")}); }
+      // Perfil · distribución por uso
+      const porUso={}; (data.perfil||[]).forEach(r=>{ const k=cap(r.uso); porUso[k]=(porUso[k]||0)+(Number(r.clientes)||0); });
+      const usos=Object.entries(porUso).sort((x,y)=>y[1]-x[1]).slice(0,7);
+      if(refUsos.current && usos.length){ chartsRef.current.uso=new Chart(refUsos.current,{type:"doughnut",data:{labels:usos.map(x=>x[0]),datasets:[{data:usos.map(x=>x[1]),backgroundColor:PALETA,borderWidth:1,borderColor:"#fff"}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"right",labels:{font:{size:10}}},title:{display:true,text:"Uso de suelo buscado",font:{size:13,weight:"700"}}}}}); }
+      // Oferta vs Demanda
+      const od=(data.oferta||[]).slice().sort((x,y)=>(Number(y.clientes_buscando)||0)-(Number(x.clientes_buscando)||0)).slice(0,12);
+      if(refOferta.current && od.length){ chartsRef.current.od=new Chart(refOferta.current,{type:"bar",data:{labels:od.map(x=>cap(x.ciudad)),datasets:[
+        {label:"Lotes disponibles",data:od.map(x=>Number(x.lotes_disponibles)||0),backgroundColor:B.gold,borderRadius:4},
+        {label:"Clientes buscando",data:od.map(x=>Number(x.clientes_buscando)||0),backgroundColor:B.navy,borderRadius:4},
+      ]},options:baseOpts("Lotes disponibles vs Clientes buscando")}); }
+      return destruir;
+    },[chartReady,estado,data]);
+
+    // KPIs derivados
+    const presProm=(()=>{ let s=0,n=0; (data.perfil||[]).forEach(r=>{ const p=Number(r.presupuesto_prom)||0, c=Number(r.clientes)||0; if(p>0){ s+=p*c; n+=c; } }); return n? Math.round(s/n) : 0; })();
+    const totalClientes=(()=>{ let t=0; (data.perfil||[]).forEach(r=>{ t+=Number(r.clientes)||0; }); return t; })();
+    const conv=(data.rend&&data.rend[0])||{};
+    const rendOrd=(data.rend||[]).slice().sort((x,y)=>(Number(y.dias_en_mercado)||-1)-(Number(x.dias_en_mercado)||-1));
+
+    const card={background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:18,boxShadow:"0 4px 16px rgba(0,0,0,.05)"};
+    const secTit={fontSize:16,fontWeight:800,color:B.navy,fontFamily:"'DM Sans',sans-serif",margin:"0 0 2px"};
+    const secSub={fontSize:12.5,color:B.grey4,margin:"0 0 14px"};
+    const kpi=(label,val,color)=>(<div style={{...card,flex:1,minWidth:150,textAlign:"center"}}><div style={{fontSize:26,fontWeight:800,color:color||B.navy,fontFamily:"'DM Sans',sans-serif"}}>{val}</div><div style={{fontSize:11.5,color:B.grey4,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginTop:4}}>{label}</div></div>);
+
+    if(estado==="cargando") return <div style={{padding:50,textAlign:"center",color:B.grey4,fontFamily:"'DM Sans',sans-serif"}}>Cargando analítica…</div>;
+    if(estado==="sinsb")    return <div style={{padding:50,textAlign:"center",color:B.grey4,fontFamily:"'DM Sans',sans-serif"}}>Sin conexión a Supabase. Analytics necesita la nube activa.</div>;
+    if(estado==="error")    return (<div style={{padding:40,maxWidth:720,margin:"0 auto",fontFamily:"'DM Sans',sans-serif"}}><div style={{...card,borderColor:B.red,background:B.redL}}><div style={{fontSize:15,fontWeight:800,color:B.red}}>No se pudo cargar Analytics</div><div style={{fontSize:13,color:B.grey5,marginTop:8,whiteSpace:"pre-wrap"}}>{err}</div><button onClick={cargar} style={{marginTop:14,padding:"9px 16px",border:"none",borderRadius:9,background:B.navy,color:"#fff",fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Reintentar</button></div></div>);
+
+    return (
+      <div style={{background:B.offW,minHeight:"calc(100vh - 56px)",padding:"22px 20px",fontFamily:"'DM Sans',sans-serif"}}>
+        <div style={{maxWidth:1120,margin:"0 auto"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:6}}>
+            <div>
+              <h1 style={{fontSize:22,fontWeight:800,color:B.navy,margin:0}}>📊 Inteligencia Comercial</h1>
+              <div style={{fontSize:13,color:B.grey4}}>Analítica del Data Lake · perfil del comprador, oferta vs demanda y rendimiento del inventario.</div>
+            </div>
+            <button onClick={cargar} style={{padding:"9px 16px",border:"1px solid "+B.grey2,borderRadius:9,background:"#fff",color:B.navy,fontWeight:800,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>↻ Actualizar</button>
+          </div>
+
+          {!chartReady && <div style={{fontSize:12,color:B.grey4,margin:"8px 0"}}>Cargando librería de gráficos…</div>}
+
+          {/* SECCIÓN 1 · PERFIL DEL COMPRADOR */}
+          <div style={{margin:"20px 0 10px"}}>
+            <h2 style={secTit}>1 · Perfil del Comprador</h2>
+            <p style={secSub}>¿Qué buscan nuestros clientes? Ciudades más demandadas, uso de suelo y presupuesto promedio.</p>
+          </div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
+            {kpi("Clientes activos",totalClientes,B.navy)}
+            {kpi("Presupuesto promedio",presProm?fmtM(presProm):"—",B.gold)}
+            {kpi("Ciudades con demanda",new Set((data.perfil||[]).map(r=>r.ciudad).filter(Boolean)).size,B.blue)}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:14}}>
+            <div style={{...card,height:320}}><canvas ref={refCiudades}/></div>
+            <div style={{...card,height:320}}><canvas ref={refUsos}/></div>
+          </div>
+
+          {/* SECCIÓN 2 · OFERTA vs DEMANDA */}
+          <div style={{margin:"26px 0 10px"}}>
+            <h2 style={secTit}>2 · Oferta vs. Demanda</h2>
+            <p style={secSub}>Por ciudad: lotes disponibles contra clientes buscando. Donde hay más clientes que lotes, hay oportunidad de captación.</p>
+          </div>
+          <div style={{...card,height:360}}><canvas ref={refOferta}/></div>
+          {(()=>{ const gaps=(data.oferta||[]).filter(r=>(Number(r.clientes_buscando)||0)>(Number(r.lotes_disponibles)||0)).sort((x,y)=>(Number(y.brecha)||0)-(Number(x.brecha)||0)).slice(0,5);
+            return gaps.length? (<div style={{...card,marginTop:12,background:B.blueL,borderColor:B.blue}}><div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:6}}>🎯 Dónde falta inventario (más demanda que oferta)</div><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{gaps.map(g=>(<span key={g.ciudad} style={{background:"#fff",border:"1px solid "+B.blue,borderRadius:999,padding:"5px 12px",fontSize:12.5,fontWeight:700,color:B.navy}}>{cap(g.ciudad)}: {g.clientes_buscando} buscando · {g.lotes_disponibles} lotes</span>))}</div></div>) : null; })()}
+
+          {/* SECCIÓN 3 · RENDIMIENTO DEL INVENTARIO */}
+          <div style={{margin:"26px 0 10px"}}>
+            <h2 style={secTit}>3 · Rendimiento del Inventario</h2>
+            <p style={secSub}>Qué terrenos llevan más tiempo sin venderse, cuánto interés generan y la tasa de conversión de cotizaciones.</p>
+          </div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
+            {kpi("Tasa de conversión",conv.tasa_conversion!=null?conv.tasa_conversion+"%":"—",B.green)}
+            {kpi("Cotizaciones aceptadas",(conv.cotiz_aceptadas!=null?conv.cotiz_aceptadas:"—")+(conv.cotiz_total!=null?" / "+conv.cotiz_total:""),B.navy)}
+            {kpi("Terrenos en inventario",(data.rend||[]).length,B.blue)}
+          </div>
+          <div style={{...card,padding:0,overflow:"hidden"}}>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead><tr style={{background:B.navy,color:"#fff",textAlign:"left"}}>
+                  <th style={{padding:"11px 14px"}}>Terreno</th>
+                  <th style={{padding:"11px 14px"}}>Ciudad</th>
+                  <th style={{padding:"11px 14px"}}>Status</th>
+                  <th style={{padding:"11px 14px",textAlign:"right"}}>Días en mercado</th>
+                  <th style={{padding:"11px 14px",textAlign:"right"}}>Interesados</th>
+                </tr></thead>
+                <tbody>
+                  {rendOrd.slice(0,40).map((r,i)=>{ const d=Number(r.dias_en_mercado); const alerta=d>=180;
+                    return (<tr key={(r.id||"")+i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
+                      <td style={{padding:"10px 14px",fontWeight:700,color:B.navy}}>{r.terreno||"—"}</td>
+                      <td style={{padding:"10px 14px",color:B.grey5}}>{cap(r.ciudad)}</td>
+                      <td style={{padding:"10px 14px",color:B.grey5}}>{r.status||"—"}</td>
+                      <td style={{padding:"10px 14px",textAlign:"right",fontWeight:800,color:alerta?B.red:(d>=0?B.navy:B.grey3)}}>{d>=0?d+" d":"—"}</td>
+                      <td style={{padding:"10px 14px",textAlign:"right",color:B.grey5}}>{Number(r.interesados)||0}</td>
+                    </tr>); })}
+                  {rendOrd.length===0 && <tr><td colSpan={5} style={{padding:20,textAlign:"center",color:B.grey4}}>Sin datos de inventario.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div style={{height:30}}/>
+        </div>
+      </div>
+    );
+  };
+
   // ─── ⚖️ COMPARADOR INTELIGENTE (Spec 61) · 2–5 lotes lado a lado + recomendación ──
   // Vista autocontenida. Lee `inventory` y `compararIds` del padre. Recomendación por
   // ALGORITMO (sin IA): precio/m² vs mercado + servicios + edificabilidad + status.
@@ -20044,7 +20206,7 @@ Respuesta: [respuesta exacta, conversacional]
               NO se borran vistas: componentes y render (view===) siguen intactos; reversible re-agregando entradas.
               Ocultas (solo accesibles internamente): dashboard, corretaje, asesores(Buscando), quickSearch,
               matchClient, matchLot, matches, clients, lots(Inventario), crm, metas, ejecutivo, comparador. */}
-          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["admin","⚙️ Admin"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["analytics","📊 Analytics"],["admin","⚙️ Admin"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
@@ -20099,6 +20261,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="captacion"&&<ViewCaptacion/>}
       {view==="pitch"&&<TramiteOpcionPaso1 asesores={asesoresCloud} onToast={toast} onCotizar={iniciarCotizacionDeAcuerdo} ver={acuerdosVer+"-"+cotPrefillVer}/>}
       {view==="pitch"&&<ViewPitchCotizacion key={"cot-"+cotPrefillVer}/>}
+      {view==="analytics"&&<ViewAnalytics/>}
       {view==="pitch" && acuerdoCotG && (
         <div onClick={()=>{ setAcuerdoCotG(null); setAcuerdosVer(v=>v+1); }} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:640,width:"100%",maxHeight:"90vh",overflow:"auto",boxShadow:"0 24px 70px rgba(0,0,0,.35)"}}>
