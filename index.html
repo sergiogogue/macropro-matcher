@@ -1575,10 +1575,9 @@ function AcuerdoComisionCaptacion({ cap, cotizacion, asesores, onToast, asegurar
   const whatsapp=()=>{
     const sel=lista.find(a=>a.email===acuerdo.asesor_email)||{};
     const tel=String(sel.telefono||acuerdo.asesor_celular||"").replace(/\D/g,"");
-    const cli=ligaCliente||(acuerdo.cotizacion_id?(LANDING_URL+"/aceptar?c="+acuerdo.cotizacion_id):"");
     const t="Hola "+String(acuerdo.asesor_nombre||"").split(" ")[0]+", iniciamos el trámite de opción del terreno *"+(acuerdo.terreno_nombre||"")+"* (propietario: "+(acuerdo.propietario_nombre||"—")+").\n\n"
-      +"1️⃣ *Tu Acuerdo de Comisión*: entra con tu cuenta de Grupo Guía, elige tu esquema (100/0 ó 60/40) y fírmalo aquí:\n"+liga
-      +(cli&&!acuerdo.captacion_id?("\n\n2️⃣ *Cotización para tu cliente*: compártela para que acepte las condiciones y suba sus documentos:\n"+cli):"");
+      +"*Tu Acuerdo de Comisión*: entra con tu cuenta de Grupo Guía, elige tu esquema (100/0 ó 60/40) y fírmalo aquí:\n"+liga
+      +"\n\nEn cuanto lo firmes, le enviamos la cotización a tu cliente.";
     window.open("https://wa.me/"+(tel?(tel.length===10?"52"+tel:tel):"")+"?text="+encodeURIComponent(t),"_blank","noopener");
   };
   const funcion=async(accion)=>{
@@ -16744,8 +16743,11 @@ Respuesta: [respuesta exacta, conversacional]
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:4}}>
               <button onClick={guardar} disabled={guardando} style={{padding:"9px 15px",borderRadius:9,border:"none",background:guardando?"#94a3b8":AZUL,color:"#fff",fontSize:13,fontWeight:700,cursor:guardando?"wait":"pointer",fontFamily:"inherit"}}>{guardando?"Guardando…":"💾 Guardar"}</button>
               <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada)} style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+DORADO,background:"transparent",color:(f.terreno_nombre.trim()&&!pdfBusy)?"#92400e":"#cbd5e1",fontSize:13,fontWeight:700,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>{pdfBusy?"Generando…":"📄 Generar PDF"}</button>
-              <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada,{share:true})} title="Genera el PDF y lo comparte (en celular se adjunta directo en WhatsApp)" style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+((f.terreno_nombre.trim()&&!pdfBusy)?"#25D366":"#e5e7eb"),background:"transparent",color:(f.terreno_nombre.trim()&&!pdfBusy)?"#15803d":"#94a3b8",fontSize:13,fontWeight:700,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 Compartir cotización</button>
-              <button disabled={guardando||!f.terreno_nombre.trim()} onClick={async()=>{ const d=guardada||await guardar(); if(d) setAcuerdoCot(d); }} title="Guarda la cotización y le manda al asesor su Acuerdo de Comisión + la liga para su cliente" style={{padding:"9px 15px",borderRadius:9,border:"none",background:f.terreno_nombre.trim()?DORADO:"#e5e7eb",color:f.terreno_nombre.trim()?AZUL:"#94a3b8",fontSize:13,fontWeight:800,cursor:f.terreno_nombre.trim()?"pointer":"not-allowed",fontFamily:"inherit",boxShadow:f.terreno_nombre.trim()?"0 2px 10px rgba(212,175,55,.4)":"none"}}>🤝 Enviar al asesor</button>
+              <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada,{share:true})} title="Genera el PDF de la cotización y lo comparte como archivo. El envío al cliente por WhatsApp es el botón verde 'Enviar cotización al cliente'." style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+((f.terreno_nombre.trim()&&!pdfBusy)?DORADO:"#e5e7eb"),background:"transparent",color:(f.terreno_nombre.trim()&&!pdfBusy)?"#92400e":"#94a3b8",fontSize:13,fontWeight:700,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>📄 Compartir PDF</button>
+              <button disabled={guardando||!f.terreno_nombre.trim()} onClick={async()=>{ const d=guardada||await guardar(); if(d) setAcuerdoCot(d); }} title="Paso 1 · Manda al asesor SOLO su Acuerdo de Comisión (100/0 ó 60/40) para que lo firme. Al enviarlo se habilita mandar la cotización al cliente." style={{padding:"9px 15px",borderRadius:9,border:"none",background:f.terreno_nombre.trim()?DORADO:"#e5e7eb",color:f.terreno_nombre.trim()?AZUL:"#94a3b8",fontSize:13,fontWeight:800,cursor:f.terreno_nombre.trim()?"pointer":"not-allowed",fontFamily:"inherit",boxShadow:f.terreno_nombre.trim()?"0 2px 10px rgba(212,175,55,.4)":"none"}}>🤝 1 · Enviar al asesor</button>
+              {(()=>{ const acG=acuerdoDe(guardada); const ok=!!(guardada&&acG); return (
+              <button disabled={!ok} onClick={()=>waLiga(guardada)} title={!guardada?"Primero guarda la cotización y manda al asesor su Acuerdo (Paso 1)":(!acG?"Se habilita en cuanto mandas al asesor su Acuerdo de Comisión (Paso 1)":"Manda la cotización al cliente por WhatsApp para que la acepte y suba sus documentos")} style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+(ok?"#25D366":"#e5e7eb"),background:ok?"#25D366":"transparent",color:ok?"#fff":"#94a3b8",fontSize:13,fontWeight:800,cursor:ok?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 2 · Enviar cotización al cliente</button>
+              ); })()}
             </div>
             {guardada && (<div style={{fontSize:12,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:10,padding:"8px 11px"}}>✅ Guardada (id: {String(guardada.id).slice(0,8)}…). Lista para el PDF del Paso 4.</div>)}
             </div>{/* fin columna izquierda (campos) */}
@@ -17176,10 +17178,11 @@ Respuesta: [respuesta exacta, conversacional]
                   <div style={{padding:"10px 12px", borderRadius:8, background:colors.bg, borderTop:"3px solid "+colors.border, marginBottom:10}}>
                     <div style={{fontSize:10, fontWeight:800, color:colors.color, textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
                       <span>{icon} {stage}</span>
-                      <span style={{background:colors.color, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{items.length}</span>
+                      <span style={{background:colors.color, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{items.length+(stage==="Nueva opción"?opcNueva.length:0)}</span>
                     </div>
                   </div>
                   <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:620, overflowY:"auto"}}>
+                    {stage==="Nueva opción" && opcNueva.map(renderOpcCard)}
                     {items.map(c=>{
                       const stale = isStaleC(c);
                       const vb = viabInfo(c.viabilidad);
@@ -17254,7 +17257,6 @@ Respuesta: [respuesta exacta, conversacional]
                         </div>
                       );
                     })}
-                    {stage==="Nueva opción" && opcNueva.map(renderOpcCard)}
                     {items.length===0 && !(stage==="Nueva opción" && opcNueva.length>0) && (
                       <div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>
                     )}
