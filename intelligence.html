@@ -831,7 +831,7 @@ body::before { content:''; position:fixed; inset:0; background:radial-gradient(e
   <div class="header-right">
     <button class="hdr-btn" onclick="openEstudios()" title="Estudios guardados">📚 <span class="lbl">Estudios</span></button>
     <button class="hdr-btn" onclick="openAutorizStats()" title="Estadística de autorizaciones">📊 <span class="lbl">Autorizaciones</span></button>
-    <span class="v-badge">v77</span>
+    <span class="v-badge">v78</span>
     <div class="api-badge" onclick="toggleApiConfig()">
       <div class="dot" id="api-dot"></div>
       <span id="api-status-label">Configurar API Key</span>
@@ -7276,7 +7276,8 @@ function showToast(msg, type='') {
     var GOLD='#E6B84F';
     var esc=function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); };
     var items=[
-      {t:'MacroPro · Dashboard y Metas', s:'Matching, CRM, estadísticas', href:'index.html', ic:'📊'},
+      {t:'Reporte Comercial · Metas y Desarrolladores', s:'Dashboard, Resultado (metas), Ranking devs — otra app', href:'https://macrolotes.grupoguia.mx/intelligence.html', ic:'📈'},
+      {t:'MacroPro (matching · CRM)', s:'App principal de MacroPro', href:'index.html', ic:'📊'},
       {t:'Hub · Apps y Desarrollos', s:'Lanzador de todas las apps', href:'hub.html', ic:'🧭'},
       {t:'Admin · Datos', s:'Inventario · Clientes · Metas · Desarrollos', href:'admin.html', ic:'🗂️'},
       {t:'Buscar', s:'Búsqueda de lotes y clientes', href:'buscar.html', ic:'🔎'},
