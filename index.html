@@ -19862,6 +19862,29 @@ Respuesta: [respuesta exacta, conversacional]
 
     const firmadosTot=acuerdos.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
 
+    // ── CONTROL DE RIESGO · Convenios pendientes de firma ──
+    // Terrenos en inventario (captaciones activas) SIN convenio firmado/validado.
+    const [verPend,setVerPend]=React.useState(false);
+    const URL_ACUERDO=LANDING_URL+"/acuerdo"; // formulario de alta/firma (sin cuenta)
+    const acuerdoDeCap=(capId)=> acuerdos.find(a=>a&&a.captacion_id===capId) || null;
+    const convenioOK=(c)=>{ const a=acuerdoDeCap(c.id); if(a&&(a.estado==="firmado"||a.estado==="validado")) return true; if(c.firma_nombre&&c.esquema_comision) return true; return false; };
+    const asesorInfo=(nombre)=> asesores.find(a=>norm(a.nombre)===norm(nombre)) || null;
+    const nombreTerreno=(c)=> (String(c.zona||"").trim()||String(c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"")||String(c.ciudad||"").trim()||"Terreno");
+    const pendientes=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && !convenioOK(c) && (!cf || norm(c.ciudad)===cf));
+    const estatusPend=(c)=>{ const a=acuerdoDeCap(c.id); if(!a) return "Sin convenio"; if(a.estado==="pendiente") return "Enviado · por firmar"; return a.estado||"Sin convenio"; };
+    const mandarFirma=(c)=>{
+      const ai=asesorInfo(c.asesorResponsableGG);
+      const a=acuerdoDeCap(c.id);
+      const link=(a&&a.token)?(LANDING_URL+"/acuerdo/"+a.token):URL_ACUERDO;
+      const nom=String(c.asesorResponsableGG||"asesor").trim().split(/\s+/)[0]||"asesor";
+      const terr=nombreTerreno(c);
+      const msg="Hola "+nom+", te recordamos que el terreno *"+terr+"* está en inventario pero necesitamos que firmes tu convenio de comisiones para poder publicarlo. Fírmalo aquí:\n"+link;
+      const tel=String((ai&&ai.telefono)||"").replace(/\D/g,""); const ph=tel.length===10?("52"+tel):tel;
+      const url=ph?("https://wa.me/"+ph+"?text="+encodeURIComponent(msg)):("https://api.whatsapp.com/send?text="+encodeURIComponent(msg));
+      if(!ph) toast("Ese asesor no tiene teléfono en el catálogo — se abrirá WhatsApp para elegir contacto.");
+      window.open(url,"_blank","noopener");
+    };
+
     // GENERAL
     const gOps=allOps.filter(inCiuOp);
     const gReqs=allReqs.filter(inCiuReq);
@@ -19993,6 +20016,42 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
 
           {modo==="general" ? (<>
+            {/* ⚠️ CONTROL DE RIESGO · Convenios pendientes de firma */}
+            <div style={{marginBottom:22,borderRadius:14,overflow:"hidden",border:"1.5px solid "+(pendientes.length?"#fca5a5":"#a7f3d0"),boxShadow:"0 4px 16px rgba(0,0,0,.05)"}}>
+              <div onClick={()=>pendientes.length&&setVerPend(v=>!v)} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",background:pendientes.length?"#fef2f2":"#f0fdf4",cursor:pendientes.length?"pointer":"default"}}>
+                <span style={{fontSize:22}}>{pendientes.length?"⚠️":"✅"}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:15,fontWeight:800,color:pendientes.length?"#b91c1c":"#15803d"}}>{pendientes.length? (pendientes.length+" convenio"+(pendientes.length===1?"":"s")+" pendiente"+(pendientes.length===1?"":"s")+" de firma") : "Sin convenios pendientes de firma"}</div>
+                  <div style={{fontSize:12.5,color:B.grey4}}>{pendientes.length? "Terrenos en inventario que NO se pueden publicar hasta firmar el convenio de comisiones." : "Todos los terrenos en inventario tienen su convenio firmado."}</div>
+                </div>
+                {pendientes.length>0 && <span style={{...s.btn("sm"),background:"#b91c1c",color:"#fff",boxShadow:"none"}}>{verPend?"Ocultar":"Ver pendientes"}</span>}
+              </div>
+              {verPend && pendientes.length>0 && (
+                <div style={{overflowX:"auto",background:"#fff",borderTop:"1px solid #fecaca"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                    <thead><tr style={{textAlign:"left",color:B.navy,background:B.offW}}>
+                      <th style={{padding:"10px 14px"}}>Terreno</th>
+                      <th style={{padding:"10px 14px"}}>Asesor</th>
+                      <th style={{padding:"10px 14px"}}>Estatus</th>
+                      <th style={{padding:"10px 14px",textAlign:"right"}}>Acción</th>
+                    </tr></thead>
+                    <tbody>
+                      {pendientes.map((c,i)=>(
+                        <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1}}>
+                          <td style={{padding:"10px 14px",fontWeight:700,color:B.navy}}>{nombreTerreno(c)}{c.ciudad?<span style={{display:"block",fontSize:11,color:B.grey4,fontWeight:500}}>{c.ciudad}</span>:null}</td>
+                          <td style={{padding:"10px 14px",color:B.grey5}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td>
+                          <td style={{padding:"10px 14px"}}>{pill(estatusPend(c), estatusPend(c)==="Sin convenio"?"#b91c1c":"#b45309", estatusPend(c)==="Sin convenio"?"#fee2e2":"#fff7ed")}</td>
+                          <td style={{padding:"10px 14px",textAlign:"right"}}>
+                            <button onClick={()=>mandarFirma(c)} style={{...s.btn("sm"),background:"#25D366",color:"#fff",boxShadow:"none"}}>🟢 Mandar link de firma</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
             {/* ESTADÍSTICAS */}
             <div style={{marginBottom:10}}><div style={s.sectionTitle}>📊 Estadísticas</div><div style={s.sectionSub}>Panorama del equipo{cf?(" · "+ciudadF):""}.</div></div>
             {!chartReady && <div style={{fontSize:12,color:B.grey3,marginBottom:10}}>Cargando librería de gráficos…</div>}
@@ -20312,7 +20371,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.34</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.35</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
