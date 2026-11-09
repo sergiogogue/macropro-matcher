@@ -19798,6 +19798,8 @@ Respuesta: [respuesta exacta, conversacional]
     const [cots,setCots]=React.useState([]);
     const [cargando,setCargando]=React.useState(true);
     const [sel,setSel]=React.useState("");
+    const [buscaAsesor,setBuscaAsesor]=React.useState("");
+    const [ciudadF,setCiudadF]=React.useState(""); // "" = todas
 
     const recargar=React.useCallback(async()=>{
       if(!window.sb){ setCargando(false); return; }
@@ -19840,7 +19842,17 @@ Respuesta: [respuesta exacta, conversacional]
 
     if(cargando) return <div style={{padding:50,textAlign:"center",color:B.grey4,fontFamily:"'DM Sans',sans-serif"}}>Cargando asesores…</div>;
 
-    const acs=acDe(sa), ops=opcDe(sa), reqs=reqDe(sa);
+    const asesoresF = buscaAsesor.trim()? asesores.filter(a=>norm(a.nombre).includes(norm(buscaAsesor))) : asesores;
+    const acs=acDe(sa);
+    const opsAll=opcDe(sa), reqsAll=reqDe(sa);
+    // Ciudades para el filtro (de las opciones y requerimientos del asesor)
+    const ciudadesSet=new Set();
+    opsAll.forEach(o=>{ const c=String(o.terreno_ciudad||"").trim(); if(c) ciudadesSet.add(c); });
+    reqsAll.forEach(r=>{ (Array.isArray(r.ciudad_interes)?r.ciudad_interes:[]).forEach(c=>{ c=String(c||"").trim(); if(c) ciudadesSet.add(c); }); });
+    const ciudades=[...ciudadesSet].sort((a,b)=>a.localeCompare(b));
+    const cf=norm(ciudadF);
+    const ops = cf? opsAll.filter(o=>norm(o.terreno_ciudad)===cf) : opsAll;
+    const reqs = cf? reqsAll.filter(r=>(Array.isArray(r.ciudad_interes)?r.ciudad_interes:[]).some(c=>norm(c)===cf)) : reqsAll;
     const firmados=acs.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
 
     return (
@@ -19854,10 +19866,21 @@ Respuesta: [respuesta exacta, conversacional]
             <button onClick={recargar} style={{padding:"9px 16px",border:"1px solid "+B.grey2,borderRadius:9,background:"#fff",color:B.navy,fontWeight:800,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>↻ Actualizar</button>
           </div>
 
+          {/* Filtros: buscar asesor + ciudad */}
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+            <input value={buscaAsesor} onChange={e=>setBuscaAsesor(e.target.value)} placeholder="🔎 Buscar asesor…" style={{padding:"9px 12px",borderRadius:9,border:"1.5px solid "+B.grey2,fontSize:13,fontFamily:"inherit",minWidth:200,flex:"1 1 220px",color:B.navy,background:"#fff",colorScheme:"light"}}/>
+            <select value={ciudadF} onChange={e=>setCiudadF(e.target.value)} style={{padding:"9px 12px",borderRadius:9,border:"1.5px solid "+B.grey2,fontSize:13,fontFamily:"inherit",color:B.navy,background:"#fff",cursor:"pointer"}}>
+              <option value="">🏙️ Ciudad: todas</option>
+              {ciudades.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+            {(buscaAsesor||ciudadF) && <button onClick={()=>{setBuscaAsesor("");setCiudadF("");}} style={{padding:"8px 12px",borderRadius:9,border:"1px solid "+B.grey2,background:"#fff",color:B.grey4,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Limpiar</button>}
+          </div>
+
           {/* Selector de asesor */}
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
             {asesores.length===0 && <div style={{color:B.grey4,fontSize:13}}>No hay asesores registrados.</div>}
-            {asesores.map(a=>{ const activo=sa&&norm(a.nombre)===norm(sa.nombre); return (
+            {asesores.length>0 && asesoresF.length===0 && <div style={{color:B.grey4,fontSize:13}}>Ningún asesor coincide con “{buscaAsesor}”.</div>}
+            {asesoresF.map(a=>{ const activo=sa&&norm(a.nombre)===norm(sa.nombre); return (
               <button key={a.nombre} onClick={()=>setSel(a.nombre)} style={{padding:"8px 14px",borderRadius:999,border:"1.5px solid "+(activo?B.navy:B.grey2),background:activo?B.navy:"#fff",color:activo?"#fff":B.navy,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{a.nombre}</button>
             ); })}
           </div>
@@ -20209,7 +20232,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.31</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.32</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
