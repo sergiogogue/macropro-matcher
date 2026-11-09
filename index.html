@@ -2141,7 +2141,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const setView=(v)=>{setViewRaw(v);savePersisted(STORAGE_KEYS.view,v);};
   // Back-Office "Option Engine": si al cargar, la vista persistida/por URL es OCULTA, redirige a
   // Captación (solo al montar; la navegación interna no se bloquea). Reversible.
-  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch"];
+  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch","equipo"];
     if(!permitidas.includes(view)){ setView("captacion"); try{ if(window.location.hash && window.location.hash!=="#captacion") window.history.replaceState(null,"","#captacion"); }catch(e){} }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -3699,7 +3699,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     // 0) vista directa (?vista=admin, dashboard, clients, lots, crm, metas…)
     if(vista){
       // Back-Office "Option Engine": por URL solo se permiten las 4 vistas visibles; el resto → Captación.
-      const VISTAS_PERMITIDAS=['home','captacion','documentos','admin','pitch'];
+      const VISTAS_PERMITIDAS=['home','captacion','documentos','admin','pitch','equipo'];
       deepLinkRef.current = true;
       setView(VISTAS_PERMITIDAS.includes(vista)?vista:'captacion');
       limpiar(); return;
@@ -19785,6 +19785,158 @@ Respuesta: [respuesta exacta, conversacional]
     );
   };
 
+  // ─── 👔 FICHA DEL ASESOR · convenio de comisión + peticiones + clientes ───────────
+  // Por asesor: su Acuerdo de Comisión (firmado/validado, esquema, PDF), sus
+  // cotizaciones/opcionadores, y sus clientes. Lee acuerdos_lista (RPC),
+  // cotizaciones_opcionador y el estado local `clients` + catálogo de asesores.
+  const ViewFichaAsesores = () => {
+    const [acuerdos,setAcuerdos]=React.useState([]);
+    const [cots,setCots]=React.useState([]);
+    const [cargando,setCargando]=React.useState(true);
+    const [sel,setSel]=React.useState("");
+
+    const recargar=React.useCallback(async()=>{
+      if(!window.sb){ setCargando(false); return; }
+      setCargando(true);
+      try{
+        const [ac,ct]=await Promise.all([
+          window.sb.rpc("acuerdos_lista",{p_captacion_id:null,p_lote_id:null}),
+          window.sb.from("cotizaciones_opcionador").select("id,cliente_nombre,terreno_nombre,terreno_ciudad,estatus,terminos_aceptados,asesor_nombre,created_at,valor_terreno,monto_comision").order("created_at",{ascending:false}).limit(500),
+        ]);
+        setAcuerdos(((ac&&ac.data)||[]).filter(a=>a&&a.estado!=="anulado"));
+        setCots((ct&&ct.data)||[]);
+      }catch(e){}
+      setCargando(false);
+    },[]);
+    React.useEffect(()=>{ recargar(); },[recargar]);
+
+    const norm=(s)=>String(s||"").trim().toLowerCase();
+    const asesores=(()=>{ const m=new Map(); const add=(a)=>{ if(!a||!a.nombre) return; const k=norm(a.nombre); if(!m.has(k)) m.set(k,{nombre:String(a.nombre).trim(),email:norm(a.email),telefono:a.telefono||""}); else { const e=m.get(k); if(!e.email&&a.email) e.email=norm(a.email); } };
+      (asesoresCatalog||[]).forEach(add); (asesoresCloud||[]).forEach(add); return [...m.values()].sort((x,y)=>x.nombre.localeCompare(y.nombre)); })();
+
+    const sa = asesores.find(a=>norm(a.nombre)===norm(sel)) || asesores[0] || null;
+    const acDe=(a)=> a? acuerdos.filter(x=> (x.asesor_email&&norm(x.asesor_email)===norm(a.email)) || norm(x.asesor_nombre)===norm(a.nombre)) : [];
+    const cotDe=(a)=> a? cots.filter(x=> norm(x.asesor_nombre)===norm(a.nombre)) : [];
+    const cliDe=(a)=> a? (clients||[]).filter(c=> norm(c.asesor)===norm(a.nombre)) : [];
+
+    const verPdf=async(a)=>{ if(!a||!a.pdf_path){ toast("Este convenio aún no tiene PDF (falta firmarlo)."); return; } try{ const {data,error}=await window.sb.storage.from("acuerdos-comision").createSignedUrl(a.pdf_path,600); if(error) throw error; window.open(data.signedUrl,"_blank"); }catch(e){ toast("No se pudo abrir el PDF"); } };
+    const fAMD=(iso)=>{ if(!iso) return "—"; try{ return new Date(iso).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}); }catch(e){ return "—"; } };
+    const estAc=(e)=> e==="validado"?["✅ Validado",B.green,B.greenL] : e==="firmado"?["✍️ Firmado",B.blue,B.blueL] : e==="pendiente"?["⏳ Por firmar","#b45309","#fff7ed"] : [(e||"—"),B.grey4,B.grey1];
+    const estCot=(r)=>{ const e=norm(r&&r.estatus); if(r&&r.terminos_aceptados) return ["✓ Aceptada",B.green,B.greenL]; if(e==="enviada") return ["Enviada",B.blue,B.blueL]; if(e.startsWith("rechaz")) return ["Rechazada",B.red,B.redL]; if(e==="borrador") return ["Borrador",B.grey4,B.grey1]; return [(r&&r.estatus)||"—",B.grey4,B.grey1]; };
+
+    const card={background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,boxShadow:"0 4px 16px rgba(0,0,0,.05)"};
+    const secTit={fontSize:15,fontWeight:800,color:B.navy,fontFamily:"'DM Sans',sans-serif",margin:"0 0 10px",display:"flex",alignItems:"center",gap:8};
+    const kpi=(label,val,color)=>(<div style={{...card,flex:1,minWidth:120,textAlign:"center",padding:16}}><div style={{fontSize:24,fontWeight:800,color:color||B.navy}}>{val}</div><div style={{fontSize:11,color:B.grey4,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginTop:3}}>{label}</div></div>);
+    const pill=(txt,fg,bg)=>(<span style={{background:bg,color:fg,borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800,whiteSpace:"nowrap"}}>{txt}</span>);
+
+    if(cargando) return <div style={{padding:50,textAlign:"center",color:B.grey4,fontFamily:"'DM Sans',sans-serif"}}>Cargando asesores…</div>;
+
+    const acs=acDe(sa), cts2=cotDe(sa), cls=cliDe(sa);
+    const validados=acs.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
+
+    return (
+      <div style={{background:B.offW,minHeight:"calc(100vh - 56px)",padding:"22px 20px",fontFamily:"'DM Sans',sans-serif"}}>
+        <div style={{maxWidth:1120,margin:"0 auto"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:12}}>
+            <div>
+              <h1 style={{fontSize:22,fontWeight:800,color:B.navy,margin:0}}>👔 Ficha del Asesor</h1>
+              <div style={{fontSize:13,color:B.grey4}}>Convenio de comisión, peticiones y clientes de cada asesor.</div>
+            </div>
+            <button onClick={recargar} style={{padding:"9px 16px",border:"1px solid "+B.grey2,borderRadius:9,background:"#fff",color:B.navy,fontWeight:800,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>↻ Actualizar</button>
+          </div>
+
+          {/* Selector de asesor */}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
+            {asesores.length===0 && <div style={{color:B.grey4,fontSize:13}}>No hay asesores registrados.</div>}
+            {asesores.map(a=>{ const activo=sa&&norm(a.nombre)===norm(sa.nombre); return (
+              <button key={a.nombre} onClick={()=>setSel(a.nombre)} style={{padding:"8px 14px",borderRadius:999,border:"1.5px solid "+(activo?B.navy:B.grey2),background:activo?B.navy:"#fff",color:activo?"#fff":B.navy,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{a.nombre}</button>
+            ); })}
+          </div>
+
+          {sa && (<>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+              {kpi("Convenios firmados",validados,B.green)}
+              {kpi("Peticiones",cts2.length,B.navy)}
+              {kpi("Clientes",cls.length,B.blue)}
+              <div style={{...card,flex:2,minWidth:200,padding:16,display:"flex",flexDirection:"column",justifyContent:"center"}}>
+                <div style={{fontSize:16,fontWeight:800,color:B.navy}}>{sa.nombre}</div>
+                <div style={{fontSize:12.5,color:B.grey4}}>{sa.email||"sin correo"}{sa.telefono?(" · "+sa.telefono):""}</div>
+              </div>
+            </div>
+
+            {/* 1 · Convenio de comisión */}
+            <div style={{...card,padding:18,marginBottom:14}}>
+              <h2 style={secTit}>🤝 Convenio de comisión</h2>
+              {acs.length===0 ? <div style={{fontSize:13,color:B.grey4}}>Sin convenio registrado. (Se crea desde Cotización → “Enviar al asesor”.)</div> : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {acs.map(a=>{ const e=estAc(a.estado); return (
+                    <div key={a.id||a.folio} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",borderTop:"1px solid "+B.grey1,paddingTop:10}}>
+                      <div style={{flex:1,minWidth:180}}>
+                        <div style={{fontSize:13.5,fontWeight:800,color:B.navy}}>{a.esquema?("Esquema "+a.esquema):"Esquema —"} {a.folio?<span style={{fontSize:11,color:B.grey4,fontWeight:600}}>· {a.folio}</span>:null}</div>
+                        <div style={{fontSize:12,color:B.grey4}}>{[a.terreno_nombre,a.propietario_nombre].filter(Boolean).join(" · ")||"—"}{a.firmado_at?(" · firmado "+fAMD(a.firmado_at)):""}</div>
+                      </div>
+                      {pill(e[0],e[1],e[2])}
+                      <button onClick={()=>verPdf(a)} style={{padding:"6px 12px",borderRadius:8,border:"1.5px solid "+B.gold,background:"#fff",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📄 PDF</button>
+                    </div>
+                  ); })}
+                </div>
+              )}
+            </div>
+
+            {/* 2 · Peticiones */}
+            <div style={{...card,padding:0,marginBottom:14,overflow:"hidden"}}>
+              <div style={{padding:"16px 18px 0"}}><h2 style={secTit}>🧾 Peticiones ({cts2.length})</h2></div>
+              {cts2.length===0 ? <div style={{padding:"0 18px 18px",fontSize:13,color:B.grey4}}>Sin cotizaciones/opcionadores.</div> : (
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                    <thead><tr style={{background:B.offW,textAlign:"left",color:B.grey5}}>
+                      <th style={{padding:"9px 14px"}}>Cliente</th><th style={{padding:"9px 14px"}}>Terreno</th>
+                      <th style={{padding:"9px 14px"}}>Valor</th><th style={{padding:"9px 14px"}}>Com.</th>
+                      <th style={{padding:"9px 14px"}}>Estatus</th><th style={{padding:"9px 14px"}}>Fecha</th>
+                    </tr></thead>
+                    <tbody>{cts2.map((r,i)=>{ const e=estCot(r); return (
+                      <tr key={r.id||i} style={{borderTop:"1px solid "+B.grey1}}>
+                        <td style={{padding:"9px 14px",fontWeight:700,color:B.navy}}>{r.cliente_nombre||"—"}</td>
+                        <td style={{padding:"9px 14px",color:B.grey5}}>{r.terreno_nombre||"—"}{r.terreno_ciudad?(" · "+r.terreno_ciudad):""}</td>
+                        <td style={{padding:"9px 14px",color:B.grey5,whiteSpace:"nowrap"}}>{r.valor_terreno||"—"}</td>
+                        <td style={{padding:"9px 14px",color:B.grey5}}>{r.monto_comision||"—"}</td>
+                        <td style={{padding:"9px 14px"}}>{pill(e[0],e[1],e[2])}</td>
+                        <td style={{padding:"9px 14px",color:B.grey4,whiteSpace:"nowrap"}}>{fAMD(r.created_at)}</td>
+                      </tr>); })}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* 3 · Clientes */}
+            <div style={{...card,padding:0,marginBottom:30,overflow:"hidden"}}>
+              <div style={{padding:"16px 18px 0"}}><h2 style={secTit}>👥 Clientes ({cls.length})</h2></div>
+              {cls.length===0 ? <div style={{padding:"0 18px 18px",fontSize:13,color:B.grey4}}>Sin clientes ligados a este asesor.</div> : (
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                    <thead><tr style={{background:B.offW,textAlign:"left",color:B.grey5}}>
+                      <th style={{padding:"9px 14px"}}>Nombre</th><th style={{padding:"9px 14px"}}>Empresa</th>
+                      <th style={{padding:"9px 14px"}}>Teléfono</th><th style={{padding:"9px 14px"}}>Correo</th>
+                      <th style={{padding:"9px 14px"}}>Ciudades de interés</th>
+                    </tr></thead>
+                    <tbody>{cls.map((c,i)=>(
+                      <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1}}>
+                        <td style={{padding:"9px 14px",fontWeight:700,color:B.navy}}>{c.nombre||"—"}</td>
+                        <td style={{padding:"9px 14px",color:B.grey5}}>{c.empresa||"—"}</td>
+                        <td style={{padding:"9px 14px",color:B.grey5,whiteSpace:"nowrap"}}>{c.telefono||"—"}</td>
+                        <td style={{padding:"9px 14px",color:B.grey5}}>{c.correo||c.email||"—"}</td>
+                        <td style={{padding:"9px 14px",color:B.grey5}}>{(Array.isArray(c.ciudad_interes)?c.ciudad_interes.join(", "):"")||"—"}</td>
+                      </tr>))}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>)}
+        </div>
+      </div>
+    );
+  };
+
   // ─── ⚖️ COMPARADOR INTELIGENTE (Spec 61) · 2–5 lotes lado a lado + recomendación ──
   // Vista autocontenida. Lee `inventory` y `compararIds` del padre. Recomendación por
   // ALGORITMO (sin IA): precio/m² vs mercado + servicios + edificabilidad + status.
@@ -20047,14 +20199,14 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.29</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.30</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
               NO se borran vistas: componentes y render (view===) siguen intactos; reversible re-agregando entradas.
               Ocultas (solo accesibles internamente): dashboard, corretaje, asesores(Buscando), quickSearch,
               matchClient, matchLot, matches, clients, lots(Inventario), crm, metas, ejecutivo, comparador. */}
-          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["admin","⚙️ Admin"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["equipo","👔 Asesores"],["admin","⚙️ Admin"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
@@ -20109,6 +20261,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="captacion"&&<ViewCaptacion/>}
       {view==="pitch"&&<TramiteOpcionPaso1 asesores={asesoresCloud} onToast={toast} onCotizar={iniciarCotizacionDeAcuerdo} ver={acuerdosVer+"-"+cotPrefillVer}/>}
       {view==="pitch"&&<ViewPitchCotizacion key={"cot-"+cotPrefillVer}/>}
+      {view==="equipo"&&<ViewFichaAsesores/>}
       {view==="pitch" && acuerdoCotG && (
         <div onClick={()=>{ setAcuerdoCotG(null); setAcuerdosVer(v=>v+1); }} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:640,width:"100%",maxHeight:"90vh",overflow:"auto",boxShadow:"0 24px 70px rgba(0,0,0,.35)"}}>
