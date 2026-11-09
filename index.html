@@ -19787,19 +19787,19 @@ Respuesta: [respuesta exacta, conversacional]
   };
 
 
-  // ─── 👔 FICHA DEL ASESOR · convenio + OPCIONES + REQUERIMIENTOS ────────────────────
-  // Dashboard por asesor, con dos bloques SEPARADOS y bien distintos:
+
+  // ─── 👔 FICHA DEL ASESOR · dashboard (Opciones + Requerimientos + Convenio) ─────────
+  // Estilo de la casa (s.hero / s.filterBar / s.resultCard). Separa claramente:
   //   • OPCIONES      = terrenos que el asesor está opcionando (cotizaciones_opcionador).
-  //   • REQUERIMIENTOS= clientes-COMPRADORES que el asesor tiene buscando terreno
-  //                     (estado local `clients`: ciudad/uso/presupuesto que BUSCAN).
-  // Más su Convenio de comisión (acuerdos_lista). Todo del más nuevo al más viejo.
+  //   • REQUERIMIENTOS= clientes compradores que BUSCAN terreno (estado local clients).
+  // Filtros: buscador de asesor + ciudad. Convenio de comisión (acuerdos_lista).
   const ViewFichaAsesores = () => {
     const [acuerdos,setAcuerdos]=React.useState([]);
     const [cots,setCots]=React.useState([]);
     const [cargando,setCargando]=React.useState(true);
     const [sel,setSel]=React.useState("");
     const [buscaAsesor,setBuscaAsesor]=React.useState("");
-    const [ciudadF,setCiudadF]=React.useState(""); // "" = todas
+    const [ciudadF,setCiudadF]=React.useState("");
 
     const recargar=React.useCallback(async()=>{
       if(!window.sb){ setCargando(false); return; }
@@ -19816,15 +19816,13 @@ Respuesta: [respuesta exacta, conversacional]
     },[]);
     React.useEffect(()=>{ recargar(); },[recargar]);
 
-    const norm=(s)=>String(s||"").trim().toLowerCase();
+    const norm=(s2)=>String(s2||"").trim().toLowerCase();
     const asesores=(()=>{ const m=new Map(); const add=(a)=>{ if(!a||!a.nombre) return; const k=norm(a.nombre); if(!m.has(k)) m.set(k,{nombre:String(a.nombre).trim(),email:norm(a.email),telefono:a.telefono||""}); else { const e=m.get(k); if(!e.email&&a.email) e.email=norm(a.email); } };
       (asesoresCatalog||[]).forEach(add); (asesoresCloud||[]).forEach(add); return [...m.values()].sort((x,y)=>x.nombre.localeCompare(y.nombre)); })();
     const sa = asesores.find(a=>norm(a.nombre)===norm(sel)) || asesores[0] || null;
 
     const acDe=(a)=> a? acuerdos.filter(x=> (x.asesor_email&&norm(x.asesor_email)===norm(a.email)) || norm(x.asesor_nombre)===norm(a.nombre)) : [];
-    // OPCIONES (terrenos opcionados) — más nuevo primero (ya vienen por created_at desc)
     const opcDe=(a)=> a? cots.filter(x=> norm(x.asesor_nombre)===norm(a.nombre)) : [];
-    // REQUERIMIENTOS (compradores que buscan) — más nuevo primero por fecha
     const reqDe=(a)=> a? (clients||[]).filter(c=> norm(c.asesor)===norm(a.nombre)).slice().sort((x,y)=> new Date(y.fecha||0)-new Date(x.fecha||0)) : [];
 
     const verPdf=async(a)=>{ if(!a||!a.pdf_path){ toast("Este convenio aún no tiene PDF (falta firmarlo)."); return; } try{ const {data,error}=await window.sb.storage.from("acuerdos-comision").createSignedUrl(a.pdf_path,600); if(error) throw error; window.open(data.signedUrl,"_blank"); }catch(e){ toast("No se pudo abrir el PDF"); } };
@@ -19833,19 +19831,9 @@ Respuesta: [respuesta exacta, conversacional]
     const estAc=(e)=> e==="validado"?["✅ Validado",B.green,B.greenL] : e==="firmado"?["✍️ Firmado",B.blue,B.blueL] : e==="pendiente"?["⏳ Por firmar","#b45309","#fff7ed"] : [(e||"—"),B.grey4,B.grey1];
     const estCot=(r)=>{ const e=norm(r&&r.estatus); if(r&&r.terminos_aceptados) return ["✓ Aceptada",B.green,B.greenL]; if(e==="enviada") return ["Enviada",B.blue,B.blueL]; if(e.startsWith("rechaz")) return ["Rechazada",B.red,B.redL]; if(e==="borrador") return ["Borrador",B.grey4,B.grey1]; return [(r&&r.estatus)||"—",B.grey4,B.grey1]; };
 
-    const card={background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,boxShadow:"0 4px 16px rgba(0,0,0,.05)"};
-    const secWrap={...card,marginBottom:16,overflow:"hidden"};
-    const secHead=(ic,txt,color)=>(<div style={{display:"flex",alignItems:"center",gap:8,padding:"14px 18px",borderBottom:"1px solid "+B.grey1,background:B.offW}}><span style={{fontSize:16}}>{ic}</span><span style={{fontSize:15,fontWeight:800,color:B.navy}}>{txt}</span></div>);
-    const kpi=(label,val,color)=>(<div style={{...card,flex:1,minWidth:120,textAlign:"center",padding:16}}><div style={{fontSize:26,fontWeight:800,color:color||B.navy}}>{val}</div><div style={{fontSize:11,color:B.grey4,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginTop:3}}>{label}</div></div>);
-    const pill=(txt,fg,bg)=>(<span style={{background:bg,color:fg,borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800,whiteSpace:"nowrap"}}>{txt}</span>);
-    const tag=(txt,color)=>(<span style={{background:color+"14",color:color,border:"1px solid "+color+"33",borderRadius:7,padding:"2px 8px",fontSize:11,fontWeight:700}}>{txt}</span>);
-
-    if(cargando) return <div style={{padding:50,textAlign:"center",color:B.grey4,fontFamily:"'DM Sans',sans-serif"}}>Cargando asesores…</div>;
-
     const asesoresF = buscaAsesor.trim()? asesores.filter(a=>norm(a.nombre).includes(norm(buscaAsesor))) : asesores;
     const acs=acDe(sa);
     const opsAll=opcDe(sa), reqsAll=reqDe(sa);
-    // Ciudades para el filtro (de las opciones y requerimientos del asesor)
     const ciudadesSet=new Set();
     opsAll.forEach(o=>{ const c=String(o.terreno_ciudad||"").trim(); if(c) ciudadesSet.add(c); });
     reqsAll.forEach(r=>{ (Array.isArray(r.ciudad_interes)?r.ciudad_interes:[]).forEach(c=>{ c=String(c||"").trim(); if(c) ciudadesSet.add(c); }); });
@@ -19855,109 +19843,117 @@ Respuesta: [respuesta exacta, conversacional]
     const reqs = cf? reqsAll.filter(r=>(Array.isArray(r.ciudad_interes)?r.ciudad_interes:[]).some(c=>norm(c)===cf)) : reqsAll;
     const firmados=acs.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
 
+    const pill=(txt,fg,bg)=>(<span style={{background:bg,color:fg,borderRadius:999,padding:"3px 11px",fontSize:11,fontWeight:800,whiteSpace:"nowrap"}}>{txt}</span>);
+    const tag=(txt,color)=>(<span style={{background:color+"14",color:color,border:"1px solid "+color+"33",borderRadius:7,padding:"2px 9px",fontSize:11.5,fontWeight:700}}>{txt}</span>);
+    const vacio=(txt)=>(<div style={{...s.resultCard(1),textAlign:"center",color:B.grey3,fontSize:13,marginBottom:0}}>{txt}</div>);
+    const chip=(a)=>{ const activo=sa&&norm(a.nombre)===norm(sa.nombre); return (
+      <button key={a.nombre} onClick={()=>setSel(a.nombre)} style={{padding:"8px 15px",borderRadius:999,border:"1.5px solid "+(activo?B.gold:B.grey1),background:activo?B.navy:B.white,color:activo?B.white:B.navy,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",boxShadow:activo?"0 4px 14px "+B.gold+"44":"none",transition:"all .15s"}}>{a.nombre}</button>
+    ); };
+
+    if(cargando) return <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}><div style={{...s.page,textAlign:"center",color:B.grey3,paddingTop:60}}>Cargando asesores…</div></div>;
+
     return (
-      <div style={{background:B.offW,minHeight:"calc(100vh - 56px)",padding:"22px 20px",fontFamily:"'DM Sans',sans-serif"}}>
-        <div style={{maxWidth:1120,margin:"0 auto"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}}>
-            <div>
-              <h1 style={{fontSize:22,fontWeight:800,color:B.navy,margin:0}}>👔 Ficha del Asesor</h1>
-              <div style={{fontSize:13,color:B.grey4}}>Convenio de comisión, <b style={{color:B.navy}}>Opciones</b> (terrenos que opciona) y <b style={{color:B.navy}}>Requerimientos</b> (clientes que buscan).</div>
+      <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}>
+        <div style={s.page}>
+          {/* HERO — el asesor como protagonista */}
+          <div style={{...s.hero,padding:"34px 36px",marginBottom:20}}>
+            <div style={s.heroDecor}/>
+            <button onClick={recargar} style={{position:"absolute",top:22,right:26,zIndex:2,...s.btn("sm"),background:"rgba(255,255,255,.12)",color:B.white,boxShadow:"none",border:"1px solid rgba(255,255,255,.25)"}}>↻ Actualizar</button>
+            <div style={{position:"relative",display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+              <div style={{width:72,height:72,borderRadius:"50%",flexShrink:0,background:B.gold,color:B.navy,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,fontWeight:800,fontFamily:"'Playfair Display',serif",boxShadow:"0 6px 20px "+B.gold+"55"}}>{iniciales(sa?sa.nombre:"")}</div>
+              <div style={{minWidth:0}}>
+                <div style={s.heroEyebrow}>Ficha del Asesor · Grupo Guía</div>
+                <div style={{...s.heroTitle,fontSize:34,marginBottom:6}}>{sa? sa.nombre : "Selecciona un asesor"}</div>
+                <div style={{...s.heroSub,fontSize:13.5}}>{sa? ((sa.email||"sin correo")+(sa.telefono?(" · "+sa.telefono):"")) : "Elige un asesor abajo para ver su convenio, opciones y requerimientos."}</div>
+              </div>
             </div>
-            <button onClick={recargar} style={{padding:"9px 16px",border:"1px solid "+B.grey2,borderRadius:9,background:"#fff",color:B.navy,fontWeight:800,cursor:"pointer",fontFamily:"inherit",fontSize:13}}>↻ Actualizar</button>
+            {sa && (
+              <div style={s.statsRow}>
+                <div style={s.stat}><div style={s.statNum}>{ops.length}</div><div style={s.statLabel}>Opciones</div></div>
+                <div style={s.stat}><div style={s.statNum}>{reqs.length}</div><div style={s.statLabel}>Requerimientos</div></div>
+                <div style={s.stat}><div style={s.statNum}>{firmados}</div><div style={s.statLabel}>Convenios firmados</div></div>
+              </div>
+            )}
           </div>
 
-          {/* Filtros: buscar asesor + ciudad */}
-          <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
-            <input value={buscaAsesor} onChange={e=>setBuscaAsesor(e.target.value)} placeholder="🔎 Buscar asesor…" style={{padding:"9px 12px",borderRadius:9,border:"1.5px solid "+B.grey2,fontSize:13,fontFamily:"inherit",minWidth:200,flex:"1 1 220px",color:B.navy,background:"#fff",colorScheme:"light"}}/>
-            <select value={ciudadF} onChange={e=>setCiudadF(e.target.value)} style={{padding:"9px 12px",borderRadius:9,border:"1.5px solid "+B.grey2,fontSize:13,fontFamily:"inherit",color:B.navy,background:"#fff",cursor:"pointer"}}>
-              <option value="">🏙️ Ciudad: todas</option>
-              {ciudades.map(c=><option key={c} value={c}>{c}</option>)}
-            </select>
-            {(buscaAsesor||ciudadF) && <button onClick={()=>{setBuscaAsesor("");setCiudadF("");}} style={{padding:"8px 12px",borderRadius:9,border:"1px solid "+B.grey2,background:"#fff",color:B.grey4,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Limpiar</button>}
+          {/* FILTROS */}
+          <div style={s.filterBar}>
+            <div style={{flex:"1 1 240px",display:"flex",flexDirection:"column",gap:5}}>
+              <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Buscar asesor</label>
+              <input value={buscaAsesor} onChange={e=>setBuscaAsesor(e.target.value)} placeholder="Nombre del asesor…" style={{...s.select,width:"100%",cursor:"text",colorScheme:"light"}}/>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+              <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Ciudad</label>
+              <select value={ciudadF} onChange={e=>setCiudadF(e.target.value)} style={{...s.select,minWidth:160}}>
+                <option value="">Todas</option>
+                {ciudades.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            {(buscaAsesor||ciudadF) && <button onClick={()=>{setBuscaAsesor("");setCiudadF("");}} style={s.btn("sm")}>Limpiar</button>}
           </div>
 
-          {/* Selector de asesor */}
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
-            {asesores.length===0 && <div style={{color:B.grey4,fontSize:13}}>No hay asesores registrados.</div>}
-            {asesores.length>0 && asesoresF.length===0 && <div style={{color:B.grey4,fontSize:13}}>Ningún asesor coincide con “{buscaAsesor}”.</div>}
-            {asesoresF.map(a=>{ const activo=sa&&norm(a.nombre)===norm(sa.nombre); return (
-              <button key={a.nombre} onClick={()=>setSel(a.nombre)} style={{padding:"8px 14px",borderRadius:999,border:"1.5px solid "+(activo?B.navy:B.grey2),background:activo?B.navy:"#fff",color:activo?"#fff":B.navy,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{a.nombre}</button>
-            ); })}
+          {/* CHIPS de asesores */}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:26}}>
+            {asesores.length===0 && <div style={{color:B.grey3,fontSize:13}}>No hay asesores registrados.</div>}
+            {asesores.length>0 && asesoresF.length===0 && <div style={{color:B.grey3,fontSize:13}}>Ningún asesor coincide con “{buscaAsesor}”.</div>}
+            {asesoresF.map(chip)}
           </div>
 
           {sa && (<>
-            {/* Encabezado del asesor + KPIs */}
-            <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}}>
-              <div style={{...card,flex:"2 1 280px",minWidth:240,padding:18,display:"flex",alignItems:"center",gap:14}}>
-                <div style={{width:54,height:54,borderRadius:"50%",flexShrink:0,background:B.navy,color:B.gold,display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,fontWeight:800}}>{iniciales(sa.nombre)}</div>
-                <div style={{minWidth:0}}>
-                  <div style={{fontSize:19,fontWeight:800,color:B.navy,lineHeight:1.1}}>{sa.nombre}</div>
-                  <div style={{fontSize:12.5,color:B.grey4,marginTop:3}}>{sa.email||"sin correo"}{sa.telefono?(" · "+sa.telefono):""}</div>
-                </div>
-              </div>
-              {kpi("Opciones",ops.length,B.gold)}
-              {kpi("Requerimientos",reqs.length,B.blue)}
-              {kpi("Convenios firmados",firmados,B.green)}
-            </div>
-
-            {/* 1 · Convenio de comisión */}
-            <div style={secWrap}>
-              {secHead("🤝","Convenio de comisión")}
-              <div style={{padding:"4px 18px 14px"}}>
-                {acs.length===0 ? <div style={{fontSize:13,color:B.grey4,padding:"10px 0"}}>Sin convenio registrado. (Se crea desde Cotización → “Enviar al asesor”.)</div> : (
-                  <div style={{display:"flex",flexDirection:"column"}}>
-                    {acs.map(a=>{ const e=estAc(a.estado); return (
-                      <div key={a.id||a.folio} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",borderTop:"1px solid "+B.grey1,padding:"10px 0"}}>
-                        <div style={{flex:1,minWidth:180}}>
-                          <div style={{fontSize:13.5,fontWeight:800,color:B.navy}}>{a.esquema?("Esquema "+a.esquema):"Esquema —"} {a.folio?<span style={{fontSize:11,color:B.grey4,fontWeight:600}}>· {a.folio}</span>:null}</div>
-                          <div style={{fontSize:12,color:B.grey4}}>{[a.terreno_nombre,a.propietario_nombre].filter(Boolean).join(" · ")||"—"}{a.firmado_at?(" · firmado "+fAMD(a.firmado_at)):""}</div>
-                        </div>
-                        {pill(e[0],e[1],e[2])}
-                        <button onClick={()=>verPdf(a)} style={{padding:"6px 12px",borderRadius:8,border:"1.5px solid "+B.gold,background:"#fff",color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📄 PDF</button>
-                      </div>
-                    ); })}
+            {/* CONVENIO */}
+            <div style={{marginBottom:28}}>
+              <div style={s.sectionTitle}>🤝 Convenio de comisión</div>
+              <div style={s.sectionSub}>Esquema de comisión del asesor (se crea desde Cotización → “Enviar al asesor”).</div>
+              {acs.length===0 ? vacio("Sin convenio registrado.") : acs.map(a=>{ const e=estAc(a.estado); return (
+                <div key={a.id||a.folio} style={{...s.resultCard(a.estado==="validado"?0:1),display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                  <div style={{flex:1,minWidth:200}}>
+                    <div style={{fontSize:15,fontWeight:800,color:B.navy}}>{a.esquema?("Esquema "+a.esquema):"Esquema —"} {a.folio?<span style={{fontSize:11,color:B.grey3,fontWeight:600}}>· {a.folio}</span>:null}</div>
+                    <div style={{fontSize:12.5,color:B.grey4,marginTop:3}}>{[a.terreno_nombre,a.propietario_nombre].filter(Boolean).join(" · ")||"—"}{a.firmado_at?(" · firmado "+fAMD(a.firmado_at)):""}</div>
                   </div>
-                )}
-              </div>
+                  {pill(e[0],e[1],e[2])}
+                  <button onClick={()=>verPdf(a)} style={s.btn("sm")}>📄 PDF</button>
+                </div>
+              ); })}
             </div>
 
-            {/* 2 · OPCIONES (terrenos que el asesor está opcionando) */}
-            <div style={secWrap}>
-              {secHead("🌱","Opciones · terrenos que está opcionando ("+ops.length+")")}
-              {ops.length===0 ? <div style={{padding:"14px 18px",fontSize:13,color:B.grey4}}>Este asesor no tiene terrenos en opción.</div> : (
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:12,padding:16}}>
+            {/* OPCIONES */}
+            <div style={{marginBottom:28}}>
+              <div style={s.sectionTitle}>🌱 Opciones</div>
+              <div style={s.sectionSub}>Terrenos que {sa.nombre} está opcionando · {ops.length}{cf?(" en "+ciudadF):""}.</div>
+              {ops.length===0 ? vacio(cf?("Sin opciones en "+ciudadF+"."):"Este asesor no tiene terrenos en opción.") : (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))",gap:16}}>
                   {ops.map((r,i)=>{ const e=estCot(r); return (
-                    <div key={r.id||i} style={{border:"1px solid "+B.grey1,borderLeft:"3px solid "+B.gold,borderRadius:10,padding:"12px 14px"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-                        <div style={{fontSize:14,fontWeight:800,color:B.navy}}>{r.terreno_nombre||"Terreno sin nombre"}</div>
+                    <div key={r.id||i} style={{...s.resultCard(1),marginBottom:0}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:4}}>
+                        <div style={{fontSize:15.5,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{r.terreno_nombre||"Terreno sin nombre"}</div>
                         {pill(e[0],e[1],e[2])}
                       </div>
-                      <div style={{fontSize:12,color:B.grey4,marginTop:2}}>Propietario: <b style={{color:B.grey5}}>{r.cliente_nombre||"—"}</b>{r.terreno_ciudad?(" · "+r.terreno_ciudad):""}</div>
-                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+                      <div style={{fontSize:12.5,color:B.grey4}}>👤 {r.cliente_nombre||"—"}{r.terreno_ciudad?(" · 📍 "+r.terreno_ciudad):""}</div>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
                         {r.valor_terreno?tag("💰 "+r.valor_terreno,B.navy):null}
-                        {r.monto_comision?tag("Comisión "+r.monto_comision,B.gold):null}
+                        {r.monto_comision?tag("Comisión "+r.monto_comision,B.goldD):null}
                       </div>
-                      <div style={{fontSize:11,color:B.grey3,marginTop:8}}>Recibido {fAMD(r.created_at)}</div>
+                      <div style={{fontSize:11,color:B.grey3,marginTop:10}}>Recibido {fAMD(r.created_at)}</div>
                     </div>
                   ); })}
                 </div>
               )}
             </div>
 
-            {/* 3 · REQUERIMIENTOS (clientes compradores que buscan terreno) */}
-            <div style={{...secWrap,marginBottom:30}}>
-              {secHead("🔍","Requerimientos · clientes que buscan terreno ("+reqs.length+")")}
-              {reqs.length===0 ? <div style={{padding:"14px 18px",fontSize:13,color:B.grey4}}>Este asesor no tiene clientes compradores registrados.</div> : (
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:12,padding:16}}>
-                  {reqs.map((c,i)=>{ const ciu=Array.isArray(c.ciudad_interes)?c.ciudad_interes.filter(Boolean):[]; const uso=Array.isArray(c.uso_interes)?c.uso_interes.filter(Boolean):[]; const pMin=Number(c.presupuesto_min)||0, pMax=Number(c.presupuesto_max)||0;
-                    return (
-                    <div key={c.id||i} style={{border:"1px solid "+B.grey1,borderLeft:"3px solid "+B.blue,borderRadius:10,padding:"12px 14px"}}>
-                      <div style={{fontSize:14,fontWeight:800,color:B.navy}}>{c.nombre||"Cliente sin nombre"}</div>
-                      <div style={{fontSize:12,color:B.grey4,marginTop:2}}>{c.empresa||"—"}{c.telefono?(" · "+c.telefono):""}</div>
-                      <div style={{marginTop:8,fontSize:12,color:B.grey5}}>
-                        <div><b style={{color:B.navy}}>Busca en:</b> {ciu.length?ciu.join(", "):"—"}</div>
-                        {uso.length?<div style={{marginTop:2}}><b style={{color:B.navy}}>Uso:</b> {uso.join(", ")}</div>:null}
-                        {(pMin||pMax)?<div style={{marginTop:2}}><b style={{color:B.navy}}>Presupuesto:</b> {fmtM(pMin)} – {fmtM(pMax)}</div>:null}
+            {/* REQUERIMIENTOS */}
+            <div style={{marginBottom:40}}>
+              <div style={s.sectionTitle}>🔍 Requerimientos</div>
+              <div style={s.sectionSub}>Clientes que {sa.nombre} tiene buscando terreno · {reqs.length}{cf?(" en "+ciudadF):""}.</div>
+              {reqs.length===0 ? vacio(cf?("Sin requerimientos en "+ciudadF+"."):"Este asesor no tiene clientes compradores registrados.") : (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))",gap:16}}>
+                  {reqs.map((c,i)=>{ const ciu=Array.isArray(c.ciudad_interes)?c.ciudad_interes.filter(Boolean):[]; const uso=Array.isArray(c.uso_interes)?c.uso_interes.filter(Boolean):[]; const pMin=Number(c.presupuesto_min)||0, pMax=Number(c.presupuesto_max)||0; return (
+                    <div key={c.id||i} style={{...s.resultCard(1),marginBottom:0,borderLeft:"3px solid "+B.blue}}>
+                      <div style={{fontSize:15.5,fontWeight:800,color:B.navy,fontFamily:"'Playfair Display',serif"}}>{c.nombre||"Cliente sin nombre"}</div>
+                      <div style={{fontSize:12.5,color:B.grey4,marginTop:2}}>{c.empresa||"—"}{c.telefono?(" · "+c.telefono):""}</div>
+                      <div style={{marginTop:10,fontSize:12.5,color:B.grey5,lineHeight:1.7}}>
+                        <div>📍 <b style={{color:B.navy}}>Busca en:</b> {ciu.length?ciu.join(", "):"—"}</div>
+                        {uso.length?<div>🏗️ <b style={{color:B.navy}}>Uso:</b> {uso.join(", ")}</div>:null}
+                        {(pMin||pMax)?<div>💰 <b style={{color:B.navy}}>Presupuesto:</b> {fmtM(pMin)} – {fmtM(pMax)}</div>:null}
                       </div>
                     </div>
                   ); })}
@@ -20232,7 +20228,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.32</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.33</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
