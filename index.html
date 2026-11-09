@@ -16956,9 +16956,13 @@ Respuesta: [respuesta exacta, conversacional]
     const opcHechos=(id)=>OPC_DOCS.filter(d=>opcDocs[id]&&opcDocs[id][d.k]).length;
     // "En cotización" = esperando que el propietario acepte (las rechazadas se ven en el Panel).
     const opcEnCot=(opcLista||[]).filter(o=>!o.terminos_aceptados && !String(o.estatus||"").toLowerCase().startsWith("rechaz"));
-    // Aceptadas: ya son CAPTACIONES reales (columna Nueva opción). Solo se muestra tarjeta aparte
-    // si aún no tiene captación ligada (respaldo mientras no se corre el SQL opcionador_flujo_unico).
-    const opcNueva=(opcLista||[]).filter(o=>!!o.terminos_aceptados && !o.captacion_id);
+    // Aceptadas → tarjeta en "Nueva opción". Se muestra el opcionador SIEMPRE que haya
+    // aceptado, EXCEPTO si su captación ligada ya está cargada de forma nativa aquí (para
+    // no duplicar). Así, cuando acepta/convierte pero la captación aún no se sincronizó a
+    // MacroPro, NO desaparece del Kanban (antes: con captacion_id se ocultaba y quedaba
+    // invisible hasta sincronizar). Reaparece como nativa en cuanto se cargue.
+    const capIdsLocal=new Set((captaciones||[]).map(c=>c&&c.id).filter(Boolean));
+    const opcNueva=(opcLista||[]).filter(o=>!!o.terminos_aceptados && !(o.captacion_id && capIdsLocal.has(o.captacion_id)));
     const verOpcDoc=async(row)=>{ try{ const {data,error}=await window.sb.storage.from("documentos-opcionador").createSignedUrl(row.url,180); if(error) throw error; window.open(data.signedUrl,"_blank"); }catch(e){ toast("No se pudo abrir el archivo"); } };
     // Subir/reemplazar un documento del opcionador desde MacroPro (asesor o admin),
     // por ejemplo cuando el cliente lo manda por WhatsApp/correo. Mismo bucket y tabla
@@ -20039,7 +20043,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.27</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.28</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
