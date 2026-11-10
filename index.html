@@ -20085,6 +20085,53 @@ Respuesta: [respuesta exacta, conversacional]
       </div>
     );
 
+    // 🗂️ KANBAN VERTICAL de firma: 3 secciones apiladas (Sin convenio → Enviado → Firmado).
+    // Cada terreno cae solo en su sección según su estatus; así se ve a quién se le mandó y en qué va.
+    const kanbanFirma=(lista,showAse)=>{
+      const g0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeCap(c.id));
+      const g1=lista.filter(c=>!convenioOK(c)&&acuerdoDeCap(c.id));
+      const g2=lista.filter(c=>convenioOK(c));
+      const fila=(c,i)=>(
+        <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
+          {showAse&&<td style={{padding:"9px 14px",color:B.grey5,whiteSpace:"nowrap"}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td>}
+          <td style={{padding:"9px 14px"}}><button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button></td>
+          <td style={{padding:"9px 14px",color:B.grey5}}>{c.ciudad||"—"}</td>
+          <td style={{padding:"9px 14px",textAlign:"right"}}>
+            <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
+              {!convenioOK(c) && accionesFirma(c)}
+              <button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>
+            </div>
+          </td>
+        </tr>
+      );
+      const seccion=(titulo,fg,bg,items,vacioTxt)=>(
+        <div style={{marginBottom:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",background:bg,borderRadius:"12px 12px 0 0",border:"1px solid "+B.grey1,borderBottom:"none"}}>
+            <span style={{fontSize:13.5,fontWeight:800,color:fg}}>{titulo}</span>
+            <span style={{fontSize:12,fontWeight:800,color:"#fff",background:fg,borderRadius:999,padding:"1px 9px"}}>{items.length}</span>
+          </div>
+          <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden",borderRadius:"0 0 12px 12px"}}>
+            {items.length===0 ? <div style={{padding:"11px 14px",fontSize:12.5,color:B.grey3}}>{vacioTxt}</div> : (
+              <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead><tr style={{textAlign:"left",color:B.grey4}}>
+                  {showAse&&<th style={{padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5}}>Asesor</th>}
+                  <th style={{padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5}}>Terreno</th>
+                  <th style={{padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5}}>Ciudad</th>
+                  <th style={{padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,textAlign:"right"}}>Acción</th>
+                </tr></thead>
+                <tbody>{items.map((c,i)=>fila(c,i))}</tbody>
+              </table></div>
+            )}
+          </div>
+        </div>
+      );
+      return (<div>
+        {seccion("⏳ Sin convenio",B.red,B.redL,g0,"Nada por mandar — todos tienen al menos su liga enviada.")}
+        {seccion("📨 Enviado · por firmar","#b45309","#fff7ed",g1,"Nada enviado todavía.")}
+        {seccion("✅ Firmado",B.green,B.greenL,g2,"Aún no hay convenios firmados.")}
+      </div>);
+    };
+
     // GENERAL
     const gOps=allOps.filter(inCiuOp);
     const gReqs=allReqs.filter(inCiuReq);
@@ -20369,52 +20416,15 @@ Respuesta: [respuesta exacta, conversacional]
               </div>
             )}
 
-            {/* 🏷️ TODOS LOS TERRENOS OPCIONADOS · con columna de asesor + filtro trámite/firmados */}
-            {(()=>{ const baseT=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf));
+            {/* 🗂️ TODOS LOS TERRENOS · kanban vertical (Sin convenio → Enviado → Firmado) */}
+            {(()=>{ const baseT=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf))
+                      .slice().sort((a,b)=>String(a.asesorResponsableGG||"").localeCompare(String(b.asesorResponsableGG||"")));
               const nTram=baseT.filter(c=>!convenioOK(c)).length, nFirm=baseT.length-nTram;
-              const todos=baseT.filter(c=> estadoF==="tramite"?!convenioOK(c): estadoF==="firmados"?convenioOK(c):true)
-                      .slice().sort((a,b)=>{ const pa=tier(a), pb=tier(b); if(pa!==pb) return pa-pb; return String(a.asesorResponsableGG||"").localeCompare(String(b.asesorResponsableGG||"")); });
-              const segBtn=(val,lbl,n,col)=>(<button onClick={()=>setEstadoF(val)} style={{...s.btn("sm"),background:estadoF===val?col:"#fff",color:estadoF===val?"#fff":col,border:"1.5px solid "+col,boxShadow:"none",cursor:"pointer",fontWeight:800,whiteSpace:"nowrap"}}>{lbl} ({n})</button>);
               return (
               <div style={{marginBottom:40}}>
-                <div style={s.sectionTitle}>🏷️ Todos los terrenos opcionados</div>
-                <div style={s.sectionSub}>{baseT.length} terreno(s){cf?(" en "+ciudadF):""} de todo el equipo · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Clic en el terreno para ver su ficha.</div>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap",margin:"4px 0 14px"}}>
-                  {segBtn("todos","Todos",baseT.length,B.navy)}
-                  {segBtn("tramite","⏳ En trámite",nTram,B.red)}
-                  {segBtn("firmados","✅ Firmados",nFirm,B.green)}
-                </div>
-                <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden"}}>
-                  {todos.length===0 ? <div style={{padding:"16px 18px",fontSize:13,color:B.grey3}}>{estadoF==="firmados"?"Aún no hay convenios firmados.":estadoF==="tramite"?"No hay terrenos en trámite.":"Sin terrenos en opción."}</div> : (
-                    <div style={{overflowX:"auto"}}>
-                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                        <thead><tr style={{textAlign:"left",color:"#fff",background:B.navy}}>
-                          <th style={{padding:"11px 14px"}}>Asesor</th>
-                          <th style={{padding:"11px 14px"}}>Terreno</th>
-                          <th style={{padding:"11px 14px"}}>Ciudad</th>
-                          <th style={{padding:"11px 14px"}}>Estatus de firma</th>
-                          <th style={{padding:"11px 14px",textAlign:"right"}}>Acción</th>
-                        </tr></thead>
-                        <tbody>
-                          {todos.map((c,i)=>{ const ok=convenioOK(c); return (
-                            <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
-                              <td style={{padding:"10px 14px",color:B.grey5,whiteSpace:"nowrap"}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td>
-                              <td style={{padding:"10px 14px"}}><button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button></td>
-                              <td style={{padding:"10px 14px",color:B.grey5}}>{c.ciudad||"—"}</td>
-                              <td style={{padding:"10px 14px"}}>{ok?pill("✅ Firmado",B.green,B.greenL):(acuerdoDeCap(c.id)?pill("📨 Enviado · por firmar","#b45309","#fff7ed"):pill("⏳ Sin convenio",B.red,B.redL))}</td>
-                              <td style={{padding:"10px 14px",textAlign:"right"}}>
-                                <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
-                                  {!ok && accionesFirma(c)}
-                                  <button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>
-                                </div>
-                              </td>
-                            </tr>
-                          ); })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
+                <div style={s.sectionTitle}>🗂️ Todos los terrenos opcionados</div>
+                <div style={s.sectionSub}>{baseT.length} terreno(s){cf?(" en "+ciudadF):""} de todo el equipo · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Cada terreno baja de sección según avanza. Clic en el terreno para ver su ficha.</div>
+                {kanbanFirma(baseT,true)}
               </div>
               );
             })()}
@@ -20431,57 +20441,22 @@ Respuesta: [respuesta exacta, conversacional]
                 </div>
               </div>
             )}
-            {/* 🏷️ FICHA DETALLADA · terrenos opcionados + estatus de firma (tabla tipo Excel) */}
-            {(()=>{ const baseT=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && norm(c.asesorResponsableGG)===norm(sa.nombre) && (!cf||norm(c.ciudad)===cf));
+            {/* 🗂️ FICHA DETALLADA · kanban vertical (Sin convenio → Enviado → Firmado) */}
+            {(()=>{ const baseT=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && norm(c.asesorResponsableGG)===norm(sa.nombre) && (!cf||norm(c.ciudad)===cf))
+                      .slice().sort((a,b)=>String(nombreTerreno(a)).localeCompare(String(nombreTerreno(b))));
               const nTram=baseT.filter(c=>!convenioOK(c)).length, nFirm=baseT.length-nTram;
-              const terr=baseT.filter(c=> estadoF==="tramite"?!convenioOK(c): estadoF==="firmados"?convenioOK(c):true)
-                      .slice().sort((a,b)=>{ const pa=tier(a), pb=tier(b); if(pa!==pb) return pa-pb; return String(nombreTerreno(a)).localeCompare(String(nombreTerreno(b))); });
-              const segBtn=(val,lbl,n,col)=>(<button onClick={()=>setEstadoF(val)} style={{...s.btn("sm"),background:estadoF===val?col:"#fff",color:estadoF===val?"#fff":col,border:"1.5px solid "+col,boxShadow:"none",cursor:"pointer",fontWeight:800,whiteSpace:"nowrap"}}>{lbl} ({n})</button>);
               return (
               <div style={{marginBottom:28}}>
-                <div style={s.sectionTitle}>🏷️ Terrenos opcionados · estatus de firma</div>
-                <div style={s.sectionSub}>{baseT.length} terreno(s) en opción de {sa.nombre}{cf?(" en "+ciudadF):""} · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>.</div>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap",margin:"4px 0 14px"}}>
-                  {segBtn("todos","Todos",baseT.length,B.navy)}
-                  {segBtn("tramite","⏳ En trámite",nTram,B.red)}
-                  {segBtn("firmados","✅ Firmados",nFirm,B.green)}
-                </div>
+                <div style={s.sectionTitle}>🗂️ Terrenos opcionados · estatus de firma</div>
+                <div style={s.sectionSub}>{baseT.length} terreno(s) en opción de {sa.nombre}{cf?(" en "+ciudadF):""} · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Cada terreno baja de sección según avanza.</div>
                 {nTram>0 && (()=>{ const p=baseT.find(c=>!convenioOK(c)); const busyP=genId===(p&&p.id); return (
-                  <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",background:B.navy+"0a",border:"1px solid "+B.grey1,borderLeft:"4px solid "+B.gold,borderRadius:12,padding:"12px 14px",marginBottom:14}}>
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",background:B.navy+"0a",border:"1px solid "+B.grey1,borderLeft:"4px solid "+B.gold,borderRadius:12,padding:"12px 14px",margin:"4px 0 16px"}}>
                     <div style={{flex:"1 1 230px",minWidth:0,fontSize:13,color:B.grey5}}>📨 Manda a <b style={{color:B.navy}}>{sa.nombre}</b> sus <b style={{color:B.red}}>{nTram}</b> terreno(s) en trámite en <b>un solo mensaje</b> (todos juntos){sa.email?(" → "+sa.email):""}.</div>
                     <button disabled={busyP} onClick={()=>enviarCorreoFirma(p)} style={{...s.btn("sm"),background:busyP?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:busyP?"wait":"pointer",whiteSpace:"nowrap"}}>{busyP?"Enviando…":("📧 Un solo correo con sus "+nTram)}</button>
                     <button disabled={busyP} onClick={()=>enviarWhatsFirma(p)} style={{...s.btn("sm"),background:busyP?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:busyP?"wait":"pointer",whiteSpace:"nowrap"}}>🟢 WhatsApp con los {nTram}</button>
                   </div>
                 ); })()}
-                <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden"}}>
-                  {terr.length===0 ? <div style={{padding:"16px 18px",fontSize:13,color:B.grey3}}>{baseT.length===0?"Este asesor no tiene terrenos en opción.":estadoF==="firmados"?"Sin convenios firmados.":"No hay terrenos en trámite."}</div> : (
-                    <div style={{overflowX:"auto"}}>
-                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                        <thead><tr style={{textAlign:"left",color:"#fff",background:B.navy}}>
-                          <th style={{padding:"11px 14px"}}>Terreno</th>
-                          <th style={{padding:"11px 14px"}}>Ciudad</th>
-                          <th style={{padding:"11px 14px"}}>Estatus de firma</th>
-                          <th style={{padding:"11px 14px",textAlign:"right"}}>Acción</th>
-                        </tr></thead>
-                        <tbody>
-                          {terr.map((c,i)=>{ const ok=convenioOK(c); return (
-                            <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
-                              <td style={{padding:"10px 14px"}}><button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button></td>
-                              <td style={{padding:"10px 14px",color:B.grey5}}>{c.ciudad||"—"}</td>
-                              <td style={{padding:"10px 14px"}}>{ok?pill("✅ Firmado",B.green,B.greenL):(acuerdoDeCap(c.id)?pill("📨 Enviado · por firmar","#b45309","#fff7ed"):pill("⏳ Sin convenio",B.red,B.redL))}</td>
-                              <td style={{padding:"10px 14px",textAlign:"right"}}>
-                                <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
-                                  {!ok && accionesFirma(c)}
-                                  <button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>
-                                </div>
-                              </td>
-                            </tr>
-                          ); })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
+                {baseT.length===0 ? <div style={{...s.resultCard(1),marginBottom:0,fontSize:13,color:B.grey3}}>Este asesor no tiene terrenos en opción.</div> : kanbanFirma(baseT,false)}
               </div>
               );
             })()}
@@ -20780,7 +20755,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.55</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.56</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
