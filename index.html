@@ -19912,7 +19912,7 @@ Respuesta: [respuesta exacta, conversacional]
       return ()=>{ clearInterval(t); clearTimeout(to); };
     },[]);
 
-    const norm=(s2)=>String(s2||"").trim().toLowerCase();
+    const norm=(s2)=>String(s2||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/\s+/g," ").trim();
     const cap=(s2)=>{ s2=String(s2||"").trim(); return s2? s2.charAt(0).toUpperCase()+s2.slice(1):"—"; };
     const asesores=(()=>{ const m=new Map(); const add=(a)=>{ if(!a||!a.nombre) return; const k=norm(a.nombre); if(!k) return; if(!m.has(k)) m.set(k,{nombre:String(a.nombre).trim(),email:norm(a.email),telefono:a.telefono||""}); else { const e=m.get(k); if(!e.email&&a.email) e.email=norm(a.email); } };
       // Catálogo (trae correo/tel) + los asesores REALES que aparecen en los datos:
@@ -19950,6 +19950,27 @@ Respuesta: [respuesta exacta, conversacional]
     // Terrenos en inventario (captaciones activas) SIN convenio firmado/validado.
     const [verPend,setVerPend]=React.useState(false);
     const [genId,setGenId]=React.useState(""); // captación cuyo convenio se está generando
+    // Captura inline de correo/WhatsApp del asesor (para generar convenios sin salir de la Ficha).
+    const [capEmail,setCapEmail]=React.useState(""); const [capTel,setCapTel]=React.useState(""); const [capBusy,setCapBusy]=React.useState(false);
+    React.useEffect(()=>{ setCapEmail((sa&&sa.email)||""); setCapTel((sa&&sa.telefono)||""); },[sa&&sa.nombre]); // eslint-disable-line
+    const guardarDatosAsesor=async()=>{
+      if(!sa) return;
+      const email=capEmail.trim().toLowerCase(); const tel=capTel.trim();
+      if(email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast("Correo inválido"); return; }
+      if(!email && !tel){ toast("Escribe al menos el correo o el WhatsApp"); return; }
+      setCapBusy(true);
+      try{
+        if(window.sb){
+          const { data:ex } = await window.sb.from('asesores').select('id').ilike('nombre', sa.nombre).limit(1);
+          if(ex&&ex[0]) await window.sb.from('asesores').update({ email:email||null, telefono:tel||null }).eq('id', ex[0].id);
+          else await window.sb.from('asesores').insert({ nombre: sa.nombre, email:email||null, telefono:tel||null, activo:true });
+        }
+        // Actualiza el catálogo en memoria para que el botón de abajo ya lo use.
+        setAsesoresCloud(prev=>{ const arr=Array.isArray(prev)?[...prev]:[]; const i=arr.findIndex(x=>x&&norm(x.nombre)===norm(sa.nombre)); if(i>=0) arr[i]={...arr[i],email,telefono:tel}; else arr.push({ nombre:sa.nombre, email, telefono:tel, activo:true }); return arr; });
+        toast("✅ Datos del asesor guardados · ya puedes mandar los links");
+      }catch(e){ toast("No se pudo guardar: "+((e&&e.message)||e)); }
+      setCapBusy(false);
+    };
     const URL_ACUERDO=LANDING_URL+"/acuerdo"; // formulario de alta/firma (sin cuenta)
     const acuerdoDeCap=(capId)=> acuerdos.find(a=>a&&a.captacion_id===capId) || null;
     const convenioOK=(c)=>{ const a=acuerdoDeCap(c.id); if(a&&(a.estado==="firmado"||a.estado==="validado")) return true; if(c.firma_nombre&&c.esquema_comision) return true; return false; };
@@ -19967,7 +19988,7 @@ Respuesta: [respuesta exacta, conversacional]
       const w=window.open("","_blank");
       let a=acuerdoDeCap(c.id); let token=a&&a.token;
       if(!token){
-        if(!(ai&&ai.email)){ if(w) w.close(); toast("Ese asesor no tiene correo en el catálogo; agrégalo en Admin para generar su convenio."); return; }
+        if(!(ai&&ai.email)){ if(w) w.close(); toast("Captura el correo del asesor arriba en la Ficha (campo “Datos del asesor”) y guárdalo para generar el convenio."); return; }
         setGenId(c.id);
         try{
           // Genera el convenio ligado a ESTE terreno + asesor (token pre-llenado).
@@ -20179,6 +20200,18 @@ Respuesta: [respuesta exacta, conversacional]
               {gReqs.length>120 && <div style={{fontSize:12,color:B.grey3,marginTop:10,textAlign:"center"}}>Mostrando 120 de {gReqs.length}. Usa el filtro de ciudad o “Por asesor” para acotar.</div>}
             </div>
           </>) : (sa && (<>
+            {/* 📇 CAPTURA INLINE · correo/WhatsApp del asesor (para poder generar convenios) */}
+            {(!sa.email || !sa.telefono) && (
+              <div style={{...s.resultCard(1),marginBottom:20,borderLeft:"4px solid "+B.gold}}>
+                <div style={{fontSize:14,fontWeight:800,color:B.navy,marginBottom:3}}>📇 Datos del asesor</div>
+                <div style={{fontSize:12.5,color:B.grey4,marginBottom:10}}><b>{sa.nombre}</b> no tiene {!sa.email?"correo":""}{(!sa.email&&!sa.telefono)?" ni ":""}{!sa.telefono?"WhatsApp":""} en el catálogo. Captúralo aquí para generar y mandar sus convenios sin salir de esta pantalla.</div>
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                  <input value={capEmail} onChange={e=>setCapEmail(e.target.value)} placeholder="correo@asesor.com" style={{...s.select,flex:"1 1 220px",cursor:"text",colorScheme:"light"}}/>
+                  <input value={capTel} onChange={e=>setCapTel(e.target.value)} placeholder="WhatsApp (10 dígitos)" inputMode="numeric" style={{...s.select,flex:"1 1 170px",cursor:"text",colorScheme:"light"}}/>
+                  <button disabled={capBusy} onClick={guardarDatosAsesor} style={{...s.btn("primary"),opacity:capBusy?0.6:1}}>{capBusy?"Guardando…":"💾 Guardar"}</button>
+                </div>
+              </div>
+            )}
             {/* 🏷️ FICHA DETALLADA · terrenos opcionados + estatus de firma (tabla tipo Excel) */}
             {(()=>{ const terr=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && norm(c.asesorResponsableGG)===norm(sa.nombre) && (!cf||norm(c.ciudad)===cf));
               const pend=terr.filter(c=>!convenioOK(c)).length;
@@ -20512,7 +20545,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.41</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.42</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
