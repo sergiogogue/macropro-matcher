@@ -20021,6 +20021,11 @@ Respuesta: [respuesta exacta, conversacional]
     const aOps=opcDe(sa).filter(inCiuOp);
     const aReqs=reqDe(sa).filter(inCiuReq);
     const firmadosSa=acs.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
+    // Terrenos REALES del asesor (fuente: captaciones) — para que los contadores del hero
+    // y las secciones cuadren con la tabla de "Terrenos opcionados".
+    const terrAsesor=sa?(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && norm(c.asesorResponsableGG)===norm(sa.nombre) && (!cf||norm(c.ciudad)===cf)):[];
+    const terrFirmados=terrAsesor.filter(convenioOK).length;
+    const terrPend=terrAsesor.length-terrFirmados;
 
     // ── Gráficas (modo general) ──
     React.useEffect(()=>{
@@ -20126,9 +20131,9 @@ Respuesta: [respuesta exacta, conversacional]
                   <div style={s.stat}><div style={s.statNum}>{pendientes.length}</div><div style={s.statLabel}>Pendientes de firma</div></div>
                 </div>}
                 {sa && <div style={{...s.statsRow,marginTop:0,marginLeft:"auto"}}>
-                  <div style={s.stat}><div style={s.statNum}>{aOps.length}</div><div style={s.statLabel}>Opciones</div></div>
-                  <div style={s.stat}><div style={s.statNum}>{aReqs.length}</div><div style={s.statLabel}>Requerim.</div></div>
-                  <div style={s.stat}><div style={s.statNum}>{firmadosSa}</div><div style={s.statLabel}>Convenios</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{terrAsesor.length}</div><div style={s.statLabel}>Opciones</div></div>
+                  <div style={s.stat}><div style={{...s.statNum,color:terrPend?B.gold:undefined}}>{terrPend}</div><div style={s.statLabel}>Pendientes</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{terrFirmados}</div><div style={s.statLabel}>Firmados</div></div>
                 </div>}
               </div>
             )}
@@ -20414,11 +20419,11 @@ Respuesta: [respuesta exacta, conversacional]
                 </div>
               ); })}
             </div>
-            {/* OPCIONES del asesor */}
+            {/* COTIZACIONES enviadas por el asesor (fuente: cotizaciones_opcionador) */}
             <div style={{marginBottom:28}}>
-              <div style={s.sectionTitle}>🌱 Opciones</div>
-              <div style={s.sectionSub}>Terrenos que {sa.nombre} está opcionando · {aOps.length}{cf?(" en "+ciudadF):""}.</div>
-              {aOps.length===0 ? vacio("Este asesor no tiene terrenos en opción.") : (<div style={grid}>{aOps.map((r,i)=>cardOpc(r,i,false))}</div>)}
+              <div style={s.sectionTitle}>🧾 Cotizaciones enviadas</div>
+              <div style={s.sectionSub}>Cotizaciones que {sa.nombre} ha mandado a clientes · {aOps.length}{cf?(" en "+ciudadF):""}. (Los terrenos en opción están arriba.)</div>
+              {aOps.length===0 ? vacio("Este asesor no ha enviado cotizaciones por el opcionador.") : (<div style={grid}>{aOps.map((r,i)=>cardOpc(r,i,false))}</div>)}
             </div>
             {/* REQUERIMIENTOS del asesor */}
             <div style={{marginBottom:40}}>
@@ -20694,7 +20699,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.46</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.47</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
