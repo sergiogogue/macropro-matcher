@@ -19881,8 +19881,9 @@ Respuesta: [respuesta exacta, conversacional]
     const [modo,setModo]=React.useState("general"); // general | asesor
     const [sel,setSel]=React.useState("");
     const [ciudadF,setCiudadF]=React.useState("");
+    const [estadoF,setEstadoF]=React.useState("todos"); // todos | tramite | firmados
     const [chartReady,setChartReady]=React.useState(typeof window!=="undefined" && !!window.Chart);
-    const refCiu=useRef(null), refAse=useRef(null), chartsRef=useRef({});
+    const refCiu=useRef(null), refAse=useRef(null), refPend=useRef(null), chartsRef=useRef({});
     const PALETA=["#002B49","#F5B335","#2563AC","#1a8a4a","#c0392b","#8B5CF6","#0a3d5c","#d4952a","#16a34a","#e07a1f"];
 
     const recargar=React.useCallback(async()=>{
@@ -19975,6 +19976,8 @@ Respuesta: [respuesta exacta, conversacional]
     const URL_ACUERDO=LANDING_URL+"/acuerdo"; // formulario de alta/firma (sin cuenta)
     const acuerdoDeCap=(capId)=> acuerdos.find(a=>a&&a.captacion_id===capId) || null;
     const convenioOK=(c)=>{ const a=acuerdoDeCap(c.id); if(a&&(a.estado==="firmado"||a.estado==="validado")) return true; if(c.firma_nombre&&c.esquema_comision) return true; return false; };
+    // Eliminar un terreno de las opciones (soft-delete: queda marcado como eliminado en la nube, reversible).
+    const borrarTerreno=(c)=>{ if(!c||!c.id) return; if(window.confirm("¿Eliminar el terreno «"+nombreTerreno(c)+"» de la lista de opciones?\n\nSe quita de MacroPro y de la nube (queda marcado como eliminado; no se borra el historial). Lo verán los 3 usuarios.")){ try{ removeCaptacion(c.id); toast("Terreno eliminado de las opciones."); }catch(e){ toast("No se pudo eliminar."); } } };
     const asesorInfo=(nombre)=> asesores.find(a=>norm(a.nombre)===norm(nombre)) || null;
     const nombreTerreno=(c)=> (String(c.zona||"").trim()||String(c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"")||String(c.ciudad||"").trim()||"Terreno");
     const pendientes=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && !convenioOK(c) && (!cf || norm(c.ciudad)===cf));
@@ -20042,6 +20045,20 @@ Respuesta: [respuesta exacta, conversacional]
       if(refAse.current && top.length){ chartsRef.current.ase=new Chart(refAse.current,{type:"bar",data:{labels:top.map(x=>x[0]),datasets:[{label:"Opciones",data:top.map(x=>x[1]),backgroundColor:top.map((_,i)=>PALETA[i%PALETA.length]),borderRadius:4}]},options:{...baseOpts("Producción por asesor (opciones)"),plugins:{legend:{display:false},title:{display:true,text:"Producción por asesor (opciones)",font:{size:13,weight:"700"}}}}}); }
       return kill;
     },[modo,chartReady,cots,clients,ciudadF]);
+
+    // ── Gráfica (vista "Todos los asesores") · Top de pendientes de firma ──
+    React.useEffect(()=>{
+      if(!verTodos || !chartReady || !window.Chart || !refPend.current) return;
+      const Chart=window.Chart;
+      if(chartsRef.current.pend){ try{chartsRef.current.pend.destroy();}catch(_){ } chartsRef.current.pend=null; }
+      const base=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && !convenioOK(c) && (!cf || norm(c.ciudad)===cf));
+      const by={};
+      base.forEach(c=>{ const k=String(c.asesorResponsableGG||"Sin asesor").trim()||"Sin asesor"; by[k]=(by[k]||0)+1; });
+      const top=Object.entries(by).sort((a,b)=>b[1]-a[1]).slice(0,10);
+      if(!top.length) return;
+      chartsRef.current.pend=new Chart(refPend.current,{type:"bar",data:{labels:top.map(x=>x[0]),datasets:[{label:"Pendientes de firma",data:top.map(x=>x[1]),backgroundColor:B.red,borderRadius:4}]},options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},title:{display:true,text:"Top de pendientes de firma por asesor",font:{size:13,weight:"700"}},tooltip:{callbacks:{label:(x)=>" "+x.raw+" pendiente(s)"}}},scales:{x:{beginAtZero:true,ticks:{precision:0,font:{size:10}}},y:{ticks:{autoSkip:false,font:{size:10,weight:"600"}}}}}});
+      return ()=>{ if(chartsRef.current.pend){ try{chartsRef.current.pend.destroy();}catch(_){ } chartsRef.current.pend=null; } };
+    },[verTodos,chartReady,acuerdos,captaciones,ciudadF]);
 
     const pill=(txt,fg,bg)=>(<span style={{background:bg,color:fg,borderRadius:999,padding:"3px 11px",fontSize:11,fontWeight:800,whiteSpace:"nowrap"}}>{txt}</span>);
     const tag=(txt,color)=>(<span style={{background:color+"14",color:color,border:"1px solid "+color+"33",borderRadius:7,padding:"2px 9px",fontSize:11.5,fontWeight:700}}>{txt}</span>);
@@ -20257,16 +20274,35 @@ Respuesta: [respuesta exacta, conversacional]
               );
             })()}
 
-            {/* 🏷️ TODOS LOS TERRENOS OPCIONADOS · con columna de asesor */}
-            {(()=>{ const todos=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf))
+            {/* 📉 GRÁFICA · Top de pendientes de firma por asesor */}
+            {pendientes.length>0 && (
+              <div style={{marginBottom:40}}>
+                <div style={s.sectionTitle}>📉 Top de pendientes de firma</div>
+                <div style={s.sectionSub}>Asesores con más convenios por firmar{cf?(" en "+ciudadF):""} (los 10 primeros).</div>
+                <div style={{...s.resultCard(1),marginBottom:0}}>
+                  {!chartReady ? <div style={{padding:"30px 10px",textAlign:"center",color:B.grey3,fontSize:13}}>Cargando gráfica…</div>
+                    : <div style={{position:"relative",height:Math.max(180,Math.min(pendientes.length,10)*34+60)}}><canvas ref={refPend}/></div>}
+                </div>
+              </div>
+            )}
+
+            {/* 🏷️ TODOS LOS TERRENOS OPCIONADOS · con columna de asesor + filtro trámite/firmados */}
+            {(()=>{ const baseT=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf));
+              const nTram=baseT.filter(c=>!convenioOK(c)).length, nFirm=baseT.length-nTram;
+              const todos=baseT.filter(c=> estadoF==="tramite"?!convenioOK(c): estadoF==="firmados"?convenioOK(c):true)
                       .slice().sort((a,b)=>{ const pa=convenioOK(a)?1:0, pb=convenioOK(b)?1:0; if(pa!==pb) return pa-pb; return String(a.asesorResponsableGG||"").localeCompare(String(b.asesorResponsableGG||"")); });
-              const pend=todos.filter(c=>!convenioOK(c)).length;
+              const segBtn=(val,lbl,n,col)=>(<button onClick={()=>setEstadoF(val)} style={{...s.btn("sm"),background:estadoF===val?col:"#fff",color:estadoF===val?"#fff":col,border:"1.5px solid "+col,boxShadow:"none",cursor:"pointer",fontWeight:800,whiteSpace:"nowrap"}}>{lbl} ({n})</button>);
               return (
               <div style={{marginBottom:40}}>
                 <div style={s.sectionTitle}>🏷️ Todos los terrenos opcionados</div>
-                <div style={s.sectionSub}>{todos.length} terreno(s){cf?(" en "+ciudadF):""} de todo el equipo · <b style={{color:pend?B.red:B.green}}>{pend} pendiente(s) de firma</b>. Clic en el terreno para ver su ficha.</div>
+                <div style={s.sectionSub}>{baseT.length} terreno(s){cf?(" en "+ciudadF):""} de todo el equipo · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Clic en el terreno para ver su ficha.</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",margin:"4px 0 14px"}}>
+                  {segBtn("todos","Todos",baseT.length,B.navy)}
+                  {segBtn("tramite","⏳ En trámite",nTram,B.red)}
+                  {segBtn("firmados","✅ Firmados",nFirm,B.green)}
+                </div>
                 <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden"}}>
-                  {todos.length===0 ? <div style={{padding:"16px 18px",fontSize:13,color:B.grey3}}>Sin terrenos en opción.</div> : (
+                  {todos.length===0 ? <div style={{padding:"16px 18px",fontSize:13,color:B.grey3}}>{estadoF==="firmados"?"Aún no hay convenios firmados.":estadoF==="tramite"?"No hay terrenos en trámite.":"Sin terrenos en opción."}</div> : (
                     <div style={{overflowX:"auto"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                         <thead><tr style={{textAlign:"left",color:"#fff",background:B.navy}}>
@@ -20284,9 +20320,12 @@ Respuesta: [respuesta exacta, conversacional]
                               <td style={{padding:"10px 14px",color:B.grey5}}>{c.ciudad||"—"}</td>
                               <td style={{padding:"10px 14px"}}>{ok?pill("✅ Firmado",B.green,B.greenL):pill("⏳ "+estatusPend(c),B.red,B.redL)}</td>
                               <td style={{padding:"10px 14px",textAlign:"right"}}>
-                                {ok ? <span style={{color:B.grey3,fontSize:12}}>—</span> : (
-                                  <button disabled={genId===c.id} onClick={()=>mandarFirma(c)} style={{...s.btn("sm"),background:genId===c.id?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"Generando…":"🟢 Generar link y mandar WhatsApp"}</button>
-                                )}
+                                <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
+                                  {!ok && (
+                                    <button disabled={genId===c.id} onClick={()=>mandarFirma(c)} style={{...s.btn("sm"),background:genId===c.id?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"Generando…":"🟢 Generar link y mandar WhatsApp"}</button>
+                                  )}
+                                  <button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>
+                                </div>
                               </td>
                             </tr>
                           ); })}
@@ -20644,7 +20683,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.44</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.45</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
