@@ -20476,6 +20476,13 @@ Respuesta: [respuesta exacta, conversacional]
                   {segBtn("tramite","⏳ En trámite",nTram,B.red)}
                   {segBtn("firmados","✅ Firmados",nFirm,B.green)}
                 </div>
+                {nTram>0 && (()=>{ const p=baseT.find(c=>!convenioOK(c)); const busyP=genId===(p&&p.id); return (
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",background:B.navy+"0a",border:"1px solid "+B.grey1,borderLeft:"4px solid "+B.gold,borderRadius:12,padding:"12px 14px",marginBottom:14}}>
+                    <div style={{flex:"1 1 230px",minWidth:0,fontSize:13,color:B.grey5}}>📨 Manda a <b style={{color:B.navy}}>{sa.nombre}</b> sus <b style={{color:B.red}}>{nTram}</b> terreno(s) en trámite en <b>un solo mensaje</b> (todos juntos){sa.email?(" → "+sa.email):""}.</div>
+                    <button disabled={busyP} onClick={()=>enviarCorreoFirma(p)} style={{...s.btn("sm"),background:busyP?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:busyP?"wait":"pointer",whiteSpace:"nowrap"}}>{busyP?"Enviando…":("📧 Un solo correo con sus "+nTram)}</button>
+                    <button disabled={busyP} onClick={()=>enviarWhatsFirma(p)} style={{...s.btn("sm"),background:busyP?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:busyP?"wait":"pointer",whiteSpace:"nowrap"}}>🟢 WhatsApp con los {nTram}</button>
+                  </div>
+                ); })()}
                 <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden"}}>
                   {terr.length===0 ? <div style={{padding:"16px 18px",fontSize:13,color:B.grey3}}>{baseT.length===0?"Este asesor no tiene terrenos en opción.":estadoF==="firmados"?"Sin convenios firmados.":"No hay terrenos en trámite."}</div> : (
                     <div style={{overflowX:"auto"}}>
@@ -20803,7 +20810,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.51</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.52</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
