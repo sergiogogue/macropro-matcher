@@ -19902,7 +19902,9 @@ Respuesta: [respuesta exacta, conversacional]
     // La carga global de la app corre una sola vez y se salta si Supabase aún no estaba listo,
     // así que aquí se lee al abrir Asesores y se cachea.
     const [tabAsesores,setTabAsesores]=React.useState(()=>{ try{ return JSON.parse(FA("tabAsesores","[]"))||[]; }catch(e){ return []; } });
-    React.useEffect(()=>{ if(!window.sb) return; window.sb.from("asesores").select("nombre,email,telefono").then(({data,error})=>{ if(error||!Array.isArray(data)) return; const list=data.filter(r=>r&&r.nombre&&r.email).map(r=>({nombre:String(r.nombre).trim(),email:String(r.email).trim().toLowerCase(),telefono:r.telefono||""})); if(list.length){ setTabAsesores(list); FAset("tabAsesores",JSON.stringify(list)); } }).catch(()=>{}); },[]);
+    // select("*") a propósito: si se nombra una columna que no existe (p. ej. telefono), Supabase
+    // rechaza TODA la consulta y no llega ningún correo.
+    React.useEffect(()=>{ if(!window.sb) return; window.sb.from("asesores").select("*").then(({data,error})=>{ if(error){ console.warn("asesores (correos):",error.message); return; } if(!Array.isArray(data)) return; const list=data.filter(r=>r&&r.nombre&&r.email).map(r=>({nombre:String(r.nombre).trim(),email:String(r.email).trim().toLowerCase(),telefono:r.telefono||r.celular||r.whatsapp||""})); if(list.length){ setTabAsesores(list); FAset("tabAsesores",JSON.stringify(list)); } else { console.warn("asesores (correos): 0 filas visibles"); } }).catch(e=>console.warn("asesores (correos):",e&&e.message)); },[]);
     const [chartReady,setChartReady]=React.useState(typeof window!=="undefined" && !!window.Chart);
     const refCiu=useRef(null), refAse=useRef(null), refPend=useRef(null), chartsRef=useRef({});
     const PALETA=["#002B49","#F5B335","#2563AC","#1a8a4a","#c0392b","#8B5CF6","#0a3d5c","#d4952a","#16a34a","#e07a1f"];
@@ -20756,7 +20758,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.63</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.64</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
