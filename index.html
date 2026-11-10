@@ -20016,6 +20016,10 @@ Respuesta: [respuesta exacta, conversacional]
     // GENERAL
     const gOps=allOps.filter(inCiuOp);
     const gReqs=allReqs.filter(inCiuReq);
+    // Terrenos REALES del equipo (fuente: captaciones) para alinear KPIs/gráficas/listas.
+    const gTerr=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf));
+    const gTerrFirm=gTerr.filter(convenioOK).length;
+    const gTerrPend=gTerr.length-gTerrFirm;
     // POR ASESOR
     const acs=acDe(sa);
     const aOps=opcDe(sa).filter(inCiuOp);
@@ -20034,22 +20038,25 @@ Respuesta: [respuesta exacta, conversacional]
       const kill=()=>{ Object.values(chartsRef.current).forEach(c=>{ try{c.destroy();}catch(_){}}); chartsRef.current={}; };
       kill();
       const baseOpts=(t)=>({responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:"top",labels:{font:{size:10}}},title:{display:!!t,text:t,font:{size:13,weight:"700"}}},scales:{x:{ticks:{autoSkip:false,maxRotation:55,font:{size:10}}},y:{beginAtZero:true,ticks:{precision:0}}}});
-      // Opciones vs Requerimientos por ciudad
+      // Terrenos opcionados vs Requerimientos por ciudad (fuente: captaciones + clients)
       const oc={},rc={};
-      gOps.forEach(o=>{ const k=cap(o.terreno_ciudad); if(k!=="—"){ oc[k]=(oc[k]||0)+1; } });
+      gTerr.forEach(c=>{ const k=cap(c.ciudad); if(k!=="—"){ oc[k]=(oc[k]||0)+1; } });
       gReqs.forEach(r=>{ (Array.isArray(r.ciudad_interes)?r.ciudad_interes:[]).forEach(c=>{ c=cap(c); if(c!=="—"){ rc[c]=(rc[c]||0)+1; } }); });
       const cset=[...new Set([...Object.keys(oc),...Object.keys(rc)])].sort((a,b)=>((rc[b]||0)+(oc[b]||0))-((rc[a]||0)+(oc[a]||0))).slice(0,10);
       if(refCiu.current && cset.length){ chartsRef.current.ciu=new Chart(refCiu.current,{type:"bar",data:{labels:cset,datasets:[
         {label:"Opciones",data:cset.map(c=>oc[c]||0),backgroundColor:B.gold,borderRadius:4},
         {label:"Requerimientos",data:cset.map(c=>rc[c]||0),backgroundColor:B.navy,borderRadius:4},
       ]},options:baseOpts("Opciones vs Requerimientos por ciudad")}); }
-      // Opciones por asesor
-      const ba={};
-      gOps.forEach(o=>{ const k=String(o.asesor_nombre||"Sin asesor").trim()||"Sin asesor"; ba[k]=(ba[k]||0)+1; });
-      const top=Object.entries(ba).sort((a,b)=>b[1]-a[1]).slice(0,8);
-      if(refAse.current && top.length){ chartsRef.current.ase=new Chart(refAse.current,{type:"bar",data:{labels:top.map(x=>x[0]),datasets:[{label:"Opciones",data:top.map(x=>x[1]),backgroundColor:top.map((_,i)=>PALETA[i%PALETA.length]),borderRadius:4}]},options:{...baseOpts("Producción por asesor (opciones)"),plugins:{legend:{display:false},title:{display:true,text:"Producción por asesor (opciones)",font:{size:13,weight:"700"}}}}}); }
+      // Terrenos por asesor (firmados vs pendientes, apilado) — fuente: captaciones
+      const baF={},baP={};
+      gTerr.forEach(c=>{ const k=String(c.asesorResponsableGG||"Sin asesor").trim()||"Sin asesor"; if(convenioOK(c)) baF[k]=(baF[k]||0)+1; else baP[k]=(baP[k]||0)+1; });
+      const keys=[...new Set([...Object.keys(baF),...Object.keys(baP)])].sort((a,b)=>((baF[b]||0)+(baP[b]||0))-((baF[a]||0)+(baP[a]||0))).slice(0,8);
+      if(refAse.current && keys.length){ chartsRef.current.ase=new Chart(refAse.current,{type:"bar",data:{labels:keys,datasets:[
+        {label:"Pendientes",data:keys.map(k=>baP[k]||0),backgroundColor:B.red,borderRadius:4,stack:"t"},
+        {label:"Firmados",data:keys.map(k=>baF[k]||0),backgroundColor:B.green,borderRadius:4,stack:"t"},
+      ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:"top",labels:{font:{size:10}}},title:{display:true,text:"Terrenos opcionados por asesor",font:{size:13,weight:"700"}}},scales:{x:{stacked:true,ticks:{autoSkip:false,maxRotation:55,font:{size:10}}},y:{stacked:true,beginAtZero:true,ticks:{precision:0}}}}}); }
       return kill;
-    },[modo,chartReady,cots,clients,ciudadF]);
+    },[modo,chartReady,acuerdos,captaciones,clients,ciudadF]);
 
     // ── Gráfica (vista "Todos los asesores") · Top de pendientes de firma ──
     React.useEffect(()=>{
@@ -20113,9 +20120,10 @@ Respuesta: [respuesta exacta, conversacional]
                 <div style={{...s.heroTitle,fontSize:34,marginBottom:6}}>Asesores</div>
                 <div style={{...s.heroSub,fontSize:13.5}}>Todas las opciones y requerimientos del equipo, con estadísticas. Cambia a “Por asesor” para ver a cada uno.</div>
                 <div style={s.statsRow}>
-                  <div style={s.stat}><div style={s.statNum}>{gOps.length}</div><div style={s.statLabel}>Opciones</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{gTerr.length}</div><div style={s.statLabel}>Opciones</div></div>
+                  <div style={s.stat}><div style={{...s.statNum,color:gTerrPend?B.gold:undefined}}>{gTerrPend}</div><div style={s.statLabel}>Pendientes de firma</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{gTerrFirm}</div><div style={s.statLabel}>Convenios firmados</div></div>
                   <div style={s.stat}><div style={s.statNum}>{gReqs.length}</div><div style={s.statLabel}>Requerimientos</div></div>
-                  <div style={s.stat}><div style={s.statNum}>{firmadosTot}</div><div style={s.statLabel}>Convenios firmados</div></div>
                   <div style={s.stat}><div style={s.statNum}>{asesores.length}</div><div style={s.statLabel}>Asesores</div></div>
                 </div>
               </div>
@@ -20211,13 +20219,56 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{...s.resultCard(1),marginBottom:0,height:320}}><canvas ref={refAse}/></div>
             </div>
 
-            {/* TODAS LAS OPCIONES */}
-            <div style={{marginBottom:28}}>
-              <div style={s.sectionTitle}>🌱 Opciones del equipo</div>
-              <div style={s.sectionSub}>Terrenos en opción · {gOps.length}{cf?(" en "+ciudadF):""} (del más nuevo al viejo).</div>
-              {gOps.length===0 ? vacio("Sin opciones.") : (<div style={grid}>{gOps.slice(0,120).map((r,i)=>cardOpc(r,i,true))}</div>)}
-              {gOps.length>120 && <div style={{fontSize:12,color:B.grey3,marginTop:10,textAlign:"center"}}>Mostrando 120 de {gOps.length}. Usa el filtro de ciudad o “Por asesor” para acotar.</div>}
-            </div>
+            {/* TODAS LAS OPCIONES (fuente: captaciones) · con filtro trámite/firmados */}
+            {(()=>{ const baseT=gTerr;
+              const nTram=baseT.filter(c=>!convenioOK(c)).length, nFirm=baseT.length-nTram;
+              const lista=baseT.filter(c=> estadoF==="tramite"?!convenioOK(c): estadoF==="firmados"?convenioOK(c):true)
+                      .slice().sort((a,b)=>{ const pa=convenioOK(a)?1:0,pb=convenioOK(b)?1:0; if(pa!==pb)return pa-pb; return String(a.asesorResponsableGG||"").localeCompare(String(b.asesorResponsableGG||"")); });
+              const segBtn=(val,lbl,n,col)=>(<button onClick={()=>setEstadoF(val)} style={{...s.btn("sm"),background:estadoF===val?col:"#fff",color:estadoF===val?"#fff":col,border:"1.5px solid "+col,boxShadow:"none",cursor:"pointer",fontWeight:800,whiteSpace:"nowrap"}}>{lbl} ({n})</button>);
+              return (
+              <div style={{marginBottom:28}}>
+                <div style={s.sectionTitle}>🌱 Opciones del equipo</div>
+                <div style={s.sectionSub}>{baseT.length} terreno(s) en opción{cf?(" en "+ciudadF):""} · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Clic en el terreno para ver su ficha.</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",margin:"4px 0 14px"}}>
+                  {segBtn("todos","Todos",baseT.length,B.navy)}
+                  {segBtn("tramite","⏳ En trámite",nTram,B.red)}
+                  {segBtn("firmados","✅ Firmados",nFirm,B.green)}
+                </div>
+                <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden"}}>
+                  {lista.length===0 ? <div style={{padding:"16px 18px",fontSize:13,color:B.grey3}}>{estadoF==="firmados"?"Aún no hay convenios firmados.":estadoF==="tramite"?"No hay terrenos en trámite.":"Sin terrenos en opción."}</div> : (
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                        <thead><tr style={{textAlign:"left",color:"#fff",background:B.navy}}>
+                          <th style={{padding:"11px 14px"}}>Asesor</th>
+                          <th style={{padding:"11px 14px"}}>Terreno</th>
+                          <th style={{padding:"11px 14px"}}>Ciudad</th>
+                          <th style={{padding:"11px 14px"}}>Estatus de firma</th>
+                          <th style={{padding:"11px 14px",textAlign:"right"}}>Acción</th>
+                        </tr></thead>
+                        <tbody>
+                          {lista.slice(0,200).map((c,i)=>{ const ok=convenioOK(c); return (
+                            <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
+                              <td style={{padding:"10px 14px",color:B.grey5,whiteSpace:"nowrap"}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td>
+                              <td style={{padding:"10px 14px"}}><button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button></td>
+                              <td style={{padding:"10px 14px",color:B.grey5}}>{c.ciudad||"—"}</td>
+                              <td style={{padding:"10px 14px"}}>{ok?pill("✅ Firmado",B.green,B.greenL):pill("⏳ "+estatusPend(c),B.red,B.redL)}</td>
+                              <td style={{padding:"10px 14px",textAlign:"right"}}>
+                                <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
+                                  {!ok && (<button disabled={genId===c.id} onClick={()=>mandarFirma(c)} style={{...s.btn("sm"),background:genId===c.id?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"Generando…":"🟢 Generar link y mandar WhatsApp"}</button>)}
+                                  <button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>
+                                </div>
+                              </td>
+                            </tr>
+                          ); })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                {lista.length>200 && <div style={{fontSize:12,color:B.grey3,marginTop:10,textAlign:"center"}}>Mostrando 200 de {lista.length}. Usa el filtro de ciudad para acotar.</div>}
+              </div>
+              );
+            })()}
 
             {/* TODOS LOS REQUERIMIENTOS */}
             <div style={{marginBottom:40}}>
@@ -20699,7 +20750,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.47</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.48</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
