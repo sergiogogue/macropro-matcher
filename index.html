@@ -19894,6 +19894,10 @@ Respuesta: [respuesta exacta, conversacional]
     const [navH,setNavH]=React.useState(64);
     React.useEffect(()=>{ const medir=()=>{ try{ const n=document.querySelector("nav"); if(n){ const h=Math.ceil(n.getBoundingClientRect().height); if(h>0) setNavH(h); } }catch(e){} };
       medir(); const t=setTimeout(medir,600); window.addEventListener("resize",medir); return ()=>{ clearTimeout(t); window.removeEventListener("resize",medir); }; },[]);
+    // Alto del encabezado fijo (tarjeta + filtros), para que el menú flotante del kanban quede debajo.
+    const hdrRef=useRef(null);
+    const [hdrH,setHdrH]=React.useState(0);
+    React.useEffect(()=>{ const el=hdrRef.current; if(!el) return; const m=()=>{ try{ setHdrH(Math.ceil(el.getBoundingClientRect().height)); }catch(e){} }; m(); let ro=null; try{ ro=new ResizeObserver(m); ro.observe(el); }catch(e){} window.addEventListener("resize",m); return ()=>{ try{ ro&&ro.disconnect(); }catch(e){} window.removeEventListener("resize",m); }; },[cargando]);
     // Secciones del kanban colapsables (se recuerda cuáles están cerradas).
     const [col,setCol]=React.useState(()=>{ try{ return JSON.parse(FA("col","{}"))||{}; }catch(e){ return {}; } });
     const toggleCol=(k)=>setCol(p=>{ const n={...p,[k]:!p[k]}; FAset("col",JSON.stringify(n)); return n; });
@@ -20099,61 +20103,165 @@ Respuesta: [respuesta exacta, conversacional]
 
     // Par de botones (Correo + WhatsApp) para una fila pendiente de firma.
     const accionesFirma=(c)=>(
-      <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
-        <button disabled={genId===c.id} onClick={()=>enviarCorreoFirma(c)} title="Enviar el link por correo al asesor (con copia a macrolotes@grupoguia.mx)" style={{...s.btn("sm"),background:genId===c.id?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"Enviando…":"📧 Correo"}</button>
-        <button disabled={genId===c.id} onClick={()=>enviarWhatsFirma(c)} title="Mandar el link por WhatsApp" style={{...s.btn("sm"),background:genId===c.id?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"…":"🟢 WhatsApp"}</button>
+      <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"nowrap"}}>
+        <button disabled={genId===c.id} onClick={()=>enviarCorreoFirma(c)} title="Enviar el link por correo al asesor (con copia a macrolotes@grupoguia.mx)" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:genId===c.id?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"Enviando…":"📧 Correo"}</button>
+        <button disabled={genId===c.id} onClick={()=>enviarWhatsFirma(c)} title="Mandar el link por WhatsApp" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:genId===c.id?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"…":"🟢 WhatsApp"}</button>
       </div>
     );
 
+    // Convenio firmado que cubre este terreno (el del terreno, o el que firmó su asesor).
+    const acuerdoFirmadoDe=(c)=>{ const a=acuerdoDeCap(c.id); if(a&&(a.estado==="firmado"||a.estado==="validado")) return a; const ai=asesorInfo(c.asesorResponsableGG); return (acuerdos||[]).find(x=>x&&(x.estado==="firmado"||x.estado==="validado")&&((ai&&ai.email&&norm(x.asesor_email)===norm(ai.email))||(x.asesor_nombre&&norm(x.asesor_nombre)===norm(c.asesorResponsableGG))))||null; };
+    const fmtFecha=(iso)=>{ if(!iso) return ""; try{ return new Date(iso).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}); }catch(e){ return ""; } };
+    // Envío del asesor: folio + fecha del convenio (se crea al mandar la liga) + a qué terreno quedó ligado.
+    const envioDe=(nombre)=>{ const a=acuerdoDeAsesor(nombre); if(!a) return null; return {folio:a.folio||"",fecha:fmtFecha(a.created_at||a.enviado_at||a.updated_at),terrenoId:a.captacion_id}; };
+
     // 🗂️ KANBAN VERTICAL de firma: 3 secciones apiladas (Sin convenio → Enviado → Firmado).
-    // Cada terreno cae solo en su sección según su estatus; así se ve a quién se le mandó y en qué va.
+    // Renglones delgados (una sola línea). En "Enviado" (vista Todos) se agrupa por asesor: un envío
+    // cubre todos sus terrenos, con folio y fecha.
     const kanbanFirma=(lista,showAse)=>{
       // "Enviado" es por ASESOR: si ya tiene un convenio (token), TODOS sus terrenos pendientes
       // bajan a "Enviado" (el único correo cubre todos sus terrenos).
       const g0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG));
       const g1=lista.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG));
       const g2=lista.filter(c=>convenioOK(c));
-      const fila=(c,i)=>(
-        <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
-          {showAse&&<td style={{padding:"9px 14px",color:B.grey5,whiteSpace:"nowrap"}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td>}
-          <td style={{padding:"9px 14px"}}><button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button></td>
-          <td style={{padding:"9px 14px",color:B.grey5}}>{c.ciudad||"—"}</td>
-          <td style={{padding:"9px 14px",textAlign:"right"}}>
-            <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
-              {!convenioOK(c) && accionesFirma(c)}
-              <button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>
-            </div>
-          </td>
-        </tr>
-      );
-      const seccion=(key,titulo,fg,bg,items,vacioTxt)=>{ const cerrado=!!col[key]; return (
-        <div style={{marginBottom:16}}>
-          <div onClick={()=>toggleCol(key)} title={cerrado?"Mostrar":"Ocultar"} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",background:bg,borderRadius:cerrado?"12px":"12px 12px 0 0",border:"1px solid "+B.grey1,borderBottom:cerrado?("1px solid "+B.grey1):"none",cursor:"pointer",userSelect:"none"}}>
+      const tdS={padding:"5px 14px",whiteSpace:"nowrap"};
+      const thS={padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap"};
+      const lnkT=(c)=>(<button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button>);
+      const btnBorrar=(c)=>(<button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),padding:"3px 8px",background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>);
+      const accCel=(c,conEnvio)=>(<td style={{padding:"4px 14px"}}><div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"nowrap"}}>{conEnvio&&accionesFirma(c)}{btnBorrar(c)}</div></td>);
+      const asCel=(c)=> showAse ? <td style={{...tdS,color:B.grey5}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td> : null;
+      const bg=(i)=>({borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW});
+      const tabla=(heads,rows)=>(<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+        <thead><tr style={{textAlign:"left",color:B.grey4}}>{heads.map((h,i)=><th key={i} style={{...thS,textAlign:i===heads.length-1?"right":"left"}}>{h}</th>)}</tr></thead>
+        <tbody>{rows}</tbody></table></div>);
+      const txtEnvio=(c)=>{ const env=envioDe(c.asesorResponsableGG); if(!env||!env.folio) return "—"; return c.id===env.terrenoId ? (env.folio+(env.fecha?(" · "+env.fecha):"")) : ("incluido en "+env.folio); };
+
+      // ⏳ Sin convenio
+      const t0=tabla(showAse?["Asesor","Terreno","Ciudad","Acción"]:["Terreno","Ciudad","Acción"],
+        g0.map((c,i)=>(<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>{accCel(c,true)}</tr>)));
+
+      // 📨 Enviado · por firmar
+      let t1;
+      if(showAse){
+        const grupos=[]; const gm=new Map();
+        g1.forEach(c=>{ const k=norm(c.asesorResponsableGG); if(!gm.has(k)){ const g={nombre:c.asesorResponsableGG,items:[]}; gm.set(k,g); grupos.push(g); } gm.get(k).items.push(c); });
+        grupos.sort((a,b)=>String(a.nombre||"").localeCompare(String(b.nombre||"")));
+        t1=tabla(["Asesor / terreno","Ciudad","Envío","Acción"], grupos.map((g,gi)=>{ const n=g.items.length; const em=correoDe(g.nombre); return [
+          <tr key={"g"+gi} style={{borderTop:"1px solid "+B.grey1,background:"#fff7ed"}}>
+            <td colSpan={3} style={{padding:"7px 14px",fontWeight:800,color:B.navy}}>{g.nombre||"Sin asesor"}{em&&<span style={{fontWeight:600,color:B.grey4,fontSize:12,marginLeft:8}}>{em}</span>}<span style={{marginLeft:10,background:"#fff",border:"1px solid #f3d19c",color:"#b45309",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>📨 1 correo · cubre {n} terreno{n===1?"":"s"}</span></td>
+            <td style={{padding:"4px 14px"}}><div style={{display:"flex",justifyContent:"flex-end"}}>{accionesFirma(g.items[0])}</div></td>
+          </tr>,
+          ...g.items.map((c,i)=>(<tr key={c.id||("s"+gi+"-"+i)} style={{borderTop:"1px solid "+B.grey1,background:"#fff"}}>
+            <td style={{padding:"5px 14px 5px 34px"}}>{lnkT(c)}</td>
+            <td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
+            <td style={{...tdS,color:B.grey4,fontSize:12}}>{txtEnvio(c)}</td>
+            {accCel(c,false)}
+          </tr>))
+        ]; }));
+      } else {
+        t1=tabla(["Terreno","Ciudad","Envío","Acción"],
+          g1.map((c,i)=>(<tr key={c.id||i} style={bg(i)}><td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td><td style={{...tdS,color:B.grey4,fontSize:12}}>{txtEnvio(c)}</td>{accCel(c,true)}</tr>)));
+      }
+
+      // ✅ Firmado
+      const t2=tabla(showAse?["Asesor","Terreno","Ciudad","Convenio","Acción"]:["Terreno","Ciudad","Convenio","Acción"],
+        g2.map((c,i)=>{ const a=acuerdoFirmadoDe(c); const esq=String((a&&a.esquema)||c.esquema_comision||"").replace("_","/"); return (<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
+          <td style={tdS}><span style={{background:B.greenL,color:B.green,borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}}>✅ {(a&&a.folio)||"Firmado"}{esq?(" · esquema "+esq):""}</span></td>{accCel(c,false)}</tr>); }));
+
+      const seccion=(key,titulo,fg,bgc,count,vacioTxt,contenido)=>{ const cerrado=!!col[key]; return (
+        <div id={"kb-"+key} style={{marginBottom:14}}>
+          <div onClick={()=>toggleCol(key)} title={cerrado?"Mostrar":"Ocultar"} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:bgc,borderRadius:cerrado?"12px":"12px 12px 0 0",border:"1px solid "+B.grey1,borderBottom:cerrado?("1px solid "+B.grey1):"none",cursor:"pointer",userSelect:"none"}}>
             <span style={{fontSize:13,color:fg,transform:cerrado?"rotate(-90deg)":"none",transition:"transform .15s"}}>▾</span>
             <span style={{fontSize:13.5,fontWeight:800,color:fg}}>{titulo}</span>
-            <span style={{fontSize:12,fontWeight:800,color:"#fff",background:fg,borderRadius:999,padding:"1px 9px"}}>{items.length}</span>
+            <span style={{fontSize:12,fontWeight:800,color:"#fff",background:fg,borderRadius:999,padding:"1px 9px"}}>{count}</span>
           </div>
           {!cerrado && <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden",borderRadius:"0 0 12px 12px"}}>
-            {items.length===0 ? <div style={{padding:"11px 14px",fontSize:12.5,color:B.grey3}}>{vacioTxt}</div> : (
-              <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                <thead><tr style={{textAlign:"left",color:B.grey4}}>
-                  {showAse&&<th style={{padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5}}>Asesor</th>}
-                  <th style={{padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5}}>Terreno</th>
-                  <th style={{padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5}}>Ciudad</th>
-                  <th style={{padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,textAlign:"right"}}>Acción</th>
-                </tr></thead>
-                <tbody>{items.map((c,i)=>fila(c,i))}</tbody>
-              </table></div>
-            )}
+            {count===0 ? <div style={{padding:"10px 14px",fontSize:12.5,color:B.grey3}}>{vacioTxt}</div> : contenido}
           </div>}
         </div>
       ); };
       return (<div>
-        {seccion("g0","⏳ Sin convenio",B.red,B.redL,g0,"Nada por mandar — todos tienen al menos su liga enviada.")}
-        {seccion("g1","📨 Enviado · por firmar","#b45309","#fff7ed",g1,"Nada enviado todavía.")}
-        {seccion("g2","✅ Firmado",B.green,B.greenL,g2,"Aún no hay convenios firmados.")}
+        {seccion("g0","⏳ Sin convenio",B.red,B.redL,g0.length,"Nada por mandar — todos tienen al menos su liga enviada.",t0)}
+        {seccion("g1","📨 Enviado · por firmar","#b45309","#fff7ed",g1.length,"Nada enviado todavía.",t1)}
+        {seccion("g2","✅ Firmado",B.green,B.greenL,g2.length,"Aún no hay convenios firmados.",t2)}
       </div>);
     };
+
+    // 📊 Vista "Todos los asesores": recuadros por etapa + esquema elegido + gráfica por asesor.
+    const panelEtapas=(base)=>{
+      const k0=base.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG));
+      const k1=base.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG));
+      const k2=base.filter(c=>convenioOK(c));
+      const nAseEnv=new Set(k1.map(c=>norm(c.asesorResponsableGG))).size;
+      const pct=base.length?Math.round(k2.length/base.length*100):0;
+      const kpi=(lbl,n,sub,colr)=>(<div style={{background:"#fff",border:"1px solid "+B.grey1,borderTop:"5px solid "+colr,borderRadius:14,padding:"12px 16px",minWidth:0}}>
+        <div style={{fontSize:12.5,fontWeight:700,color:B.navy}}>{lbl}</div>
+        <div style={{fontSize:30,fontWeight:800,color:colr,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{n}</div>
+        <div style={{fontSize:11.5,color:B.grey4}}>{sub}</div></div>);
+      // Esquema elegido: convenios firmados/validados (y firmas antiguas guardadas en la captación).
+      const firm=new Map();
+      (acuerdos||[]).forEach(a=>{ if(!a||!(a.estado==="firmado"||a.estado==="validado")) return; const nom=a.asesor_nombre||a.asesor_email||"—"; const esq=String(a.esquema||"").replace("_","/"); const k=norm(a.asesor_email||nom)+"|"+esq; if(!firm.has(k)) firm.set(k,{nombre:nom,esquema:esq,folio:a.folio||""}); });
+      base.forEach(c=>{ if(c.firma_nombre&&c.esquema_comision&&!acuerdoFirmadoDe(c)){ const esq=String(c.esquema_comision).replace("_","/"); const k=norm(c.asesorResponsableGG)+"|"+esq; if(!firm.has(k)) firm.set(k,{nombre:c.asesorResponsableGG,esquema:esq,folio:""}); } });
+      const lst=[...firm.values()];
+      const e100=lst.filter(x=>x.esquema==="100/0"), e60=lst.filter(x=>x.esquema==="60/40");
+      const caja=(titulo,sub,n,colr,nombres,vacio)=>(<div style={{border:"1px solid "+B.grey1,borderLeft:"5px solid "+colr,borderRadius:12,padding:"12px 14px",background:"#fff",minWidth:0}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}><b style={{fontSize:14,color:B.navy}}>{titulo}</b><span style={{fontSize:26,fontWeight:800,color:colr}}>{n}</span></div>
+        <div style={{fontSize:12,color:B.grey4,margin:"2px 0 8px"}}>{sub}</div>
+        {nombres.length?nombres.map((x,i)=><div key={i} style={{fontSize:13}}>• {x.nombre}{x.folio?<span style={{color:B.grey4}}> · {x.folio}</span>:null}</div>):<div style={{fontSize:13,color:B.grey4}}>{vacio}</div>}
+      </div>);
+      // Gráfica: terrenos por asesor, apilados por etapa (barras horizontales, nombres completos).
+      const pa=new Map();
+      base.forEach(c=>{ const nom=String(c.asesorResponsableGG||"Sin asesor").trim()||"Sin asesor"; const k=norm(nom); const e=pa.get(k)||{nombre:nom,s:0,e:0,f:0}; if(convenioOK(c)) e.f++; else if(acuerdoDeAsesor(c.asesorResponsableGG)) e.e++; else e.s++; pa.set(k,e); });
+      const filas=[...pa.values()].sort((a,b)=>(b.s+b.e+b.f)-(a.s+a.e+a.f)||b.s-a.s||a.nombre.localeCompare(b.nombre));
+      const max=Math.max(1,...filas.map(x=>x.s+x.e+x.f));
+      const leg=(colr,t)=>(<span style={{display:"inline-flex",alignItems:"center",gap:5}}><i style={{display:"inline-block",width:10,height:10,borderRadius:3,background:colr}}/>{t}</span>);
+      return (<div style={{marginBottom:24}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:16}}>
+          {kpi("⏳ Sin convenio",k0.length,"Falta mandar la liga",B.red)}
+          {kpi("📨 Enviado · por firmar",k1.length,nAseEnv+" asesor"+(nAseEnv===1?"":"es")+" · esperando firma","#b45309")}
+          {kpi("✅ Firmado",k2.length,"Convenio con PDF",B.green)}
+          {kpi("Total en opción",base.length,pct+"% firmado",B.navy)}
+        </div>
+        <div style={{...s.resultCard(1),marginBottom:16}}>
+          <div style={{fontSize:15,fontWeight:800,color:B.navy}}>Esquema elegido en los convenios firmados</div>
+          <div style={{fontSize:12.5,color:B.grey4,margin:"2px 0 12px"}}>Quien firmó <b>100/0</b> es quien <b>no aceptó el 60/40</b>. Los que siguen en “Sin convenio” o “Enviado” todavía no eligen.</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12}}>
+            {caja("100/0 · lo trabaja el asesor","No aceptó 60/40",e100.length,B.navy,e100,"Nadie todavía")}
+            {caja("60/40 · Macrolotes vende","Aceptó 60/40",e60.length,B.goldD||"#d4952a",e60,"Nadie todavía")}
+            {caja("Aún sin elegir",k0.length+" sin convenio · "+k1.length+" enviados",k0.length+k1.length,B.grey4,[],"Se van moviendo a 100/0 o 60/40 conforme firman")}
+          </div>
+        </div>
+        <div style={{...s.resultCard(1),marginBottom:0}}>
+          <div style={{fontSize:15,fontWeight:800,color:B.navy}}>Terrenos opcionados por asesor</div>
+          <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:12,color:B.grey4,margin:"6px 0 12px"}}>{leg(B.red,"Sin convenio")}{leg("#e08a1e","Enviado · por firmar")}{leg(B.green,"Firmado")}</div>
+          <div style={{display:"grid",gridTemplateColumns:"minmax(0,260px) minmax(0,1fr) 36px",gap:"6px 12px",alignItems:"center",fontSize:12.5}}>
+            {filas.map((x,i)=>{ const t=x.s+x.e+x.f; return [
+              <div key={"n"+i} title={x.nombre} style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontWeight:600,color:B.navy}}>{x.nombre}</div>,
+              <div key={"b"+i} style={{height:14,borderRadius:999,background:B.grey1,overflow:"hidden"}}>
+                <div style={{width:(t/max*100)+"%",height:"100%",display:"flex"}}>
+                  {x.s>0&&<span style={{width:(x.s/t*100)+"%",background:B.red}}/>}
+                  {x.e>0&&<span style={{width:(x.e/t*100)+"%",background:"#e08a1e"}}/>}
+                  {x.f>0&&<span style={{width:(x.f/t*100)+"%",background:B.green}}/>}
+                </div>
+              </div>,
+              <div key={"t"+i} style={{fontWeight:800,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>{t}</div>
+            ]; })}
+          </div>
+        </div>
+      </div>);
+    };
+
+    // Menú flotante del kanban (izquierda): lleva a cada sección y la abre si estaba cerrada.
+    const irSeccion=(key)=>{ if(col[key]) toggleCol(key); setTimeout(()=>{ const el=document.getElementById("kb-"+key); if(!el) return; const off=((window.innerWidth>760)?(navH+hdrH):navH)+10; window.scrollTo({top:el.getBoundingClientRect().top+window.scrollY-off,behavior:"smooth"}); },40); };
+    const menuKanban=(lista)=>{ const n0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG)).length, n1=lista.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG)).length, n2=lista.filter(c=>convenioOK(c)).length;
+      const fijo=typeof window!=="undefined"&&window.innerWidth>900;
+      return (<nav style={{position:fijo?"sticky":"static",top:((typeof window!=="undefined"&&window.innerWidth>760)?(navH+hdrH):navH)+12,alignSelf:"start",background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:10,display:fijo?"block":"flex",gap:6,flexWrap:"wrap"}}>
+        {fijo&&<div style={{fontSize:10.5,letterSpacing:"0.14em",fontWeight:800,color:B.grey4,padding:"4px 8px 8px"}}>KANBAN</div>}
+        {[["g0","⏳ Sin convenio",B.red,n0],["g1","📨 Enviado","#b45309",n1],["g2","✅ Firmado",B.green,n2]].map(([k,t,c,n])=>(
+          <button key={k} onClick={()=>irSeccion(k)} style={{display:"flex",width:fijo?"100%":"auto",alignItems:"center",justifyContent:"space-between",gap:8,padding:"9px 10px",border:"none",borderLeft:"4px solid "+c,borderRadius:10,background:B.offW,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:13,color:B.navy,marginBottom:fijo?6:0}}>
+            {t}<span style={{background:c,color:"#fff",borderRadius:999,padding:"0 8px",fontSize:12}}>{n}</span></button>))}
+        {fijo&&<div style={{fontSize:11,color:B.grey4,padding:"6px 8px 2px"}}>Un clic y te lleva a la sección.</div>}
+      </nav>); };
 
     // GENERAL
     const gOps=allOps.filter(inCiuOp);
@@ -20238,10 +20346,10 @@ Respuesta: [respuesta exacta, conversacional]
 
     return (
       <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}>
-        <div style={s.page}>
+        <div style={{...s.page,maxWidth:1440}}>
           {/* ENCABEZADO FIJO: tarjeta del asesor + filtros quedan fijos debajo del menú (fondo sólido,
               así nada se mete por debajo). Solo se desplaza la lista. En celular se deja normal. */}
-          <div style={(typeof window!=="undefined"&&window.innerWidth>760)?{position:"sticky",top:navH,zIndex:50,background:B.offW,paddingTop:12,marginTop:-12}:{}}>
+          <div ref={hdrRef} style={(typeof window!=="undefined"&&window.innerWidth>760)?{position:"sticky",top:navH,zIndex:50,background:B.offW,paddingTop:12,marginTop:-12}:{}}>
           {/* HERO */}
           <div style={{...s.hero,padding:"30px 36px",marginBottom:12}}>
             <div style={s.heroDecor}/>
@@ -20349,7 +20457,6 @@ Respuesta: [respuesta exacta, conversacional]
             {!chartReady && <div style={{fontSize:12,color:B.grey3,marginBottom:10}}>Cargando librería de gráficos…</div>}
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:16,marginBottom:28}}>
               <div style={{...s.resultCard(1),marginBottom:0,height:320}}><canvas ref={refCiu}/></div>
-              <div style={{...s.resultCard(1),marginBottom:0,height:320}}><canvas ref={refAse}/></div>
             </div>
 
             {/* (La tabla de "Opciones del equipo" se movió a "Por asesor" y a la alerta de pendientes;
@@ -20363,6 +20470,9 @@ Respuesta: [respuesta exacta, conversacional]
               {gReqs.length>120 && <div style={{fontSize:12,color:B.grey3,marginTop:10,textAlign:"center"}}>Mostrando 120 de {gReqs.length}. Usa el filtro de ciudad o “Por asesor” para acotar.</div>}
             </div>
           </>) : (verTodos ? (<>
+            {/* 📊 RECUADROS POR ETAPA + ESQUEMA ELEGIDO + GRÁFICA POR ASESOR */}
+            {panelEtapas((captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf)))}
+
             {/* 📊 RESUMEN POR ASESOR · cuántos terrenos, con convenio y pendientes */}
             {(()=>{ const base=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf));
               const map=new Map();
@@ -20427,7 +20537,10 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{marginBottom:40}}>
                 <div style={s.sectionTitle}>🗂️ Todos los terrenos opcionados</div>
                 <div style={s.sectionSub}>{baseT.length} terreno(s){cf?(" en "+ciudadF):""} de todo el equipo · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Cada terreno baja de sección según avanza. Clic en el terreno para ver su ficha.</div>
-                {kanbanFirma(baseT,true)}
+                <div style={{display:"grid",gridTemplateColumns:(typeof window!=="undefined"&&window.innerWidth>900)?"200px minmax(0,1fr)":"1fr",gap:16,alignItems:"start"}}>
+                  {menuKanban(baseT)}
+                  <div style={{minWidth:0}}>{kanbanFirma(baseT,true)}</div>
+                </div>
               </div>
               );
             })()}
@@ -20758,7 +20871,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.64</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.65</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
