@@ -19890,6 +19890,9 @@ Respuesta: [respuesta exacta, conversacional]
     React.useEffect(()=>{ FAset("sel",sel); },[sel]);
     React.useEffect(()=>{ FAset("ciudad",ciudadF); },[ciudadF]);
     React.useEffect(()=>{ FAset("estado",estadoF); },[estadoF]);
+    // Secciones del kanban colapsables (se recuerda cuáles están cerradas).
+    const [col,setCol]=React.useState(()=>{ try{ return JSON.parse(FA("col","{}"))||{}; }catch(e){ return {}; } });
+    const toggleCol=(k)=>setCol(p=>{ const n={...p,[k]:!p[k]}; FAset("col",JSON.stringify(n)); return n; });
     const [catColab,setCatColab]=React.useState([]); // listado de colaboradores (con correo) de la Landing
     const [chartReady,setChartReady]=React.useState(typeof window!=="undefined" && !!window.Chart);
     const refCiu=useRef(null), refAse=useRef(null), refPend=useRef(null), chartsRef=useRef({});
@@ -20088,8 +20091,10 @@ Respuesta: [respuesta exacta, conversacional]
     // 🗂️ KANBAN VERTICAL de firma: 3 secciones apiladas (Sin convenio → Enviado → Firmado).
     // Cada terreno cae solo en su sección según su estatus; así se ve a quién se le mandó y en qué va.
     const kanbanFirma=(lista,showAse)=>{
-      const g0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeCap(c.id));
-      const g1=lista.filter(c=>!convenioOK(c)&&acuerdoDeCap(c.id));
+      // "Enviado" es por ASESOR: si ya tiene un convenio (token), TODOS sus terrenos pendientes
+      // bajan a "Enviado" (el único correo cubre todos sus terrenos).
+      const g0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG));
+      const g1=lista.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG));
       const g2=lista.filter(c=>convenioOK(c));
       const fila=(c,i)=>(
         <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
@@ -20104,13 +20109,14 @@ Respuesta: [respuesta exacta, conversacional]
           </td>
         </tr>
       );
-      const seccion=(titulo,fg,bg,items,vacioTxt)=>(
+      const seccion=(key,titulo,fg,bg,items,vacioTxt)=>{ const cerrado=!!col[key]; return (
         <div style={{marginBottom:16}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",background:bg,borderRadius:"12px 12px 0 0",border:"1px solid "+B.grey1,borderBottom:"none"}}>
+          <div onClick={()=>toggleCol(key)} title={cerrado?"Mostrar":"Ocultar"} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",background:bg,borderRadius:cerrado?"12px":"12px 12px 0 0",border:"1px solid "+B.grey1,borderBottom:cerrado?("1px solid "+B.grey1):"none",cursor:"pointer",userSelect:"none"}}>
+            <span style={{fontSize:13,color:fg,transform:cerrado?"rotate(-90deg)":"none",transition:"transform .15s"}}>▾</span>
             <span style={{fontSize:13.5,fontWeight:800,color:fg}}>{titulo}</span>
             <span style={{fontSize:12,fontWeight:800,color:"#fff",background:fg,borderRadius:999,padding:"1px 9px"}}>{items.length}</span>
           </div>
-          <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden",borderRadius:"0 0 12px 12px"}}>
+          {!cerrado && <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden",borderRadius:"0 0 12px 12px"}}>
             {items.length===0 ? <div style={{padding:"11px 14px",fontSize:12.5,color:B.grey3}}>{vacioTxt}</div> : (
               <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{textAlign:"left",color:B.grey4}}>
@@ -20122,13 +20128,13 @@ Respuesta: [respuesta exacta, conversacional]
                 <tbody>{items.map((c,i)=>fila(c,i))}</tbody>
               </table></div>
             )}
-          </div>
+          </div>}
         </div>
-      );
+      ); };
       return (<div>
-        {seccion("⏳ Sin convenio",B.red,B.redL,g0,"Nada por mandar — todos tienen al menos su liga enviada.")}
-        {seccion("📨 Enviado · por firmar","#b45309","#fff7ed",g1,"Nada enviado todavía.")}
-        {seccion("✅ Firmado",B.green,B.greenL,g2,"Aún no hay convenios firmados.")}
+        {seccion("g0","⏳ Sin convenio",B.red,B.redL,g0,"Nada por mandar — todos tienen al menos su liga enviada.")}
+        {seccion("g1","📨 Enviado · por firmar","#b45309","#fff7ed",g1,"Nada enviado todavía.")}
+        {seccion("g2","✅ Firmado",B.green,B.greenL,g2,"Aún no hay convenios firmados.")}
       </div>);
     };
 
@@ -20755,7 +20761,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.56</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.57</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
