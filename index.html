@@ -19943,8 +19943,11 @@ Respuesta: [respuesta exacta, conversacional]
       const arr=[...m.values()];
       arr.forEach(a=>{ if(!a.email){ const col=buscarColab(a.nombre); if(col&&col.email){ a.email=col.email; if(!a.telefono&&col.telefono) a.telefono=col.telefono; } } });
       return arr.sort((x,y)=>x.nombre.localeCompare(y.nombre)); })();
+    // Solo los asesores que SÍ tienen terrenos opcionados (captaciones vigentes) salen en el filtro.
+    const nombresConOpcion = new Set((captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && c.asesorResponsableGG).map(c=>norm(c.asesorResponsableGG)));
+    const asesoresConOpcion = asesores.filter(a=>nombresConOpcion.has(norm(a.nombre)));
     const verTodos = sel === "__todos";
-    const sa = verTodos ? null : (asesores.find(a=>norm(a.nombre)===norm(sel)) || asesores[0] || null);
+    const sa = verTodos ? null : (asesores.find(a=>norm(a.nombre)===norm(sel)) || asesoresConOpcion[0] || asesores[0] || null);
 
     const acDe=(a)=> a? acuerdos.filter(x=> (x.asesor_email&&norm(x.asesor_email)===norm(a.email)) || norm(x.asesor_nombre)===norm(a.nombre)) : [];
     const opcDe=(a)=> a? cots.filter(x=> norm(x.asesor_nombre)===norm(a.nombre)) : [];
@@ -20181,7 +20184,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <div style={s.stat}><div style={{...s.statNum,color:gTerrPend?B.gold:undefined}}>{gTerrPend}</div><div style={s.statLabel}>Pendientes de firma</div></div>
                   <div style={s.stat}><div style={s.statNum}>{gTerrFirm}</div><div style={s.statLabel}>Convenios firmados</div></div>
                   <div style={s.stat}><div style={s.statNum}>{gReqs.length}</div><div style={s.statLabel}>Requerimientos</div></div>
-                  <div style={s.stat}><div style={s.statNum}>{asesores.length}</div><div style={s.statLabel}>Asesores</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{asesoresConOpcion.length}</div><div style={s.statLabel}>Asesores</div></div>
                 </div>
               </div>
             ) : (
@@ -20216,7 +20219,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Asesor</label>
                   <select value={verTodos?"__todos":(sa?sa.nombre:"")} onChange={e=>setSel(e.target.value)} style={{...s.select,minWidth:220}}>
                     <option value="__todos">— Todos los asesores —</option>
-                    {asesores.map(a=><option key={a.nombre} value={a.nombre}>{a.nombre}</option>)}
+                    {asesoresConOpcion.map(a=><option key={a.nombre} value={a.nombre}>{a.nombre}</option>)}
                   </select>
                 </div>
               )}
@@ -20810,7 +20813,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.52</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.53</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
