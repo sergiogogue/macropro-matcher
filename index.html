@@ -19875,13 +19875,21 @@ Respuesta: [respuesta exacta, conversacional]
   //   • OPCIÓN       = terreno que un asesor está opcionando (cotizaciones_opcionador).
   //   • REQUERIMIENTO= cliente-comprador que BUSCA terreno (estado local clients).
   const ViewFichaAsesores = () => {
+    // Persistimos la vista (modo/asesor/ciudad/estatus) en localStorage: el componente se
+    // re-monta con cada toast/sync, así que sin esto se "regresaba" a General y perdía el lugar.
+    const FA=(k,d)=>{ try{ const v=localStorage.getItem("mp_fa_"+k); return v==null?d:v; }catch(e){ return d; } };
+    const FAset=(k,v)=>{ try{ localStorage.setItem("mp_fa_"+k, v==null?"":String(v)); }catch(e){} };
     const [acuerdos,setAcuerdos]=React.useState([]);
     const [cots,setCots]=React.useState([]);
     const [cargando,setCargando]=React.useState(true);
-    const [modo,setModo]=React.useState("general"); // general | asesor
-    const [sel,setSel]=React.useState("");
-    const [ciudadF,setCiudadF]=React.useState("");
-    const [estadoF,setEstadoF]=React.useState("todos"); // todos | tramite | firmados
+    const [modo,setModo]=React.useState(()=>FA("modo","general")); // general | asesor
+    const [sel,setSel]=React.useState(()=>FA("sel",""));
+    const [ciudadF,setCiudadF]=React.useState(()=>FA("ciudad",""));
+    const [estadoF,setEstadoF]=React.useState(()=>FA("estado","todos")); // todos | tramite | firmados
+    React.useEffect(()=>{ FAset("modo",modo); },[modo]);
+    React.useEffect(()=>{ FAset("sel",sel); },[sel]);
+    React.useEffect(()=>{ FAset("ciudad",ciudadF); },[ciudadF]);
+    React.useEffect(()=>{ FAset("estado",estadoF); },[estadoF]);
     const [catColab,setCatColab]=React.useState([]); // listado de colaboradores (con correo) de la Landing
     const [chartReady,setChartReady]=React.useState(typeof window!=="undefined" && !!window.Chart);
     const refCiu=useRef(null), refAse=useRef(null), refPend=useRef(null), chartsRef=useRef({});
@@ -20007,6 +20015,8 @@ Respuesta: [respuesta exacta, conversacional]
     const nombreTerreno=(c)=> (String(c.zona||"").trim()||String(c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"")||String(c.ciudad||"").trim()||"Terreno");
     const pendientes=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && !convenioOK(c) && (!cf || norm(c.ciudad)===cf));
     const estatusPend=(c)=>{ const a=acuerdoDeCap(c.id); if(!a) return "Sin convenio"; if(a.estado==="pendiente") return "Enviado · por firmar"; return a.estado||"Sin convenio"; };
+    // Orden de 3 niveles: 0 = Sin convenio (arriba), 1 = Enviado/por firmar (en medio), 2 = Firmado (abajo).
+    const tier=(c)=> convenioOK(c)?2:(acuerdoDeCap(c.id)?1:0);
     // Todos los terrenos EN TRÁMITE de un asesor (para agrupar en un solo convenio/liga).
     const terrenosPendAsesor=(nombre)=> (captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && norm(c.asesorResponsableGG)===norm(nombre) && !convenioOK(c));
     // Acuerdo (token) ya existente para ese asesor, sin importar el terreno.
@@ -20279,56 +20289,8 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{...s.resultCard(1),marginBottom:0,height:320}}><canvas ref={refAse}/></div>
             </div>
 
-            {/* TODAS LAS OPCIONES (fuente: captaciones) · con filtro trámite/firmados */}
-            {(()=>{ const baseT=gTerr;
-              const nTram=baseT.filter(c=>!convenioOK(c)).length, nFirm=baseT.length-nTram;
-              const lista=baseT.filter(c=> estadoF==="tramite"?!convenioOK(c): estadoF==="firmados"?convenioOK(c):true)
-                      .slice().sort((a,b)=>{ const pa=convenioOK(a)?1:0,pb=convenioOK(b)?1:0; if(pa!==pb)return pa-pb; return String(a.asesorResponsableGG||"").localeCompare(String(b.asesorResponsableGG||"")); });
-              const segBtn=(val,lbl,n,col)=>(<button onClick={()=>setEstadoF(val)} style={{...s.btn("sm"),background:estadoF===val?col:"#fff",color:estadoF===val?"#fff":col,border:"1.5px solid "+col,boxShadow:"none",cursor:"pointer",fontWeight:800,whiteSpace:"nowrap"}}>{lbl} ({n})</button>);
-              return (
-              <div style={{marginBottom:28}}>
-                <div style={s.sectionTitle}>🌱 Opciones del equipo</div>
-                <div style={s.sectionSub}>{baseT.length} terreno(s) en opción{cf?(" en "+ciudadF):""} · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Clic en el terreno para ver su ficha.</div>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap",margin:"4px 0 14px"}}>
-                  {segBtn("todos","Todos",baseT.length,B.navy)}
-                  {segBtn("tramite","⏳ En trámite",nTram,B.red)}
-                  {segBtn("firmados","✅ Firmados",nFirm,B.green)}
-                </div>
-                <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden"}}>
-                  {lista.length===0 ? <div style={{padding:"16px 18px",fontSize:13,color:B.grey3}}>{estadoF==="firmados"?"Aún no hay convenios firmados.":estadoF==="tramite"?"No hay terrenos en trámite.":"Sin terrenos en opción."}</div> : (
-                    <div style={{overflowX:"auto"}}>
-                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                        <thead><tr style={{textAlign:"left",color:"#fff",background:B.navy}}>
-                          <th style={{padding:"11px 14px"}}>Asesor</th>
-                          <th style={{padding:"11px 14px"}}>Terreno</th>
-                          <th style={{padding:"11px 14px"}}>Ciudad</th>
-                          <th style={{padding:"11px 14px"}}>Estatus de firma</th>
-                          <th style={{padding:"11px 14px",textAlign:"right"}}>Acción</th>
-                        </tr></thead>
-                        <tbody>
-                          {lista.slice(0,200).map((c,i)=>{ const ok=convenioOK(c); return (
-                            <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
-                              <td style={{padding:"10px 14px",color:B.grey5,whiteSpace:"nowrap"}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td>
-                              <td style={{padding:"10px 14px"}}><button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button></td>
-                              <td style={{padding:"10px 14px",color:B.grey5}}>{c.ciudad||"—"}</td>
-                              <td style={{padding:"10px 14px"}}>{ok?pill("✅ Firmado",B.green,B.greenL):pill("⏳ "+estatusPend(c),B.red,B.redL)}</td>
-                              <td style={{padding:"10px 14px",textAlign:"right"}}>
-                                <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
-                                  {!ok && accionesFirma(c)}
-                                  <button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>
-                                </div>
-                              </td>
-                            </tr>
-                          ); })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-                {lista.length>200 && <div style={{fontSize:12,color:B.grey3,marginTop:10,textAlign:"center"}}>Mostrando 200 de {lista.length}. Usa el filtro de ciudad para acotar.</div>}
-              </div>
-              );
-            })()}
+            {/* (La tabla de "Opciones del equipo" se movió a "Por asesor" y a la alerta de pendientes;
+                 General queda limpio: estadísticas + requerimientos.) */}
 
             {/* TODOS LOS REQUERIMIENTOS */}
             <div style={{marginBottom:40}}>
@@ -20406,7 +20368,7 @@ Respuesta: [respuesta exacta, conversacional]
             {(()=>{ const baseT=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf));
               const nTram=baseT.filter(c=>!convenioOK(c)).length, nFirm=baseT.length-nTram;
               const todos=baseT.filter(c=> estadoF==="tramite"?!convenioOK(c): estadoF==="firmados"?convenioOK(c):true)
-                      .slice().sort((a,b)=>{ const pa=convenioOK(a)?1:0, pb=convenioOK(b)?1:0; if(pa!==pb) return pa-pb; return String(a.asesorResponsableGG||"").localeCompare(String(b.asesorResponsableGG||"")); });
+                      .slice().sort((a,b)=>{ const pa=tier(a), pb=tier(b); if(pa!==pb) return pa-pb; return String(a.asesorResponsableGG||"").localeCompare(String(b.asesorResponsableGG||"")); });
               const segBtn=(val,lbl,n,col)=>(<button onClick={()=>setEstadoF(val)} style={{...s.btn("sm"),background:estadoF===val?col:"#fff",color:estadoF===val?"#fff":col,border:"1.5px solid "+col,boxShadow:"none",cursor:"pointer",fontWeight:800,whiteSpace:"nowrap"}}>{lbl} ({n})</button>);
               return (
               <div style={{marginBottom:40}}>
@@ -20434,7 +20396,7 @@ Respuesta: [respuesta exacta, conversacional]
                               <td style={{padding:"10px 14px",color:B.grey5,whiteSpace:"nowrap"}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td>
                               <td style={{padding:"10px 14px"}}><button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button></td>
                               <td style={{padding:"10px 14px",color:B.grey5}}>{c.ciudad||"—"}</td>
-                              <td style={{padding:"10px 14px"}}>{ok?pill("✅ Firmado",B.green,B.greenL):pill("⏳ "+estatusPend(c),B.red,B.redL)}</td>
+                              <td style={{padding:"10px 14px"}}>{ok?pill("✅ Firmado",B.green,B.greenL):(acuerdoDeCap(c.id)?pill("📨 Enviado · por firmar","#b45309","#fff7ed"):pill("⏳ Sin convenio",B.red,B.redL))}</td>
                               <td style={{padding:"10px 14px",textAlign:"right"}}>
                                 <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
                                   {!ok && accionesFirma(c)}
@@ -20468,7 +20430,7 @@ Respuesta: [respuesta exacta, conversacional]
             {(()=>{ const baseT=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && norm(c.asesorResponsableGG)===norm(sa.nombre) && (!cf||norm(c.ciudad)===cf));
               const nTram=baseT.filter(c=>!convenioOK(c)).length, nFirm=baseT.length-nTram;
               const terr=baseT.filter(c=> estadoF==="tramite"?!convenioOK(c): estadoF==="firmados"?convenioOK(c):true)
-                      .slice().sort((a,b)=>{ const pa=convenioOK(a)?1:0, pb=convenioOK(b)?1:0; return pa-pb; });
+                      .slice().sort((a,b)=>{ const pa=tier(a), pb=tier(b); if(pa!==pb) return pa-pb; return String(nombreTerreno(a)).localeCompare(String(nombreTerreno(b))); });
               const segBtn=(val,lbl,n,col)=>(<button onClick={()=>setEstadoF(val)} style={{...s.btn("sm"),background:estadoF===val?col:"#fff",color:estadoF===val?"#fff":col,border:"1.5px solid "+col,boxShadow:"none",cursor:"pointer",fontWeight:800,whiteSpace:"nowrap"}}>{lbl} ({n})</button>);
               return (
               <div style={{marginBottom:28}}>
@@ -20501,7 +20463,7 @@ Respuesta: [respuesta exacta, conversacional]
                             <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
                               <td style={{padding:"10px 14px"}}><button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button></td>
                               <td style={{padding:"10px 14px",color:B.grey5}}>{c.ciudad||"—"}</td>
-                              <td style={{padding:"10px 14px"}}>{ok?pill("✅ Firmado",B.green,B.greenL):pill("⏳ "+estatusPend(c),B.red,B.redL)}</td>
+                              <td style={{padding:"10px 14px"}}>{ok?pill("✅ Firmado",B.green,B.greenL):(acuerdoDeCap(c.id)?pill("📨 Enviado · por firmar","#b45309","#fff7ed"):pill("⏳ Sin convenio",B.red,B.redL))}</td>
                               <td style={{padding:"10px 14px",textAlign:"right"}}>
                                 <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
                                   {!ok && accionesFirma(c)}
@@ -20813,7 +20775,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.53</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.54</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
