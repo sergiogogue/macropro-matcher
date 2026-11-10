@@ -20173,6 +20173,44 @@ Respuesta: [respuesta exacta, conversacional]
               {gReqs.length>120 && <div style={{fontSize:12,color:B.grey3,marginTop:10,textAlign:"center"}}>Mostrando 120 de {gReqs.length}. Usa el filtro de ciudad o “Por asesor” para acotar.</div>}
             </div>
           </>) : (sa && (<>
+            {/* 🏷️ FICHA DETALLADA · terrenos opcionados + estatus de firma (tabla tipo Excel) */}
+            {(()=>{ const terr=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && norm(c.asesorResponsableGG)===norm(sa.nombre) && (!cf||norm(c.ciudad)===cf));
+              const pend=terr.filter(c=>!convenioOK(c)).length;
+              return (
+              <div style={{marginBottom:28}}>
+                <div style={s.sectionTitle}>🏷️ Terrenos opcionados · estatus de firma</div>
+                <div style={s.sectionSub}>{terr.length} terreno(s) en opción de {sa.nombre}{cf?(" en "+ciudadF):""} · <b style={{color:pend?B.red:B.green}}>{pend} pendiente(s) de firma</b>.</div>
+                <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden"}}>
+                  {terr.length===0 ? <div style={{padding:"16px 18px",fontSize:13,color:B.grey3}}>Este asesor no tiene terrenos en opción.</div> : (
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                        <thead><tr style={{textAlign:"left",color:"#fff",background:B.navy}}>
+                          <th style={{padding:"11px 14px"}}>Terreno</th>
+                          <th style={{padding:"11px 14px"}}>Ciudad</th>
+                          <th style={{padding:"11px 14px"}}>Estatus de firma</th>
+                          <th style={{padding:"11px 14px",textAlign:"right"}}>Acción</th>
+                        </tr></thead>
+                        <tbody>
+                          {terr.map((c,i)=>{ const ok=convenioOK(c); return (
+                            <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
+                              <td style={{padding:"10px 14px",fontWeight:700,color:B.navy}}>{nombreTerreno(c)}</td>
+                              <td style={{padding:"10px 14px",color:B.grey5}}>{c.ciudad||"—"}</td>
+                              <td style={{padding:"10px 14px"}}>{ok?pill("✅ Firmado",B.green,B.greenL):pill("⏳ "+estatusPend(c),B.red,B.redL)}</td>
+                              <td style={{padding:"10px 14px",textAlign:"right"}}>
+                                {ok ? <span style={{color:B.grey3,fontSize:12}}>—</span> : (
+                                  <button disabled={genId===c.id} onClick={()=>mandarFirma(c)} style={{...s.btn("sm"),background:genId===c.id?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"Generando…":"🟢 Generar link y mandar WhatsApp"}</button>
+                                )}
+                              </td>
+                            </tr>
+                          ); })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+              );
+            })()}
             {/* CONVENIO */}
             <div style={{marginBottom:28}}>
               <div style={s.sectionTitle}>🤝 Convenio de comisión</div>
@@ -20468,7 +20506,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.39</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.40</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
