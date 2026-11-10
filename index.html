@@ -6379,11 +6379,12 @@ function MacroProMatcher({ sessionEmail } = {}) {
       })();
       return ()=>{ alive=false; };
     },[]);
-    // FASE D: mapa captacion_id → [estatus...] de captaciones_legal (para el gate de publicar)
+    // FASE D: mapa captacion_id → [estatus...] de los docs legales (ahora en documentos_urls,
+    // origen='legal'), para el gate de publicar. Fuente única por ID.
     const [legalMap,setLegalMap]=useState({});
     React.useEffect(()=>{
       if(!sb) return; let alive=true;
-      (async()=>{ try{ const { data } = await sb.from('captaciones_legal').select('captacion_id,estatus'); if(!alive) return; const m={}; (data||[]).forEach(r=>{ (m[r.captacion_id]=m[r.captacion_id]||[]).push(r.estatus); }); setLegalMap(m); }catch(e){} })();
+      (async()=>{ try{ const { data } = await sb.from('captaciones').select('id,documentos_urls'); if(!alive) return; const m={}; (data||[]).forEach(r=>{ const arr=Array.isArray(r.documentos_urls)?r.documentos_urls:[]; arr.forEach(e=>{ if(e&&e.origen==='legal'){ (m[r.id]=m[r.id]||[]).push(e.estatus||'pendiente'); } }); }); setLegalMap(m); }catch(e){} })();
       return ()=>{ alive=false; };
     },[]);
     const startEdit=(r)=>{ setEditId(r.id); setDraft({...r}); };
@@ -15950,18 +15951,24 @@ Respuesta: [respuesta exacta, conversacional]
   const [legalDocs, setLegalDocs] = React.useState([]);
   const cargarLegalModal = React.useCallback(async (capId)=>{
     if(!window.sb || !capId){ setLegalDocs([]); return; }
-    try{ const { data } = await window.sb.from('captaciones_legal').select('*').eq('captacion_id', capId).order('created_at'); setLegalDocs(Array.isArray(data)?data:[]); }
-    catch(e){ setLegalDocs([]); }
+    // Fuente única: los documentos legales viven en captaciones.documentos_urls (origen='legal').
+    try{ const { data } = await window.sb.from('captaciones').select('documentos_urls').eq('id', capId).limit(1);
+      const urls=(data&&data[0]&&Array.isArray(data[0].documentos_urls))?data[0].documentos_urls:[];
+      const legales=urls.filter(e=>e&&e.origen==='legal').map(e=>({ id:e.url||e.path, tipo_documento:e.tipo, url:e.url||e.path, estatus:e.estatus||'pendiente' }));
+      setLegalDocs(legales);
+    }catch(e){ setLegalDocs([]); }
   }, []);
   React.useEffect(()=>{
     if(showCaptacionModal && editingCaptacion && editingCaptacion.id) cargarLegalModal(editingCaptacion.id);
     else setLegalDocs([]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCaptacionModal, editingCaptacion && editingCaptacion.id]);
-  const setEstatusLegal = async (docId, estatus)=>{
-    if(!window.sb || !docId) return;
-    try{ const { error } = await window.sb.from('captaciones_legal').update({ estatus }).eq('id', docId); if(error) throw error;
-      setLegalDocs(prev=>prev.map(d=>d.id===docId?{...d, estatus}:d));
+  const setEstatusLegal = async (docKey, estatus)=>{
+    const capId = editingCaptacion && editingCaptacion.id;
+    if(!window.sb || !docKey || !capId) return;
+    // El estatus se guarda DENTRO del elemento en documentos_urls (por url), vía RPC.
+    try{ const { error } = await window.sb.rpc('captacion_doc_estatus', { p_cap: capId, p_llave: docKey, p_estatus: estatus }); if(error) throw error;
+      setLegalDocs(prev=>prev.map(d=>d.id===docKey?{...d, estatus}:d));
       toast(estatus==='aprobado'?"✅ Documento aprobado":"❌ Documento rechazado");
     }catch(e){ toast("⚠ "+((e&&e.message)||e)); }
   };
@@ -16062,7 +16069,7 @@ Respuesta: [respuesta exacta, conversacional]
     }catch(e){ toast("❌ No se pudo publicar: "+((e&&e.message)||e)); }
   };
   const _pathDeUrl=(url)=>{ try{ const m=String(url||"").split("/captaciones-docs/")[1]; return m?decodeURIComponent(m.split("?")[0]):""; }catch(e){ return ""; } };
-  const docsPorTipo=(c)=>{ const m={}; (Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]).forEach(d=>{ const t=d&&d.tipo; if(!t) return; (m[t]=m[t]||[]).push(d); }); return m; };
+  const docsPorTipo=(c)=>{ const m={}; (Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]).forEach(d=>{ const t=d&&d.tipo; if(!t||(d&&d.origen==='legal')) return; (m[t]=m[t]||[]).push(d); }); return m; };
   const mapsOkCap=(c)=>/^https?:\/\//i.test(((c&&c.ligaMaps)||"").trim());
   const estadoDocsCaptacion=(c)=>{
     const m=docsPorTipo(c); const faltan=[];
@@ -20461,7 +20468,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.38</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.39</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
@@ -20820,7 +20827,7 @@ Respuesta: [respuesta exacta, conversacional]
                     <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>📄 Documentos y seguimiento</div>
                     <div><span style={lbStyle}>Documentos (escrituras, predial, etc.)</span><input style={inStyle} value={f.documentos||""} onChange={e=>setF({documentos:e.target.value})} placeholder="Qué tenemos / qué falta"/></div>
                     {(()=>{ const est=estadoDocsCaptacion(f); const m=docsPorTipo(f); const reqSet=new Set(DOCS_REQUERIDOS.map(r=>r.tipo));
-                      const otros=(Array.isArray(f.documentosUrls)?f.documentosUrls:[]).map((d,i)=>({d,i})).filter(x=>x.d&&(x.d.url||x.d.path)&&!reqSet.has(x.d.tipo));
+                      const otros=(Array.isArray(f.documentosUrls)?f.documentosUrls:[]).map((d,i)=>({d,i})).filter(x=>x.d&&(x.d.url||x.d.path)&&!reqSet.has(x.d.tipo)&&x.d.origen!=='legal');
                       return (
                       <div style={{marginTop:12, border:"1px solid "+B.grey1, borderRadius:10, overflow:"hidden"}}>
                         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",padding:"9px 12px",background:est.listo?"#ecfdf5":"#fff7ed",borderBottom:"1px solid "+B.grey1}}>
