@@ -19893,7 +19893,7 @@ Respuesta: [respuesta exacta, conversacional]
     // Secciones del kanban colapsables (se recuerda cuáles están cerradas).
     const [col,setCol]=React.useState(()=>{ try{ return JSON.parse(FA("col","{}"))||{}; }catch(e){ return {}; } });
     const toggleCol=(k)=>setCol(p=>{ const n={...p,[k]:!p[k]}; FAset("col",JSON.stringify(n)); return n; });
-    const [catColab,setCatColab]=React.useState([]); // listado de colaboradores (con correo) de la Landing
+    const [catColab,setCatColab]=React.useState(()=>{ try{ return JSON.parse(FA("catColab","[]"))||[]; }catch(e){ return []; } }); // listado de colaboradores (con correo), cacheado para no perderlo al re-montar
     const [chartReady,setChartReady]=React.useState(typeof window!=="undefined" && !!window.Chart);
     const refCiu=useRef(null), refAse=useRef(null), refPend=useRef(null), chartsRef=useRef({});
     const PALETA=["#002B49","#F5B335","#2563AC","#1a8a4a","#c0392b","#8B5CF6","#0a3d5c","#d4952a","#16a34a","#e07a1f"];
@@ -19914,7 +19914,7 @@ Respuesta: [respuesta exacta, conversacional]
     React.useEffect(()=>{ recargar(); },[recargar]);
 
     // Listado de colaboradores (con correo) — misma fuente que usa el login/firma de la Landing.
-    React.useEffect(()=>{ if(!window.sb) return; window.sb.rpc("landing_asesores_catalogo").then(({data})=>setCatColab((data||[]).map(x=>({nombre:x.nombre||"",email:String(x.email||"").trim().toLowerCase(),telefono:x.telefono||""})))).catch(()=>{}); },[]);
+    React.useEffect(()=>{ if(!window.sb) return; window.sb.rpc("landing_asesores_catalogo").then(({data})=>{ const list=(data||[]).map(x=>({nombre:x.nombre||"",email:String(x.email||"").trim().toLowerCase(),telefono:x.telefono||""})); if(list.length){ setCatColab(list); FAset("catColab",JSON.stringify(list)); } }).catch(()=>{}); },[]);
 
     // Chart.js diferido
     React.useEffect(()=>{
@@ -20737,7 +20737,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.59</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.60</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
