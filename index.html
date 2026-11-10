@@ -19882,6 +19882,7 @@ Respuesta: [respuesta exacta, conversacional]
     const [sel,setSel]=React.useState("");
     const [ciudadF,setCiudadF]=React.useState("");
     const [estadoF,setEstadoF]=React.useState("todos"); // todos | tramite | firmados
+    const [catColab,setCatColab]=React.useState([]); // listado de colaboradores (con correo) de la Landing
     const [chartReady,setChartReady]=React.useState(typeof window!=="undefined" && !!window.Chart);
     const refCiu=useRef(null), refAse=useRef(null), refPend=useRef(null), chartsRef=useRef({});
     const PALETA=["#002B49","#F5B335","#2563AC","#1a8a4a","#c0392b","#8B5CF6","#0a3d5c","#d4952a","#16a34a","#e07a1f"];
@@ -19901,6 +19902,9 @@ Respuesta: [respuesta exacta, conversacional]
     },[]);
     React.useEffect(()=>{ recargar(); },[recargar]);
 
+    // Listado de colaboradores (con correo) — misma fuente que usa el login/firma de la Landing.
+    React.useEffect(()=>{ if(!window.sb) return; window.sb.rpc("landing_asesores_catalogo").then(({data})=>setCatColab((data||[]).map(x=>({nombre:x.nombre||"",email:String(x.email||"").trim().toLowerCase(),telefono:x.telefono||""})))).catch(()=>{}); },[]);
+
     // Chart.js diferido
     React.useEffect(()=>{
       if(window.Chart){ setChartReady(true); return; }
@@ -19915,6 +19919,19 @@ Respuesta: [respuesta exacta, conversacional]
 
     const norm=(s2)=>String(s2||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/\s+/g," ").trim();
     const cap=(s2)=>{ s2=String(s2||"").trim(); return s2? s2.charAt(0).toUpperCase()+s2.slice(1):"—"; };
+    // Índice del listado de colaboradores (correo/tel) para resolver el correo aunque el
+    // nombre venga distinto (mayúsculas/acentos/segundo apellido faltante, etc.).
+    const idxColab=(()=>{ const arr=[]; const push=(a)=>{ const nom=String(a&&a.nombre||"").trim(); if(!nom) return; arr.push({nombre:nom,email:norm(a&&a.email),telefono:(a&&a.telefono)||"",toks:norm(nom).split(" ").filter(Boolean)}); };
+      (catColab||[]).forEach(push); (asesoresCloud||[]).forEach(push); (asesoresCatalog||[]).forEach(push); return arr; })();
+    const buscarColab=(nombre)=>{ const q=norm(nombre); if(!q) return null; const qt=q.split(" ").filter(Boolean); if(!qt.length) return null;
+      // 1) coincidencia exacta (prefiere la que trae correo)
+      let hit=idxColab.find(x=>x.email&&norm(x.nombre)===q)||idxColab.find(x=>norm(x.nombre)===q); if(hit&&hit.email) return hit;
+      // 2) un nombre es subconjunto del otro por tokens (p. ej. falta/sobra un apellido)
+      const sub=(a,b)=>a.every(t=>b.includes(t));
+      let cands=idxColab.filter(x=>x.toks.length&&(sub(qt,x.toks)||sub(x.toks,qt))); hit=cands.find(x=>x.email)||cands[0]; if(hit&&hit.email) return hit;
+      // 3) mismo primer y último token
+      if(qt.length>=2){ const f=qt[0],l=qt[qt.length-1]; cands=idxColab.filter(x=>x.toks.length>=2&&x.toks[0]===f&&x.toks[x.toks.length-1]===l); const h2=cands.find(x=>x.email)||cands[0]; if(h2&&h2.email) return h2; }
+      return hit||null; };
     const asesores=(()=>{ const m=new Map(); const add=(a)=>{ if(!a||!a.nombre) return; const k=norm(a.nombre); if(!k) return; if(!m.has(k)) m.set(k,{nombre:String(a.nombre).trim(),email:norm(a.email),telefono:a.telefono||""}); else { const e=m.get(k); if(!e.email&&a.email) e.email=norm(a.email); } };
       // Catálogo (trae correo/tel) + los asesores REALES que aparecen en los datos:
       // captaciones (terrenos), cotizaciones (opciones) y clientes (requerimientos).
@@ -19922,7 +19939,10 @@ Respuesta: [respuesta exacta, conversacional]
       (captaciones||[]).forEach(c=>{ if(c&&c.asesorResponsableGG) add({nombre:c.asesorResponsableGG}); });
       (cots||[]).forEach(c=>{ if(c&&c.asesor_nombre) add({nombre:c.asesor_nombre}); });
       (clients||[]).forEach(c=>{ if(c&&c.asesor) add({nombre:c.asesor}); });
-      return [...m.values()].sort((x,y)=>x.nombre.localeCompare(y.nombre)); })();
+      // Enriquecer el correo/teléfono faltante desde el listado de colaboradores (match flexible).
+      const arr=[...m.values()];
+      arr.forEach(a=>{ if(!a.email){ const col=buscarColab(a.nombre); if(col&&col.email){ a.email=col.email; if(!a.telefono&&col.telefono) a.telefono=col.telefono; } } });
+      return arr.sort((x,y)=>x.nombre.localeCompare(y.nombre)); })();
     const verTodos = sel === "__todos";
     const sa = verTodos ? null : (asesores.find(a=>norm(a.nombre)===norm(sel)) || asesores[0] || null);
 
@@ -19978,40 +19998,67 @@ Respuesta: [respuesta exacta, conversacional]
     const convenioOK=(c)=>{ const a=acuerdoDeCap(c.id); if(a&&(a.estado==="firmado"||a.estado==="validado")) return true; if(c.firma_nombre&&c.esquema_comision) return true; return false; };
     // Eliminar un terreno de las opciones (soft-delete: queda marcado como eliminado en la nube, reversible).
     const borrarTerreno=(c)=>{ if(!c||!c.id) return; if(window.confirm("¿Eliminar el terreno «"+nombreTerreno(c)+"» de la lista de opciones?\n\nSe quita de MacroPro y de la nube (queda marcado como eliminado; no se borra el historial). Lo verán los 3 usuarios.")){ try{ removeCaptacion(c.id); toast("Terreno eliminado de las opciones."); }catch(e){ toast("No se pudo eliminar."); } } };
-    const asesorInfo=(nombre)=> asesores.find(a=>norm(a.nombre)===norm(nombre)) || null;
+    const asesorInfo=(nombre)=>{ const base=asesores.find(a=>norm(a.nombre)===norm(nombre))||null; if(base&&base.email) return base; const col=buscarColab(nombre); if(!base&&!col) return null; return {nombre:(base&&base.nombre)||(col&&col.nombre)||nombre, email:(base&&base.email)||(col&&col.email)||"", telefono:(base&&base.telefono)||(col&&col.telefono)||""}; };
     const nombreTerreno=(c)=> (String(c.zona||"").trim()||String(c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"")||String(c.ciudad||"").trim()||"Terreno");
     const pendientes=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && !convenioOK(c) && (!cf || norm(c.ciudad)===cf));
     const estatusPend=(c)=>{ const a=acuerdoDeCap(c.id); if(!a) return "Sin convenio"; if(a.estado==="pendiente") return "Enviado · por firmar"; return a.estado||"Sin convenio"; };
-    const mandarFirma=async(c)=>{
+    // Crea (o recupera) el token del convenio para ESTE terreno. Devuelve el token, o null si falla.
+    const asegurarToken=async(c)=>{
+      const a=acuerdoDeCap(c.id); if(a&&a.token) return a.token;
+      const ai=asesorInfo(c.asesorResponsableGG);
+      try{
+        const {data,error}=await window.sb.rpc("acuerdo_crear",{p_captacion_id:c.id,p_cotizacion_id:null,p_lote_id:null,p_asesor_email:(ai&&ai.email)||null,p_asesor_nombre:(ai&&ai.nombre)||c.asesorResponsableGG||null,p_adenda:false,p_motivo:null,p_semaforo_ok:null});
+        if(error) throw error;
+        let token=(data&&(data.token||(Array.isArray(data)&&data[0]&&data[0].token)))||null;
+        if(!token){ const {data:lst}=await window.sb.rpc("acuerdos_lista",{p_captacion_id:c.id,p_lote_id:null}); const f=(lst||[]).find(x=>x&&x.captacion_id===c.id&&x.token); token=f&&f.token; }
+        recargar();
+        return token||null;
+      }catch(e){ return null; }
+    };
+    // Lleva a capturar el correo del asesor (salta a su ficha si hace falta).
+    const pedirCorreo=(c)=>{ if(modo!=="asesor"||verTodos){ setModo("asesor"); setSel(c.asesorResponsableGG||sel); } toast("Captura el correo de "+(c.asesorResponsableGG||"este asesor")+" en “Datos del asesor” (arriba) y vuelve a intentar."); };
+
+    // 📧 Enviar el link por CORREO al asesor + copia a macrolotes@grupoguia.mx. Espera y confirma.
+    const enviarCorreoFirma=async(c)=>{
+      const ai=asesorInfo(c.asesorResponsableGG);
+      if(!(ai&&ai.email)){ pedirCorreo(c); return; }
+      setGenId(c.id);
+      const token=await asegurarToken(c);
+      if(!token){ setGenId(""); toast("No se pudo generar el convenio. Intenta de nuevo."); return; }
+      try{
+        const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token})});
+        const out=await r.json().catch(()=>({}));
+        if(out&&out.ok&&out.enviado){ toast("✅ Correo enviado a "+(out.correo||ai.email)+" · copia a macrolotes@grupoguia.mx"); }
+        else if(out&&out.motivo==="sin-correo"){ pedirCorreo(c); }
+        else { toast("No se pudo enviar el correo"+(out&&out.motivo?(" ("+out.motivo+")"):"")+". Prueba la opción de WhatsApp."); }
+      }catch(e){ toast("No se pudo enviar el correo. Prueba la opción de WhatsApp."); }
+      setGenId("");
+    };
+
+    // 🟢 Mandar el link por WhatsApp (no requiere correo). Genera el token y abre WhatsApp.
+    const enviarWhatsFirma=async(c)=>{
       const ai=asesorInfo(c.asesorResponsableGG);
       const nom=String(c.asesorResponsableGG||"asesor").trim().split(/\s+/)[0]||"asesor";
       const terr=nombreTerreno(c);
       const tel=String((ai&&ai.telefono)||"").replace(/\D/g,""); const ph=tel.length===10?("52"+tel):tel;
-      // Abrimos la pestaña YA (dentro del gesto del usuario) para que el navegador no la
-      // bloquee después del await; luego le fijamos la URL de WhatsApp.
-      const w=window.open("","_blank");
-      let a=acuerdoDeCap(c.id); let token=a&&a.token;
-      if(!token){
-        if(!(ai&&ai.email)){ if(w) w.close(); if(verTodos){ setSel(c.asesorResponsableGG||sel); toast("Captura el correo de "+(c.asesorResponsableGG||"este asesor")+" en “Datos del asesor” y vuelve a intentar."); } else { toast("Captura el correo del asesor arriba en la Ficha (campo “Datos del asesor”) y guárdalo para generar el convenio."); } return; }
-        setGenId(c.id);
-        try{
-          // Genera el convenio ligado a ESTE terreno + asesor (token pre-llenado).
-          const {data,error}=await window.sb.rpc("acuerdo_crear",{p_captacion_id:c.id,p_cotizacion_id:null,p_lote_id:null,p_asesor_email:ai.email,p_asesor_nombre:(ai.nombre||c.asesorResponsableGG||null),p_adenda:false,p_motivo:null,p_semaforo_ok:null});
-          if(error) throw error;
-          token=(data&&(data.token||(Array.isArray(data)&&data[0]&&data[0].token)))||null;
-          if(!token){ const {data:lst}=await window.sb.rpc("acuerdos_lista",{p_captacion_id:c.id,p_lote_id:null}); const f=(lst||[]).find(x=>x&&x.captacion_id===c.id&&x.token); token=f&&f.token; }
-          recargar();
-        }catch(e){ if(w) w.close(); setGenId(""); toast("No se pudo generar el convenio: "+((e&&e.message)||e)); return; }
-        setGenId("");
-      }
+      const w=window.open("","_blank"); // abrir dentro del gesto para que no lo bloqueen
+      setGenId(c.id);
+      const token=await asegurarToken(c);
+      setGenId("");
       const link=token?(LANDING_URL+"/acuerdo/"+token):URL_ACUERDO;
-      // Además del WhatsApp, mándale COPIA por correo del link (registro). Fire-and-forget.
-      if(token){ try{ fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token})}).catch(()=>{}); }catch(_){} }
       const msg="Hola "+nom+", te recordamos que el terreno *"+terr+"* está en inventario pero necesitamos que firmes tu convenio de comisiones para poder publicarlo. Fírmalo aquí:\n"+link;
       const url=ph?("https://wa.me/"+ph+"?text="+encodeURIComponent(msg)):("https://api.whatsapp.com/send?text="+encodeURIComponent(msg));
-      if(!ph) toast("Ese asesor no tiene teléfono en el catálogo — se abrirá WhatsApp para elegir contacto.");
+      if(!ph) toast("Ese asesor no tiene teléfono — se abrirá WhatsApp para elegir contacto.");
       if(w){ w.location.href=url; } else { window.open(url,"_blank","noopener"); }
     };
+
+    // Par de botones (Correo + WhatsApp) para una fila pendiente de firma.
+    const accionesFirma=(c)=>(
+      <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
+        <button disabled={genId===c.id} onClick={()=>enviarCorreoFirma(c)} title="Enviar el link por correo al asesor (con copia a macrolotes@grupoguia.mx)" style={{...s.btn("sm"),background:genId===c.id?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"Enviando…":"📧 Correo"}</button>
+        <button disabled={genId===c.id} onClick={()=>enviarWhatsFirma(c)} title="Mandar el link por WhatsApp" style={{...s.btn("sm"),background:genId===c.id?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"…":"🟢 WhatsApp"}</button>
+      </div>
+    );
 
     // GENERAL
     const gOps=allOps.filter(inCiuOp);
@@ -20201,7 +20248,7 @@ Respuesta: [respuesta exacta, conversacional]
                           <td style={{padding:"10px 14px",color:B.grey5}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td>
                           <td style={{padding:"10px 14px"}}>{pill(estatusPend(c), estatusPend(c)==="Sin convenio"?"#b91c1c":"#b45309", estatusPend(c)==="Sin convenio"?"#fee2e2":"#fff7ed")}</td>
                           <td style={{padding:"10px 14px",textAlign:"right"}}>
-                            <button disabled={genId===c.id} onClick={()=>mandarFirma(c)} style={{...s.btn("sm"),background:genId===c.id?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer"}}>{genId===c.id?"Generando…":"🟢 Mandar link de firma"}</button>
+                            {accionesFirma(c)}
                           </td>
                         </tr>
                       ))}
@@ -20254,7 +20301,7 @@ Respuesta: [respuesta exacta, conversacional]
                               <td style={{padding:"10px 14px"}}>{ok?pill("✅ Firmado",B.green,B.greenL):pill("⏳ "+estatusPend(c),B.red,B.redL)}</td>
                               <td style={{padding:"10px 14px",textAlign:"right"}}>
                                 <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
-                                  {!ok && (<button disabled={genId===c.id} onClick={()=>mandarFirma(c)} style={{...s.btn("sm"),background:genId===c.id?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"Generando…":"🟢 Generar link y mandar WhatsApp"}</button>)}
+                                  {!ok && accionesFirma(c)}
                                   <button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>
                                 </div>
                               </td>
@@ -20750,7 +20797,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.48</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.49</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
