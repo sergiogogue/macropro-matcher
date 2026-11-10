@@ -19898,6 +19898,9 @@ Respuesta: [respuesta exacta, conversacional]
     const hdrRef=useRef(null);
     const [hdrH,setHdrH]=React.useState(0);
     React.useEffect(()=>{ const el=hdrRef.current; if(!el) return; const m=()=>{ try{ setHdrH(Math.ceil(el.getBoundingClientRect().height)); }catch(e){} }; m(); let ro=null; try{ ro=new ResizeObserver(m); ro.observe(el); }catch(e){} window.addEventListener("resize",m); return ()=>{ try{ ro&&ro.disconnect(); }catch(e){} window.removeEventListener("resize",m); }; },[cargando]);
+    // Lista "Aún sin elegir" desplegada (se guarda: la vista se re-monta con cada aviso/sync).
+    const [verSE,setVerSE]=React.useState(()=>FA("verSE","")==="1");
+    const toggleSE=()=>setVerSE(v=>{ const n=!v; FAset("verSE",n?"1":""); return n; });
     // Secciones del kanban colapsables (se recuerda cuáles están cerradas).
     const [col,setCol]=React.useState(()=>{ try{ return JSON.parse(FA("col","{}"))||{}; }catch(e){ return {}; } });
     const toggleCol=(k)=>setCol(p=>{ const n={...p,[k]:!p[k]}; FAset("col",JSON.stringify(n)); return n; });
@@ -20198,17 +20201,30 @@ Respuesta: [respuesta exacta, conversacional]
         <div style={{fontSize:12.5,fontWeight:700,color:B.navy}}>{lbl}</div>
         <div style={{fontSize:30,fontWeight:800,color:colr,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{n}</div>
         <div style={{fontSize:11.5,color:B.grey4}}>{sub}</div></div>);
-      // Esquema elegido: convenios firmados/validados (y firmas antiguas guardadas en la captación).
+      // Esquema elegido, por ASESOR y con sus TERRENOS (clic en el asesor = su ficha; clic en el terreno = ficha del terreno).
       const firm=new Map();
-      (acuerdos||[]).forEach(a=>{ if(!a||!(a.estado==="firmado"||a.estado==="validado")) return; const nom=a.asesor_nombre||a.asesor_email||"—"; const esq=String(a.esquema||"").replace("_","/"); const k=norm(a.asesor_email||nom)+"|"+esq; if(!firm.has(k)) firm.set(k,{nombre:nom,esquema:esq,folio:a.folio||""}); });
-      base.forEach(c=>{ if(c.firma_nombre&&c.esquema_comision&&!acuerdoFirmadoDe(c)){ const esq=String(c.esquema_comision).replace("_","/"); const k=norm(c.asesorResponsableGG)+"|"+esq; if(!firm.has(k)) firm.set(k,{nombre:c.asesorResponsableGG,esquema:esq,folio:""}); } });
+      const addF=(nombre,esq,folio,terr,terrTxt)=>{ const k=norm(nombre)+"|"+esq; const e=firm.get(k)||{nombre,esquema:esq,folio:"",terrenos:[],terrTxt:""}; if(folio&&!e.folio) e.folio=folio; if(terr&&!e.terrenos.some(t=>t.id===terr.id)) e.terrenos.push(terr); if(terrTxt&&!e.terrTxt) e.terrTxt=terrTxt; firm.set(k,e); };
+      k2.forEach(c=>{ const a=acuerdoFirmadoDe(c); const esq=String((a&&a.esquema)||c.esquema_comision||"").replace("_","/"); if(!esq) return; addF(c.asesorResponsableGG||(a&&a.asesor_nombre)||"—",esq,(a&&a.folio)||"",c,""); });
+      // Convenios firmados cuyo terreno no está en la lista (otra ciudad, descartado, etc.): se muestran igual, sin liga.
+      (acuerdos||[]).forEach(a=>{ if(!a||!(a.estado==="firmado"||a.estado==="validado")) return; const esq=String(a.esquema||"").replace("_","/"); const nom=a.asesor_nombre||a.asesor_email||"—";
+        const ya=[...firm.values()].some(x=>x.esquema===esq&&(norm(x.nombre)===norm(nom)||(a.asesor_email&&norm(correoDe(x.nombre))===norm(a.asesor_email))));
+        if(!ya) addF(nom,esq,a.folio||"",null,a.terreno_nombre||""); });
       const lst=[...firm.values()];
       const e100=lst.filter(x=>x.esquema==="100/0"), e60=lst.filter(x=>x.esquema==="60/40");
-      const caja=(titulo,sub,n,colr,nombres,vacio)=>(<div style={{border:"1px solid "+B.grey1,borderLeft:"5px solid "+colr,borderRadius:12,padding:"12px 14px",background:"#fff",minWidth:0}}>
+      const lnk=(colr)=>({background:"transparent",border:"none",padding:0,fontWeight:700,color:colr,textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"});
+      const abrirAsesor=(nombre)=>{ setModo("asesor"); setSel(nombre); try{ window.scrollTo({top:0,behavior:"smooth"}); }catch(e){} };
+      const abrirTerreno=(t)=>{ setEditingCaptacion(t); setShowCaptacionModal(true); };
+      const listaFirm=(arr)=> arr.map((x,i)=>(<div key={i} style={{fontSize:13,padding:"5px 0",borderTop:i?("1px dashed "+B.grey1):"none"}}>
+        <button onClick={()=>abrirAsesor(x.nombre)} title="Ver la ficha del asesor" style={lnk(B.navy)}>{x.nombre}</button>{x.folio?<span style={{color:B.grey4}}> · {x.folio}</span>:null}
+        {x.terrenos.length ? x.terrenos.map(t=>(<div key={t.id} style={{paddingLeft:12}}>↳ <button onClick={()=>abrirTerreno(t)} title="Ver la ficha del terreno" style={lnk("#1d4ed8")}>{nombreTerreno(t)} ↗</button>{t.ciudad?<span style={{color:B.grey4}}> · {t.ciudad}</span>:null}</div>))
+          : (x.terrTxt ? <div style={{paddingLeft:12,color:B.grey4}}>↳ {x.terrTxt}</div> : null)}
+      </div>));
+      const caja=(titulo,sub,n,colr,contenido,onClick)=>(<div onClick={onClick} style={{border:"1px solid "+B.grey1,borderLeft:"5px solid "+colr,borderRadius:12,padding:"12px 14px",background:"#fff",minWidth:0,cursor:onClick?"pointer":"default"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}><b style={{fontSize:14,color:B.navy}}>{titulo}</b><span style={{fontSize:26,fontWeight:800,color:colr}}>{n}</span></div>
         <div style={{fontSize:12,color:B.grey4,margin:"2px 0 8px"}}>{sub}</div>
-        {nombres.length?nombres.map((x,i)=><div key={i} style={{fontSize:13}}>• {x.nombre}{x.folio?<span style={{color:B.grey4}}> · {x.folio}</span>:null}</div>):<div style={{fontSize:13,color:B.grey4}}>{vacio}</div>}
+        {contenido}
       </div>);
+      const sinElegir=[...k0,...k1].slice().sort((a,b)=>String(a.asesorResponsableGG||"").localeCompare(String(b.asesorResponsableGG||""))||String(nombreTerreno(a)).localeCompare(String(nombreTerreno(b))));
       // Gráfica: terrenos por asesor, apilados por etapa (barras horizontales, nombres completos).
       const pa=new Map();
       base.forEach(c=>{ const nom=String(c.asesorResponsableGG||"Sin asesor").trim()||"Sin asesor"; const k=norm(nom); const e=pa.get(k)||{nombre:nom,s:0,e:0,f:0}; if(convenioOK(c)) e.f++; else if(acuerdoDeAsesor(c.asesorResponsableGG)) e.e++; else e.s++; pa.set(k,e); });
@@ -20226,10 +20242,25 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{fontSize:15,fontWeight:800,color:B.navy}}>Esquema elegido en los convenios firmados</div>
           <div style={{fontSize:12.5,color:B.grey4,margin:"2px 0 12px"}}>Quien firmó <b>100/0</b> es quien <b>no aceptó el 60/40</b>. Los que siguen en “Sin convenio” o “Enviado” todavía no eligen.</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12}}>
-            {caja("100/0 · lo trabaja el asesor","No aceptó 60/40",e100.length,B.navy,e100,"Nadie todavía")}
-            {caja("60/40 · Macrolotes vende","Aceptó 60/40",e60.length,B.goldD||"#d4952a",e60,"Nadie todavía")}
-            {caja("Aún sin elegir",k0.length+" sin convenio · "+k1.length+" enviados",k0.length+k1.length,B.grey4,[],"Se van moviendo a 100/0 o 60/40 conforme firman")}
+            {caja("100/0 · lo trabaja el asesor","No aceptó 60/40",e100.length,B.navy, e100.length?listaFirm(e100):<div style={{fontSize:13,color:B.grey4}}>Nadie todavía</div>)}
+            {caja("60/40 · Macrolotes vende","Aceptó 60/40",e60.length,B.goldD||"#d4952a", e60.length?listaFirm(e60):<div style={{fontSize:13,color:B.grey4}}>Nadie todavía</div>)}
+            {caja("Aún sin elegir",k0.length+" sin convenio · "+k1.length+" enviados",sinElegir.length,B.grey4,
+              <div style={{fontSize:13,fontWeight:700,color:"#1d4ed8"}}>{verSE?"Ocultar lista ▴":"Ver quiénes y qué terrenos ▾"}</div>, toggleSE)}
           </div>
+          {verSE && sinElegir.length>0 && (
+            <div style={{overflowX:"auto",marginTop:12,border:"1px solid "+B.grey1,borderRadius:12}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead><tr style={{textAlign:"left",color:B.grey4}}>{["Asesor","Terreno","Ciudad","En qué va"].map((h,i)=><th key={i} style={{padding:"7px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+                <tbody>{sinElegir.map((c,i)=>{ const env=!!acuerdoDeAsesor(c.asesorResponsableGG); return (
+                  <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
+                    <td style={{padding:"5px 14px",whiteSpace:"nowrap"}}><button onClick={()=>abrirAsesor(c.asesorResponsableGG)} title="Ver la ficha del asesor" style={lnk(B.navy)}>{c.asesorResponsableGG||"Sin asesor"}</button></td>
+                    <td style={{padding:"5px 14px"}}><button onClick={()=>abrirTerreno(c)} title="Ver la ficha del terreno" style={lnk("#1d4ed8")}>{nombreTerreno(c)} ↗</button></td>
+                    <td style={{padding:"5px 14px",whiteSpace:"nowrap",color:B.grey5}}>{c.ciudad||"—"}</td>
+                    <td style={{padding:"5px 14px",whiteSpace:"nowrap"}}>{env?pill("📨 Enviado · por firmar","#b45309","#fff7ed"):pill("⏳ Sin convenio",B.red,B.redL)}</td>
+                  </tr>); })}</tbody>
+              </table>
+            </div>
+          )}
         </div>
         <div style={{...s.resultCard(1),marginBottom:0}}>
           <div style={{fontSize:15,fontWeight:800,color:B.navy}}>Terrenos opcionados por asesor</div>
@@ -20871,7 +20902,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.65</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.66</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
