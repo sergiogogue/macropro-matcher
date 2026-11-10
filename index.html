@@ -19914,8 +19914,14 @@ Respuesta: [respuesta exacta, conversacional]
 
     const norm=(s2)=>String(s2||"").trim().toLowerCase();
     const cap=(s2)=>{ s2=String(s2||"").trim(); return s2? s2.charAt(0).toUpperCase()+s2.slice(1):"—"; };
-    const asesores=(()=>{ const m=new Map(); const add=(a)=>{ if(!a||!a.nombre) return; const k=norm(a.nombre); if(!m.has(k)) m.set(k,{nombre:String(a.nombre).trim(),email:norm(a.email),telefono:a.telefono||""}); else { const e=m.get(k); if(!e.email&&a.email) e.email=norm(a.email); } };
-      (asesoresCatalog||[]).forEach(add); (asesoresCloud||[]).forEach(add); return [...m.values()].sort((x,y)=>x.nombre.localeCompare(y.nombre)); })();
+    const asesores=(()=>{ const m=new Map(); const add=(a)=>{ if(!a||!a.nombre) return; const k=norm(a.nombre); if(!k) return; if(!m.has(k)) m.set(k,{nombre:String(a.nombre).trim(),email:norm(a.email),telefono:a.telefono||""}); else { const e=m.get(k); if(!e.email&&a.email) e.email=norm(a.email); } };
+      // Catálogo (trae correo/tel) + los asesores REALES que aparecen en los datos:
+      // captaciones (terrenos), cotizaciones (opciones) y clientes (requerimientos).
+      (asesoresCatalog||[]).forEach(add); (asesoresCloud||[]).forEach(add);
+      (captaciones||[]).forEach(c=>{ if(c&&c.asesorResponsableGG) add({nombre:c.asesorResponsableGG}); });
+      (cots||[]).forEach(c=>{ if(c&&c.asesor_nombre) add({nombre:c.asesor_nombre}); });
+      (clients||[]).forEach(c=>{ if(c&&c.asesor) add({nombre:c.asesor}); });
+      return [...m.values()].sort((x,y)=>x.nombre.localeCompare(y.nombre)); })();
     const sa = asesores.find(a=>norm(a.nombre)===norm(sel)) || asesores[0] || null;
 
     const acDe=(a)=> a? acuerdos.filter(x=> (x.asesor_email&&norm(x.asesor_email)===norm(a.email)) || norm(x.asesor_nombre)===norm(a.nombre)) : [];
@@ -20506,7 +20512,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.40</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.41</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
