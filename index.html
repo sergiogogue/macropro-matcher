@@ -19890,6 +19890,10 @@ Respuesta: [respuesta exacta, conversacional]
     React.useEffect(()=>{ FAset("sel",sel); },[sel]);
     React.useEffect(()=>{ FAset("ciudad",ciudadF); },[ciudadF]);
     React.useEffect(()=>{ FAset("estado",estadoF); },[estadoF]);
+    // Altura REAL del menú superior (sticky): la barra de filtros se fija justo debajo, sin meterse.
+    const [navH,setNavH]=React.useState(64);
+    React.useEffect(()=>{ const medir=()=>{ try{ const n=document.querySelector("nav"); if(n){ const h=Math.ceil(n.getBoundingClientRect().height); if(h>0) setNavH(h); } }catch(e){} };
+      medir(); const t=setTimeout(medir,600); window.addEventListener("resize",medir); return ()=>{ clearTimeout(t); window.removeEventListener("resize",medir); }; },[]);
     // Secciones del kanban colapsables (se recuerda cuáles están cerradas).
     const [col,setCol]=React.useState(()=>{ try{ return JSON.parse(FA("col","{}"))||{}; }catch(e){ return {}; } });
     const toggleCol=(k)=>setCol(p=>{ const n={...p,[k]:!p[k]}; FAset("col",JSON.stringify(n)); return n; });
@@ -19942,6 +19946,12 @@ Respuesta: [respuesta exacta, conversacional]
       let cands=idxColab.filter(x=>x.toks.length&&(sub(qt,x.toks)||sub(x.toks,qt))); hit=cands.find(x=>x.email)||cands[0]; if(hit&&hit.email) return hit;
       // 3) mismo primer y último token
       if(qt.length>=2){ const f=qt[0],l=qt[qt.length-1]; cands=idxColab.filter(x=>x.toks.length>=2&&x.toks[0]===f&&x.toks[x.toks.length-1]===l); const h2=cands.find(x=>x.email)||cands[0]; if(h2&&h2.email) return h2; }
+      // 4) Regla de correos de Grupo Guía: inicial(es) del nombre + apellido (acolmenero, mortuno, zluna).
+      //    Sirve cuando en el catálogo el colaborador no tiene nombre capturado (sale su correo como nombre).
+      //    Solo se acepta si hay UNA sola coincidencia, para no mandarle a la persona equivocada.
+      if(qt.length>=2){ const i1=qt[0][0], i2=qt.length>=3?(qt[0][0]+qt[1][0]):""; const cand=new Set(); qt.slice(1).forEach(t=>{ cand.add(i1+t); if(i2) cand.add(i2+t); });
+        const hits=idxColab.filter(x=>x.email && cand.has(String(x.email).split("@")[0].replace(/[^a-z0-9]/g,"")));
+        const uniq=[...new Set(hits.map(h=>h.email))]; if(uniq.length===1) return hits[0]; }
       return hit||null; };
     const asesores=(()=>{ const m=new Map(); const add=(a)=>{ if(!a||!a.nombre) return; const k=norm(a.nombre); if(!k) return; if(!m.has(k)) m.set(k,{nombre:String(a.nombre).trim(),email:norm(a.email),telefono:a.telefono||""}); else { const e=m.get(k); if(!e.email&&a.email) e.email=norm(a.email); } };
       // Catálogo (trae correo/tel) + los asesores REALES que aparecen en los datos:
@@ -20260,7 +20270,7 @@ Respuesta: [respuesta exacta, conversacional]
           </div>
 
           {/* TABS + FILTROS (fijo al hacer scroll, debajo del menú de 64px) */}
-          <div style={{...s.filterBar,justifyContent:"space-between",position:"sticky",top:64,zIndex:50}}>
+          <div style={{...s.filterBar,justifyContent:"space-between",position:"sticky",top:navH,zIndex:50}}>
             <div style={{display:"flex",gap:4,background:B.grey1,borderRadius:12,padding:4}}>
               {tabBtn("general","📊 General")}
               {tabBtn("asesor","👤 Por asesor")}
@@ -20737,7 +20747,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.60</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.61</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
