@@ -19995,19 +19995,27 @@ Respuesta: [respuesta exacta, conversacional]
     };
     const URL_ACUERDO=LANDING_URL+"/acuerdo"; // formulario de alta/firma (sin cuenta)
     const acuerdoDeCap=(capId)=> acuerdos.find(a=>a&&a.captacion_id===capId) || null;
-    const convenioOK=(c)=>{ const a=acuerdoDeCap(c.id); if(a&&(a.estado==="firmado"||a.estado==="validado")) return true; if(c.firma_nombre&&c.esquema_comision) return true; return false; };
+    // Un convenio por PERSONA: si el asesor tiene cualquier acuerdo firmado/validado, cuenta para TODOS sus terrenos.
+    const asesorFirmo=(nombre)=>{ const ai=asesorInfo(nombre); return (acuerdos||[]).some(a=> a && (a.estado==="firmado"||a.estado==="validado") && ((ai&&ai.email&&norm(a.asesor_email)===norm(ai.email)) || (a.asesor_nombre&&norm(a.asesor_nombre)===norm(nombre)))); };
+    const convenioOK=(c)=>{ const a=acuerdoDeCap(c.id); if(a&&(a.estado==="firmado"||a.estado==="validado")) return true; if(c.firma_nombre&&c.esquema_comision) return true; if(asesorFirmo(c.asesorResponsableGG)) return true; return false; };
     // Eliminar un terreno de las opciones (soft-delete: queda marcado como eliminado en la nube, reversible).
     const borrarTerreno=(c)=>{ if(!c||!c.id) return; if(window.confirm("¿Eliminar el terreno «"+nombreTerreno(c)+"» de la lista de opciones?\n\nSe quita de MacroPro y de la nube (queda marcado como eliminado; no se borra el historial). Lo verán los 3 usuarios.")){ try{ removeCaptacion(c.id); toast("Terreno eliminado de las opciones."); }catch(e){ toast("No se pudo eliminar."); } } };
     const asesorInfo=(nombre)=>{ const base=asesores.find(a=>norm(a.nombre)===norm(nombre))||null; if(base&&base.email) return base; const col=buscarColab(nombre); if(!base&&!col) return null; return {nombre:(base&&base.nombre)||(col&&col.nombre)||nombre, email:(base&&base.email)||(col&&col.email)||"", telefono:(base&&base.telefono)||(col&&col.telefono)||""}; };
     const nombreTerreno=(c)=> (String(c.zona||"").trim()||String(c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"")||String(c.ciudad||"").trim()||"Terreno");
     const pendientes=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && !convenioOK(c) && (!cf || norm(c.ciudad)===cf));
     const estatusPend=(c)=>{ const a=acuerdoDeCap(c.id); if(!a) return "Sin convenio"; if(a.estado==="pendiente") return "Enviado · por firmar"; return a.estado||"Sin convenio"; };
-    // Crea (o recupera) el token del convenio para ESTE terreno. Devuelve el token, o null si falla.
-    const asegurarToken=async(c)=>{
-      const a=acuerdoDeCap(c.id); if(a&&a.token) return a.token;
-      const ai=asesorInfo(c.asesorResponsableGG);
+    // Todos los terrenos EN TRÁMITE de un asesor (para agrupar en un solo convenio/liga).
+    const terrenosPendAsesor=(nombre)=> (captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && norm(c.asesorResponsableGG)===norm(nombre) && !convenioOK(c));
+    // Acuerdo (token) ya existente para ese asesor, sin importar el terreno.
+    const acuerdoDeAsesor=(nombre)=>{ const ai=asesorInfo(nombre); return (acuerdos||[]).find(a=> a && a.token && ((ai&&ai.email&&norm(a.asesor_email)===norm(ai.email)) || (a.asesor_nombre&&norm(a.asesor_nombre)===norm(nombre)))) || null; };
+    // UN convenio por PERSONA: reusa el acuerdo del asesor si existe; si no, lo crea con uno de sus terrenos.
+    // Al firmar ese único convenio, cuentan como firmados TODOS sus terrenos (ver convenioOK/asesorFirmo).
+    const asegurarTokenAsesor=async(nombre)=>{
+      const ya=acuerdoDeAsesor(nombre); if(ya&&ya.token) return ya.token;
+      const pend=terrenosPendAsesor(nombre); const c=pend[0]; if(!c) return null;
+      const ai=asesorInfo(nombre);
       try{
-        const {data,error}=await window.sb.rpc("acuerdo_crear",{p_captacion_id:c.id,p_cotizacion_id:null,p_lote_id:null,p_asesor_email:(ai&&ai.email)||null,p_asesor_nombre:(ai&&ai.nombre)||c.asesorResponsableGG||null,p_adenda:false,p_motivo:null,p_semaforo_ok:null});
+        const {data,error}=await window.sb.rpc("acuerdo_crear",{p_captacion_id:c.id,p_cotizacion_id:null,p_lote_id:null,p_asesor_email:(ai&&ai.email)||null,p_asesor_nombre:(ai&&ai.nombre)||nombre||null,p_adenda:false,p_motivo:null,p_semaforo_ok:null});
         if(error) throw error;
         let token=(data&&(data.token||(Array.isArray(data)&&data[0]&&data[0].token)))||null;
         if(!token){ const {data:lst}=await window.sb.rpc("acuerdos_lista",{p_captacion_id:c.id,p_lote_id:null}); const f=(lst||[]).find(x=>x&&x.captacion_id===c.id&&x.token); token=f&&f.token; }
@@ -20018,35 +20026,37 @@ Respuesta: [respuesta exacta, conversacional]
     // Lleva a capturar el correo del asesor (salta a su ficha si hace falta).
     const pedirCorreo=(c)=>{ if(modo!=="asesor"||verTodos){ setModo("asesor"); setSel(c.asesorResponsableGG||sel); } toast("Captura el correo de "+(c.asesorResponsableGG||"este asesor")+" en “Datos del asesor” (arriba) y vuelve a intentar."); };
 
-    // 📧 Enviar el link por CORREO al asesor + copia a macrolotes@grupoguia.mx. Espera y confirma.
+    // 📧 UN correo al asesor con TODOS sus terrenos + copia a macrolotes@grupoguia.mx. Espera y confirma.
     const enviarCorreoFirma=async(c)=>{
-      const ai=asesorInfo(c.asesorResponsableGG);
+      const nombre=c.asesorResponsableGG; const ai=asesorInfo(nombre);
       if(!(ai&&ai.email)){ pedirCorreo(c); return; }
+      const terrenos=terrenosPendAsesor(nombre).map(nombreTerreno);
       setGenId(c.id);
-      const token=await asegurarToken(c);
+      const token=await asegurarTokenAsesor(nombre);
       if(!token){ setGenId(""); toast("No se pudo generar el convenio. Intenta de nuevo."); return; }
       try{
-        const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token})});
+        const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token,terrenos})});
         const out=await r.json().catch(()=>({}));
-        if(out&&out.ok&&out.enviado){ toast("✅ Correo enviado a "+(out.correo||ai.email)+" · copia a macrolotes@grupoguia.mx"); }
+        if(out&&out.ok&&out.enviado){ toast("✅ Correo enviado a "+(out.correo||ai.email)+" ("+terrenos.length+" terreno"+(terrenos.length===1?"":"s")+") · copia a macrolotes@grupoguia.mx"); }
         else if(out&&out.motivo==="sin-correo"){ pedirCorreo(c); }
         else { toast("No se pudo enviar el correo"+(out&&out.motivo?(" ("+out.motivo+")"):"")+". Prueba la opción de WhatsApp."); }
       }catch(e){ toast("No se pudo enviar el correo. Prueba la opción de WhatsApp."); }
       setGenId("");
     };
 
-    // 🟢 Mandar el link por WhatsApp (no requiere correo). Genera el token y abre WhatsApp.
+    // 🟢 UN WhatsApp con el link y la lista de TODOS sus terrenos (no requiere correo).
     const enviarWhatsFirma=async(c)=>{
-      const ai=asesorInfo(c.asesorResponsableGG);
-      const nom=String(c.asesorResponsableGG||"asesor").trim().split(/\s+/)[0]||"asesor";
-      const terr=nombreTerreno(c);
+      const nombre=c.asesorResponsableGG; const ai=asesorInfo(nombre);
+      const nom=String(nombre||"asesor").trim().split(/\s+/)[0]||"asesor";
+      const terrenos=terrenosPendAsesor(nombre).map(nombreTerreno);
       const tel=String((ai&&ai.telefono)||"").replace(/\D/g,""); const ph=tel.length===10?("52"+tel):tel;
       const w=window.open("","_blank"); // abrir dentro del gesto para que no lo bloqueen
       setGenId(c.id);
-      const token=await asegurarToken(c);
+      const token=await asegurarTokenAsesor(nombre);
       setGenId("");
       const link=token?(LANDING_URL+"/acuerdo/"+token):URL_ACUERDO;
-      const msg="Hola "+nom+", te recordamos que el terreno *"+terr+"* está en inventario pero necesitamos que firmes tu convenio de comisiones para poder publicarlo. Fírmalo aquí:\n"+link;
+      const lista=terrenos.length>1 ? ("tus terrenos:\n• "+terrenos.join("\n• ")) : ("el terreno *"+(terrenos[0]||nombreTerreno(c))+"*");
+      const msg="Hola "+nom+", para poder publicar "+lista+"\n\nnecesitamos que firmes *una sola vez* tu convenio de comisiones (cubre todos). Fírmalo aquí:\n"+link;
       const url=ph?("https://wa.me/"+ph+"?text="+encodeURIComponent(msg)):("https://api.whatsapp.com/send?text="+encodeURIComponent(msg));
       if(!ph) toast("Ese asesor no tiene teléfono — se abrirá WhatsApp para elegir contacto.");
       if(w){ w.location.href=url; } else { window.open(url,"_blank","noopener"); }
@@ -20797,7 +20807,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.49</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.50</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
