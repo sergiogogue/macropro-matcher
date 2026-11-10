@@ -19898,9 +19898,10 @@ Respuesta: [respuesta exacta, conversacional]
     const hdrRef=useRef(null);
     const [hdrH,setHdrH]=React.useState(0);
     React.useEffect(()=>{ const el=hdrRef.current; if(!el) return; const m=()=>{ try{ setHdrH(Math.ceil(el.getBoundingClientRect().height)); }catch(e){} }; m(); let ro=null; try{ ro=new ResizeObserver(m); ro.observe(el); }catch(e){} window.addEventListener("resize",m); return ()=>{ try{ ro&&ro.disconnect(); }catch(e){} window.removeEventListener("resize",m); }; },[cargando]);
-    // Lista "Aún sin elegir" desplegada (se guarda: la vista se re-monta con cada aviso/sync).
-    const [verSE,setVerSE]=React.useState(()=>FA("verSE","")==="1");
-    const toggleSE=()=>setVerSE(v=>{ const n=!v; FAset("verSE",n?"1":""); return n; });
+    // Filtro por esquema en la sección "Firmado" del kanban (lo activan los recuadros 100/0 y 60/40).
+    // Se guarda porque la vista se re-monta con cada aviso/sync.
+    const [fEsq,setFEsqRaw]=React.useState(()=>FA("fEsq",""));
+    const setFEsq=(v)=>{ setFEsqRaw(v||""); FAset("fEsq",v||""); };
     // Secciones del kanban colapsables (se recuerda cuáles están cerradas).
     const [col,setCol]=React.useState(()=>{ try{ return JSON.parse(FA("col","{}"))||{}; }catch(e){ return {}; } });
     const toggleCol=(k)=>setCol(p=>{ const n={...p,[k]:!p[k]}; FAset("col",JSON.stringify(n)); return n; });
@@ -20126,7 +20127,8 @@ Respuesta: [respuesta exacta, conversacional]
       // bajan a "Enviado" (el único correo cubre todos sus terrenos).
       const g0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG));
       const g1=lista.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG));
-      const g2=lista.filter(c=>convenioOK(c));
+      const esqDeC=(c)=>{ const a=acuerdoFirmadoDe(c); return String((a&&a.esquema)||c.esquema_comision||"").replace("_","/"); };
+      const g2=lista.filter(c=>convenioOK(c)&&(!fEsq||esqDeC(c)===fEsq));
       const tdS={padding:"5px 14px",whiteSpace:"nowrap"};
       const thS={padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap"};
       const lnkT=(c)=>(<button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button>);
@@ -20171,12 +20173,13 @@ Respuesta: [respuesta exacta, conversacional]
         g2.map((c,i)=>{ const a=acuerdoFirmadoDe(c); const esq=String((a&&a.esquema)||c.esquema_comision||"").replace("_","/"); return (<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
           <td style={tdS}><span style={{background:B.greenL,color:B.green,borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}}>✅ {(a&&a.folio)||"Firmado"}{esq?(" · esquema "+esq):""}</span></td>{accCel(c,false)}</tr>); }));
 
-      const seccion=(key,titulo,fg,bgc,count,vacioTxt,contenido)=>{ const cerrado=!!col[key]; return (
+      const seccion=(key,titulo,fg,bgc,count,vacioTxt,contenido,extra)=>{ const cerrado=!!col[key]; return (
         <div id={"kb-"+key} style={{marginBottom:14}}>
           <div onClick={()=>toggleCol(key)} title={cerrado?"Mostrar":"Ocultar"} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:bgc,borderRadius:cerrado?"12px":"12px 12px 0 0",border:"1px solid "+B.grey1,borderBottom:cerrado?("1px solid "+B.grey1):"none",cursor:"pointer",userSelect:"none"}}>
             <span style={{fontSize:13,color:fg,transform:cerrado?"rotate(-90deg)":"none",transition:"transform .15s"}}>▾</span>
             <span style={{fontSize:13.5,fontWeight:800,color:fg}}>{titulo}</span>
             <span style={{fontSize:12,fontWeight:800,color:"#fff",background:fg,borderRadius:999,padding:"1px 9px"}}>{count}</span>
+            {extra}
           </div>
           {!cerrado && <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden",borderRadius:"0 0 12px 12px"}}>
             {count===0 ? <div style={{padding:"10px 14px",fontSize:12.5,color:B.grey3}}>{vacioTxt}</div> : contenido}
@@ -20186,7 +20189,8 @@ Respuesta: [respuesta exacta, conversacional]
       return (<div>
         {seccion("g0","⏳ Sin convenio",B.red,B.redL,g0.length,"Nada por mandar — todos tienen al menos su liga enviada.",t0)}
         {seccion("g1","📨 Enviado · por firmar","#b45309","#fff7ed",g1.length,"Nada enviado todavía.",t1)}
-        {seccion("g2","✅ Firmado",B.green,B.greenL,g2.length,"Aún no hay convenios firmados.",t2)}
+        {seccion("g2","✅ Firmado",B.green,B.greenL,g2.length,fEsq?("Nadie ha firmado "+fEsq+" todavía."):"Aún no hay convenios firmados.",t2,
+          fEsq ? <span onClick={e=>{ e.stopPropagation(); setFEsq(""); }} title="Quitar filtro" style={{marginLeft:6,background:"#fff",border:"1px solid "+B.green,color:B.green,borderRadius:999,padding:"1px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Solo esquema {fEsq} ✕</span> : null)}
       </div>);
     };
 
@@ -20197,10 +20201,13 @@ Respuesta: [respuesta exacta, conversacional]
       const k2=base.filter(c=>convenioOK(c));
       const nAseEnv=new Set(k1.map(c=>norm(c.asesorResponsableGG))).size;
       const pct=base.length?Math.round(k2.length/base.length*100):0;
-      const kpi=(lbl,n,sub,colr)=>(<div style={{background:"#fff",border:"1px solid "+B.grey1,borderTop:"5px solid "+colr,borderRadius:14,padding:"12px 16px",minWidth:0}}>
+      // Llevar al kanban: abre las secciones indicadas y baja a la primera. esq = filtro de "Firmado".
+      const irA=(keys,esq)=>{ setFEsq(esq||""); keys.slice(1).forEach(k=>{ if(col[k]) toggleCol(k); }); irSeccion(keys[0]); };
+      const verMas=(colr)=>(<div style={{fontSize:12.5,fontWeight:700,color:colr||"#1d4ed8",marginTop:4}}>Ver en el kanban ▸</div>);
+      const kpi=(lbl,n,sub,colr,onClick)=>(<div onClick={onClick} title={onClick?"Ver en el kanban":undefined} style={{background:"#fff",border:"1px solid "+B.grey1,borderTop:"5px solid "+colr,borderRadius:14,padding:"12px 16px",minWidth:0,cursor:onClick?"pointer":"default"}}>
         <div style={{fontSize:12.5,fontWeight:700,color:B.navy}}>{lbl}</div>
         <div style={{fontSize:30,fontWeight:800,color:colr,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{n}</div>
-        <div style={{fontSize:11.5,color:B.grey4}}>{sub}</div></div>);
+        <div style={{fontSize:11.5,color:B.grey4}}>{sub}</div>{onClick&&verMas(colr)}</div>);
       // Esquema elegido, por ASESOR y con sus TERRENOS (clic en el asesor = su ficha; clic en el terreno = ficha del terreno).
       const firm=new Map();
       const addF=(nombre,esq,folio,terr,terrTxt)=>{ const k=norm(nombre)+"|"+esq; const e=firm.get(k)||{nombre,esquema:esq,folio:"",terrenos:[],terrTxt:""}; if(folio&&!e.folio) e.folio=folio; if(terr&&!e.terrenos.some(t=>t.id===terr.id)) e.terrenos.push(terr); if(terrTxt&&!e.terrTxt) e.terrTxt=terrTxt; firm.set(k,e); };
@@ -20233,34 +20240,19 @@ Respuesta: [respuesta exacta, conversacional]
       const leg=(colr,t)=>(<span style={{display:"inline-flex",alignItems:"center",gap:5}}><i style={{display:"inline-block",width:10,height:10,borderRadius:3,background:colr}}/>{t}</span>);
       return (<div style={{marginBottom:24}}>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:16}}>
-          {kpi("⏳ Sin convenio",k0.length,"Falta mandar la liga",B.red)}
-          {kpi("📨 Enviado · por firmar",k1.length,nAseEnv+" asesor"+(nAseEnv===1?"":"es")+" · esperando firma","#b45309")}
-          {kpi("✅ Firmado",k2.length,"Convenio con PDF",B.green)}
+          {kpi("⏳ Sin convenio",k0.length,"Falta mandar la liga",B.red,()=>irA(["g0"]))}
+          {kpi("📨 Enviado · por firmar",k1.length,nAseEnv+" asesor"+(nAseEnv===1?"":"es")+" · esperando firma","#b45309",()=>irA(["g1"]))}
+          {kpi("✅ Firmado",k2.length,"Convenio con PDF",B.green,()=>irA(["g2"]))}
           {kpi("Total en opción",base.length,pct+"% firmado",B.navy)}
         </div>
         <div style={{...s.resultCard(1),marginBottom:16}}>
           <div style={{fontSize:15,fontWeight:800,color:B.navy}}>Esquema elegido en los convenios firmados</div>
           <div style={{fontSize:12.5,color:B.grey4,margin:"2px 0 12px"}}>Quien firmó <b>100/0</b> es quien <b>no aceptó el 60/40</b>. Los que siguen en “Sin convenio” o “Enviado” todavía no eligen.</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12}}>
-            {caja("100/0 · lo trabaja el asesor","No aceptó 60/40",e100.length,B.navy, e100.length?listaFirm(e100):<div style={{fontSize:13,color:B.grey4}}>Nadie todavía</div>)}
-            {caja("60/40 · Macrolotes vende","Aceptó 60/40",e60.length,B.goldD||"#d4952a", e60.length?listaFirm(e60):<div style={{fontSize:13,color:B.grey4}}>Nadie todavía</div>)}
-            {caja("Aún sin elegir",k0.length+" sin convenio · "+k1.length+" enviados",sinElegir.length,B.grey4,
-              <div style={{fontSize:13,fontWeight:700,color:"#1d4ed8"}}>{verSE?"Ocultar lista ▴":"Ver quiénes y qué terrenos ▾"}</div>, toggleSE)}
+            {caja("100/0 · lo trabaja el asesor","No aceptó 60/40 · "+e100.length+" asesor"+(e100.length===1?"":"es"),e100.length,B.navy, e100.length?verMas(B.navy):<div style={{fontSize:13,color:B.grey4}}>Nadie todavía</div>, e100.length?()=>irA(["g2"],"100/0"):undefined)}
+            {caja("60/40 · Macrolotes vende","Aceptó 60/40 · "+e60.length+" asesor"+(e60.length===1?"":"es"),e60.length,B.goldD||"#d4952a", e60.length?verMas(B.goldD||"#d4952a"):<div style={{fontSize:13,color:B.grey4}}>Nadie todavía</div>, e60.length?()=>irA(["g2"],"60/40"):undefined)}
+            {caja("Aún sin elegir",k0.length+" sin convenio · "+k1.length+" enviados",sinElegir.length,B.grey4, sinElegir.length?verMas(B.grey5):null, sinElegir.length?()=>irA(["g0","g1"]):undefined)}
           </div>
-          {verSE && sinElegir.length>0 && (
-            <div style={{overflowX:"auto",marginTop:12,border:"1px solid "+B.grey1,borderRadius:12}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                <thead><tr style={{textAlign:"left",color:B.grey4}}>{["Asesor","Terreno","Ciudad","En qué va"].map((h,i)=><th key={i} style={{padding:"7px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
-                <tbody>{sinElegir.map((c,i)=>{ const env=!!acuerdoDeAsesor(c.asesorResponsableGG); return (
-                  <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
-                    <td style={{padding:"5px 14px",whiteSpace:"nowrap"}}><button onClick={()=>abrirAsesor(c.asesorResponsableGG)} title="Ver la ficha del asesor" style={lnk(B.navy)}>{c.asesorResponsableGG||"Sin asesor"}</button></td>
-                    <td style={{padding:"5px 14px"}}><button onClick={()=>abrirTerreno(c)} title="Ver la ficha del terreno" style={lnk("#1d4ed8")}>{nombreTerreno(c)} ↗</button></td>
-                    <td style={{padding:"5px 14px",whiteSpace:"nowrap",color:B.grey5}}>{c.ciudad||"—"}</td>
-                    <td style={{padding:"5px 14px",whiteSpace:"nowrap"}}>{env?pill("📨 Enviado · por firmar","#b45309","#fff7ed"):pill("⏳ Sin convenio",B.red,B.redL)}</td>
-                  </tr>); })}</tbody>
-              </table>
-            </div>
-          )}
         </div>
         <div style={{...s.resultCard(1),marginBottom:0}}>
           <div style={{fontSize:15,fontWeight:800,color:B.navy}}>Terrenos opcionados por asesor</div>
@@ -20902,7 +20894,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.66</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.67</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
