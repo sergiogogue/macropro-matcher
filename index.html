@@ -2262,8 +2262,10 @@ function RqAlertaMatch({ data, onClose }){
   );
 }
 
-function ViewRequerimientos({ s, onToast }){
+function ViewRequerimientos({ s, onToast, onBorrarCompradores }){
   const toast=onToast||(()=>{});
+  const [sel,setSel]=useState(()=>new Set()); // keys marcadas para borrar (registros de prueba)
+  const [borrando,setBorrando]=useState(false);
   const [tab,setTab]=useState("compradores");
   const [fall,setFall]=useState([]);
   const [comp,setComp]=useState([]);
@@ -2370,7 +2372,36 @@ function ViewRequerimientos({ s, onToast }){
     (!nq || rqNorm(r.cliente).includes(nq) || rqNorm(r.asesor).includes(nq)));
   const cuenta=(e)=>rows.filter(r=>r.estatus===e).length;
   const hayFiltro=!!(q||fCiudad||fUso||fEst);
-  const cambiarTab=(t)=>{ setTab(t); setFCiudad(""); setFUso(""); setFEst(""); setLimite(150); };
+  const cambiarTab=(t)=>{ setTab(t); setFCiudad(""); setFUso(""); setFEst(""); setLimite(150); setSel(new Set()); };
+  // ── Borrar registros de PRUEBA ──
+  //   Compradores → baja lógica en la nube (activo=false + updated_at), igual que "Eliminar cliente":
+  //                 la bajada de los otros equipos lo quita y la sincronización no lo revive.
+  //   Sin match   → borrado definitivo con macropro_busquedas_borrar (solo admins).
+  const toggleSel=(k)=>setSel(prev=>{ const n=new Set(prev); if(n.has(k)) n.delete(k); else n.add(k); return n; });
+  const borrarSeleccion=async()=>{
+    const lista=rows.filter(r=>sel.has(r.key)); if(!lista.length||!window.sb) return;
+    const nombres=lista.slice(0,8).map(r=>"• "+r.cliente+" ("+r.asesor+")").join("\n")+(lista.length>8?("\n… y "+(lista.length-8)+" más"):"");
+    const aviso=tab==="compradores"
+      ? "¿Borrar "+lista.length+" comprador(es) de prueba?\n\n"+nombres+"\n\nSe dan de baja en la nube y desaparecen de los 3 equipos."
+      : "¿Borrar "+lista.length+" búsqueda(s) sin match de prueba?\n\n"+nombres+"\n\nSe borran definitivamente.";
+    if(!window.confirm(aviso)) return;
+    setBorrando(true);
+    try{
+      if(tab==="compradores"){
+        const ids=lista.map(r=>r.refId);
+        const { error } = await window.sb.from("clientes").update({ activo:false, updated_at:new Date().toISOString() }).in("id_cliente",ids);
+        if(error) throw error;
+        try{ onBorrarCompradores&&onBorrarCompradores(ids); }catch(e){}
+        setComp(rs=>rs.filter(r=>!sel.has(r.key)));
+      } else {
+        const { error } = await window.sb.rpc("macropro_busquedas_borrar",{ p_ids: lista.map(r=>r.id) });
+        if(error) throw error;
+        setFall(rs=>rs.filter(r=>!sel.has(r.key)));
+      }
+      setSel(new Set()); toast("🗑 "+lista.length+" registro(s) de prueba borrado(s)");
+    }catch(e){ const m=String((e&&e.message)||e); toast(/could not find|PGRST202|schema cache/i.test(m)?"Falta correr sql/requerimientos_v3_borrar_prueba.sql en Supabase":("No se pudo borrar: "+m)); }
+    setBorrando(false);
+  };
 
   // ── Piezas de UI ──
   const th={padding:"9px 12px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,color:"#fff",textAlign:"left",whiteSpace:"nowrap"};
@@ -2435,21 +2466,29 @@ function ViewRequerimientos({ s, onToast }){
         ) : (
           <div style={{...s.resultCard(1),padding:0,overflow:"hidden",marginBottom:30}}>
             <div style={{padding:"10px 14px",fontSize:12.5,color:B.grey4,borderBottom:"1px solid "+B.grey1,display:"flex",gap:10,flexWrap:"wrap",justifyContent:"space-between"}}>
-              <span>{filtrados.length} de {rows.length} requerimiento{rows.length===1?"":"s"}{hayFiltro?" (con filtros)":""}.</span>
+              {sel.size>0 ? (
+                <span style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <b style={{color:B.red}}>{sel.size} seleccionado{sel.size===1?"":"s"}</b>
+                  <button disabled={borrando} onClick={borrarSeleccion} style={bSm(B.red,"#fff")}>{borrando?"Borrando…":"🗑 Borrar (son de prueba)"}</button>
+                  <button onClick={()=>setSel(new Set())} style={bSm("#fff",B.grey4,B.grey2)}>Cancelar</button>
+                </span>
+              ) : <span>{filtrados.length} de {rows.length} requerimiento{rows.length===1?"":"s"}{hayFiltro?" (con filtros)":""}. <span style={{color:B.grey3}}>Marca la casilla ☐ de los registros de prueba para borrarlos.</span></span>}
               {err && <span style={{color:B.red}}>⚠ {err}</span>}
             </div>
             {filtrados.length===0 ? (
               <div style={{padding:"22px 14px",textAlign:"center",color:B.grey3,fontSize:13}}>{rows.length?"Ningún requerimiento coincide con los filtros.":"Todavía no hay requerimientos registrados."}</div>
             ) : (
               <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:1160}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:1200}}>
                   <thead><tr style={{background:B.navy}}>
+                    <th style={{...th,width:34,paddingRight:0}}><input type="checkbox" title="Marcar todos los visibles" checked={visibles.length>0&&visibles.every(r=>sel.has(r.key))} onChange={e=>{ const on=e.target.checked; setSel(prev=>{ const n=new Set(prev); visibles.forEach(r=>{ if(on) n.add(r.key); else n.delete(r.key); }); return n; }); }} style={{cursor:"pointer",width:15,height:15}}/></th>
                     <th style={th}>Fecha</th><th style={th}>Asesor</th><th style={th}>Cliente</th><th style={th}>Ciudad / Zona</th>
                     <th style={{...th,textAlign:"right"}}>Tamaño (m²)</th><th style={th}>Uso</th><th style={th}>Estatus</th><th style={{...th,textAlign:"right"}}>Acciones</th>
                   </tr></thead>
                   <tbody>
                     {visibles.map((r,i)=>(
-                      <tr key={r.key||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW,opacity:r.estatus==="resuelto"?0.72:1}}>
+                      <tr key={r.key||i} style={{borderTop:"1px solid "+B.grey1,background:sel.has(r.key)?"#fef2f2":(i%2?"#fff":B.offW),opacity:r.estatus==="resuelto"?0.72:1}}>
+                        <td style={{...td,paddingRight:0}}><input type="checkbox" checked={sel.has(r.key)} onChange={()=>toggleSel(r.key)} title="Marcar para borrar" style={{cursor:"pointer",width:15,height:15}}/></td>
                         <td style={{...td,whiteSpace:"nowrap"}}><div style={{color:B.grey5}}>{rqFecha(r.fecha)}</div><div style={{fontSize:11,color:B.grey3}}>{r.origen==="WhatsApp"?"💬 WhatsApp":(r.origen==="Landing"?"🌐 Landing":"🗂 MacroPro")}</div></td>
                         <td style={{...td,fontWeight:700,color:B.navy}}>{r.asesor}</td>
                         <td style={td}>{r.cliente}</td>
@@ -2547,6 +2586,148 @@ function ViewRequerimientos({ s, onToast }){
               <div style={{fontSize:11.5,color:B.grey3,marginTop:12}}>Inventario actual publicado (v_landing_lotes). Ordenado por cercanía al tamaño pedido.</div>
             </>)}
         </RqModal>); })()}
+    </div>
+  );
+}
+
+// ─── 📊 ESTADÍSTICAS DE REQUERIMIENTOS (Asesores → General) ───────────────────────────────────
+// Qué se está buscando: por asesor, ciudad, uso de suelo, tamaño y presupuesto. Fuentes:
+// compradores de la nube + búsquedas del landing + búsquedas sin match. Nivel superior y con
+// caché de módulo: ViewFichaAsesores se re-monta con cada aviso y no debe volver a bajar todo.
+let RQ_STATS_CACHE=null; // {t, comp, crit, fall}
+const RQ_USO_FAMILIAS=[[/industr|logist|bodega|nave/,"Industrial / Logístico"],[/hotel|turist/,"Hotelero / Turístico"],[/mixto/,"Usos mixtos"],[/comerc|retail|local|plaza/,"Comercial"],[/oficina|corporat/,"Oficinas"],[/habitac|residenc|vivienda|vertical|horizontal/,"Habitacional"],[/inversi/,"Inversión"],[/equipam/,"Equipamiento"],[/agri|agro|rustic|campestre/,"Agrícola / Campestre"]];
+const rqFamiliaUso=(u)=>{ const n=rqNorm(u); if(!n) return ""; const f=RQ_USO_FAMILIAS.find(([re])=>re.test(n)); return f?f[1]:(String(u).trim().charAt(0).toUpperCase()+String(u).trim().slice(1)); };
+const rqCiudadKey=(c)=>{ const n=rqNorm(c); if(!n) return ""; if(/^(zmgdl|zmg|gdl|guadalajara|zona metropolitana de guadalajara)$/.test(n)) return "guadalajara"; return n; };
+const rqTitulo=(x)=>String(x||"").trim().toLowerCase().replace(/(^|\s|\/|\()([a-záéíóúñü])/g,(m,a,b)=>a+b.toUpperCase());
+const RQ_TAMANOS=[[0,1000,"Menos de 1,000 m²"],[1000,5000,"1,000 – 5,000 m²"],[5000,10000,"5,000 – 10,000 m²"],[10000,50000,"1 – 5 ha"],[50000,Infinity,"Más de 5 ha"]];
+const RQ_PRESUP=[[0,5e6,"Menos de $5 M"],[5e6,20e6,"$5 – 20 M"],[20e6,50e6,"$20 – 50 M"],[50e6,100e6,"$50 – 100 M"],[100e6,Infinity,"Más de $100 M"]];
+
+function RqBarras({ titulo, sub, datos, total, max=12, vacio }){
+  const [todos,setTodos]=useState(false);
+  const lista=todos?datos:datos.slice(0,max);
+  const tope=Math.max(1,...datos.map(d=>d.n));
+  return (
+    <div style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,43,73,.06)"}}>
+      <div style={{fontSize:14,fontWeight:800,color:B.navy}}>{titulo}</div>
+      {sub&&<div style={{fontSize:11.5,color:B.grey4,marginTop:2,marginBottom:10}}>{sub}</div>}
+      {!datos.length ? <div style={{fontSize:12.5,color:B.grey3,padding:"10px 0"}}>{vacio||"Sin datos."}</div> : (
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {lista.map(d=>{ const pct=total?Math.round(d.n/total*100):0; return (
+            <div key={d.k} title={d.label+": "+d.n.toLocaleString("es-MX")+" requerimiento"+(d.n===1?"":"s")+(total?(" ("+pct+"%)"):"")} style={{display:"grid",gridTemplateColumns:"minmax(110px,38%) 1fr 64px",alignItems:"center",gap:10,fontSize:12.5,padding:"2px 0"}}>
+              <span style={{color:B.grey5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.label}</span>
+              <span style={{background:B.grey1,borderRadius:4,height:10,position:"relative",overflow:"hidden"}}><span style={{position:"absolute",left:0,top:0,bottom:0,width:Math.max(2,d.n/tope*100)+"%",background:d.gris?B.grey3:B.navy,borderRadius:4}}/></span>
+              <span style={{textAlign:"right",fontVariantNumeric:"tabular-nums",color:B.navy,fontWeight:700}}>{d.n.toLocaleString("es-MX")}<span style={{color:B.grey3,fontWeight:500,fontSize:11}}> {pct}%</span></span>
+            </div>); })}
+          {datos.length>max && <button onClick={()=>setTodos(v=>!v)} style={{alignSelf:"flex-start",marginTop:4,background:"transparent",border:"none",padding:0,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,color:"#1d4ed8"}}>{todos?"▴ Ver menos":("▾ Ver todos ("+datos.length+")")}</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RqEstadisticas({ s, ciudad }){
+  const [data,setData]=useState(()=>RQ_STATS_CACHE);
+  const [cargando,setCargando]=useState(!RQ_STATS_CACHE);
+  const [err,setErr]=useState("");
+  const [fuente,setFuenteRaw]=useState(()=>{ try{ return localStorage.getItem("mp_rqst_fuente")||"todos"; }catch(e){ return "todos"; } });
+  const setFuente=(v)=>{ setFuenteRaw(v); try{ localStorage.setItem("mp_rqst_fuente",v); }catch(e){} };
+  const [verAse,setVerAse]=useState(false);
+  const cargar=useCallback(async(forzar)=>{
+    if(!forzar && RQ_STATS_CACHE && Date.now()-RQ_STATS_CACHE.t<5*60*1000){ setData(RQ_STATS_CACHE); setCargando(false); return; }
+    if(!window.sb){ setErr("Sin conexión con Supabase."); setCargando(false); return; }
+    setCargando(true); setErr("");
+    const [cl,cr,fa]=await Promise.all([
+      rqCargarCompradores().catch(e=>{ setErr("No se pudieron leer los compradores: "+((e&&e.message)||e)); return []; }),
+      window.sb.rpc("macropro_criterios_landing").then(x=>x).catch(()=>({data:null})),
+      window.sb.rpc("macropro_busquedas_fallidas").then(x=>x).catch(()=>({data:null})),
+    ]);
+    const fall=((fa&&!fa.error&&fa.data)||[]).map(r=>rqDesarmar(r,"fallida"));
+    const yaCrit=new Set(fall.map(f=>f.criterio_id).filter(Boolean));
+    const nd={ t:Date.now(),
+      comp:(cl||[]).filter(r=>r&&r.activo!==false).map(rqDesdeComprador),
+      crit:((cr&&!cr.error&&cr.data)||[]).map(r=>rqDesarmar(r,"criterio")).filter(c=>!yaCrit.has(c.id)),
+      fall };
+    RQ_STATS_CACHE=nd; setData(nd); setCargando(false);
+  },[]);
+  React.useEffect(()=>{ cargar(false); },[cargar]);
+
+  const FUENTES=[["todos","Todos"],["comprador","🧑‍💼 Compradores"],["criterio","🌐 Búsquedas del landing"],["fallida","🚫 Sin match"]];
+  const d=data||{comp:[],crit:[],fall:[]};
+  const porFuente={comprador:d.comp.length,criterio:d.crit.length,fallida:d.fall.length};
+  const base=(fuente==="todos"?[...d.comp,...d.crit,...d.fall]:fuente==="comprador"?d.comp:fuente==="criterio"?d.crit:d.fall)
+    .filter(r=>!ciudad || r.ciudades.some(c=>rqCo(c,ciudad)));
+  const total=base.length;
+
+  // Conteos (un requerimiento puede buscar en varias ciudades/usos: cuenta una vez en cada uno)
+  const contar=(fnKeys)=>{ const m=new Map(); base.forEach(r=>{ const ks=fnKeys(r); const vistos=new Set(); ks.forEach(([k,label])=>{ if(vistos.has(k)) return; vistos.add(k); const e=m.get(k)||{k,n:0,labels:{}}; e.n++; e.labels[label]=(e.labels[label]||0)+1; m.set(k,e); }); }); return [...m.values()].map(e=>({k:e.k,n:e.n,label:Object.entries(e.labels).sort((a,b)=>b[1]-a[1])[0][0],gris:e.k==="__sin"})).sort((a,b)=>(a.gris-b.gris)||(b.n-a.n)||a.label.localeCompare(b.label,"es")); };
+  const sinDato=(arr,label)=>arr.length?arr:[["__sin",label]];
+  const porCiudad=contar(r=>sinDato(r.ciudades.map(c=>{ const k=rqCiudadKey(c); return [k, k==="guadalajara"?"Guadalajara / ZMG":rqTitulo(c)]; }).filter(x=>x[0]),"Sin ciudad"));
+  const porUso=contar(r=>sinDato(r.usos.map(u=>{ const f=rqFamiliaUso(u); return [rqNorm(f),f]; }).filter(x=>x[0]),"Sin uso"));
+  const tamDe=(r)=>r.m2max||r.m2min||0;
+  const porTam=contar(r=>{ const m=tamDe(r); if(!m) return [["__sin","Sin superficie"]]; const b=RQ_TAMANOS.findIndex(([lo,hi])=>m>=lo&&m<hi); return [[String(b),RQ_TAMANOS[b][2]]]; }).sort((a,b)=>(a.gris-b.gris)||(Number(a.k)-Number(b.k)));
+  const porPres=contar(r=>{ const p=r.pmax||r.pmin||0; if(!p) return [["__sin","Sin presupuesto"]]; const b=RQ_PRESUP.findIndex(([lo,hi])=>p>=lo&&p<hi); return [[String(b),RQ_PRESUP[b][2]]]; }).sort((a,b)=>(a.gris-b.gris)||(Number(a.k)-Number(b.k)));
+  // Por asesor: cuántos, ciudad y uso principal, tamaño típico (mediana)
+  const asesorKey=(r)=>{ const n=rqNorm(r.asesor); return (!n||n==="—"||/^por asignar|^sin asesor/.test(n))?"__sin":n; };
+  const mAse=new Map();
+  base.forEach(r=>{ const k=asesorKey(r); const e=mAse.get(k)||{k,n:0,labels:{},ciu:{},uso:{},tams:[],gris:k==="__sin"}; e.n++; const lb=k==="__sin"?"Sin asesor asignado":r.asesor; e.labels[lb]=(e.labels[lb]||0)+1;
+    r.ciudades.forEach(c=>{ const ck=rqCiudadKey(c); if(ck) e.ciu[ck==="guadalajara"?"Guadalajara / ZMG":rqTitulo(c)]=(e.ciu[ck==="guadalajara"?"Guadalajara / ZMG":rqTitulo(c)]||0)+1; });
+    r.usos.forEach(u=>{ const f=rqFamiliaUso(u); if(f) e.uso[f]=(e.uso[f]||0)+1; });
+    const t=tamDe(r); if(t) e.tams.push(t); mAse.set(k,e); });
+  const top=(o)=>Object.entries(o).sort((a,b)=>b[1]-a[1]).slice(0,2).map(x=>x[0]).join(", ")||"—";
+  const mediana=(a)=>{ if(!a.length) return null; const x=a.slice().sort((p,q)=>p-q); return x[Math.floor(x.length/2)]; };
+  const ases=[...mAse.values()].map(e=>({...e,label:Object.entries(e.labels).sort((a,b)=>b[1]-a[1])[0][0]})).sort((a,b)=>(a.gris-b.gris)||(b.n-a.n));
+  const topeAse=Math.max(1,...ases.map(a=>a.n));
+  const asesVis=verAse?ases:ases.slice(0,15);
+  const nCiudades=porCiudad.filter(x=>!x.gris).length, nUsos=porUso.filter(x=>!x.gris).length, nAses=ases.filter(x=>!x.gris).length;
+  const pendFall=d.fall.filter(r=>r.estatus!=="resuelto").length;
+
+  const tile=(n,l,sub)=>(<div style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:"14px 16px",boxShadow:"0 1px 3px rgba(0,43,73,.06)"}}><div style={{fontSize:28,fontWeight:900,color:B.navy,fontFamily:"'Playfair Display',serif",lineHeight:1.1}}>{n}</div><div style={{fontSize:12,fontWeight:700,color:B.grey4,marginTop:2}}>{l}</div>{sub&&<div style={{fontSize:11,color:B.grey3,marginTop:2}}>{sub}</div>}</div>);
+  const th={padding:"9px 12px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,color:"#fff",textAlign:"left",whiteSpace:"nowrap"};
+
+  return (
+    <div style={{marginBottom:40}}>
+      <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:12}}>
+        <div><div style={s.sectionTitle}>🔍 Qué se está buscando</div><div style={s.sectionSub}>Estadísticas de requerimientos{ciudad?(" en "+ciudad):""}: por asesor, ciudad, uso de suelo, tamaño y presupuesto.</div></div>
+        <button onClick={()=>cargar(true)} style={{...s.btn("sm"),boxShadow:"none"}}>↻ Actualizar</button>
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+        {FUENTES.map(([k,l])=>(<button key={k} onClick={()=>setFuente(k)} style={{padding:"7px 13px",borderRadius:999,border:"1.5px solid "+(fuente===k?B.navy:B.grey1),background:fuente===k?B.navy:"#fff",color:fuente===k?"#fff":B.grey5,fontWeight:700,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}{k!=="todos"?<span style={{marginLeft:6,opacity:.75}}>{(porFuente[k]||0).toLocaleString("es-MX")}</span>:null}</button>))}
+      </div>
+      {cargando ? <div style={{...s.resultCard(1),textAlign:"center",color:B.grey3,padding:26}}>Cargando requerimientos…</div> : (<>
+        {err && <div style={{fontSize:12.5,color:B.red,marginBottom:10}}>⚠ {err}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:12,marginBottom:16}}>
+          {tile(total.toLocaleString("es-MX"),"Requerimientos",fuente==="todos"?(porFuente.comprador.toLocaleString("es-MX")+" compradores · "+porFuente.criterio+" landing · "+porFuente.fallida+" sin match"):null)}
+          {tile(nAses,"Asesores con requerimientos")}
+          {tile(nCiudades,"Ciudades buscadas")}
+          {tile(nUsos,"Tipos de uso de suelo")}
+          {tile(pendFall,"Sin match pendientes","terrenos que no teníamos")}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(290px,1fr))",gap:14,marginBottom:16}}>
+          <RqBarras titulo="📍 Por ciudad" sub="Un requerimiento puede buscar en varias ciudades." datos={porCiudad} total={total}/>
+          <RqBarras titulo="🏗 Por uso de suelo" sub="Agrupado por tipo de terreno." datos={porUso} total={total}/>
+          <RqBarras titulo="📐 Por tamaño" sub="Superficie máxima que buscan." datos={porTam} total={total} max={8}/>
+          <RqBarras titulo="💰 Por presupuesto" sub="Presupuesto máximo del cliente." datos={porPres} total={total} max={8}/>
+        </div>
+        <div style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,43,73,.06)"}}>
+          <div style={{padding:"14px 18px 10px"}}><div style={{fontSize:14,fontWeight:800,color:B.navy}}>👔 Por asesor</div><div style={{fontSize:11.5,color:B.grey4,marginTop:2}}>Cuántos requerimientos tiene cada asesor y qué buscan sus clientes.</div></div>
+          {!ases.length ? <div style={{padding:"0 18px 16px",fontSize:12.5,color:B.grey3}}>Sin datos.</div> : (
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:760}}>
+              <thead><tr style={{background:B.navy}}><th style={th}>Asesor</th><th style={{...th,width:"28%"}}>Requerimientos</th><th style={th}>Ciudades principales</th><th style={th}>Usos principales</th><th style={{...th,textAlign:"right"}}>Tamaño típico</th></tr></thead>
+              <tbody>{asesVis.map((a,i)=>{ const med=mediana(a.tams); return (
+                <tr key={a.k} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
+                  <td style={{padding:"8px 12px",fontWeight:700,color:a.gris?B.grey4:B.navy}}>{a.label}</td>
+                  <td style={{padding:"8px 12px"}} title={a.n+" requerimiento"+(a.n===1?"":"s")}><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{flex:1,background:B.grey1,borderRadius:4,height:10,position:"relative",overflow:"hidden"}}><span style={{position:"absolute",left:0,top:0,bottom:0,width:Math.max(2,a.n/topeAse*100)+"%",background:a.gris?B.grey3:B.navy,borderRadius:4}}/></span><b style={{color:B.navy,fontVariantNumeric:"tabular-nums",minWidth:34,textAlign:"right"}}>{a.n.toLocaleString("es-MX")}</b></div></td>
+                  <td style={{padding:"8px 12px",color:B.grey5}}>{top(a.ciu)}</td>
+                  <td style={{padding:"8px 12px",color:B.grey5}}>{top(a.uso)}</td>
+                  <td style={{padding:"8px 12px",textAlign:"right",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums",color:B.grey5}}>{med?(rqM2(med)+" m²"):"—"}</td>
+                </tr>); })}</tbody>
+            </table>
+            {ases.length>15 && <div style={{padding:10,textAlign:"center",borderTop:"1px solid "+B.grey1}}><button onClick={()=>setVerAse(v=>!v)} style={{...s.btn("sm"),boxShadow:"none"}}>{verAse?"Ver menos":("Ver todos los asesores ("+ases.length+")")}</button></div>}
+          </div>)}
+        </div>
+        <div style={{fontSize:11.5,color:B.grey3,marginTop:8}}>Para ver cada requerimiento, darle seguimiento o avisar al asesor: 🔍 Requerimientos.</div>
+      </>)}
     </div>
   );
 }
@@ -20924,13 +21105,8 @@ Respuesta: [respuesta exacta, conversacional]
             {/* (La tabla de "Opciones del equipo" se movió a "Por asesor" y a la alerta de pendientes;
                  General queda limpio: estadísticas + requerimientos.) */}
 
-            {/* TODOS LOS REQUERIMIENTOS */}
-            <div style={{marginBottom:40}}>
-              <div style={s.sectionTitle}>🔍 Requerimientos del equipo</div>
-              <div style={s.sectionSub}>Clientes que buscan terreno · {gReqs.length}{cf?(" en "+ciudadF):""}.</div>
-              {gReqs.length===0 ? vacio("Sin requerimientos.") : (<div style={grid}>{gReqs.slice(0,120).map((c,i)=>cardReq(c,i,true))}</div>)}
-              {gReqs.length>120 && <div style={{fontSize:12,color:B.grey3,marginTop:10,textAlign:"center"}}>Mostrando 120 de {gReqs.length}. Usa el filtro de ciudad o “Por asesor” para acotar.</div>}
-            </div>
+            {/* 📊 ESTADÍSTICAS DE REQUERIMIENTOS (antes: tarjetas de cada cliente; el detalle vive en 🔍 Requerimientos) */}
+            <RqEstadisticas s={s} ciudad={cf?ciudadF:""}/>
           </>) : (verTodos ? (<>
             {/* 📊 RECUADROS POR ETAPA + ESQUEMA ELEGIDO + GRÁFICA POR ASESOR */}
             {panelEtapas((captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf)))}
@@ -21333,7 +21509,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.70</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.71</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
@@ -21396,7 +21572,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="pitch"&&<TramiteOpcionPaso1 asesores={asesoresCloud} onToast={toast} onCotizar={iniciarCotizacionDeAcuerdo} ver={acuerdosVer+"-"+cotPrefillVer}/>}
       {view==="pitch"&&<ViewPitchCotizacion key={"cot-"+cotPrefillVer}/>}
       {view==="equipo"&&<ViewFichaAsesores/>}
-      {view==="requerimientos"&&<ViewRequerimientos s={s} onToast={toast}/>}
+      {view==="requerimientos"&&<ViewRequerimientos s={s} onToast={toast} onBorrarCompradores={(ids)=>{ const set=new Set((ids||[]).map(String)); setClients(prev=>(prev||[]).filter(c=>{ const r=clienteToSupabase(c,{}); return !(r&&set.has(String(r.id_cliente))); })); }}/>}
       {view==="pitch" && acuerdoCotG && (
         <div onClick={()=>{ setAcuerdoCotG(null); setAcuerdosVer(v=>v+1); }} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:640,width:"100%",maxHeight:"90vh",overflow:"auto",boxShadow:"0 24px 70px rgba(0,0,0,.35)"}}>
