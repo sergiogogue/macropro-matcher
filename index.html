@@ -2820,8 +2820,8 @@ const CO_FORMAS = ["Contado","Financiamiento","Diferido"];
 const CO_EST = {
   borrador:                  { t:"📝 Borrador",                        fg:"#64748b", bg:"#f1f5f9", paso:0 },
   enviada_comprador:         { t:"🔗 Enviada al comprador",             fg:"#2563AC", bg:"#EEF4FF", paso:1 },
-  firmada_comprador:         { t:"✓ Firmó el comprador · autoriza",     fg:"#2563AC", bg:"#EEF4FF", paso:2 },
-  autorizada:                { t:"✍️ Autorizada · manda al vendedor",   fg:"#002B49", bg:"#eef2f7", paso:3 },
+  firmada_comprador:         { t:"✓ Firmó el comprador · recibe y pon vendedor",     fg:"#2563AC", bg:"#EEF4FF", paso:2 },
+  autorizada:                { t:"📥 Recibida · manda al vendedor",   fg:"#002B49", bg:"#eef2f7", paso:3 },
   enviada_vendedor:          { t:"🔗 Enviada al vendedor",              fg:"#002B49", bg:"#eef2f7", paso:4 },
   contrapropuesta_vendedor:  { t:"🔄 Contrapropuesta del vendedor",     fg:"#b45309", bg:"#fff7ed", paso:5 },
   contrapropuesta_comprador: { t:"🔄 Contrapropuesta del comprador",    fg:"#b45309", bg:"#fff7ed", paso:5 },
@@ -2930,43 +2930,68 @@ ${!conf&&c.asesor_nombre?`<div class="cc">c.c.p. ${esc(c.asesor_nombre)} · Ases
 }
 
 const CO_UI={}; // estado de UI por ficha (sobrevive si la ficha se re-monta)
-function CartasOfertaPanel({ cap, lote, onToast, onNueva }){
+function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista, onAbrirTerreno }){
   const toast=onToast||(()=>{});
   const loteId=lote?loteKey(lote):"";
-  const uiKey=cap&&cap.id?("cap:"+cap.id):("lote:"+loteId);
-  const [abierto,setAbiertoRaw]=useState(()=>!!(CO_UI[uiKey]&&CO_UI[uiKey].abierto));
+  const uiKey=todas?"todas":(cap&&cap.id?("cap:"+cap.id):("lote:"+loteId));
+  const [abierto,setAbiertoRaw]=useState(()=>!!todas||!!(CO_UI[uiKey]&&CO_UI[uiKey].abierto));
   const setAbierto=(fn)=>setAbiertoRaw(prev=>{ const v=typeof fn==="function"?fn(prev):fn; CO_UI[uiKey]={...(CO_UI[uiKey]||{}),abierto:v}; return v; });
   const [lista,setLista]=useState(null);
   const [err,setErr]=useState("");
   const [busy,setBusy]=useState("");
-  const [form,setForm]=useState(null);          // {id?, ...campos} cuando se crea/edita
+  // Formulario abierto (crear/editar): se recuerda en CO_UI para no perder lo escrito si la vista se re-monta.
+  const [form,setFormRaw]=useState(()=>(CO_UI[uiKey]&&CO_UI[uiKey].form)||null);
+  const setForm=(fn)=>setFormRaw(prev=>{ const v=typeof fn==="function"?fn(prev):fn; CO_UI[uiKey]={...(CO_UI[uiKey]||{}),form:v}; return v; });
   const [vend,setVend]=useState({});            // {[cartaId]: {nombre,email,tel}}
   const supCap=coNum(cap&&cap.superficie);
   const nombreTerr=String((cap&&(cap.zona||cap.ubicacion))||"").trim()||(cap&&cap.propietario?("Terreno de "+cap.propietario):"Terreno");
   const ubic=[cap&&cap.ubicacion&&cap.ubicacion!==cap.zona?cap.ubicacion:"", cap&&cap.ciudad].filter(Boolean).join(", ");
 
   const cargar=useCallback(async()=>{
-    if(!window.sb||!((cap&&cap.id)||loteId)) return;
-    const { data, error } = await window.sb.from("cartas_oferta").select("*, cartas_oferta_rondas(*)").eq(cap&&cap.id?"captacion_id":"lote_id",cap&&cap.id?cap.id:loteId).order("created_at",{ascending:false});
-    if(error){ setErr(/does not exist|schema cache|PGRST205|42P01/i.test(error.message)?"Falta correr sql/cartas_oferta.sql en Supabase.":("No se pudieron leer las cartas: "+error.message)); setLista([]); return; }
-    setErr(""); setLista(data||[]);
-  },[cap&&cap.id,loteId]);
+    if(!window.sb||!(todas||(cap&&cap.id)||loteId)) return;
+    let q=window.sb.from("cartas_oferta").select("*, cartas_oferta_rondas(*)");
+    if(!todas) q=q.eq(cap&&cap.id?"captacion_id":"lote_id",cap&&cap.id?cap.id:loteId);
+    const { data, error } = await q.order("created_at",{ascending:false});
+    if(error){ setErr(/does not exist|schema cache|PGRST205|42P01/i.test(error.message)?"Falta correr sql/cartas_oferta.sql en Supabase.":("No se pudieron leer las cartas: "+error.message)); setLista([]); try{ onLista&&onLista([]); }catch(e){} return; }
+    setErr(""); setLista(data||[]); try{ onLista&&onLista(data||[]); }catch(e){}
+  },[todas,cap&&cap.id,loteId]);
   React.useEffect(()=>{ cargar(); },[cargar]);
   React.useEffect(()=>{ const h=()=>cargar(); window.addEventListener("co-actualizado",h); return ()=>window.removeEventListener("co-actualizado",h); },[cargar]);
 
   const nueva=()=>{ setAbierto(true); if(onNueva){ onNueva(); return; } setForm({ comprador_nombre:"", comprador_empresa:"", comprador_email:"", comprador_telefono:"", asesor_nombre:(cap&&cap.asesorResponsableGG)||"", superficie_m2:supCap?String(supCap):"", precio_m2:"", forma_pago:"Contado", apartado:"", condiciones:"" }); };
-  const editar=(c)=>{ const r=coActual(c); setForm({ id:c.id, ronda_id:r.id, comprador_nombre:c.comprador_nombre||"", comprador_empresa:c.comprador_empresa||"", comprador_email:c.comprador_email||"", comprador_telefono:c.comprador_telefono||"", asesor_nombre:c.asesor_nombre||"", superficie_m2:String(c.superficie_m2||""), precio_m2:String(r.precio_m2||""), forma_pago:r.forma_pago||"Contado", apartado:String(c.apartado||""), condiciones:r.condiciones||"" }); };
+  // ✏️ Editar: TODO mientras el comprador no firme (aunque la liga ya se haya enviado: la misma liga
+  // muestra lo nuevo). Después de su firma solo se edita el VENDEDOR (hasta que el vendedor firme).
+  const coEditable=(c)=>{ const r=coActual(c); return !["aceptada","rechazada"].includes(c.estado) && !r.vendedor_firma_at; };
+  const coCondLibres=(c)=>{ const r=coActual(c); return ["borrador","enviada_comprador"].includes(c.estado) && Number(c.ronda_actual||1)===1 && !r.comprador_firma_at; };
+  const editar=(c)=>{ const r=coActual(c); setAbierto(true); setForm({ id:c.id, ronda_id:r.id, estado:c.estado, libres:coCondLibres(c), comprador_nombre:c.comprador_nombre||"", comprador_empresa:c.comprador_empresa||"", comprador_email:c.comprador_email||"", comprador_telefono:c.comprador_telefono||"", asesor_nombre:c.asesor_nombre||"", superficie_m2:String(c.superficie_m2||""), precio_m2:String(r.precio_m2||""), forma_pago:r.forma_pago||"Contado", apartado:String(c.apartado||""), condiciones:r.condiciones||"",
+    vendedor_nombre:c.vendedor_nombre||(cap&&cap.propietario)||"", vendedor_email:c.vendedor_email||(cap&&cap.email)||"", vendedor_telefono:c.vendedor_telefono||(cap&&cap.telefono)||"" }); };
   const guardar=async()=>{
     const f=form; const sup=coNum(f.superficie_m2), pm2=coNum(f.precio_m2), apt=coNum(f.apartado);
-    if(!String(f.comprador_nombre).trim()){ toast("Escribe el nombre del comprador."); return; }
-    if(!(sup>0)||!(pm2>0)){ toast("Captura la superficie y el precio por m²."); return; }
+    if(!f.id||f.libres){
+      if(!String(f.comprador_nombre).trim()){ toast("Escribe el nombre del comprador."); return; }
+      if(!(sup>0)||!(pm2>0)){ toast("Captura la superficie y el precio por m²."); return; }
+    }
     setBusy("guardar");
     try{
       const base={ comprador_nombre:f.comprador_nombre.trim(), comprador_empresa:f.comprador_empresa.trim()||null, comprador_email:f.comprador_email.trim().toLowerCase()||null, comprador_telefono:f.comprador_telefono.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, superficie_m2:sup, apartado:apt };
       const ronda={ precio_m2:pm2, forma_pago:f.forma_pago, condiciones:String(f.condiciones||"").trim()||null };
       if(f.id){
-        const u=await window.sb.from("cartas_oferta").update(base).eq("id",f.id); if(u.error) throw u.error;
-        const u2=await window.sb.from("cartas_oferta_rondas").update(ronda).eq("id",f.ronda_id); if(u2.error) throw u2.error;
+        const vend={ vendedor_nombre:String(f.vendedor_nombre||"").trim()||null, vendedor_email:String(f.vendedor_email||"").trim().toLowerCase()||null, vendedor_telefono:String(f.vendedor_telefono||"").trim()||null };
+        if(f.libres){
+          // La base congela superficie/apartado fuera de "borrador": se pasa un momento a borrador,
+          // se guarda y se regresa a "enviada al comprador" (la liga enviada sigue siendo la misma).
+          const regresar=f.estado==="enviada_comprador";
+          if(regresar){ const a=await window.sb.from("cartas_oferta").update({estado:"borrador"}).eq("id",f.id); if(a.error) throw a.error; }
+          try{
+            const u=await window.sb.from("cartas_oferta").update({...base,...vend}).eq("id",f.id); if(u.error) throw u.error;
+            const u2=await window.sb.from("cartas_oferta_rondas").update(ronda).eq("id",f.ronda_id); if(u2.error) throw u2.error;
+          } finally {
+            if(regresar){ await window.sb.from("cartas_oferta").update({estado:"enviada_comprador"}).eq("id",f.id); }
+          }
+        } else {
+          const u=await window.sb.from("cartas_oferta").update({ ...vend, asesor_nombre:base.asesor_nombre }).eq("id",f.id); if(u.error) throw u.error;
+        }
+        try{ window.dispatchEvent(new Event("co-actualizado")); }catch(e){}
         toast("✅ Carta actualizada");
       } else {
         let por=null; try{ const { data } = await window.sb.auth.getSession(); por=(data&&data.session&&data.session.user&&data.session.user.email)||null; }catch(e){}
@@ -2996,12 +3021,12 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva }){
     const nom=rol==="comprador"?(c.comprador_nombre||""):(c.vendedor_nombre||""); const tel=rol==="comprador"?c.comprador_telefono:(c.vendedor_telefono||(cap&&cap.telefono));
     const msg="Hola "+(String(nom).trim().split(/\s+/)[0]||"")+", te compartimos la carta oferta "+(c.folio||"")+" del terreno "+c.terreno_nombre+" para tu revisión y firma electrónica:\n"+url+"\n\nLa liga es válida por 10 días. — Grupo Guía";
     const wa=rqWaUrl(tel,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener"); };
-  const autorizar=async(c)=>{ const v=vend[c.id]||{}; const nombre=(v.nombre!=null?v.nombre:(cap&&cap.propietario)||"").trim();
+  const autorizar=async(c)=>{ const v=vend[c.id]||{}; const nombre=(v.nombre!=null?v.nombre:(c.vendedor_nombre||(cap&&cap.propietario)||"")).trim();
     if(!nombre){ toast("Escribe el nombre del vendedor."); return; }
-    if(!window.confirm("¿Firmar la carta "+c.folio+" como AUTORIZADO por Grupo Guía?\n\nVendedor: "+nombre)) return;
+    if(!window.confirm("¿Registrar la carta "+c.folio+" como RECIBIDA por el Director Macrolotes (Grupo Guía) y habilitar la liga del vendedor?\n\nVendedor: "+nombre)) return;
     setBusy(c.id+"aut");
-    try{ const { error } = await window.sb.rpc("carta_oferta_autorizar",{ p_id:c.id, p_vendedor_nombre:nombre, p_vendedor_email:(v.email!=null?v.email:(cap&&cap.email)||"")||null, p_vendedor_telefono:(v.tel!=null?v.tel:(cap&&cap.telefono)||"")||null });
-      if(error) throw error; toast("✍️ Firmada como autorizado · ya puedes mandar la liga al vendedor"); await cargar(); }
+    try{ const { error } = await window.sb.rpc("carta_oferta_autorizar",{ p_id:c.id, p_vendedor_nombre:nombre, p_vendedor_email:(v.email!=null?v.email:(c.vendedor_email||(cap&&cap.email)||""))||null, p_vendedor_telefono:(v.tel!=null?v.tel:(c.vendedor_telefono||(cap&&cap.telefono)||""))||null });
+      if(error) throw error; toast("📥 Carta recibida · ya puedes mandar la liga al vendedor"); await cargar(); }
     catch(e){ toast("No se pudo autorizar: "+((e&&e.message)||e)); }
     setBusy(""); };
   const borrar=async(c)=>{ if(!window.confirm("¿Eliminar la carta oferta "+c.folio+"? Se borran todas sus rondas y firmas. No se puede deshacer.")) return;
@@ -3013,7 +3038,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva }){
   const inS={width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:13,color:B.navy,background:"#fff",fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box"};
   const lbS={fontSize:9.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6,marginBottom:3,display:"block"};
   const pill=(e)=>{ const m=CO_EST[e]||CO_EST.borrador; return <span style={{background:m.bg,color:m.fg,border:"1.5px solid "+m.fg,borderRadius:999,padding:"2px 9px",fontSize:11,fontWeight:800,whiteSpace:"nowrap"}}>{m.t}</span>; };
-  const PASOS=["Borrador","Comprador","Firmó comprador","Autorizada","Vendedor","Respuesta"];
+  const PASOS=["Borrador","Comprador","Firmó comprador","Recibida GG","Vendedor","Respuesta"];
   const timeline=(c)=>{ const n=(CO_EST[c.estado]||{}).paso||0; return (<div style={{display:"flex",margin:"8px 0 2px"}}>{PASOS.map((p,i)=>{ const hecho=i<n||(n===6), act=i===n; return (<div key={p} style={{flex:1,textAlign:"center",fontSize:9.5,color:hecho||act?B.navy:B.grey3,fontWeight:act?800:600,position:"relative",paddingTop:16}}><span style={{position:"absolute",top:5,left:i===0?"50%":0,right:i===PASOS.length-1?"50%":0,height:3,background:hecho?B.green:B.grey1}}/><span style={{position:"absolute",top:0,left:"calc(50% - 6px)",width:13,height:13,borderRadius:"50%",background:hecho?B.green:(act?B.gold:"#fff"),border:"2.5px solid "+(hecho?B.green:(act?B.gold:B.grey2))}}/>{p}</div>); })}</div>); };
   const firma=(t,at,extra)=> at?<div style={{fontSize:11,color:"#0f6b38",background:B.greenL,border:"1px solid #86efac",borderRadius:7,padding:"4px 7px"}}><b>✓ {t}</b> · {coFH(at)}{extra?(" · "+extra):""}</div>:<div style={{fontSize:11,color:B.grey3,border:"1px dashed "+B.grey2,borderRadius:7,padding:"4px 7px"}}>⏳ {t}: pendiente</div>;
 
@@ -3023,7 +3048,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva }){
     return (
     <div key={c.id} style={{border:"1.5px solid "+((CO_EST[c.estado]||{}).paso===5?"#f59e0b":B.grey1),borderRadius:12,padding:"10px 12px",marginBottom:10,background:"#fff"}}>
       <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-        <div style={{fontSize:13,color:B.grey5}}><b style={{color:B.navy}}>{c.folio}</b> · {[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")}{c.vendedor_nombre?(" ⇄ "+c.vendedor_nombre):""}</div>
+        <div style={{fontSize:13,color:B.grey5}}><b style={{color:B.navy}}>{c.folio}</b>{todas&&<span> · <b style={{color:B.navy}}>{c.terreno_nombre}</b>{c.terreno_ubicacion?(" · "+c.terreno_ubicacion):""} <span style={{fontSize:10.5,fontWeight:800,borderRadius:999,padding:"1px 7px",marginLeft:4,color:c.captacion_id?"#b45309":B.green,background:c.captacion_id?"#fff7ed":B.greenL}}>{c.captacion_id?"Captación":"Inventario"}</span></span>} · {[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")}{c.vendedor_nombre?(" ⇄ "+c.vendedor_nombre):""}<span style={{color:B.grey3,fontSize:11.5}}> · {coFH(c.created_at)}</span></div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>{venc&&<span style={{fontSize:11,fontWeight:800,color:B.grey4,background:B.offW,border:"1px solid "+B.grey2,borderRadius:999,padding:"2px 8px"}}>⌛ Liga vencida</span>}{pill(c.estado)}</div>
       </div>
       <div style={{fontSize:13,marginTop:4,color:B.navy}}><b>{coMx(r.total)}</b> <span style={{color:B.grey4}}>({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m² × {coMx(r.precio_m2)}) · {r.forma_pago} · apartado {coMx(c.apartado)}{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</span>
@@ -3041,44 +3066,36 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva }){
         {firma("Grupo Guía",c.gg_firma_at,c.gg_firma_email)}
         {firma("Vendedor",r.vendedor_firma_at,[r.vendedor_firma_email,r.vendedor_firma_ip?("IP "+r.vendedor_firma_ip):""].filter(Boolean).join(" · "))}
       </div>
+      {form && form.id===c.id && <div style={{marginTop:10}}>{formUI}</div>}
       {c.estado==="rechazada" && <div style={{fontSize:12,color:B.red,marginTop:8}}>✕ Rechazada por el <b>{c.rechazo_por}</b> el {coFH(c.rechazo_at)}{c.rechazo_motivo?(" · "+c.rechazo_motivo):""}</div>}
       {c.estado==="firmada_comprador" && (
         <div style={{border:"1.5px solid "+B.navy,borderRadius:10,padding:"9px 10px",marginTop:8,background:"#f6f8fb"}}>
-          <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>✍️ Autorizar y poner al vendedor (aparece en su carta; el comprador va confidencial)</div>
+          <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>📥 Recibir la carta y poner al vendedor (aparece en su carta; el comprador va confidencial)</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
-            <div><label style={lbS}>Vendedor (propietario)</label><input style={inS} value={v.nombre!=null?v.nombre:((cap&&cap.propietario)||"")} onChange={e=>setV("nombre",e.target.value)}/></div>
+            <div><label style={lbS}>Vendedor (propietario)</label><input style={inS} value={v.nombre!=null?v.nombre:(c.vendedor_nombre||(cap&&cap.propietario)||"")} onChange={e=>setV("nombre",e.target.value)}/></div>
             <div><label style={lbS}>Correo</label><input style={inS} value={v.email!=null?v.email:((cap&&cap.email)||"")} onChange={e=>setV("email",e.target.value)}/></div>
             <div><label style={lbS}>WhatsApp</label><input style={inS} value={v.tel!=null?v.tel:((cap&&cap.telefono)||"")} onChange={e=>setV("tel",e.target.value)}/></div>
           </div>
-          <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c)} style={{...btn(B.gold,B.navy),marginTop:8}}>{busy===c.id+"aut"?"Firmando…":"✍️ Firmar como Autorizado"}</button>
+          <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c)} style={{...btn(B.gold,B.navy),marginTop:8}}>{busy===c.id+"aut"?"Registrando…":"📥 Recibir y habilitar liga del vendedor"}</button>
         </div>)}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
-        {c.estado==="borrador" && <button onClick={()=>editar(c)} style={btn("#fff",B.navy,B.grey2)}>✏️ Editar</button>}
+        {coEditable(c) && <button onClick={()=>editar(c)} title={coCondLibres(c)?"Editar la carta (el comprador aún no firma)":"El comprador ya firmó: solo se editan los datos del vendedor"} style={btn("#fff",B.navy,B.grey2)}>✏️ {coCondLibres(c)?"Editar":"Editar vendedor"}</button>}
         {esperaComprador && <button disabled={!!busy} onClick={()=>copiar(c,"comprador",venc)} style={btn(B.gold,B.navy)}>🔗 {venc?"Liga nueva":"Copiar liga"} comprador{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</button>}
         {esperaComprador && <button disabled={!!busy} onClick={()=>whats(c,"comprador")} style={btn("#25D366","#fff")}>🟢 WhatsApp comprador</button>}
         {esperaVendedor && <button disabled={!!busy} onClick={()=>copiar(c,"vendedor",venc)} style={btn(B.navy,"#fff")}>🔗 {venc?"Liga nueva":"Copiar liga"} vendedor{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</button>}
         {esperaVendedor && <button disabled={!!busy} onClick={()=>whats(c,"vendedor")} style={btn("#25D366","#fff")}>🟢 WhatsApp vendedor</button>}
         <button onClick={()=>{ if(!coImprimir(c,"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF interno</button>
+        {todas&&onAbrirTerreno&&<button onClick={()=>onAbrirTerreno(c)} style={btn("#fff",B.navy,B.grey2)}>🗂 Abrir ficha del terreno</button>}
         {c.vendedor_nombre && <button onClick={()=>{ if(!coImprimir(c,"vendedor")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF vendedor (confidencial)</button>}
         <button onClick={()=>borrar(c)} title="Eliminar carta" style={btn("#fff","#b91c1c","#fecaca")}>🗑</button>
       </div>
     </div>); };
 
-  return (
-    <div style={{border:"1.5px solid "+B.navy,borderRadius:12,overflow:"hidden",flexShrink:0}}>
-      <div onClick={()=>setAbierto(a=>!a)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"10px 12px",background:"#f3f6fa",cursor:"pointer"}}>
-        <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{abierto?"▾":"▸"} 📝 Cartas oferta {lista?<span style={{background:B.navy,color:B.gold,borderRadius:999,padding:"1px 8px",fontSize:11,marginLeft:4}}>{L.length}</span>:null}{pendientes>0&&<span style={{background:"#fff7ed",color:"#b45309",border:"1px solid #f59e0b",borderRadius:999,padding:"1px 8px",fontSize:11,marginLeft:6}}>{pendientes} por atender</span>}</div>
-        <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
-          <button onClick={cargar} title="Actualizar (ver si ya firmaron)" style={btn("#fff",B.navy,B.grey2)}>↻</button>
-          <button onClick={nueva} style={btn(B.navy,"#fff")}>＋ Nueva carta oferta</button>
-        </div>
-      </div>
-      {abierto && (
-        <div style={{padding:"10px 12px"}}>
-          {err && <div style={{fontSize:12.5,color:B.red,marginBottom:8}}>⚠ {err}</div>}
-          {form && (()=>{ const f=form; const set=(k,v)=>setForm(p=>({...p,[k]:v})); const tot=coNum(f.superficie_m2)*coNum(f.precio_m2); const apt=coNum(f.apartado); return (
+  const formUI = form && (()=>{ const f=form; const set=(k,v)=>setForm(p=>({...p,[k]:v})); const tot=coNum(f.superficie_m2)*coNum(f.precio_m2); const apt=coNum(f.apartado); return (
             <div style={{border:"1.5px solid "+B.gold,background:"#fffdf5",borderRadius:12,padding:"10px 12px",marginBottom:10}}>
-              <div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:8}}>{f.id?"✏️ Editar carta oferta":"＋ Nueva carta oferta"} · {nombreTerr}{ubic?(" · "+ubic):""}</div>
+              <div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:8}}>{f.id?"✏️ Editar carta oferta":"＋ Nueva carta oferta"}{!f.id?(" · "+nombreTerr+(ubic?(" · "+ubic):"")):""}</div>
+              {f.id&&!f.libres&&<div style={{fontSize:12,color:"#b45309",background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:8,padding:"6px 9px",marginBottom:8}}>🔒 El comprador ya firmó estas condiciones: no se pueden cambiar. Aquí solo editas los datos del <b>vendedor</b> (y el asesor).</div>}
+              <fieldset disabled={!!(f.id&&!f.libres)} style={{border:"none",padding:0,margin:0,opacity:(f.id&&!f.libres)?0.55:1}}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:8}}>
                 <div><label style={lbS}>Comprador (nombre) *</label><input style={inS} value={f.comprador_nombre} onChange={e=>set("comprador_nombre",e.target.value)}/></div>
                 <div><label style={lbS}>Empresa</label><input style={inS} value={f.comprador_empresa} onChange={e=>set("comprador_empresa",e.target.value)}/></div>
@@ -3098,12 +3115,41 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva }){
                 <div><label style={lbS}>Monto de apartado</label><input style={{...inS,textAlign:"right"}} inputMode="decimal" value={f.apartado} onChange={e=>set("apartado",e.target.value)}/>{apt>0&&tot>0&&<div style={{fontSize:10.5,color:B.grey4,marginTop:2}}>{(apt/tot*100).toFixed(1)}% del total · saldo {coMx(tot-apt)}</div>}</div>
                 <div style={{gridColumn:"span 2"}}><label style={lbS}>Plazos / condiciones (opcional)</label><input style={inS} value={f.condiciones} onChange={e=>set("condiciones",e.target.value)} placeholder="Ej. 30% a la firma, saldo contra escritura"/></div>
               </div>
+              </fieldset>
+              {f.id && (<div style={{marginTop:10,border:"1.5px solid "+B.navy,borderRadius:10,padding:"8px 10px",background:"#f6f8fb"}}>
+                <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>🏡 Vendedor (propietario) · aparece en su carta; el comprador no lo ve hasta que la oferta se acepte</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:8}}>
+                  <div><label style={lbS}>Nombre del vendedor</label><input style={inS} value={f.vendedor_nombre} onChange={e=>set("vendedor_nombre",e.target.value)}/></div>
+                  <div><label style={lbS}>Correo</label><input style={inS} value={f.vendedor_email} onChange={e=>set("vendedor_email",e.target.value)}/></div>
+                  <div><label style={lbS}>WhatsApp</label><input style={inS} value={f.vendedor_telefono} onChange={e=>set("vendedor_telefono",e.target.value)}/></div>
+                </div>
+              </div>)}
               <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"flex-end"}}>
                 <button onClick={()=>setForm(null)} style={btn("#fff",B.grey4,B.grey2)}>Cancelar</button>
                 <button disabled={busy==="guardar"} onClick={guardar} style={btn(B.green,"#fff")}>{busy==="guardar"?"Guardando…":"💾 Guardar carta"}</button>
               </div>
-              <div style={{fontSize:10.5,color:B.grey4,marginTop:6}}>El apartado y la superficie se congelan al mandar la primera liga. Las ligas valen 10 días.</div>
-            </div>); })()}
+              <div style={{fontSize:10.5,color:B.grey4,marginTop:6}}>{f.id?"Si la liga del comprador ya se envió, sigue siendo la misma y mostrará los datos nuevos.":"Las ligas valen 10 días."}</div>
+            </div>); })();
+  if(todas){ const vis=(L||[]).filter(c=>!filtro||filtro(c)); return (
+    <div>
+      {err && <div style={{fontSize:13,color:B.red,marginBottom:10}}>⚠ {err}</div>}
+      {lista===null ? <div style={{...{background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,padding:24,textAlign:"center",color:B.grey3}}}>Cargando cartas oferta…</div>
+        : !vis.length ? <div style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,padding:24,textAlign:"center",color:B.grey3}}>{L.length?"Ninguna carta coincide con los filtros.":"Todavía no hay cartas oferta. Crea la primera con ➕ Nueva Carta Oferta."}</div>
+        : vis.map(tarjeta)}
+    </div>); }
+  return (
+    <div style={{border:"1.5px solid "+B.navy,borderRadius:12,overflow:"hidden",flexShrink:0}}>
+      <div onClick={()=>setAbierto(a=>!a)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"10px 12px",background:"#f3f6fa",cursor:"pointer"}}>
+        <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{abierto?"▾":"▸"} 📝 Cartas oferta {lista?<span style={{background:B.navy,color:B.gold,borderRadius:999,padding:"1px 8px",fontSize:11,marginLeft:4}}>{L.length}</span>:null}{pendientes>0&&<span style={{background:"#fff7ed",color:"#b45309",border:"1px solid #f59e0b",borderRadius:999,padding:"1px 8px",fontSize:11,marginLeft:6}}>{pendientes} por atender</span>}</div>
+        <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
+          <button onClick={cargar} title="Actualizar (ver si ya firmaron)" style={btn("#fff",B.navy,B.grey2)}>↻</button>
+          <button onClick={nueva} style={btn(B.navy,"#fff")}>＋ Nueva carta oferta</button>
+        </div>
+      </div>
+      {abierto && (
+        <div style={{padding:"10px 12px"}}>
+          {err && <div style={{fontSize:12.5,color:B.red,marginBottom:8}}>⚠ {err}</div>}
+          {form && !form.id && formUI}
           {lista===null ? <div style={{fontSize:12.5,color:B.grey3}}>Cargando…</div>
             : (!L.length && !form) ? <div style={{fontSize:12.5,color:B.grey3}}>Sin cartas oferta para este terreno.</div>
             : L.map(tarjeta)}
@@ -3349,6 +3395,85 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
             </div>
           </div>
         </div>)}
+    </div>
+  );
+}
+
+// ─── 📝 VISTA "Cartas oferta": TODAS las ofertas en un solo lugar (estado, filtros y acciones) ───
+const CO_GRUPOS={
+  atender:{ t:"Por atender", d:"Firmó el comprador o llegó contrapropuesta", fg:"#b45309", est:["firmada_comprador","contrapropuesta_vendedor","contrapropuesta_comprador"] },
+  curso:{ t:"En negociación", d:"Ligas enviadas / borradores", fg:"#2563AC", est:["borrador","enviada_comprador","autorizada","enviada_vendedor"] },
+  aceptada:{ t:"Aceptadas", d:"Firmadas por ambas partes", fg:"#1a8a4a", est:["aceptada"] },
+  rechazada:{ t:"Rechazadas", d:"", fg:"#c0392b", est:["rechazada"] },
+};
+let VCO_UI={ q:"", grupo:"", fEst:"", fAse:"", fVig:"", fComp:"", fVend:"" }; // sobrevive si Asesores se re-monta
+function ViewCartasOferta({ s, onToast, onNueva, onAbrirTerreno, embebido }){
+  const [lista,setLista]=useState([]);
+  // Hooks en el cuerpo del componente (regla del proyecto); los filtros se recuerdan en VCO_UI.
+  const [q,setQv]=useState(VCO_UI.q);
+  const [grupo,setGrupov]=useState(VCO_UI.grupo);
+  const [fEst,setFEstv]=useState(VCO_UI.fEst);
+  const [fAse,setFAsev]=useState(VCO_UI.fAse);
+  const [fVig,setFVigv]=useState(VCO_UI.fVig);
+  const [fComp,setFCompv]=useState(VCO_UI.fComp);
+  const [fVend,setFVendv]=useState(VCO_UI.fVend);
+  const guarda=(k,fn)=>(x)=>{ VCO_UI={...VCO_UI,[k]:x}; fn(x); };
+  const setQ=guarda("q",setQv), setGrupo=guarda("grupo",setGrupov), setFEst=guarda("fEst",setFEstv), setFAse=guarda("fAse",setFAsev),
+        setFVig=guarda("fVig",setFVigv), setFComp=guarda("fComp",setFCompv), setFVend=guarda("fVend",setFVendv);
+  const total=lista.length;
+  const cuenta=(g)=>lista.filter(c=>CO_GRUPOS[g].est.includes(c.estado)).length;
+  const montoAcept=lista.filter(c=>c.estado==="aceptada").reduce((a,c)=>a+(Number(coActual(c).total)||0),0);
+  const uniq=(arr)=>[...new Set(arr.map(x=>String(x||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es"));
+  const asesores=uniq(lista.map(c=>c.asesor_nombre));
+  const compradores=uniq(lista.map(c=>[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")));
+  const vendedores=uniq(lista.map(c=>c.vendedor_nombre));
+  // Vigente = sigue en negociación y su liga no ha vencido · Vencida = liga vencida · Cerrada = aceptada o rechazada
+  const vig=(c)=> ["aceptada","rechazada"].includes(c.estado)?"cerrada":(coVencida(c)?"vencida":"vigente");
+  const nq=coNrm(q);
+  const filtro=(c)=> (!grupo||CO_GRUPOS[grupo].est.includes(c.estado)) && (!fEst||c.estado===fEst) && (!fAse||String(c.asesor_nombre||"").trim()===fAse) &&
+    (!fVig||vig(c)===fVig) && (!fComp||[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ").trim()===fComp) && (!fVend||String(c.vendedor_nombre||"").trim()===fVend) &&
+    (!nq||coNrm([c.folio,c.terreno_nombre,c.terreno_ubicacion,c.comprador_nombre,c.comprador_empresa,c.vendedor_nombre,c.asesor_nombre].join(" ")).includes(nq));
+  const hay=!!(q||grupo||fEst||fAse||fVig||fComp||fVend);
+  const lbl={fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5};
+  const caja=(k,n,t,sub,fg)=>(<div key={k} onClick={()=>setGrupo(grupo===k?"":k)} title="Filtrar" style={{cursor:k?"pointer":"default",background:"#fff",border:"1.5px solid "+(grupo===k&&k?fg:B.grey1),borderRadius:14,padding:"12px 14px",boxShadow:"0 1px 3px rgba(0,43,73,.06)"}}>
+    <div style={{fontSize:26,fontWeight:900,color:fg||B.navy,fontFamily:"'Playfair Display',serif",lineHeight:1.1}}>{n}</div><div style={{fontSize:12,fontWeight:800,color:B.grey5}}>{t}</div>{sub&&<div style={{fontSize:11,color:B.grey3,marginTop:1}}>{sub}</div>}</div>);
+  const cuerpo = (<>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:12,marginBottom:14}}>
+          {caja("",total,"Cartas oferta","en total",B.navy)}
+          {caja("atender",cuenta("atender"),CO_GRUPOS.atender.t,CO_GRUPOS.atender.d,CO_GRUPOS.atender.fg)}
+          {caja("curso",cuenta("curso"),CO_GRUPOS.curso.t,CO_GRUPOS.curso.d,CO_GRUPOS.curso.fg)}
+          {caja("aceptada",cuenta("aceptada"),CO_GRUPOS.aceptada.t,montoAcept?coMx(montoAcept)+" ofertados":CO_GRUPOS.aceptada.d,CO_GRUPOS.aceptada.fg)}
+          {caja("rechazada",cuenta("rechazada"),CO_GRUPOS.rechazada.t,"",CO_GRUPOS.rechazada.fg)}
+        </div>
+        <div style={{...s.filterBar,alignItems:"flex-end"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:5,flex:"1 1 200px",minWidth:0}}><label style={lbl}>Buscar</label><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Folio, terreno, comprador o vendedor…" style={{...s.select,cursor:"text",width:"100%"}}/></div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}><label style={lbl}>Asesor</label><select value={fAse} onChange={e=>setFAse(e.target.value)} style={{...s.select,minWidth:170}}><option value="">Todos</option>{asesores.map(a=><option key={a} value={a}>{a}</option>)}</select></div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}><label style={lbl}>Vigencia</label><select value={fVig} onChange={e=>setFVig(e.target.value)} style={{...s.select,minWidth:140}}><option value="">Todas</option><option value="vigente">Vigentes</option><option value="vencida">Liga vencida</option><option value="cerrada">Cerradas (aceptada/rechazada)</option></select></div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}><label style={lbl}>Comprador</label><select value={fComp} onChange={e=>setFComp(e.target.value)} style={{...s.select,minWidth:170}}><option value="">Todos</option>{compradores.map(a=><option key={a} value={a}>{a}</option>)}</select></div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}><label style={lbl}>Vendedor</label><select value={fVend} onChange={e=>setFVend(e.target.value)} style={{...s.select,minWidth:160}}><option value="">Todos</option>{vendedores.map(a=><option key={a} value={a}>{a}</option>)}</select></div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}><label style={lbl}>Estado</label><select value={fEst} onChange={e=>setFEst(e.target.value)} style={{...s.select,minWidth:180}}><option value="">Todos</option>{Object.entries(CO_EST).map(([k,v])=><option key={k} value={k}>{v.t}</option>)}</select></div>
+          {hay&&<button onClick={()=>{ setQ(""); setGrupo(""); setFEst(""); setFAse(""); setFVig(""); setFComp(""); setFVend(""); }} style={s.btn("sm")}>Limpiar</button>}
+          <button onClick={()=>{ try{ window.dispatchEvent(new Event("co-actualizado")); }catch(e){} }} title="Actualizar (ver si ya firmaron)" style={s.btn("sm")}>↻ Actualizar</button>
+          {embebido&&<button onClick={onNueva} style={{...s.btn("sm"),background:B.gold,color:B.navy,fontWeight:800,boxShadow:"none"}}>➕ Nueva Carta Oferta</button>}
+        </div>
+        <div style={{marginBottom:30}}>
+          <CartasOfertaPanel todas filtro={filtro} onLista={setLista} onToast={onToast} onAbrirTerreno={onAbrirTerreno}/>
+        </div>
+  </>);
+  if(embebido) return cuerpo;
+  return (
+    <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}>
+      <div style={{...s.page,maxWidth:1280}}>
+        <div style={{...s.hero,padding:"24px 30px",marginBottom:14}}>
+          <div style={s.heroDecor}/>
+          <div style={{position:"relative",display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:12,flexWrap:"wrap"}}>
+            <div><div style={s.heroEyebrow}>Ofertas de compra · Grupo Guía</div><div style={{...s.heroTitle,fontSize:30,marginBottom:4}}>📝 Cartas oferta</div>
+              <div style={{...s.heroSub,fontSize:13.5}}>Todas las ofertas que has realizado: en qué paso va cada una, quién falta de firmar y qué sigue.</div></div>
+            <button onClick={onNueva} style={{...s.btn("sm"),background:B.gold,color:B.navy,fontWeight:800,boxShadow:"none"}}>➕ Nueva Carta Oferta</button>
+          </div>
+        </div>
+        {cuerpo}
+      </div>
     </div>
   );
 }
@@ -21663,7 +21788,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{...s.hero,padding:"30px 36px",marginBottom:12}}>
             <div style={s.heroDecor}/>
             <button onClick={recargar} style={{position:"absolute",top:22,right:26,zIndex:2,...s.btn("sm"),background:"rgba(255,255,255,.12)",color:B.white,boxShadow:"none",border:"1px solid rgba(255,255,255,.25)"}}>↻ Actualizar</button>
-            {modo==="general" ? (
+            {modo!=="asesor" ? (
               <div style={{position:"relative"}}>
                 <div style={s.heroEyebrow}>Dashboard del Equipo · Grupo Guía</div>
                 <div style={{...s.heroTitle,fontSize:34,marginBottom:6}}>Asesores</div>
@@ -21701,6 +21826,7 @@ Respuesta: [respuesta exacta, conversacional]
             <div style={{display:"flex",gap:4,background:B.grey1,borderRadius:12,padding:4}}>
               {tabBtn("general","📊 General")}
               {tabBtn("asesor","👤 Por asesor")}
+              {tabBtn("cartas","📝 Cartas oferta")}
             </div>
             <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
               {modo==="asesor" && (
@@ -21712,19 +21838,21 @@ Respuesta: [respuesta exacta, conversacional]
                   </select>
                 </div>
               )}
-              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+              {modo!=="cartas" && <div style={{display:"flex",flexDirection:"column",gap:5}}>
                 <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Ciudad</label>
                 <select value={ciudadF} onChange={e=>setCiudadF(e.target.value)} style={{...s.select,minWidth:150}}>
                   <option value="">Todas</option>
                   {ciudades.map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
-              </div>
-              {ciudadF && <button onClick={()=>setCiudadF("")} style={s.btn("sm")}>Limpiar</button>}
+              </div>}
+              {ciudadF && modo!=="cartas" && <button onClick={()=>setCiudadF("")} style={s.btn("sm")}>Limpiar</button>}
             </div>
           </div>
           </div>{/* fin encabezado fijo */}
 
-          {modo==="general" ? (<>
+          {modo==="cartas" ? (
+            <ViewCartasOferta embebido s={s} onToast={toast} onNueva={()=>setWizardCO({})} onAbrirTerreno={(c)=>{ if(c.captacion_id){ const x=(captaciones||[]).find(y=>y.id===c.captacion_id); if(x){ setEditingCaptacion(x); setShowCaptacionModal(true); } else toast("Ese terreno de captación no está cargado en este equipo."); } else if(c.lote_id){ const l=(inventory||[]).find(y=>loteKey(y)===c.lote_id); if(l) setSelectedLotDetail(l); else toast("Ese lote no está cargado en este equipo."); } }}/>
+          ) : modo==="general" ? (<>
             {/* ⚠️ CONTROL DE RIESGO · Convenios pendientes de firma */}
             <div style={{marginBottom:22,borderRadius:14,overflow:"hidden",border:"1.5px solid "+(pendientes.length?"#fca5a5":"#a7f3d0"),boxShadow:"0 4px 16px rgba(0,0,0,.05)"}}>
               <div onClick={()=>pendientes.length&&setVerPend(v=>!v)} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",background:pendientes.length?"#fef2f2":"#f0fdf4",cursor:pendientes.length?"pointer":"default"}}>
@@ -22168,7 +22296,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.79</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.80</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
