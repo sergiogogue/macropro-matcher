@@ -2732,6 +2732,84 @@ function RqEstadisticas({ s, ciudad }){
   );
 }
 
+// ─── 🏷 SELLO DE CONVENIO en la ficha "Editar terreno" (arriba a la derecha) ──────────────────
+// 60/40 verde · 100/0 amarillo · Sin firma rojo (+ fecha). Misma regla que el kanban de Asesores:
+// UN convenio por asesor — si el asesor firmó cualquier acuerdo, cubre todos sus terrenos.
+// Nivel superior (no se re-crea con cada aviso). Acuerdos y contactos en caché 60 s.
+let SELLO_CACHE=null; // {t, acuerdos, idx}
+async function selloCargar(forzar){
+  if(!forzar && SELLO_CACHE && Date.now()-SELLO_CACHE.t<60*1000) return SELLO_CACHE;
+  if(!window.sb) return {t:Date.now(),acuerdos:[],idx:[]};
+  const [ac,as,cat]=await Promise.all([
+    window.sb.rpc("acuerdos_lista",{p_captacion_id:null,p_lote_id:null}).then(x=>x).catch(()=>({data:null})),
+    window.sb.from("asesores").select("*").then(x=>x).catch(()=>({data:null})),
+    window.sb.rpc("landing_asesores_catalogo").then(x=>x).catch(()=>({data:null})),
+  ]);
+  SELLO_CACHE={ t:Date.now(), acuerdos:((ac&&!ac.error&&ac.data)||[]).filter(a=>a&&a.estado!=="anulado"), as:(as&&!as.error&&as.data)||[], cat:(cat&&!cat.error&&cat.data)||[] };
+  return SELLO_CACHE;
+}
+function SelloConvenio({ cap, captaciones, catalogo, onToast }){
+  const toast=onToast||(()=>{});
+  const [d,setD]=useState(()=>SELLO_CACHE);
+  const [busy,setBusy]=useState(false);
+  React.useEffect(()=>{ let vivo=true; selloCargar(false).then(x=>{ if(vivo) setD(x); }); return ()=>{ vivo=false; }; },[]);
+  const nombre=String((cap&&cap.asesorResponsableGG)||"").trim();
+  const idx=rqIndiceAsesores(d&&d.as, d&&d.cat, catalogo);
+  const ct=nombre?rqContacto(idx,{asesor:nombre,asesor_email:"",asesor_tel:""}):{nombre:"",email:"",tel:""};
+  const esDelAsesor=(a)=> !!nombre && ((ct.email&&rqNorm(a.asesor_email)===rqNorm(ct.email)) || (a.asesor_nombre&&rqNorm(a.asesor_nombre)===rqNorm(nombre)));
+  const firmado=(a)=>a&&(a.estado==="firmado"||a.estado==="validado");
+  const acs=(d&&d.acuerdos)||[];
+  const aFirm=acs.find(a=>firmado(a)&&a.captacion_id===cap.id) || acs.find(a=>firmado(a)&&esDelAsesor(a)) || null;
+  const aPend=acs.find(a=>a&&a.token&&!firmado(a)&&(a.captacion_id===cap.id||esDelAsesor(a))) || null;
+  const esquema=String((aFirm&&aFirm.esquema)||(cap.firma_nombre&&cap.esquema_comision)||"").replace("_","/").trim();
+  const ok=!!aFirm || !!(cap.firma_nombre&&cap.esquema_comision);
+  const f=(iso)=>{ if(!iso) return ""; try{ return new Date(iso).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}); }catch(e){ return ""; } };
+  const nombreT=(c)=> (String(c.zona||"").trim()||String(c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"")||String(c.ciudad||"").trim()||"Terreno");
+
+  // ✉️ Mismo envío que Asesores: UN correo con todos los terrenos pendientes del asesor + copia a macrolotes@.
+  const mandar=async()=>{
+    if(!nombre){ toast("Primero captura el “Asesor responsable” de este terreno."); return; }
+    if(!ct.email){ toast("No tengo el correo de "+nombre+": captúralo en 👔 Asesores → Por asesor → Datos del asesor."); return; }
+    setBusy(true);
+    try{
+      const pend=(captaciones||[]).filter(c=>c&&c.pipeline!=="Descartado"&&rqNorm(c.asesorResponsableGG)===rqNorm(nombre)&&!(c.firma_nombre&&c.esquema_comision));
+      const terrenos=(pend.length?pend:[cap]).map(nombreT);
+      let token=aPend&&aPend.token;
+      if(!token){
+        const {data,error}=await window.sb.rpc("acuerdo_crear",{p_captacion_id:cap.id,p_cotizacion_id:null,p_lote_id:null,p_asesor_email:ct.email||null,p_asesor_nombre:ct.nombre||nombre,p_adenda:false,p_motivo:null,p_semaforo_ok:null});
+        if(error) throw error;
+        token=(data&&(data.token||(Array.isArray(data)&&data[0]&&data[0].token)))||null;
+        if(!token){ const {data:lst}=await window.sb.rpc("acuerdos_lista",{p_captacion_id:cap.id,p_lote_id:null}); const x=(lst||[]).find(y=>y&&y.captacion_id===cap.id&&y.token); token=x&&x.token; }
+      }
+      if(!token) throw new Error("no se pudo generar el convenio");
+      const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token,terrenos})});
+      const out=await r.json().catch(()=>({}));
+      if(out&&out.ok&&out.enviado) toast("✅ Liga enviada a "+(out.correo||ct.email)+" ("+terrenos.length+" terreno"+(terrenos.length===1?"":"s")+") · copia a macrolotes@grupoguia.mx");
+      else toast("No se pudo enviar el correo"+(out&&out.motivo?(" ("+out.motivo+")"):"")+". Puedes mandarlo por WhatsApp desde 👔 Asesores.");
+      setD(await selloCargar(true));
+    }catch(e){ toast("No se pudo mandar la liga: "+((e&&e.message)||e)); }
+    setBusy(false);
+  };
+
+  if(!d) return <div style={{fontSize:10.5,opacity:.85,paddingTop:6}}>Revisando convenio…</div>;
+  const pill=(bg,fg,txt,tit)=>(<span title={tit} style={{borderRadius:999,padding:"4px 11px",fontWeight:800,fontSize:12.5,border:"2px solid #fff",whiteSpace:"nowrap",boxShadow:"0 2px 6px rgba(0,0,0,.15)",background:bg,color:fg}}>{txt}</span>);
+  const sub=(t)=><span style={{fontSize:10.5,fontWeight:600,opacity:.95,whiteSpace:"nowrap"}}>{t}</span>;
+  const caja={display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0};
+  if(ok){
+    const amarillo=/^100\s*\/\s*0$/.test(esquema);
+    const fecha=f(aFirm&&(aFirm.firmado_at||aFirm.updated_at));
+    return (<div style={caja}>
+      {pill(amarillo?"#F5B335":"#0f6b38", amarillo?"#002B49":"#fff", "✓ "+(esquema||"Firmado"), "Convenio firmado por "+(nombre||"el asesor")+(aFirm&&aFirm.folio?(" · "+aFirm.folio):""))}
+      {fecha&&sub("Firmado "+fecha)}
+    </div>);
+  }
+  return (<div style={caja}>
+    {pill("#c0392b","#fff","✕ Sin firma", nombre?("Convenio pendiente de "+nombre):"Sin asesor responsable")}
+    {aPend ? sub("Liga enviada "+f(aPend.created_at||aPend.updated_at)) : (!nombre ? sub("Falta asesor") : null)}
+    {nombre && <button disabled={busy} onClick={mandar} title={"Mandar la liga de firma por correo a "+(ct.email||nombre)+" (copia a macrolotes@)"} style={{fontSize:10.5,fontWeight:800,background:"rgba(255,255,255,.95)",color:"#002B49",borderRadius:6,padding:"2px 7px",border:"none",cursor:busy?"wait":"pointer",fontFamily:"inherit"}}>{busy?"Enviando…":"✉️ Mandar liga"}</button>}
+  </div>);
+}
+
 function MacroProMatcher({ sessionEmail } = {}) {
   // ═══════════════════════════════════════════════════════════
   // PERSISTENCIA: claves de localStorage y helpers
@@ -21502,7 +21580,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.72</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.73</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
@@ -21613,12 +21691,16 @@ Respuesta: [respuesta exacta, conversacional]
           return (
             <div onClick={()=>setShowCaptacionModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2600,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"30px 20px",overflowY:"auto"}}>
               <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:680,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden",margin:"auto"}}>
-                <div style={{padding:"20px 26px",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div>
+                <div style={{padding:"20px 26px",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
+                  <div style={{minWidth:0}}>
                     <div style={{fontSize:11,fontWeight:700,letterSpacing:2,textTransform:"uppercase",opacity:0.9}}>🌱 {esNueva?"Nuevo terreno":"Editar terreno"}</div>
                     <div style={{fontSize:20,fontWeight:800,fontFamily:"'Playfair Display',serif",marginTop:2}}>{f.propietario||f.zona||"Terreno en captación"}</div>
                   </div>
-                  <span onClick={()=>setShowCaptacionModal(false)} style={{cursor:"pointer",fontSize:24,fontWeight:700,lineHeight:1}}>×</span>
+                  <div style={{display:"flex",alignItems:"flex-start",gap:12,flexShrink:0}}>
+                    {/* 🏷 Sello de convenio: 60/40 verde · 100/0 amarillo · Sin firma rojo */}
+                    {!esNueva && <SelloConvenio key={f.id} cap={f} captaciones={captaciones} catalogo={asesoresCatalog} onToast={toast}/>}
+                    <span onClick={()=>setShowCaptacionModal(false)} style={{cursor:"pointer",fontSize:24,fontWeight:700,lineHeight:1}}>×</span>
+                  </div>
                 </div>
                 <div style={{padding:"20px 26px",maxHeight:"62vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:16}}>
                   {/* 🔗 Liga Mágica: link único para que el propietario suba su expediente legal */}
