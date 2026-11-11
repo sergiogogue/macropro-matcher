@@ -2193,20 +2193,32 @@ function rqTerrenoSirve(req, cap){
   if(sup>0 && (req.m2min||req.m2max)){ const lo=(req.m2min||req.m2max)*0.8, hi=(req.m2max||req.m2min)*1.2; if(sup<lo||sup>hi) return false; }
   return true;
 }
-// Corre en segundo plano al guardar un terreno NUEVO en Captación. Si el usuario no es admin
+// Corre en segundo plano al guardar un terreno NUEVO en Captación (búsquedas sin match, criterios
+// del landing y compradores de MacroPro). Si el usuario no es admin
 // (o falta la migración) no hace nada: nunca bloquea el guardado.
+// Todos los compradores de la nube (tabla `clientes`, en páginas de 1000).
+async function rqCargarCompradores(){
+  const out=[]; for(let from=0; from<50000; from+=1000){ const { data, error } = await window.sb.from("clientes").select("*").range(from,from+999); if(error) throw error; out.push(...(data||[])); if(!data||data.length<1000) break; }
+  return out;
+}
 async function rqBuscarRequerimientosParaTerreno(cap){
   if(!window.sb||!cap) return [];
-  const [fa,cr,as]=await Promise.all([
+  const [fa,cr,as,cat,cl,est]=await Promise.all([
     window.sb.rpc("macropro_busquedas_fallidas").then(x=>x).catch(()=>({data:null})),
     window.sb.rpc("macropro_criterios_landing").then(x=>x).catch(()=>({data:null})),
     window.sb.from("asesores").select("*").then(x=>x).catch(()=>({data:null})),
+    window.sb.rpc("landing_asesores_catalogo").then(x=>x).catch(()=>({data:null})),
+    rqCargarCompradores().catch(()=>[]),
+    window.sb.from("macropro_req_estatus").select("*").eq("fuente","comprador").then(x=>x).catch(()=>({data:null})),
   ]);
-  const idx=rqIndiceAsesores(as&&as.data);
+  const idx=rqIndiceAsesores(as&&as.data, cat&&!cat.error&&cat.data);
   const fall=((fa&&!fa.error&&fa.data)||[]).map(r=>rqDesarmar(r,"fallida")).filter(r=>r.estatus!=="resuelto");
   const crit=((cr&&!cr.error&&cr.data)||[]).map(r=>rqDesarmar(r,"criterio"));
   const yaCrit=new Set(fall.map(f=>f.criterio_id).filter(Boolean));
-  const todos=[...fall, ...crit.filter(c=>!yaCrit.has(c.id))];
+  // Compradores activos que no estén marcados como resueltos en 🔍 Requerimientos.
+  const resueltos=new Set(((est&&!est.error&&est.data)||[]).filter(x=>x.estatus==="resuelto").map(x=>String(x.ref_id)));
+  const comp=(cl||[]).filter(r=>r&&r.activo!==false).map(rqDesdeComprador).filter(r=>!resueltos.has(r.refId));
+  const todos=[...fall, ...crit.filter(c=>!yaCrit.has(c.id)), ...comp];
   const vistos=new Set(); const out=[];
   todos.forEach(r=>{ if(!rqTerrenoSirve(r,cap)) return; const k=rqNorm(r.asesor)+"|"+rqNorm(r.cliente); if(vistos.has(k)) return; vistos.add(k); out.push({...r, contacto:rqContacto(idx,r)}); });
   return out;
@@ -2240,7 +2252,7 @@ function RqAlertaMatch({ data, onClose }){
           <div key={m.key||i} style={{border:"1.5px solid #fecaca",background:"#fff7f7",borderRadius:12,padding:"12px 14px",marginBottom:10,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
             <div style={{flex:"1 1 320px",minWidth:0}}>
               <div style={{fontSize:14.5,color:B.grey5}}>Este terreno que acabas de capturar le sirve a <b style={{color:B.navy}}>{ct.nombre||m.asesor}</b> para su cliente <b style={{color:B.navy}}>{m.cliente}</b>. Mándale un WhatsApp.</div>
-              <div style={{fontSize:12,color:B.grey4,marginTop:4}}>Busca: {[m.ciudades.join(", "), m.usos.join(", "), rqTam(m)!=="—"?(rqTam(m)+" m²"):""].filter(Boolean).join(" · ")} · {m.fuente==="fallida"?"búsqueda sin match":"búsqueda del landing"}{ct.tel?(" · 📱 "+ct.tel):" · sin WhatsApp registrado"}</div>
+              <div style={{fontSize:12,color:B.grey4,marginTop:4}}>Busca: {[m.ciudades.join(", "), m.usos.join(", "), rqTam(m)!=="—"?(rqTam(m)+" m²"):""].filter(Boolean).join(" · ")} · {m.fuente==="fallida"?"búsqueda sin match":(m.fuente==="comprador"?"comprador de MacroPro":"búsqueda del landing")}{ct.tel?(" · 📱 "+ct.tel):" · sin WhatsApp registrado"}</div>
             </div>
             <a href={rqWaUrl(ct.tel,msg)} target="_blank" rel="noopener noreferrer" style={{background:"#25D366",color:"#fff",textDecoration:"none",fontWeight:800,fontSize:13,padding:"8px 14px",borderRadius:10,whiteSpace:"nowrap"}}>📲 Mándale un WhatsApp</a>
           </div>
@@ -2286,7 +2298,7 @@ function ViewRequerimientos({ s, onToast }){
     catch(e){ setErrFall(errMsg(e)); }
     // Compradores (todos los de la nube, en páginas de 1000) + su estatus
     try{
-      const out=[]; for(let from=0; from<50000; from+=1000){ const { data, error } = await window.sb.from("clientes").select("*").range(from,from+999); if(error) throw error; out.push(...(data||[])); if(!data||data.length<1000) break; }
+      const out=await rqCargarCompradores();
       const est={}; try{ const { data, error } = await window.sb.from("macropro_req_estatus").select("*").eq("fuente","comprador"); if(error) throw error; (data||[]).forEach(x=>{ est[x.ref_id]=x; }); }catch(e){ setErrComp(errMsg(e)); }
       setComp(out.filter(r=>r&&r.activo!==false).map(r=>{ const c=rqDesdeComprador(r); const e=est[c.refId]; return e?{...c,estatus:e.estatus,estatus_at:e.estatus_at,estatus_por:e.estatus_por}:c; }).sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))));
     }catch(e){ setErrComp(errMsg(e)); }
@@ -21321,7 +21333,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.69</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.70</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
