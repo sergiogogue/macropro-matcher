@@ -2852,6 +2852,11 @@ const coM2Letra=(n)=>{ const x=Number(n)||0; return Number.isInteger(x)?(coLetra
 const coFormaTxt=(f)=>({ Contado:"el saldo se cubrirá en una sola exhibición a la firma de la escritura pública de compraventa, descontando el monto del apartado.",
   Financiamiento:"el saldo se cubrirá mediante crédito o financiamiento, sujeto a la aprobación de la institución financiera, descontando el monto del apartado.",
   Diferido:"el saldo se cubrirá en parcialidades conforme al calendario que acuerden las partes, descontando el monto del apartado." }[f]||"conforme a lo que acuerden las partes.");
+// Cláusula TERCERA editable: el texto personalizado se guarda en rondas.condiciones con la marca "§".
+// Sin marca (cartas viejas o la contrapropuesta del vendedor) = texto estándar + "Condiciones: …".
+const CO_MARCA3="§";
+const coClausula3=(r)=>{ const c=String((r&&r.condiciones)||""); if(c.startsWith(CO_MARCA3)) return c.slice(1).trim(); const x=c.trim(); return coFormaTxt(r&&r.forma_pago)+(x?(" Condiciones: "+x+(/[.]$/.test(x)?"":".")):""); };
+const coCond3=(forma,texto)=>{ const x=String(texto||"").trim(); if(!x||x===coFormaTxt(forma)) return null; return CO_MARCA3+x; };
 const CO_RAZON_SOCIAL="Guía Excelencia Inmobiliaria S.A. de C.V.";
 
 // PDF (ventana de impresión) con formato de CARTA DE INTENCIÓN FORMAL, dirigida a
@@ -2898,7 +2903,7 @@ ${conf?'<div class="mk">CONFIDENCIAL</div>':''}
 <div class="cl"><span class="n">SEGUNDA. Precio ${contra?"propuesto":"ofertado"}.</span> ${contra?("En esta ronda se propone el siguiente precio por el inmueble:"):"El Comprador ofrece el siguiente precio por el inmueble:"}</div>
 <table class="t"><tr><td>Superficie</td><td>${sup.toLocaleString("es-MX")} m²</td></tr><tr><td>Precio por metro cuadrado</td><td>${coMx(r.precio_m2)}.00 M.N.</td></tr><tr class="to"><td>Precio total de la oferta</td><td>${coMx(total)}.00 M.N.</td></tr></table>
 <div class="le">(${coPesosLetra(total)})</div>
-<div class="cl"><span class="n">TERCERA. Forma de pago.</span> <b>${esc(r.forma_pago||"—")}</b>: ${coFormaTxt(r.forma_pago)}${r.condiciones?(" Condiciones: "+esc(r.condiciones)+"."):""}</div>
+<div class="cl"><span class="n">TERCERA. Forma de pago.</span> <b>${esc(r.forma_pago||"—")}</b>: ${esc(coClausula3(r))}</div>
 <div class="cl"><span class="n">CUARTA. Apartado y exclusividad.</span> Al ser aceptada la presente, el Comprador entregará un apartado de <b>${coMx(apt)}.00 M.N.</b> (${coPesosLetra(apt)})${total?`, equivalente al ${(apt/total*100).toFixed(1)}% del precio total,`:""} que asegura la exclusividad del inmueble a su favor por <b>30 (treinta) días naturales</b>.</div>
 <div class="cl"><span class="n">QUINTA. Vigencia de la oferta.</span> Esta oferta tiene una vigencia de <b>10 (diez) días naturales</b> contados a partir de su fecha. Transcurrido dicho plazo sin aceptación, quedará sin efecto.</div>
 <div class="cl"><span class="n">SEXTA. Naturaleza del documento.</span> La presente es una carta de intención y oferta de compra; <b>no constituye un contrato de compraventa definitivo</b> y queda sujeta a la revisión legal y documental del inmueble, así como a la firma del contrato correspondiente.</div>
@@ -2963,7 +2968,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   // muestra lo nuevo). Después de su firma solo se edita el VENDEDOR (hasta que el vendedor firme).
   const coEditable=(c)=>{ const r=coActual(c); return !["aceptada","rechazada"].includes(c.estado) && !r.vendedor_firma_at; };
   const coCondLibres=(c)=>{ const r=coActual(c); return ["borrador","enviada_comprador"].includes(c.estado) && Number(c.ronda_actual||1)===1 && !r.comprador_firma_at; };
-  const editar=(c)=>{ const r=coActual(c); setAbierto(true); setForm({ id:c.id, ronda_id:r.id, estado:c.estado, libres:coCondLibres(c), comprador_nombre:c.comprador_nombre||"", comprador_empresa:c.comprador_empresa||"", comprador_email:c.comprador_email||"", comprador_telefono:c.comprador_telefono||"", asesor_nombre:c.asesor_nombre||"", superficie_m2:String(c.superficie_m2||""), precio_m2:String(r.precio_m2||""), forma_pago:r.forma_pago||"Contado", apartado:String(c.apartado||""), condiciones:r.condiciones||"",
+  const editar=(c)=>{ const r=coActual(c); setAbierto(true); setForm({ id:c.id, ronda_id:r.id, estado:c.estado, libres:coCondLibres(c), comprador_nombre:c.comprador_nombre||"", comprador_empresa:c.comprador_empresa||"", comprador_email:c.comprador_email||"", comprador_telefono:c.comprador_telefono||"", asesor_nombre:c.asesor_nombre||"", superficie_m2:String(c.superficie_m2||""), precio_m2:String(r.precio_m2||""), forma_pago:r.forma_pago||"Contado", apartado:String(c.apartado||""), condiciones:r.condiciones||"", clausula3:coClausula3(r),
     vendedor_nombre:c.vendedor_nombre||(cap&&cap.propietario)||"", vendedor_email:c.vendedor_email||(cap&&cap.email)||"", vendedor_telefono:c.vendedor_telefono||(cap&&cap.telefono)||"" }); };
   const guardar=async()=>{
     const f=form; const sup=coNum(f.superficie_m2), pm2=coNum(f.precio_m2), apt=coNum(f.apartado);
@@ -2974,7 +2979,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
     setBusy("guardar");
     try{
       const base={ comprador_nombre:f.comprador_nombre.trim(), comprador_empresa:f.comprador_empresa.trim()||null, comprador_email:f.comprador_email.trim().toLowerCase()||null, comprador_telefono:f.comprador_telefono.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, superficie_m2:sup, apartado:apt };
-      const ronda={ precio_m2:pm2, forma_pago:f.forma_pago, condiciones:String(f.condiciones||"").trim()||null };
+      const ronda={ precio_m2:pm2, forma_pago:f.forma_pago, condiciones:f.clausula3!=null?coCond3(f.forma_pago,f.clausula3):(String(f.condiciones||"").trim()||null) };
       if(f.id){
         const vend={ vendedor_nombre:String(f.vendedor_nombre||"").trim()||null, vendedor_email:String(f.vendedor_email||"").trim().toLowerCase()||null, vendedor_telefono:String(f.vendedor_telefono||"").trim()||null };
         if(f.libres){
@@ -3060,7 +3065,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
           <thead><tr style={{background:B.navy,color:"#fff",textAlign:"left"}}>{["Ronda","Propone","$/m²","Total","Pago","Diferencia"].map(h=><th key={h} style={{padding:"5px 8px",fontSize:10,textTransform:"uppercase"}}>{h}</th>)}</tr></thead>
           <tbody>{rs.map((x,i)=>{ const d=i?(Number(x.total)-Number(rs[0].total)):0; return (<tr key={x.ronda} style={{borderTop:"1px solid "+B.grey1,fontWeight:x.ronda===c.ronda_actual?800:500}}><td style={{padding:"4px 8px"}}>{x.ronda}</td><td style={{padding:"4px 8px"}}>{x.propone==="grupo_guia"?"Comprador":(x.propone==="vendedor"?"Vendedor":"Comprador")}</td><td style={{padding:"4px 8px"}}>{coMx(x.precio_m2)}</td><td style={{padding:"4px 8px"}}>{coMx(x.total)}</td><td style={{padding:"4px 8px"}}>{x.forma_pago}</td><td style={{padding:"4px 8px",color:d?"#b45309":B.grey3}}>{i?((d>=0?"+":"−")+coMx(Math.abs(d))+" ("+(d>=0?"+":"−")+Math.abs(d/(Number(rs[0].total)||1)*100).toFixed(1)+"%)"):"—"}</td></tr>); })}</tbody>
         </table></div>)}
-      {(r.condiciones||r.comentarios) && <div style={{fontSize:12,color:"#334155",background:"#fffaf0",borderLeft:"3px solid "+B.gold,padding:"6px 9px",borderRadius:"0 7px 7px 0",marginTop:8}}>{r.condiciones&&<div><b>Condiciones:</b> {r.condiciones}</div>}{r.comentarios&&<div>💬 <b>{r.propone==="vendedor"?"Vendedor":(r.propone==="comprador"?"Comprador":"Nota")}:</b> {r.comentarios}</div>}</div>}
+      {(r.condiciones||r.comentarios) && <div style={{fontSize:12,color:"#334155",background:"#fffaf0",borderLeft:"3px solid "+B.gold,padding:"6px 9px",borderRadius:"0 7px 7px 0",marginTop:8}}>{r.condiciones&&<div><b>Forma de pago ({r.forma_pago}):</b> {coClausula3(r)}</div>}{r.comentarios&&<div>💬 <b>{r.propone==="vendedor"?"Vendedor":(r.propone==="comprador"?"Comprador":"Nota")}:</b> {r.comentarios}</div>}</div>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:6,marginTop:8}}>
         {firma("Comprador",r.comprador_firma_at,[r.comprador_firma_email,r.comprador_firma_ip?("IP "+r.comprador_firma_ip):""].filter(Boolean).join(" · "))}
         {firma("Grupo Guía",c.gg_firma_at,c.gg_firma_email)}
@@ -3111,9 +3116,11 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
                 <div style={{background:B.navy,color:"#fff",borderRadius:8,padding:"6px 10px",textAlign:"right"}}><div style={{fontSize:9,fontWeight:800,color:B.gold,letterSpacing:1,textTransform:"uppercase"}}>Total de la oferta</div><div style={{fontSize:18,fontWeight:800,fontFamily:"'Playfair Display',serif"}}>{coMx(tot)}</div></div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:8,marginTop:10}}>
-                <div><label style={lbS}>Forma de pago</label><select style={inS} value={f.forma_pago} onChange={e=>set("forma_pago",e.target.value)}>{CO_FORMAS.map(x=><option key={x}>{x}</option>)}</select></div>
+                <div><label style={lbS}>Forma de pago</label><select style={inS} value={f.forma_pago} onChange={e=>{ const v=e.target.value; setForm(p=>({...p,forma_pago:v,clausula3:(p.clausula3==null||String(p.clausula3).trim()===coFormaTxt(p.forma_pago))?coFormaTxt(v):p.clausula3})); }}>{CO_FORMAS.map(x=><option key={x}>{x}</option>)}</select></div>
                 <div><label style={lbS}>Monto de apartado</label><input style={{...inS,textAlign:"right"}} inputMode="decimal" value={f.apartado} onChange={e=>set("apartado",e.target.value)}/>{apt>0&&tot>0&&<div style={{fontSize:10.5,color:B.grey4,marginTop:2}}>{(apt/tot*100).toFixed(1)}% del total · saldo {coMx(tot-apt)}</div>}</div>
-                <div style={{gridColumn:"span 2"}}><label style={lbS}>Plazos / condiciones (opcional)</label><input style={inS} value={f.condiciones} onChange={e=>set("condiciones",e.target.value)} placeholder="Ej. 30% a la firma, saldo contra escritura"/></div>
+                <div style={{gridColumn:"1 / -1"}}><label style={lbS}>Cláusula TERCERA · texto de forma de pago</label>
+                  <textarea style={{...inS,minHeight:64,resize:"vertical",fontFamily:"'DM Sans',sans-serif"}} value={f.clausula3!=null?f.clausula3:coFormaTxt(f.forma_pago)} onChange={e=>set("clausula3",e.target.value)}/>
+                  <div style={{fontSize:10.5,color:B.grey4,marginTop:2}}>En la carta sale: <b>TERCERA. Forma de pago. {f.forma_pago}:</b> + este texto. <a href="#" onClick={e=>{ e.preventDefault(); set("clausula3",coFormaTxt(f.forma_pago)); }} style={{color:"#1d4ed8"}}>Restaurar texto estándar</a></div></div>
               </div>
               </fieldset>
               {f.id && (<div style={{marginTop:10,border:"1.5px solid "+B.navy,borderRadius:10,padding:"8px 10px",background:"#f6f8fb"}}>
@@ -3190,7 +3197,7 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
   const [cli,setCli]=useState(null);         // {id_cliente,nombre,empresa,email,telefono,asesor,nuevo}
   const [aseId,setAseId]=useState("");
   const [aseSug,setAseSug]=useState(false);
-  const [sup,setSup]=useState(""); const [pm2,setPm2]=useState(""); const [apt,setApt]=useState(""); const [forma,setForma]=useState("Contado");
+  const [sup,setSup]=useState(""); const [pm2,setPm2]=useState(""); const [apt,setApt]=useState(""); const [forma,setForma]=useState("Contado"); const [cl3,setCl3]=useState(()=>coFormaTxt("Contado"));
   const [nuevo,setNuevo]=useState(null);     // mini-modal {nombre,email,tel,err}
   const [busy,setBusy]=useState(false);
   const [listo,setListo]=useState(null);     // {carta, liga}
@@ -3264,7 +3271,7 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
         vendedor_nombre:terr.origen==="captacion"?(terr.propietario||null):null, creado_por:por };
       const ins=await window.sb.from("cartas_oferta").insert(carta).select("*").single();
       if(ins.error) throw ins.error;
-      const r1=await window.sb.from("cartas_oferta_rondas").insert({ carta_id:ins.data.id, ronda:1, propone:"grupo_guia", precio_m2:p_, forma_pago:forma });
+      const r1=await window.sb.from("cartas_oferta_rondas").insert({ carta_id:ins.data.id, ronda:1, propone:"grupo_guia", precio_m2:p_, forma_pago:forma, condiciones:coCond3(forma,cl3) });
       if(r1.error){ try{ await window.sb.from("cartas_oferta").delete().eq("id",ins.data.id); }catch(e){} throw r1.error; }
       let liga=null;
       if(conLiga){ const { data, error } = await window.sb.rpc("carta_oferta_liga",{ p_id:ins.data.id, p_rol:"comprador", p_renovar:false }); if(error) toast("La carta se guardó, pero no se generó la liga: "+error.message); else liga=CO_URL+data;
@@ -3310,7 +3317,7 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
             </div>)}
             <div style={{fontSize:12.5,color:B.grey4,marginTop:12}}>El seguimiento (firmas, autorización, liga del vendedor, contrapropuestas y PDF) está en la ficha del terreno, sección <b>📝 Cartas oferta</b>.</div>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14,flexWrap:"wrap"}}>
-              <button onClick={()=>{ if(!coImprimir({...listo.carta,ronda_actual:1,cartas_oferta_rondas:[{ronda:1,propone:"grupo_guia",precio_m2:p_,total,forma_pago:forma}]},"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF</button>
+              <button onClick={()=>{ if(!coImprimir({...listo.carta,ronda_actual:1,cartas_oferta_rondas:[{ronda:1,propone:"grupo_guia",precio_m2:p_,total,forma_pago:forma,condiciones:coCond3(forma,cl3)}]},"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF</button>
               {onAbrirTerreno && <button onClick={()=>{ onAbrirTerreno(terr); onClose(); }} style={btn(B.navy,"#fff")}>Abrir ficha del terreno</button>}
               <button onClick={onClose} style={btn(B.green,"#fff")}>Listo</button>
             </div>
@@ -3361,9 +3368,12 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:10,marginTop:10}}>
                 <div><label style={lbl}>Monto de apartado</label><input value={apt} onChange={e=>setApt(e.target.value)} inputMode="decimal" placeholder="$0" style={{...inS,textAlign:"right"}}/></div>
-                <div><label style={lbl}>Forma de pago</label><select value={forma} onChange={e=>setForma(e.target.value)} style={inS}>{CO_FORMAS.map(f=><option key={f}>{f}</option>)}</select></div>
+                <div><label style={lbl}>Forma de pago</label><select value={forma} onChange={e=>{ const v=e.target.value; if(String(cl3).trim()===coFormaTxt(forma)) setCl3(coFormaTxt(v)); setForma(v); }} style={inS}>{CO_FORMAS.map(f=><option key={f}>{f}</option>)}</select></div>
                 <div><label style={lbl}>{terr?terr.etiquetaLista:"Precio de lista"}</label><input readOnly value={terr?(terr.pm2Lista?(coMx(terr.pm2Lista)+"/m² · "+coMx(terr.totalLista)):"Pendiente"):""} placeholder="— elige un terreno —" style={{...inS,background:B.offW,textAlign:"right"}}/></div>
               </div>
+              <div style={{marginTop:10}}><label style={lbl}>Cláusula TERCERA · texto de forma de pago</label>
+                <textarea value={cl3} onChange={e=>setCl3(e.target.value)} style={{...inS,minHeight:64,resize:"vertical",fontSize:13.5,fontWeight:500}}/>
+                <div style={{fontSize:11,color:B.grey4,marginTop:2}}>En la carta sale: <b>TERCERA. Forma de pago. {forma}:</b> + este texto. <a href="#" onClick={e=>{ e.preventDefault(); setCl3(coFormaTxt(forma)); }} style={{color:"#1d4ed8"}}>Restaurar texto estándar</a></div></div>
               {dif!=null && nota(false,<>{dif<0?"📉":"📈"} Precio ofertado <b>{dif>=0?"+":""}{dif.toFixed(1)}%</b> vs. {terr.etiquetaLista.toLowerCase()} ({coMx(terr.pm2Lista)}/m²) · diferencia total <b>{coMx(Math.abs(total-s_*terr.pm2Lista))}</b> {Math.abs(dif)<0.05?"(igual)":(dif<0?"abajo":"arriba")}.</>)}
               {terr&&terr.sup>0&&s_>terr.sup && nota(true,<>⚠ La superficie ofertada ({s_.toLocaleString("es-MX")} m²) es mayor que la del terreno ({terr.sup.toLocaleString("es-MX")} m²).</>)}
               {a_>0&&total>0 && nota(false,<>Apartado: <b>{coMx(a_)}</b> ({(a_/total*100).toFixed(1)}% del total) · saldo {coMx(total-a_)}.</>)}
@@ -22296,7 +22306,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.80</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.81</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
