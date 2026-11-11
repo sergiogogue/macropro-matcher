@@ -17450,7 +17450,7 @@ Respuesta: [respuesta exacta, conversacional]
   const ViewPitchCotizacion = () => {
     const AZUL = "#0f172a", DORADO = "#d4af37";
     const DRAFT_KEY = "macropro_cotizador_draft_v1";
-    const DEF_F = { cliente_id:"", cliente_nombre:"", cliente_telefono:"", cliente_email:"", asesor_nombre:"", terreno_nombre:"", terreno_ciudad:"", terreno_dimensiones:"", valor_terreno:"", monto_comision:"10%", condiciones:CONDICIONES_DEFAULT, estatus:"borrador" };
+    const DEF_F = { cliente_id:"", cliente_nombre:"", cliente_telefono:"", cliente_email:"", asesor_nombre:"", terreno_nombre:"", terreno_ciudad:"", terreno_dimensiones:"", precio_m2:"", valor_terreno:"", monto_comision:"10%", condiciones:CONDICIONES_DEFAULT, estatus:"borrador" };
     const [f, setF] = useState(()=>{ try{ const s=localStorage.getItem(DRAFT_KEY); if(s) return { ...DEF_F, ...(JSON.parse(s)||{}) }; }catch(e){} return DEF_F; });
     const [clienteSel, setClienteSel] = useState(null);   // cliente resuelto de la base (si existe)
     const [guardando, setGuardando] = useState(false);
@@ -17459,6 +17459,11 @@ Respuesta: [respuesta exacta, conversacional]
     const [cargandoHist, setCargandoHist] = useState(false);
     const [pdfBusy, setPdfBusy] = useState(false);
     const set = (k,v)=>setF((p)=>({ ...p, [k]:v }));
+    // Superficie desde "Dimensiones": "2,500 m²" → 2500 · "50 x 50" → 2500.
+    const m2De=(txt)=>{ const s=String(txt||"").replace(/,/g,""); const m=s.match(/(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/i); if(m) return parseFloat(m[1])*parseFloat(m[2]); const n=s.match(/\d+(?:\.\d+)?/); return n?parseFloat(n[0]):0; };
+    const numDe=(txt)=>parseFloat(String(txt||"").replace(/[^0-9.]/g,""))||0;
+    // Valor de venta AUTOMÁTICO = m² × precio por m² (si hay ambos). Se puede seguir escribiendo a mano.
+    const setCalc=(k,v)=>setF((p)=>{ const n={ ...p, [k]:v }; const m2=m2De(n.terreno_dimensiones), pm=numDe(n.precio_m2); if(m2>0&&pm>0) n.valor_terreno=fmtMXN(Math.round(m2*pm*100)/100); return n; });
     // Guarda el borrador en el navegador para que NO se borre si la app se recarga.
     React.useEffect(()=>{ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify(f)); }catch(e){} }, [f]);
     // Comisión siempre en %: calcula el monto en pesos a partir del valor y el %.
@@ -17990,10 +17995,17 @@ Respuesta: [respuesta exacta, conversacional]
             <div><span style={lb}>Terreno</span><input style={inp} value={f.terreno_nombre} onChange={(e)=>set("terreno_nombre",e.target.value)} placeholder="Nombre / clave del terreno *"/></div>
             <div style={grid2}>
               <div><span style={lb}>Ciudad</span><input style={inp} value={f.terreno_ciudad} onChange={(e)=>set("terreno_ciudad",e.target.value)} placeholder="Ciudad"/></div>
-              <div><span style={lb}>Dimensiones</span><input style={inp} value={f.terreno_dimensiones} onChange={(e)=>set("terreno_dimensiones",e.target.value)} placeholder="Ej. 2,500 m²"/></div>
+              <div><span style={lb}>Dimensiones (m²)</span><input style={inp} value={f.terreno_dimensiones} onChange={(e)=>setCalc("terreno_dimensiones",e.target.value)} placeholder="Ej. 2,500 m²  ó  50 x 50"/>
+                {m2De(f.terreno_dimensiones)>0 && /[x×*]/i.test(String(f.terreno_dimensiones)) && <div style={{fontSize:11,color:B.grey4,marginTop:4}}>= {m2De(f.terreno_dimensiones).toLocaleString("es-MX")} m²</div>}
+              </div>
             </div>
             <div style={grid2}>
-              <div><span style={lb}>Valor de venta del terreno</span><input style={inp} value={f.valor_terreno} onChange={(e)=>set("valor_terreno",e.target.value)} onBlur={(e)=>{ const n=parseFloat(String(e.target.value).replace(/[^0-9.]/g,"")); if(!isNaN(n)&&n>0) set("valor_terreno",fmtMXN(n)); }} placeholder="Ej. $5,000,000.00"/></div>
+              <div><span style={lb}>Precio por m²</span><input style={inp} inputMode="decimal" value={f.precio_m2||""} onChange={(e)=>setCalc("precio_m2",e.target.value)} onBlur={(e)=>{ const n=numDe(e.target.value); if(n>0) set("precio_m2",fmtMXN(n)); }} placeholder={(()=>{ const m2=m2De(f.terreno_dimensiones), v=numDe(f.valor_terreno); return (m2>0&&v>0)?("≈ "+fmtMXN(Math.round(v/m2))+" por m²"):"Ej. $2,000.00"; })()}/></div>
+              <div><span style={lb}>Valor de venta del terreno {m2De(f.terreno_dimensiones)>0&&numDe(f.precio_m2)>0?<span style={{color:"#15803d",textTransform:"none",letterSpacing:0}}>· automático (m² × precio)</span>:null}</span><input style={inp} value={f.valor_terreno} onChange={(e)=>set("valor_terreno",e.target.value)} onBlur={(e)=>{ const n=parseFloat(String(e.target.value).replace(/[^0-9.]/g,"")); if(!isNaN(n)&&n>0) set("valor_terreno",fmtMXN(n)); }} placeholder="Ej. $5,000,000.00"/>
+                {m2De(f.terreno_dimensiones)>0&&numDe(f.precio_m2)>0 && <div style={{fontSize:11,color:B.grey4,marginTop:4}}>{m2De(f.terreno_dimensiones).toLocaleString("es-MX")} m² × {fmtMXN(numDe(f.precio_m2))}</div>}
+              </div>
+            </div>
+            <div style={grid2}>
               <div><span style={lb}>Comisión (%)</span><input style={inp} value={f.monto_comision} onChange={(e)=>set("monto_comision",e.target.value)} placeholder="Ej. 10%"/>
                 {comisionMXN>0 && <div style={{fontSize:11,color:"#15803d",marginTop:4}}>≈ {fmtMXN(comisionMXN)} de comisión</div>}
               </div>
@@ -22100,7 +22112,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.77</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.78</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
