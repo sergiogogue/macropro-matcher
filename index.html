@@ -2113,50 +2113,113 @@ async function idbSet(key,val){ const db=await idbOpen(); return await new Promi
 if(typeof window!=="undefined"){ window.__idbSet=idbSet; window.__idbGet=idbGet; }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────
-// ─── 🔍 REQUERIMIENTOS · búsquedas fallidas (bot de WhatsApp + buscador del landing) ──────────
-// Lee landing_busquedas_fallidas vía la RPC macropro_busquedas_fallidas (SOLO admins: los asesores
-// del landing comparten este Supabase y por RLS solo deben ver lo suyo). Componente de NIVEL
-// SUPERIOR a propósito: si viviera dentro de MacroProMatcher se re-montaría con cada aviso/sync
-// y perdería filtros y modales. SQL: sql/requerimientos_busquedas_fallidas.sql
+// ─── 🔍 REQUERIMIENTOS · compradores + búsquedas sin match + match automático en Captación ───────
+// Fuentes (todo SOLO admins, porque los asesores del landing comparten este Supabase):
+//   • Compradores: tabla `clientes` de la nube (todos, no solo los de este equipo).
+//     Estatus en `macropro_req_estatus` (no toca la sincronización de clientes).
+//   • Sin match: RPC macropro_busquedas_fallidas (bot de WhatsApp + buscador del landing).
+//   • Match en Captación: además RPC macropro_criterios_landing (búsquedas del CRM del landing).
+// Componentes de NIVEL SUPERIOR a propósito: dentro de MacroProMatcher se re-montarían con cada
+// aviso/sync y perderían filtros y modales.
+// SQL: sql/requerimientos_busquedas_fallidas.sql + sql/requerimientos_v2_compradores_match.sql
 const RQ_ESTATUS = {
   pendiente:   { t:"Pendiente",   fg:"#b45309", bg:"#fff7ed" },
   en_busqueda: { t:"En búsqueda", fg:B.blue,    bg:B.blueL  },
   resuelto:    { t:"Resuelto",    fg:B.green,   bg:B.greenL },
 };
 const rqNorm = (v)=>String(v||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/\s+/g," ").trim();
-// El bot guarda {cliente, ciudad, superficie_m2, uso}; el buscador web guarda el criterio
-// {usos_primarios:[{uso,m2_min,m2_max}], ciudades:[…]}. Se normalizan a un solo formato.
-function rqDesarmar(r){
+const rqCo = (a,b)=>{ const x=rqNorm(a), y=rqNorm(b); return !!x&&!!y&&(x===y||x.includes(y)||y.includes(x)); };
+const rqLista = (v)=>Array.isArray(v)?v:(v?[v]:[]);
+// Búsqueda fallida / criterio del landing → formato común. El bot guarda {cliente, ciudad,
+// superficie_m2, uso}; el buscador web guarda {usos_primarios:[{uso,m2_min,m2_max}], ciudades:[…]}.
+function rqDesarmar(r, fuente){
   const rs=(r&&r.resumen&&typeof r.resumen==="object")?r.resumen:{};
-  const lista=(v)=>Array.isArray(v)?v:(v?[v]:[]);
   const txt=(x)=> typeof x==="string"?x:((x&&(x.ciudad||x.nombre||x.municipio||x.label))||"");
-  const ciudades=(rs.ciudad?[rs.ciudad]:lista(rs.ciudades).map(txt)).map(x=>String(x||"").trim()).filter(Boolean);
-  const usosP=lista(rs.usos_primarios);
+  const ciudades=(rs.ciudad?[rs.ciudad]:rqLista(rs.ciudades).map(txt)).map(x=>String(x||"").trim()).filter(Boolean);
+  const usosP=rqLista(rs.usos_primarios);
   const usos=(rs.uso?[rs.uso]:usosP.map(u=>typeof u==="string"?u:(u&&u.uso))).map(x=>String(x||"").trim()).filter(Boolean);
   let m2min=null, m2max=null;
   const sup=Number(rs.superficie_m2);
   if(sup>0){ m2min=m2max=sup; }
   else usosP.forEach(u=>{ const a=Number(u&&u.m2_min)||0, b=Number(u&&u.m2_max)||0; if(a&&(m2min==null||a<m2min)) m2min=a; if(b&&(m2max==null||b>m2max)) m2max=b; });
-  return { ...r,
+  return { ...r, fuente:fuente||"fallida", key:(fuente||"fallida")+":"+r.id, refId:String(r.id),
     cliente:String(r.cliente_nombre||"").trim()||"—",
     asesor:String(r.asesor_nombre||r.asesor_email||"").trim()||"—",
-    ciudades, usos, m2min, m2max,
-    origen: rs.origen==="whatsapp"?"WhatsApp":(r.criterio_id?"Landing":"—"),
+    asesor_email:String(r.asesor_email||"").trim().toLowerCase(), asesor_tel:String(r.asesor_celular||"").trim(),
+    ciudades, usos, m2min, m2max, pmin:null, pmax:Number(rs.presupuesto_max)||null,
+    origen: rs.origen==="whatsapp"?"WhatsApp":"Landing",
     estatus: RQ_ESTATUS[r.estatus]?r.estatus:"pendiente" };
 }
-const rqM2 = (n)=> n==null?"":Math.round(n).toLocaleString("es-MX");
+// Comprador de MacroPro (tabla `clientes`) → formato común.
+function rqDesdeComprador(r){
+  const lim=(v)=>rqLista(v).map(x=>String(x||"").trim()).filter(Boolean);
+  const n=String(r.nombre||"").trim(), e=String(r.empresa||"").trim();
+  const ref=String(r.id_cliente||r.email||r.id||"");
+  return { id:ref, refId:ref, key:"comprador:"+ref, fuente:"comprador",
+    fecha:r.created_at||r.fecha_alta||r.fecha||r.updated_at||null,
+    cliente:(n&&e&&rqNorm(n)!==rqNorm(e))?(n+" · "+e):(n||e||"—"),
+    cliente_tel:String(r.telefono||"").trim(), cliente_email:String(r.email||"").trim(),
+    asesor:String(r.asesor||"").trim()||"—", asesor_email:String(r.asesor_email||"").trim().toLowerCase(), asesor_tel:"",
+    ciudades:lim(r.ciudad_interes), usos:lim(r.uso_interes),
+    m2min:Number(r.sup_min)||null, m2max:Number(r.sup_max)||null,
+    pmin:Number(r.presupuesto_min)||null, pmax:Number(r.presupuesto_max)||null,
+    origen:"MacroPro", estatus:"pendiente", raw:r };
+}
+const rqM2 = (n)=> (n==null||isNaN(n))?"":Math.round(n).toLocaleString("es-MX");
 const rqTam = (r)=> (r.m2min==null&&r.m2max==null) ? "—" : ((r.m2min!=null&&r.m2max!=null&&r.m2min!==r.m2max) ? (rqM2(r.m2min)+" – "+rqM2(r.m2max)) : rqM2(r.m2min!=null?r.m2min:r.m2max));
 const rqFecha = (iso)=>{ if(!iso) return "—"; try{ return new Date(iso).toLocaleString("es-MX",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}); }catch(e){ return "—"; } };
 const rqMoney = (n)=>{ const x=Number(n)||0; if(!x) return "—"; if(x>=1e6) return "$"+(x/1e6).toFixed(1)+" M"; return "$"+Math.round(x).toLocaleString("es-MX"); };
+const rqPrimerNombre = (n)=>{ const p=String(n||"").trim().split(/\s+/)[0]||""; return p? (p.charAt(0).toUpperCase()+p.slice(1).toLowerCase()) : ""; };
+const rqWaUrl = (tel,msg)=>{ let d=String(tel||"").replace(/\D/g,""); if(d.length===10) d="52"+d; return d ? ("https://wa.me/"+d+"?text="+encodeURIComponent(msg)) : ("https://api.whatsapp.com/send?text="+encodeURIComponent(msg)); };
+// Contacto del asesor (nombre/correo/teléfono): primero por correo, luego por nombre (exacto o un
+// nombre contenido en el otro: falta/sobra un apellido). idx = catálogos con {nombre,email,telefono}.
+function rqIndiceAsesores(...listas){ const arr=[]; listas.forEach(l=>rqLista(l).forEach(a=>{ const nom=String(a&&a.nombre||"").trim(), em=String(a&&a.email||"").trim().toLowerCase(), tel=String(a&&(a.telefono||a.celular)||"").trim(); if(nom||em) arr.push({nombre:nom,email:em,tel,toks:rqNorm(nom).split(" ").filter(Boolean)}); })); return arr; }
+function rqContacto(idx, r){
+  const em=r.asesor_email||"";
+  let hit = em ? (idx.find(x=>x.email===em&&x.tel)||idx.find(x=>x.email===em)) : null;
+  if(!hit && r.asesor && r.asesor!=="—"){ const q=rqNorm(r.asesor), qt=q.split(" ").filter(Boolean); const sub=(a,b)=>a.every(t=>b.includes(t));
+    hit = idx.find(x=>rqNorm(x.nombre)===q&&(x.email||x.tel)) || (qt.length>=2 ? (()=>{ const c=idx.filter(x=>x.toks.length>=2&&(sub(qt,x.toks)||sub(x.toks,qt))); return c.find(x=>x.tel)||c.find(x=>x.email)||null; })() : null); }
+  const out={ nombre:(r.asesor&&r.asesor!=="—")?r.asesor:((hit&&hit.nombre)||"—"), email:em||(hit&&hit.email)||"", tel:r.asesor_tel||(hit&&hit.tel)||"" };
+  if(!out.tel&&out.email){ const h2=idx.find(x=>x.email===out.email&&x.tel); if(h2) out.tel=h2.tel; }
+  return out;
+}
+// ¿Este terreno recién capturado le sirve a este requerimiento? Ciudad obligatoria; uso y tamaño
+// se exigen solo si ambos lados los traen (tamaño con ±20% de holgura).
+function rqTerrenoSirve(req, cap){
+  const lugares=[cap.ciudad,cap.zona,cap.ubicacion].filter(Boolean);
+  if(!req.ciudades.length || !req.ciudades.some(c=>lugares.some(l=>rqCo(c,l)))) return false;
+  if(req.usos.length && cap.usoSuelo && !req.usos.some(u=>rqCo(u,cap.usoSuelo))) return false;
+  const sup=parseFloat(String(cap.superficie==null?"":cap.superficie).replace(/[^\d.]/g,""))||0;
+  if(sup>0 && (req.m2min||req.m2max)){ const lo=(req.m2min||req.m2max)*0.8, hi=(req.m2max||req.m2min)*1.2; if(sup<lo||sup>hi) return false; }
+  return true;
+}
+// Corre en segundo plano al guardar un terreno NUEVO en Captación. Si el usuario no es admin
+// (o falta la migración) no hace nada: nunca bloquea el guardado.
+async function rqBuscarRequerimientosParaTerreno(cap){
+  if(!window.sb||!cap) return [];
+  const [fa,cr,as]=await Promise.all([
+    window.sb.rpc("macropro_busquedas_fallidas").then(x=>x).catch(()=>({data:null})),
+    window.sb.rpc("macropro_criterios_landing").then(x=>x).catch(()=>({data:null})),
+    window.sb.from("asesores").select("*").then(x=>x).catch(()=>({data:null})),
+  ]);
+  const idx=rqIndiceAsesores(as&&as.data);
+  const fall=((fa&&!fa.error&&fa.data)||[]).map(r=>rqDesarmar(r,"fallida")).filter(r=>r.estatus!=="resuelto");
+  const crit=((cr&&!cr.error&&cr.data)||[]).map(r=>rqDesarmar(r,"criterio"));
+  const yaCrit=new Set(fall.map(f=>f.criterio_id).filter(Boolean));
+  const todos=[...fall, ...crit.filter(c=>!yaCrit.has(c.id))];
+  const vistos=new Set(); const out=[];
+  todos.forEach(r=>{ if(!rqTerrenoSirve(r,cap)) return; const k=rqNorm(r.asesor)+"|"+rqNorm(r.cliente); if(vistos.has(k)) return; vistos.add(k); out.push({...r, contacto:rqContacto(idx,r)}); });
+  return out;
+}
 
 // Ventana modal (nivel superior: identidad estable, no se re-crea ni pierde el scroll).
-function RqModal({titulo,sub,onClose,children}){
+function RqModal({titulo,sub,onClose,children,rojo}){
   return (
     <div onClick={e=>{ if(e.target===e.currentTarget) onClose(); }} style={{position:"fixed",inset:0,background:"rgba(0,27,46,.6)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"#fff",borderRadius:16,width:"min(860px,100%)",maxHeight:"86vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.35)"}}>
-        <div style={{position:"sticky",top:0,background:B.navy,color:"#fff",padding:"14px 18px",display:"flex",alignItems:"flex-start",gap:12,zIndex:1}}>
-          <div style={{flex:1,minWidth:0}}><div style={{fontSize:16,fontWeight:800}}>{titulo}</div>{sub&&<div style={{fontSize:12.5,opacity:.85,marginTop:2}}>{sub}</div>}</div>
-          <button onClick={onClose} title="Cerrar" style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:16}}>✕</button>
+      <div style={{background:"#fff",borderRadius:16,width:"min(880px,100%)",maxHeight:"86vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,.35)"}}>
+        <div style={{position:"sticky",top:0,background:rojo?B.red:B.navy,color:"#fff",padding:"14px 18px",display:"flex",alignItems:"flex-start",gap:12,zIndex:1}}>
+          <div style={{flex:1,minWidth:0}}><div style={{fontSize:16,fontWeight:800}}>{titulo}</div>{sub&&<div style={{fontSize:12.5,opacity:.9,marginTop:2}}>{sub}</div>}</div>
+          <button onClick={onClose} title="Cerrar" style={{background:"rgba(255,255,255,.18)",border:"none",color:"#fff",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:16}}>✕</button>
         </div>
         <div style={{padding:18}}>{children}</div>
       </div>
@@ -2164,75 +2227,123 @@ function RqModal({titulo,sub,onClose,children}){
   );
 }
 
+// 🚨 Alerta al capturar un terreno que le sirve a requerimientos existentes.
+function RqAlertaMatch({ data, onClose }){
+  const cap=data.cap||{}; const ms=data.matches||[];
+  const terreno=String(cap.zona||cap.ubicacion||cap.propietario||"el terreno").trim();
+  const sup=parseFloat(String(cap.superficie==null?"":cap.superficie).replace(/[^\d.]/g,""))||0;
+  const descTerreno=[terreno, cap.ciudad, sup?(rqM2(sup)+" m²"):"", cap.usoSuelo?("uso "+cap.usoSuelo):""].filter(Boolean).join(", ");
+  return (
+    <RqModal rojo titulo={"🚨 ¡Atención! Este terreno le sirve a "+ms.length+" requerimiento"+(ms.length===1?"":"s")} sub={descTerreno} onClose={onClose}>
+      {ms.map((m,i)=>{ const ct=m.contacto||{}; const msg="Hola "+rqPrimerNombre(ct.nombre)+", acabamos de captar un terreno que le puede servir a tu cliente "+m.cliente+": "+descTerreno+". ¿Te paso la ficha? — Equipo Macrolotes";
+        return (
+          <div key={m.key||i} style={{border:"1.5px solid #fecaca",background:"#fff7f7",borderRadius:12,padding:"12px 14px",marginBottom:10,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{flex:"1 1 320px",minWidth:0}}>
+              <div style={{fontSize:14.5,color:B.grey5}}>Este terreno que acabas de capturar le sirve a <b style={{color:B.navy}}>{ct.nombre||m.asesor}</b> para su cliente <b style={{color:B.navy}}>{m.cliente}</b>. Mándale un WhatsApp.</div>
+              <div style={{fontSize:12,color:B.grey4,marginTop:4}}>Busca: {[m.ciudades.join(", "), m.usos.join(", "), rqTam(m)!=="—"?(rqTam(m)+" m²"):""].filter(Boolean).join(" · ")} · {m.fuente==="fallida"?"búsqueda sin match":"búsqueda del landing"}{ct.tel?(" · 📱 "+ct.tel):" · sin WhatsApp registrado"}</div>
+            </div>
+            <a href={rqWaUrl(ct.tel,msg)} target="_blank" rel="noopener noreferrer" style={{background:"#25D366",color:"#fff",textDecoration:"none",fontWeight:800,fontSize:13,padding:"8px 14px",borderRadius:10,whiteSpace:"nowrap"}}>📲 Mándale un WhatsApp</a>
+          </div>
+        ); })}
+      <div style={{fontSize:11.5,color:B.grey3}}>Revisa también 🔍 Requerimientos para darle seguimiento.</div>
+    </RqModal>
+  );
+}
+
 function ViewRequerimientos({ s, onToast }){
   const toast=onToast||(()=>{});
-  const [rows,setRows]=useState([]);
+  const [tab,setTab]=useState("compradores");
+  const [fall,setFall]=useState([]);
+  const [comp,setComp]=useState([]);
+  const [idx,setIdx]=useState([]);
   const [cargando,setCargando]=useState(true);
-  const [err,setErr]=useState("");
+  const [errFall,setErrFall]=useState("");
+  const [errComp,setErrComp]=useState("");
   const [q,setQ]=useState("");
   const [fCiudad,setFCiudad]=useState("");
   const [fUso,setFUso]=useState("");
   const [fEst,setFEst]=useState("");
+  const [limite,setLimite]=useState(150);
   const [detalle,setDetalle]=useState(null);
   const [match,setMatch]=useState(null);
-  const [inv,setInv]=useState(null);      // v_landing_lotes; se carga al primer "Buscar match"
+  const [inv,setInv]=useState(null);      // v_landing_lotes; se carga al primer "Buscar match"/"Avisar"
   const [invErr,setInvErr]=useState("");
   const [verSoloCiudad,setVerSoloCiudad]=useState(false);
   const [busy,setBusy]=useState("");
 
+  const errMsg=(e)=>{ const m=String((e&&e.message)||e); if(/no autorizado/i.test(m)) return "Solo los administradores pueden ver los requerimientos de todos los asesores."; if(/could not find|PGRST202|PGRST205|does not exist|schema cache/i.test(m)) return "Falta correr la migración en Supabase (sql/requerimientos_busquedas_fallidas.sql y sql/requerimientos_v2_compradores_match.sql)."; return "No se pudo cargar: "+m; };
   const cargar=useCallback(async()=>{
-    if(!window.sb){ setCargando(false); setErr("Sin conexión con Supabase."); return; }
-    setCargando(true); setErr("");
+    if(!window.sb){ setCargando(false); setErrComp("Sin conexión con Supabase."); setErrFall("Sin conexión con Supabase."); return; }
+    setCargando(true); setErrFall(""); setErrComp("");
+    // Catálogo de asesores (correo/teléfono) para "Ver detalle" y "Avisar".
+    const [as,cat]=await Promise.all([
+      window.sb.from("asesores").select("*").then(x=>x).catch(()=>({data:null})),
+      window.sb.rpc("landing_asesores_catalogo").then(x=>x).catch(()=>({data:null})),
+    ]);
+    setIdx(rqIndiceAsesores(as&&as.data, cat&&cat.data));
+    // Sin match (búsquedas fallidas)
+    try{ const { data, error } = await window.sb.rpc("macropro_busquedas_fallidas"); if(error) throw error; setFall((data||[]).map(r=>rqDesarmar(r,"fallida"))); }
+    catch(e){ setErrFall(errMsg(e)); }
+    // Compradores (todos los de la nube, en páginas de 1000) + su estatus
     try{
-      const { data, error } = await window.sb.rpc("macropro_busquedas_fallidas");
-      if(error) throw error;
-      setRows((data||[]).map(rqDesarmar));
-    }catch(e){
-      const m=String((e&&e.message)||e);
-      if(/no autorizado/i.test(m)) setErr("Solo los administradores pueden ver los requerimientos de todos los asesores.");
-      else if(/could not find the function|PGRST202|does not exist/i.test(m)) setErr("Falta correr la migración en Supabase: sql/requerimientos_busquedas_fallidas.sql");
-      else setErr("No se pudieron cargar los requerimientos: "+m);
-    }
+      const out=[]; for(let from=0; from<50000; from+=1000){ const { data, error } = await window.sb.from("clientes").select("*").range(from,from+999); if(error) throw error; out.push(...(data||[])); if(!data||data.length<1000) break; }
+      const est={}; try{ const { data, error } = await window.sb.from("macropro_req_estatus").select("*").eq("fuente","comprador"); if(error) throw error; (data||[]).forEach(x=>{ est[x.ref_id]=x; }); }catch(e){ setErrComp(errMsg(e)); }
+      setComp(out.filter(r=>r&&r.activo!==false).map(r=>{ const c=rqDesdeComprador(r); const e=est[c.refId]; return e?{...c,estatus:e.estatus,estatus_at:e.estatus_at,estatus_por:e.estatus_por}:c; }).sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))));
+    }catch(e){ setErrComp(errMsg(e)); }
     setCargando(false);
   },[]);
   React.useEffect(()=>{ cargar(); },[cargar]);
 
+  const rows = tab==="compradores" ? comp : fall;
+  const setRowsTab = (fn)=> (tab==="compradores"?setComp:setFall)(fn);
+  const err = tab==="compradores" ? errComp : errFall;
+
   const cambiarEstatus=async(r,est)=>{
     if(!window.sb||r.estatus===est) return;
-    const prev=r.estatus; setBusy(r.id);
-    setRows(rs=>rs.map(x=>x.id===r.id?{...x,estatus:est}:x));
+    const prev=r.estatus; const setX=r.fuente==="comprador"?setComp:setFall; setBusy(r.key);
+    setX(rs=>rs.map(x=>x.key===r.key?{...x,estatus:est}:x));
     try{
-      const { error } = await window.sb.rpc("macropro_busqueda_estatus",{ p_id:r.id, p_estatus:est });
-      if(error) throw error;
+      if(r.fuente==="comprador"){
+        let por=null; try{ const { data } = await window.sb.auth.getSession(); por=(data&&data.session&&data.session.user&&data.session.user.email)||null; }catch(e){}
+        const { error } = await window.sb.from("macropro_req_estatus").upsert({ fuente:"comprador", ref_id:r.refId, estatus:est, estatus_at:new Date().toISOString(), estatus_por:por },{ onConflict:"fuente,ref_id" });
+        if(error) throw error;
+      } else {
+        const { error } = await window.sb.rpc("macropro_busqueda_estatus",{ p_id:r.id, p_estatus:est }); if(error) throw error;
+      }
       toast(est==="resuelto"?"✅ Marcado como resuelto":("Estatus: "+RQ_ESTATUS[est].t));
-    }catch(e){
-      setRows(rs=>rs.map(x=>x.id===r.id?{...x,estatus:prev}:x));
-      toast("No se pudo actualizar: "+((e&&e.message)||e));
-    }
+    }catch(e){ setX(rs=>rs.map(x=>x.key===r.key?{...x,estatus:prev}:x)); toast("No se pudo actualizar: "+((e&&e.message)||e)); }
     setBusy("");
   };
 
-  const abrirMatch=async(r)=>{
-    setMatch(r); setVerSoloCiudad(false);
-    if(inv||!window.sb) return;
-    try{
-      const { data, error } = await window.sb.from("v_landing_lotes").select("id,desarrollo,ciudad,estado,colonia,uso,usos_todos,superficie_m2,precio_total,precio_m2,disponibilidad");
-      if(error) throw error;
-      setInv(data||[]);
-    }catch(e){ setInvErr("No se pudo leer el inventario: "+((e&&e.message)||e)); setInv([]); }
+  const asegurarInv=async()=>{
+    if(inv) return inv; if(!window.sb){ setInv([]); return []; }
+    try{ const { data, error } = await window.sb.from("v_landing_lotes").select("id,desarrollo,ciudad,estado,colonia,uso,usos_todos,superficie_m2,precio_total,precio_m2,disponibilidad"); if(error) throw error; setInv(data||[]); return data||[]; }
+    catch(e){ setInvErr("No se pudo leer el inventario: "+((e&&e.message)||e)); setInv([]); return []; }
   };
+  const abrirMatch=(r)=>{ setMatch(r); setVerSoloCiudad(false); asegurarInv(); };
 
-  // ── Coincidencias con el inventario (ciudad + uso; ordenadas por cercanía de superficie) ──
-  const coincide=(a,b)=>{ const x=rqNorm(a), y=rqNorm(b); return !!x&&!!y&&(x===y||x.includes(y)||y.includes(x)); };
+  // ── Coincidencias con el inventario publicado (ciudad + uso; por cercanía de superficie) ──
   const usosLote=(l)=>{ const m=new Map(); [l.uso,...(Array.isArray(l.usos_todos)?l.usos_todos:[])].forEach(u=>{ const k=rqNorm(u); if(k&&!m.has(k)) m.set(k,String(u).trim()); }); return [...m.values()]; };
-  const matchesDe=(r)=>{
-    const lst=inv||[];
-    const enCiudad=lst.filter(l=> !r.ciudades.length || r.ciudades.some(c=>coincide(c,l.ciudad)||coincide(c,l.colonia)));
-    const conUso=enCiudad.filter(l=> !r.usos.length || r.usos.some(u=>usosLote(l).some(v=>coincide(u,v))));
+  const matchesDe=(r,lista)=>{
+    const lst=lista||inv||[];
+    const enCiudad=lst.filter(l=> r.ciudades.length>0 && r.ciudades.some(c=>rqCo(c,l.ciudad)||rqCo(c,l.colonia)));
+    const conUso=enCiudad.filter(l=> !r.usos.length || r.usos.some(u=>usosLote(l).some(v=>rqCo(u,v))));
     const objetivo=(r.m2min!=null&&r.m2max!=null)?(r.m2min+r.m2max)/2:(r.m2min||r.m2max||null);
     const dist=(l)=> (objetivo&&Number(l.superficie_m2)) ? Math.abs(Number(l.superficie_m2)-objetivo)/objetivo : 99;
     const orden=(a,b)=>dist(a)-dist(b);
     return { exactos:conUso.slice().sort(orden), soloCiudad:enCiudad.filter(l=>!conUso.includes(l)).sort(orden), dist };
+  };
+
+  // ── Avisar al asesor por WhatsApp con el mejor terreno que coincide ──
+  const msgAviso=(r,l,ct)=>"Hola "+rqPrimerNombre(ct.nombre)+", ya tenemos un terreno que le puede servir a tu cliente "+r.cliente+": "+String(l.id||"").toUpperCase()+(l.desarrollo?(" · "+l.desarrollo):"")+", "+(l.ciudad||"")+", "+rqM2(Number(l.superficie_m2))+" m²"+(Number(l.precio_total)?(", "+rqMoney(l.precio_total)):"")+". ¿Te paso la ficha? — Equipo Macrolotes";
+  const avisar=async(r,lote)=>{
+    const ct=rqContacto(idx,r);
+    if(lote){ window.open(rqWaUrl(ct.tel,msgAviso(r,lote,ct)),"_blank","noopener"); if(!ct.tel) toast("No tengo el WhatsApp de "+ct.nombre+": elige el contacto en WhatsApp."); return; }
+    const w=window.open("","_blank"); // se abre dentro del clic para que el navegador no lo bloquee
+    const lst=await asegurarInv(); const m=matchesDe(r,lst); const l=m.exactos[0];
+    if(!l){ try{ w&&w.close(); }catch(e){} setMatch(r); setVerSoloCiudad(false); toast("Aún no hay un terreno que coincida con este requerimiento; revisa el match."); return; }
+    const url=rqWaUrl(ct.tel,msgAviso(r,l,ct)); if(w){ w.location.href=url; } else { window.open(url,"_blank","noopener"); }
+    if(!ct.tel) toast("No tengo el WhatsApp de "+ct.nombre+": elige el contacto en WhatsApp.");
   };
 
   // ── Filtros ──
@@ -2247,14 +2358,17 @@ function ViewRequerimientos({ s, onToast }){
     (!nq || rqNorm(r.cliente).includes(nq) || rqNorm(r.asesor).includes(nq)));
   const cuenta=(e)=>rows.filter(r=>r.estatus===e).length;
   const hayFiltro=!!(q||fCiudad||fUso||fEst);
+  const cambiarTab=(t)=>{ setTab(t); setFCiudad(""); setFUso(""); setFEst(""); setLimite(150); };
 
   // ── Piezas de UI ──
-  const pill=(est)=>{ const e=RQ_ESTATUS[est]||RQ_ESTATUS.pendiente; return <span style={{background:e.bg,color:e.fg,borderRadius:999,padding:"2px 10px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>{e.t}</span>; };
   const th={padding:"9px 12px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,color:"#fff",textAlign:"left",whiteSpace:"nowrap"};
   const td={padding:"7px 12px",verticalAlign:"middle"};
   const bSm=(bg,fg,brd)=>({...s.btn("sm"),padding:"4px 10px",fontSize:12,background:bg,color:fg,border:brd?("1.5px solid "+brd):"none",boxShadow:"none",whiteSpace:"nowrap",cursor:"pointer"});
   const stat=(n,l,fg,est)=>(<div onClick={()=>setFEst(fEst===est?"":est)} title="Filtrar por este estatus" style={{...s.stat,cursor:"pointer",outline:fEst===est?("2px solid "+B.gold):"none",borderRadius:12,padding:"4px 10px"}}><div style={{...s.statNum,...(fg?{color:fg}:{})}}>{n}</div><div style={s.statLabel}>{l}</div></div>);
+  const tabBtn=(t,label,n)=>(<button onClick={()=>cambiarTab(t)} style={{padding:"9px 16px",borderRadius:10,border:"none",cursor:"pointer",fontFamily:"inherit",fontWeight:800,fontSize:13.5,background:tab===t?B.navy:"transparent",color:tab===t?"#fff":B.grey4}}>{label} <span style={{marginLeft:4,background:tab===t?B.gold:B.grey1,color:B.navy,borderRadius:999,padding:"1px 8px",fontSize:12}}>{n}</span></button>);
   const resumenTxt=(r)=>[r.ciudades.join(", ")||"Sin ciudad", r.usos.join(", ")||"Sin uso", rqTam(r)!=="—"?(rqTam(r)+" m²"):"Sin superficie"].join(" · ");
+  const lbl={fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5};
+  const visibles=filtrados.slice(0,limite);
 
   return (
     <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}>
@@ -2264,69 +2378,74 @@ function ViewRequerimientos({ s, onToast }){
           <div style={s.heroDecor}/>
           <button onClick={cargar} style={{position:"absolute",top:20,right:24,zIndex:2,...s.btn("sm"),background:"rgba(255,255,255,.12)",color:B.white,boxShadow:"none",border:"1px solid rgba(255,255,255,.25)"}}>↻ Actualizar</button>
           <div style={{position:"relative"}}>
-            <div style={s.heroEyebrow}>Búsquedas fallidas · Bot de WhatsApp y Landing</div>
+            <div style={s.heroEyebrow}>{tab==="compradores"?"Clientes que buscan terreno · Grupo Guía":"Búsquedas sin resultado · Bot de WhatsApp y Landing"}</div>
             <div style={{...s.heroTitle,fontSize:32,marginBottom:4}}>🔍 Requerimientos</div>
-            <div style={{...s.heroSub,fontSize:13.5}}>Terrenos que pidieron los asesores y no teníamos en inventario. Búscalos y márcalos como resueltos.</div>
+            <div style={{...s.heroSub,fontSize:13.5}}>{tab==="compradores"?"Todos los compradores registrados y lo que buscan. Encuentra su terreno y avísale al asesor.":"Terrenos que pidieron los asesores y no teníamos en inventario. Búscalos y márcalos como resueltos."}</div>
             <div style={s.statsRow}>
               {stat(cuenta("pendiente"),"Pendientes",B.gold,"pendiente")}
-              {stat(cuenta("en_busqueda"),"En búsqueda",undefined,"en_busqueda")}
-              {stat(cuenta("resuelto"),"Resueltos",undefined,"resuelto")}
+              {stat(cuenta("en_busqueda"),"En búsqueda",B.gold,"en_busqueda")}
+              {stat(cuenta("resuelto"),"Resueltos",B.gold,"resuelto")}
               <div style={{...s.stat,padding:"4px 10px"}}><div style={s.statNum}>{rows.length}</div><div style={s.statLabel}>Total</div></div>
             </div>
           </div>
         </div>
 
-        {/* FILTROS */}
+        {/* PESTAÑAS + FILTROS */}
         <div style={{...s.filterBar,alignItems:"flex-end"}}>
-          <div style={{display:"flex",flexDirection:"column",gap:5,flex:"1 1 240px",minWidth:0}}>
-            <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Buscar</label>
-            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Cliente o asesor…" style={{...s.select,cursor:"text",width:"100%"}}/>
+          <div style={{display:"flex",gap:4,background:B.grey1,borderRadius:12,padding:4,alignSelf:"center"}}>
+            {tabBtn("compradores","🧑‍💼 Compradores",comp.length)}
+            {tabBtn("fallidas","🚫 Sin match",fall.length)}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:5,flex:"1 1 220px",minWidth:0}}>
+            <label style={lbl}>Buscar</label>
+            <input value={q} onChange={e=>{ setQ(e.target.value); setLimite(150); }} placeholder="Cliente o asesor…" style={{...s.select,cursor:"text",width:"100%"}}/>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
-            <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Ciudad</label>
-            <select value={fCiudad} onChange={e=>setFCiudad(e.target.value)} style={{...s.select,minWidth:170}}><option value="">Todas</option>{ciudadesOpc.map(c=><option key={c} value={c}>{c}</option>)}</select>
+            <label style={lbl}>Ciudad</label>
+            <select value={fCiudad} onChange={e=>{ setFCiudad(e.target.value); setLimite(150); }} style={{...s.select,minWidth:160}}><option value="">Todas</option>{ciudadesOpc.map(c=><option key={c} value={c}>{c}</option>)}</select>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
-            <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Uso de suelo</label>
-            <select value={fUso} onChange={e=>setFUso(e.target.value)} style={{...s.select,minWidth:170}}><option value="">Todos</option>{usosOpc.map(u=><option key={u} value={u}>{u}</option>)}</select>
+            <label style={lbl}>Uso de suelo</label>
+            <select value={fUso} onChange={e=>{ setFUso(e.target.value); setLimite(150); }} style={{...s.select,minWidth:160}}><option value="">Todos</option>{usosOpc.map(u=><option key={u} value={u}>{u}</option>)}</select>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:5}}>
-            <label style={{fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Estatus</label>
-            <select value={fEst} onChange={e=>setFEst(e.target.value)} style={{...s.select,minWidth:150}}><option value="">Todos</option>{Object.entries(RQ_ESTATUS).map(([k,v])=><option key={k} value={k}>{v.t}</option>)}</select>
+            <label style={lbl}>Estatus</label>
+            <select value={fEst} onChange={e=>{ setFEst(e.target.value); setLimite(150); }} style={{...s.select,minWidth:140}}><option value="">Todos</option>{Object.entries(RQ_ESTATUS).map(([k,v])=><option key={k} value={k}>{v.t}</option>)}</select>
           </div>
-          {hayFiltro&&<button onClick={()=>{setQ("");setFCiudad("");setFUso("");setFEst("");}} style={s.btn("sm")}>Limpiar</button>}
+          {hayFiltro&&<button onClick={()=>{setQ("");setFCiudad("");setFUso("");setFEst("");setLimite(150);}} style={s.btn("sm")}>Limpiar</button>}
         </div>
 
         {/* TABLA */}
         {cargando ? (
           <div style={{...s.resultCard(1),textAlign:"center",color:B.grey3,padding:30}}>Cargando requerimientos…</div>
-        ) : err ? (
+        ) : (err && !rows.length) ? (
           <div style={{...s.resultCard(1),borderLeft:"5px solid "+B.red,color:B.grey5,padding:"16px 18px"}}><b style={{color:B.red}}>⚠ </b>{err}</div>
         ) : (
           <div style={{...s.resultCard(1),padding:0,overflow:"hidden",marginBottom:30}}>
-            <div style={{padding:"10px 14px",fontSize:12.5,color:B.grey4,borderBottom:"1px solid "+B.grey1}}>
-              {filtrados.length} de {rows.length} requerimiento{rows.length===1?"":"s"}{hayFiltro?" (con filtros)":""}.
+            <div style={{padding:"10px 14px",fontSize:12.5,color:B.grey4,borderBottom:"1px solid "+B.grey1,display:"flex",gap:10,flexWrap:"wrap",justifyContent:"space-between"}}>
+              <span>{filtrados.length} de {rows.length} requerimiento{rows.length===1?"":"s"}{hayFiltro?" (con filtros)":""}.</span>
+              {err && <span style={{color:B.red}}>⚠ {err}</span>}
             </div>
             {filtrados.length===0 ? (
               <div style={{padding:"22px 14px",textAlign:"center",color:B.grey3,fontSize:13}}>{rows.length?"Ningún requerimiento coincide con los filtros.":"Todavía no hay requerimientos registrados."}</div>
             ) : (
               <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:1080}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:1160}}>
                   <thead><tr style={{background:B.navy}}>
                     <th style={th}>Fecha</th><th style={th}>Asesor</th><th style={th}>Cliente</th><th style={th}>Ciudad / Zona</th>
                     <th style={{...th,textAlign:"right"}}>Tamaño (m²)</th><th style={th}>Uso</th><th style={th}>Estatus</th><th style={{...th,textAlign:"right"}}>Acciones</th>
                   </tr></thead>
                   <tbody>
-                    {filtrados.map((r,i)=>(
-                      <tr key={r.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW,opacity:r.estatus==="resuelto"?0.72:1}}>
-                        <td style={{...td,whiteSpace:"nowrap"}}><div style={{color:B.grey5}}>{rqFecha(r.fecha)}</div><div style={{fontSize:11,color:B.grey3}}>{r.origen==="WhatsApp"?"💬 WhatsApp":(r.origen==="Landing"?"🌐 Landing":"")}</div></td>
+                    {visibles.map((r,i)=>(
+                      <tr key={r.key||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW,opacity:r.estatus==="resuelto"?0.72:1}}>
+                        <td style={{...td,whiteSpace:"nowrap"}}><div style={{color:B.grey5}}>{rqFecha(r.fecha)}</div><div style={{fontSize:11,color:B.grey3}}>{r.origen==="WhatsApp"?"💬 WhatsApp":(r.origen==="Landing"?"🌐 Landing":"🗂 MacroPro")}</div></td>
                         <td style={{...td,fontWeight:700,color:B.navy}}>{r.asesor}</td>
                         <td style={td}>{r.cliente}</td>
                         <td style={td}>{r.ciudades.join(", ")||"—"}</td>
                         <td style={{...td,textAlign:"right",fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>{rqTam(r)}</td>
                         <td style={td}>{r.usos.join(", ")||"—"}</td>
                         <td style={{...td,whiteSpace:"nowrap"}}>
-                          <select value={r.estatus} disabled={busy===r.id} onChange={e=>cambiarEstatus(r,e.target.value)} title="Cambiar estatus"
+                          <select value={r.estatus} disabled={busy===r.key} onChange={e=>cambiarEstatus(r,e.target.value)} title="Cambiar estatus"
                             style={{border:"1.5px solid "+RQ_ESTATUS[r.estatus].fg,background:RQ_ESTATUS[r.estatus].bg,color:RQ_ESTATUS[r.estatus].fg,borderRadius:999,padding:"3px 8px",fontSize:12,fontWeight:800,fontFamily:"inherit",cursor:"pointer"}}>
                             {Object.entries(RQ_ESTATUS).map(([k,v])=><option key={k} value={k}>{v.t}</option>)}
                           </select>
@@ -2335,8 +2454,9 @@ function ViewRequerimientos({ s, onToast }){
                           <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
                             <button onClick={()=>setDetalle(r)} style={bSm("#fff",B.navy,B.navy)}>Ver detalle</button>
                             <button onClick={()=>abrirMatch(r)} style={bSm(B.gold,B.navy)}>🎯 Buscar match</button>
+                            <button onClick={()=>avisar(r)} title="WhatsApp al asesor con el mejor terreno que coincide" style={bSm("#25D366","#fff")}>📲 Avisar</button>
                             {r.estatus!=="resuelto"
-                              ? <button disabled={busy===r.id} onClick={()=>cambiarEstatus(r,"resuelto")} style={bSm(B.green,"#fff")}>✓ Resuelto</button>
+                              ? <button disabled={busy===r.key} onClick={()=>cambiarEstatus(r,"resuelto")} style={bSm(B.green,"#fff")}>✓ Resuelto</button>
                               : <span style={{...bSm(B.greenL,B.green),cursor:"default"}}>✓ Resuelto</span>}
                           </div>
                         </td>
@@ -2344,38 +2464,59 @@ function ViewRequerimientos({ s, onToast }){
                     ))}
                   </tbody>
                 </table>
+                {filtrados.length>limite && (
+                  <div style={{padding:12,textAlign:"center",borderTop:"1px solid "+B.grey1}}>
+                    <button onClick={()=>setLimite(l=>l+150)} style={s.btn("sm")}>Mostrar más ({filtrados.length-limite} restantes)</button>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
       </div>
 
-      {/* MODAL · DETALLE (JSON completo) */}
-      {detalle && (
+      {/* MODAL · DETALLE (contacto del asesor + JSON completo) */}
+      {detalle && (()=>{ const ct=rqContacto(idx,detalle); const msgCt="Hola "+rqPrimerNombre(ct.nombre)+", te escribo de Dirección (Macrolotes) por el requerimiento de tu cliente "+detalle.cliente+" ("+resumenTxt(detalle)+").";
+        return (
         <RqModal titulo={"Requerimiento de "+detalle.cliente} sub={detalle.asesor+" · "+rqFecha(detalle.fecha)} onClose={()=>setDetalle(null)}>
+          <div style={{border:"1.5px solid "+B.gold,background:"#fffaf0",borderRadius:12,padding:"12px 14px",marginBottom:14}}>
+            <div style={{fontSize:11,fontWeight:800,color:B.goldD,textTransform:"uppercase",letterSpacing:0.6,marginBottom:6}}>📇 Contacto del asesor</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:8,fontSize:13.5}}>
+              <div><div style={{fontSize:11,color:B.grey4}}>Nombre</div><b style={{color:B.navy}}>{ct.nombre||"—"}</b></div>
+              <div><div style={{fontSize:11,color:B.grey4}}>Correo</div>{ct.email?<a href={"mailto:"+ct.email} style={{color:"#1d4ed8",fontWeight:700}}>{ct.email}</a>:<span style={{color:B.red}}>Sin correo</span>}</div>
+              <div><div style={{fontSize:11,color:B.grey4}}>Teléfono</div>{ct.tel?<a href={"tel:"+String(ct.tel).replace(/[^\d+]/g,"")} style={{color:"#1d4ed8",fontWeight:700}}>{ct.tel}</a>:<span style={{color:B.red}}>Sin teléfono</span>}</div>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
+              <a href={rqWaUrl(ct.tel,msgCt)} target="_blank" rel="noopener noreferrer" style={{background:"#25D366",color:"#fff",textDecoration:"none",fontWeight:800,fontSize:12.5,padding:"6px 12px",borderRadius:9}}>📲 WhatsApp al asesor</a>
+              {ct.email&&<a href={"mailto:"+ct.email+"?subject="+encodeURIComponent("Requerimiento de "+detalle.cliente)} style={{background:B.blue,color:"#fff",textDecoration:"none",fontWeight:800,fontSize:12.5,padding:"6px 12px",borderRadius:9}}>✉️ Correo al asesor</a>}
+            </div>
+          </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:14}}>
-            {[["Asesor",detalle.asesor+(detalle.asesor_email&&detalle.asesor_email!==detalle.asesor?(" · "+detalle.asesor_email):"")],["Cliente",detalle.cliente],["Ciudad / Zona",detalle.ciudades.join(", ")||"—"],["Tamaño (m²)",rqTam(detalle)],["Uso",detalle.usos.join(", ")||"—"],["Origen",detalle.origen],["Estatus",RQ_ESTATUS[detalle.estatus].t+(detalle.estatus_at?(" · "+rqFecha(detalle.estatus_at)):"")+(detalle.estatus_por?(" · "+detalle.estatus_por):"")]].map(([k,v])=>(
+            {[["Cliente",detalle.cliente],["Ciudad / Zona",detalle.ciudades.join(", ")||"—"],["Tamaño (m²)",rqTam(detalle)],["Uso",detalle.usos.join(", ")||"—"],
+              ...(detalle.pmin||detalle.pmax?[["Presupuesto",(detalle.pmin?rqMoney(detalle.pmin):"")+(detalle.pmin&&detalle.pmax?" – ":"")+(detalle.pmax?rqMoney(detalle.pmax):"")]]:[]),
+              ...(detalle.cliente_tel?[["Teléfono del cliente",detalle.cliente_tel]]:[]),
+              ["Origen",detalle.origen],["Estatus",RQ_ESTATUS[detalle.estatus].t+(detalle.estatus_at?(" · "+rqFecha(detalle.estatus_at)):"")+(detalle.estatus_por?(" · "+detalle.estatus_por):"")]].map(([k,v])=>(
               <div key={k} style={{background:B.offW,border:"1px solid "+B.grey1,borderRadius:10,padding:"8px 12px"}}><div style={{fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,color:B.grey4,fontWeight:700}}>{k}</div><div style={{fontSize:13.5,color:B.navy,fontWeight:600}}>{v}</div></div>
             ))}
           </div>
           <div style={{fontSize:12,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}}>JSON completo</div>
-          <pre style={{background:B.navyD,color:"#d6e4f0",borderRadius:10,padding:14,fontSize:12,lineHeight:1.5,overflowX:"auto",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{JSON.stringify({id:detalle.id,fecha:detalle.fecha,asesor:detalle.asesor,asesor_email:detalle.asesor_email,cliente:detalle.cliente,estatus:detalle.estatus,criterio_id:detalle.criterio_id,resumen:detalle.resumen},null,2)}</pre>
-        </RqModal>
-      )}
+          <pre style={{background:B.navyD,color:"#d6e4f0",borderRadius:10,padding:14,fontSize:12,lineHeight:1.5,overflowX:"auto",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{JSON.stringify(detalle.fuente==="comprador"?detalle.raw:{id:detalle.id,fecha:detalle.fecha,asesor:detalle.asesor,asesor_email:detalle.asesor_email,asesor_celular:detalle.asesor_celular||null,cliente:detalle.cliente,estatus:detalle.estatus,criterio_id:detalle.criterio_id,resumen:detalle.resumen},null,2)}</pre>
+        </RqModal>); })()}
 
       {/* MODAL · BUSCAR MATCH en el inventario actual (v_landing_lotes) */}
       {match && (()=>{ const m=matchesDe(match); const tabla=(ls)=>(
           <div style={{overflowX:"auto",border:"1px solid "+B.grey1,borderRadius:10}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-              <thead><tr style={{background:B.offW,textAlign:"left",color:B.grey4}}>{["Lote","Ciudad","Uso","Superficie","Precio","Disponibilidad"].map(h=><th key={h} style={{padding:"7px 12px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
-              <tbody>{ls.slice(0,60).map((l,i)=>{ const d=m.dist(l); return (
+              <thead><tr style={{background:B.offW,textAlign:"left",color:B.grey4}}>{["Lote","Ciudad","Uso","Superficie","Precio","Disponibilidad",""].map((h,i)=><th key={i} style={{padding:"7px 12px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+              <tbody>{ls.slice(0,60).map((l,i)=>{ const d=m.dist(l); const enPres=match.pmax&&Number(l.precio_total)?(Number(l.precio_total)<=match.pmax*1.1):null; return (
                 <tr key={l.id||i} style={{borderTop:"1px solid "+B.grey1}}>
                   <td style={{padding:"6px 12px"}}><b style={{color:B.navy}}>{String(l.id||"").toUpperCase()}</b><div style={{fontSize:11.5,color:B.grey4}}>{l.desarrollo||""}</div></td>
                   <td style={{padding:"6px 12px"}}>{l.ciudad||"—"}{l.colonia?<div style={{fontSize:11.5,color:B.grey4}}>{l.colonia}</div>:null}</td>
                   <td style={{padding:"6px 12px"}}>{usosLote(l).join(", ")||"—"}</td>
                   <td style={{padding:"6px 12px",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{rqM2(Number(l.superficie_m2))} m²{d<99?<div style={{fontSize:11,fontWeight:800,color:d<=0.2?B.green:(d<=0.5?"#b45309":B.grey3)}}>{d<=0.2?"✓ tamaño cercano":(Math.round(d*100)+"% de diferencia")}</div>:null}</td>
-                  <td style={{padding:"6px 12px",whiteSpace:"nowrap"}}>{rqMoney(l.precio_total)}</td>
+                  <td style={{padding:"6px 12px",whiteSpace:"nowrap"}}>{rqMoney(l.precio_total)}{enPres!=null?<div style={{fontSize:11,fontWeight:800,color:enPres?B.green:B.red}}>{enPres?"✓ en presupuesto":"arriba del presupuesto"}</div>:null}</td>
                   <td style={{padding:"6px 12px",whiteSpace:"nowrap"}}>{l.disponibilidad||"—"}</td>
+                  <td style={{padding:"6px 12px",textAlign:"right"}}><button onClick={()=>avisar(match,l)} title="WhatsApp al asesor con este terreno" style={bSm("#25D366","#fff")}>📲 Avisar</button></td>
                 </tr>); })}</tbody>
             </table>
           </div>);
@@ -2383,6 +2524,7 @@ function ViewRequerimientos({ s, onToast }){
         <RqModal titulo={"🎯 Match para "+match.cliente} sub={resumenTxt(match)+" · "+match.asesor} onClose={()=>setMatch(null)}>
           {inv===null ? <div style={{textAlign:"center",color:B.grey3,padding:24}}>Revisando inventario…</div>
           : invErr ? <div style={{color:B.red}}>⚠ {invErr}</div>
+          : !match.ciudades.length ? <div style={{fontSize:13,color:B.grey4}}>Este requerimiento no tiene ciudad, así que no se puede cruzar con el inventario.</div>
           : (<>
               <div style={{fontSize:14,fontWeight:800,color:B.navy,marginBottom:6}}>Coinciden en ciudad y uso <span style={{background:m.exactos.length?B.greenL:B.grey1,color:m.exactos.length?B.green:B.grey4,borderRadius:999,padding:"1px 9px",fontSize:12,marginLeft:4}}>{m.exactos.length}</span></div>
               {m.exactos.length ? tabla(m.exactos) : <div style={{fontSize:13,color:B.grey4,marginBottom:6}}>Todavía no hay inventario que coincida en ciudad y uso.</div>}
@@ -3042,6 +3184,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // ─── CAPTACIÓN DE TERRENOS · estado y mutadores (persistencia local) ───
   const [captaciones, setCaptaciones] = React.useState(()=>loadCaptaciones());
   const [showCaptacionModal, setShowCaptacionModal] = React.useState(false);
+  const [alertaMatch, setAlertaMatch] = React.useState(null); // 🚨 terreno nuevo que le sirve a requerimientos existentes
   const [editingCaptacion, setEditingCaptacion] = React.useState(null);
   const [respComentario, setRespComentario] = React.useState(""); // texto del comentario a enviar al asesor (Opción)
   // Cross-Check (Option Engine): CLIENTES compatibles con el terreno en captación (api-matching modo lote→clientes)
@@ -21178,7 +21321,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.68</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.69</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
@@ -21607,6 +21750,7 @@ Respuesta: [respuesta exacta, conversacional]
                       const pm2=(pd>0&&sup>0)?Math.round(pd/sup):0;
                       const ff={...f, precioM2: pm2>0?String(pm2):""};
                       upsertCaptacion(ff); setShowCaptacionModal(false); toast("✅ Terreno guardado");
+                      if(esNueva){ rqBuscarRequerimientosParaTerreno(ff).then(ms=>{ if(ms&&ms.length) setAlertaMatch({cap:ff,matches:ms}); }).catch(()=>{}); }
                     }} style={{padding:"10px 20px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>💾 Guardar</button>
                   </div>
                 </div>
@@ -22558,6 +22702,7 @@ Respuesta: [respuesta exacta, conversacional]
       )}
       {loading&&<LoadingView/>}
       {toastMsg&&<div style={s.toast}>{toastMsg}</div>}
+      {alertaMatch&&<RqAlertaMatch data={alertaMatch} onClose={()=>setAlertaMatch(null)}/>}
     </div>
   );
 }
