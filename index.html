@@ -2810,6 +2810,245 @@ function SelloConvenio({ cap, captaciones, catalogo, onToast }){
   </div>);
 }
 
+// ─── 📝 CARTAS OFERTA (ficha del terreno · solo equipo interno) ───────────────────────────────
+// Grupo Guía → liga COMPRADOR → (firma) → Grupo Guía autoriza + pone vendedor → liga VENDEDOR →
+// acepta · contrapropuesta (nueva ronda, vuelve al comprador) · rechaza. Un registro por carta y
+// una fila por ronda (sql/cartas_oferta.sql). Las ligas viven en macrolotes.grupoguia.mx/oferta/
+// <token>, valen 10 días, y la otra parte va CONFIDENCIAL. El apartado lo pone Grupo Guía.
+const CO_URL = LANDING_URL + "/oferta/";
+const CO_FORMAS = ["Contado","Financiamiento","Diferido"];
+const CO_EST = {
+  borrador:                  { t:"📝 Borrador",                        fg:"#64748b", bg:"#f1f5f9", paso:0 },
+  enviada_comprador:         { t:"🔗 Enviada al comprador",             fg:"#2563AC", bg:"#EEF4FF", paso:1 },
+  firmada_comprador:         { t:"✓ Firmó el comprador · autoriza",     fg:"#2563AC", bg:"#EEF4FF", paso:2 },
+  autorizada:                { t:"✍️ Autorizada · manda al vendedor",   fg:"#002B49", bg:"#eef2f7", paso:3 },
+  enviada_vendedor:          { t:"🔗 Enviada al vendedor",              fg:"#002B49", bg:"#eef2f7", paso:4 },
+  contrapropuesta_vendedor:  { t:"🔄 Contrapropuesta del vendedor",     fg:"#b45309", bg:"#fff7ed", paso:5 },
+  contrapropuesta_comprador: { t:"🔄 Contrapropuesta del comprador",    fg:"#b45309", bg:"#fff7ed", paso:5 },
+  aceptada:                  { t:"🎉 Aceptada",                         fg:"#1a8a4a", bg:"#ecfdf3", paso:6 },
+  rechazada:                 { t:"✕ Rechazada",                         fg:"#c0392b", bg:"#fef2f2", paso:6 },
+};
+const coMx=(n)=>"$"+Math.round(Number(n)||0).toLocaleString("es-MX");
+const coNum=(s)=>parseFloat(String(s==null?"":s).replace(/[^\d.]/g,""))||0;
+const coFH=(iso)=>{ if(!iso) return ""; try{ return new Date(iso).toLocaleString("es-MX",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; } };
+const coRondas=(c)=>((c&&c.cartas_oferta_rondas)||[]).slice().sort((a,b)=>a.ronda-b.ronda);
+const coActual=(c)=>{ const rs=coRondas(c); return rs.find(r=>r.ronda===c.ronda_actual)||rs[rs.length-1]||{}; };
+const coEspera=(c)=> c.estado==="enviada_comprador"?{rol:"comprador",exp:c.token_comprador_exp}:(c.estado==="enviada_vendedor"?{rol:"vendedor",exp:c.token_vendedor_exp}:null);
+const coVencida=(c)=>{ const e=coEspera(c); return !!(e&&e.exp&&new Date(e.exp)<new Date()); };
+
+// PDF (ventana de impresión). modo: "interno" (todo) · "vendedor" (comprador confidencial).
+function coImprimir(c, modo){
+  const r=coActual(c); const rs=coRondas(c); const conf=modo==="vendedor";
+  const esc=(s)=>String(s==null?"":s).replace(/[&<>"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+  const logo=new URL("public/logo_grupoguia.png", location.href).href;
+  const dato=(l,v)=>`<div class="d"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+  const conf1=(t)=>`<span class="cf">${t}</span>`;
+  const comprador=conf?conf1("INVERSIONISTA CONFIDENCIAL"):esc([c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")||"—");
+  const sello=(ok,t,lines)=> ok?`<div class="s"><b>✓ ${t}</b>${lines.filter(Boolean).map(esc).join("<br>")}</div>`:`<div class="p">⏳ Pendiente</div>`;
+  const fC=sello(!!r.comprador_firma_at,"Condiciones aceptadas",[coFH(r.comprador_firma_at), conf?"":(r.comprador_firma_ip?"IP "+r.comprador_firma_ip:""), conf?"":r.comprador_firma_email]);
+  const fG=sello(!!c.gg_firma_at,"Firmado como autorizado",[coFH(c.gg_firma_at), c.gg_firma_ip?"IP "+c.gg_firma_ip:"", c.gg_firma_email]);
+  const fV=sello(!!r.vendedor_firma_at,r.propone==="vendedor"?"Contrapropuesta firmada":"Oferta aceptada",[coFH(r.vendedor_firma_at), r.vendedor_firma_ip?"IP "+r.vendedor_firma_ip:"", r.vendedor_firma_email]);
+  const hist=rs.length>1?`<h4>Historial de la negociación</h4><table><tr><th>Ronda</th><th>Propuesta de</th><th>$/m²</th><th>Total</th><th>Pago</th></tr>${rs.map(x=>`<tr${x.ronda===r.ronda?' style="font-weight:800"':''}><td>${x.ronda}</td><td>${x.propone==="grupo_guia"?"Comprador (vía Grupo Guía)":(x.propone==="vendedor"?"Vendedor":"Comprador")}</td><td>${coMx(x.precio_m2)}</td><td>${coMx(x.total)}</td><td>${esc(x.forma_pago)}</td></tr>`).join("")}</table>`:"";
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(c.folio)} · Carta oferta${conf?" (confidencial)":""}</title>
+<style>body{margin:0;font-family:'DM Sans',Arial,sans-serif;color:#1e293b}.h{background:#002B49;padding:20px 30px 16px;display:flex;justify-content:space-between;align-items:flex-end;border-bottom:4px solid #F5B335}.h img{height:28px}.f{text-align:right;color:#cbd5e1;font-size:11px;line-height:1.6}.f b{color:#F5B335}
+h1{font:800 22px Georgia,serif;color:#002B49;letter-spacing:2px;text-align:center;margin:18px 0 4px}.rb{text-align:center;color:#b45309;font-weight:800;font-size:11px;letter-spacing:1px}.sec{padding:8px 30px}h4{font-size:10.5px;letter-spacing:1.8px;text-transform:uppercase;color:#002B49;margin:8px 0 6px}
+.g{display:grid;gap:8px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}.d{border:1px solid #e5e9ef;border-radius:8px;padding:7px 10px;background:#F8FAFC}.l{font-size:9px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#64748b}.v{font-size:13px;font-weight:700;color:#002B49}
+.t{background:#002B49;color:#fff;border-radius:8px;padding:8px 12px;text-align:right}.t .l{color:#F5B335}.t .v{color:#fff;font:800 19px Georgia,serif}.cf{background:#001a2e;color:#F5B335;border-radius:5px;padding:1px 7px;font-size:11px;font-weight:800}
+.s{border:1.5px solid #1a8a4a;background:#ecfdf3;color:#0f6b38;border-radius:8px;padding:6px 8px;font-size:10.5px;line-height:1.45}.s b{display:block;text-transform:uppercase;letter-spacing:.5px}.p{border:1.5px dashed #cbd5e1;color:#94a3b8;border-radius:8px;padding:8px;font-size:10.5px;text-align:center}
+.fi{border:1px solid #e5e9ef;border-radius:10px;padding:8px 10px}.q{font-size:9px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#d4952a}.w{font-weight:800;color:#002B49;font-size:12px;margin:3px 0 5px}
+table{width:100%;border-collapse:collapse;font-size:11.5px}th{background:#002B49;color:#fff;text-align:left;padding:5px 8px;font-size:10px}td{border-bottom:1px solid #e5e9ef;padding:5px 8px}.n{font-size:11.5px;background:#fffaf0;border-left:3px solid #F5B335;padding:6px 10px;margin-top:6px}
+.lg{margin:10px 30px 0;padding:8px 0 12px;border-top:1px solid #e5e9ef;font-size:9.5px;color:#64748b;line-height:1.5}.pie{background:#002B49;color:#94a3b8;font-size:9.5px;text-align:center;padding:7px}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>
+<div class="h"><img src="${logo}"><div class="f">Folio <b>${esc(c.folio)}</b>${c.ronda_actual>1?(" · Ronda "+c.ronda_actual):""}<br>Guadalajara, Jal. · ${new Date(c.created_at||Date.now()).toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"})}</div></div>
+<h1>CARTA OFERTA DE COMPRA</h1>${r.propone&&r.propone!=="grupo_guia"?`<div class="rb">🔄 CONTRAPROPUESTA DEL ${r.propone==="vendedor"?"VENDEDOR":"COMPRADOR"} · RONDA ${r.ronda}</div>`:""}
+<div class="sec"><div class="g g2">${dato("Comprador",comprador)}${dato("Vendedor",esc(c.vendedor_nombre||"—"))}</div></div>
+<div class="sec"><h4>1 · Terreno</h4><div class="g g3">${dato("Terreno",esc(c.terreno_nombre))}${dato("Ubicación",esc(c.terreno_ubicacion||"—"))}${dato("Superficie",(Number(c.superficie_m2)||0).toLocaleString("es-MX")+" m²")}</div></div>
+<div class="sec"><h4>2 · Oferta</h4><div class="g g3">${dato("Superficie",(Number(c.superficie_m2)||0).toLocaleString("es-MX")+" m²")}${dato("Precio por m²",coMx(r.precio_m2))}<div class="t"><div class="l">Total de la oferta</div><div class="v">${coMx(r.total)}</div></div></div></div>
+<div class="sec"><h4>3 · Condiciones de pago</h4><div class="g g3">${dato("Forma de pago",esc(r.forma_pago||"—"))}${dato("Monto de apartado",coMx(c.apartado))}${dato("Exclusividad","30 días")}</div>${(r.condiciones||r.comentarios)?`<div class="n">${r.condiciones?"<b>Condiciones:</b> "+esc(r.condiciones)+"<br>":""}${r.comentarios?"<b>Comentarios:</b> "+esc(r.comentarios):""}</div>`:""}</div>
+${hist?`<div class="sec">${hist}</div>`:""}
+<div class="sec"><h4>4 · Firmas</h4><div class="g g3"><div class="fi"><div class="q">Comprador</div><div class="w">${conf?conf1("CONFIDENCIAL"):esc(r.comprador_firma_nombre||c.comprador_nombre||"—")}</div>${fC}</div><div class="fi"><div class="q">Grupo Guía · Autorizado</div><div class="w">Dirección Grupo Guía</div>${fG}</div><div class="fi"><div class="q">Vendedor</div><div class="w">${esc(r.vendedor_firma_nombre||c.vendedor_nombre||"—")}</div>${fV}</div></div></div>
+<div class="lg"><b style="color:#002B49">Aviso legal.</b> Esta carta es una oferta de compra, no un contrato de compraventa definitivo. Sujeta a revisión legal. El monto de apartado asegura la exclusividad del inmueble por 30 días. Aviso de privacidad conforme a la Ley Federal de Protección al Consumidor (PROFECO).</div>
+<div class="pie">GRUPO GUÍA · MACROLOTES · grupoguia.mx</div></body></html>`;
+  const w=window.open("","_blank"); if(!w) return false;
+  w.document.open(); w.document.write(html); w.document.close(); setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} },700);
+  return true;
+}
+
+function CartasOfertaPanel({ cap, onToast }){
+  const toast=onToast||(()=>{});
+  const [abierto,setAbierto]=useState(false);
+  const [lista,setLista]=useState(null);
+  const [err,setErr]=useState("");
+  const [busy,setBusy]=useState("");
+  const [form,setForm]=useState(null);          // {id?, ...campos} cuando se crea/edita
+  const [vend,setVend]=useState({});            // {[cartaId]: {nombre,email,tel}}
+  const supCap=coNum(cap&&cap.superficie);
+  const nombreTerr=String((cap&&(cap.zona||cap.ubicacion))||"").trim()||(cap&&cap.propietario?("Terreno de "+cap.propietario):"Terreno");
+  const ubic=[cap&&cap.ubicacion&&cap.ubicacion!==cap.zona?cap.ubicacion:"", cap&&cap.ciudad].filter(Boolean).join(", ");
+
+  const cargar=useCallback(async()=>{
+    if(!window.sb||!cap||!cap.id) return;
+    const { data, error } = await window.sb.from("cartas_oferta").select("*, cartas_oferta_rondas(*)").eq("captacion_id",cap.id).order("created_at",{ascending:false});
+    if(error){ setErr(/does not exist|schema cache|PGRST205|42P01/i.test(error.message)?"Falta correr sql/cartas_oferta.sql en Supabase.":("No se pudieron leer las cartas: "+error.message)); setLista([]); return; }
+    setErr(""); setLista(data||[]);
+  },[cap&&cap.id]);
+  React.useEffect(()=>{ cargar(); },[cargar]);
+
+  const nueva=()=>{ setAbierto(true); setForm({ comprador_nombre:"", comprador_empresa:"", comprador_email:"", comprador_telefono:"", asesor_nombre:(cap&&cap.asesorResponsableGG)||"", superficie_m2:supCap?String(supCap):"", precio_m2:"", forma_pago:"Contado", apartado:"", condiciones:"" }); };
+  const editar=(c)=>{ const r=coActual(c); setForm({ id:c.id, ronda_id:r.id, comprador_nombre:c.comprador_nombre||"", comprador_empresa:c.comprador_empresa||"", comprador_email:c.comprador_email||"", comprador_telefono:c.comprador_telefono||"", asesor_nombre:c.asesor_nombre||"", superficie_m2:String(c.superficie_m2||""), precio_m2:String(r.precio_m2||""), forma_pago:r.forma_pago||"Contado", apartado:String(c.apartado||""), condiciones:r.condiciones||"" }); };
+  const guardar=async()=>{
+    const f=form; const sup=coNum(f.superficie_m2), pm2=coNum(f.precio_m2), apt=coNum(f.apartado);
+    if(!String(f.comprador_nombre).trim()){ toast("Escribe el nombre del comprador."); return; }
+    if(!(sup>0)||!(pm2>0)){ toast("Captura la superficie y el precio por m²."); return; }
+    setBusy("guardar");
+    try{
+      const base={ comprador_nombre:f.comprador_nombre.trim(), comprador_empresa:f.comprador_empresa.trim()||null, comprador_email:f.comprador_email.trim().toLowerCase()||null, comprador_telefono:f.comprador_telefono.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, superficie_m2:sup, apartado:apt };
+      const ronda={ precio_m2:pm2, forma_pago:f.forma_pago, condiciones:String(f.condiciones||"").trim()||null };
+      if(f.id){
+        const u=await window.sb.from("cartas_oferta").update(base).eq("id",f.id); if(u.error) throw u.error;
+        const u2=await window.sb.from("cartas_oferta_rondas").update(ronda).eq("id",f.ronda_id); if(u2.error) throw u2.error;
+        toast("✅ Carta actualizada");
+      } else {
+        let por=null; try{ const { data } = await window.sb.auth.getSession(); por=(data&&data.session&&data.session.user&&data.session.user.email)||null; }catch(e){}
+        const ins=await window.sb.from("cartas_oferta").insert({ ...base, captacion_id:cap.id, terreno_nombre:nombreTerr, terreno_ubicacion:ubic||null, creado_por:por }).select("id,folio").single();
+        if(ins.error) throw ins.error;
+        const r1=await window.sb.from("cartas_oferta_rondas").insert({ ...ronda, carta_id:ins.data.id, ronda:1, propone:"grupo_guia" });
+        if(r1.error){ try{ await window.sb.from("cartas_oferta").delete().eq("id",ins.data.id); }catch(e){} throw r1.error; }
+        toast("✅ Carta "+(ins.data.folio||"")+" creada · ahora copia la liga del comprador");
+      }
+      setForm(null); await cargar();
+    }catch(e){ toast("No se pudo guardar: "+((e&&e.message)||e)); }
+    setBusy("");
+  };
+  const liga=async(c,rol,renovar)=>{
+    setBusy(c.id+rol);
+    try{
+      const { data, error } = await window.sb.rpc("carta_oferta_liga",{ p_id:c.id, p_rol:rol, p_renovar:!!renovar });
+      if(error) throw error;
+      await cargar();
+      return CO_URL+data;
+    }catch(e){ toast("No se pudo generar la liga: "+((e&&e.message)||e)); return null; }
+    finally{ setBusy(""); }
+  };
+  const copiar=async(c,rol,renovar)=>{ const url=await liga(c,rol,renovar); if(!url) return;
+    try{ await navigator.clipboard.writeText(url); toast("🔗 Liga del "+rol+" copiada · vale 10 días"); }catch(e){ try{ window.prompt("Copia la liga del "+rol+":",url); }catch(_){ toast(url); } } };
+  const whats=async(c,rol)=>{ const w=window.open("","_blank"); const url=await liga(c,rol,false); if(!url){ try{ w&&w.close(); }catch(e){} return; }
+    const nom=rol==="comprador"?(c.comprador_nombre||""):(c.vendedor_nombre||""); const tel=rol==="comprador"?c.comprador_telefono:(c.vendedor_telefono||(cap&&cap.telefono));
+    const msg="Hola "+(String(nom).trim().split(/\s+/)[0]||"")+", te compartimos la carta oferta "+(c.folio||"")+" del terreno "+c.terreno_nombre+" para tu revisión y firma electrónica:\n"+url+"\n\nLa liga es válida por 10 días. — Grupo Guía";
+    const wa=rqWaUrl(tel,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener"); };
+  const autorizar=async(c)=>{ const v=vend[c.id]||{}; const nombre=(v.nombre!=null?v.nombre:(cap&&cap.propietario)||"").trim();
+    if(!nombre){ toast("Escribe el nombre del vendedor."); return; }
+    if(!window.confirm("¿Firmar la carta "+c.folio+" como AUTORIZADO por Grupo Guía?\n\nVendedor: "+nombre)) return;
+    setBusy(c.id+"aut");
+    try{ const { error } = await window.sb.rpc("carta_oferta_autorizar",{ p_id:c.id, p_vendedor_nombre:nombre, p_vendedor_email:(v.email!=null?v.email:(cap&&cap.email)||"")||null, p_vendedor_telefono:(v.tel!=null?v.tel:(cap&&cap.telefono)||"")||null });
+      if(error) throw error; toast("✍️ Firmada como autorizado · ya puedes mandar la liga al vendedor"); await cargar(); }
+    catch(e){ toast("No se pudo autorizar: "+((e&&e.message)||e)); }
+    setBusy(""); };
+  const borrar=async(c)=>{ if(!window.confirm("¿Eliminar la carta oferta "+c.folio+"? Se borran todas sus rondas y firmas. No se puede deshacer.")) return;
+    const { error } = await window.sb.from("cartas_oferta").delete().eq("id",c.id); if(error){ toast("No se pudo eliminar: "+error.message); return; } toast("🗑 Carta "+c.folio+" eliminada"); cargar(); };
+
+  // ── UI ──
+  const L=lista||[]; const pendientes=L.filter(c=>["firmada_comprador","contrapropuesta_vendedor","contrapropuesta_comprador"].includes(c.estado)).length;
+  const btn=(bg,fg,brd)=>({padding:"7px 11px",borderRadius:8,border:brd?("1.5px solid "+brd):"none",background:bg,color:fg,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"});
+  const inS={width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid "+B.grey1,fontSize:13,color:B.navy,background:"#fff",fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box"};
+  const lbS={fontSize:9.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6,marginBottom:3,display:"block"};
+  const pill=(e)=>{ const m=CO_EST[e]||CO_EST.borrador; return <span style={{background:m.bg,color:m.fg,border:"1.5px solid "+m.fg,borderRadius:999,padding:"2px 9px",fontSize:11,fontWeight:800,whiteSpace:"nowrap"}}>{m.t}</span>; };
+  const PASOS=["Borrador","Comprador","Firmó comprador","Autorizada","Vendedor","Respuesta"];
+  const timeline=(c)=>{ const n=(CO_EST[c.estado]||{}).paso||0; return (<div style={{display:"flex",margin:"8px 0 2px"}}>{PASOS.map((p,i)=>{ const hecho=i<n||(n===6), act=i===n; return (<div key={p} style={{flex:1,textAlign:"center",fontSize:9.5,color:hecho||act?B.navy:B.grey3,fontWeight:act?800:600,position:"relative",paddingTop:16}}><span style={{position:"absolute",top:5,left:i===0?"50%":0,right:i===PASOS.length-1?"50%":0,height:3,background:hecho?B.green:B.grey1}}/><span style={{position:"absolute",top:0,left:"calc(50% - 6px)",width:13,height:13,borderRadius:"50%",background:hecho?B.green:(act?B.gold:"#fff"),border:"2.5px solid "+(hecho?B.green:(act?B.gold:B.grey2))}}/>{p}</div>); })}</div>); };
+  const firma=(t,at,extra)=> at?<div style={{fontSize:11,color:"#0f6b38",background:B.greenL,border:"1px solid #86efac",borderRadius:7,padding:"4px 7px"}}><b>✓ {t}</b> · {coFH(at)}{extra?(" · "+extra):""}</div>:<div style={{fontSize:11,color:B.grey3,border:"1px dashed "+B.grey2,borderRadius:7,padding:"4px 7px"}}>⏳ {t}: pendiente</div>;
+
+  const tarjeta=(c)=>{ const r=coActual(c); const rs=coRondas(c); const venc=coVencida(c); const v=vend[c.id]||{}; const setV=(k,val)=>setVend(p=>({...p,[c.id]:{...(p[c.id]||{}),[k]:val}}));
+    const esperaComprador=["borrador","enviada_comprador","contrapropuesta_vendedor"].includes(c.estado);
+    const esperaVendedor=["autorizada","enviada_vendedor","contrapropuesta_comprador"].includes(c.estado);
+    return (
+    <div key={c.id} style={{border:"1.5px solid "+((CO_EST[c.estado]||{}).paso===5?"#f59e0b":B.grey1),borderRadius:12,padding:"10px 12px",marginBottom:10,background:"#fff"}}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{fontSize:13,color:B.grey5}}><b style={{color:B.navy}}>{c.folio}</b> · {[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")}{c.vendedor_nombre?(" ⇄ "+c.vendedor_nombre):""}</div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>{venc&&<span style={{fontSize:11,fontWeight:800,color:B.grey4,background:B.offW,border:"1px solid "+B.grey2,borderRadius:999,padding:"2px 8px"}}>⌛ Liga vencida</span>}{pill(c.estado)}</div>
+      </div>
+      <div style={{fontSize:13,marginTop:4,color:B.navy}}><b>{coMx(r.total)}</b> <span style={{color:B.grey4}}>({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m² × {coMx(r.precio_m2)}) · {r.forma_pago} · apartado {coMx(c.apartado)}{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</span></div>
+      {timeline(c)}
+      {rs.length>1 && (
+        <div style={{overflowX:"auto",marginTop:8}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead><tr style={{background:B.navy,color:"#fff",textAlign:"left"}}>{["Ronda","Propone","$/m²","Total","Pago","Diferencia"].map(h=><th key={h} style={{padding:"5px 8px",fontSize:10,textTransform:"uppercase"}}>{h}</th>)}</tr></thead>
+          <tbody>{rs.map((x,i)=>{ const d=i?(Number(x.total)-Number(rs[0].total)):0; return (<tr key={x.ronda} style={{borderTop:"1px solid "+B.grey1,fontWeight:x.ronda===c.ronda_actual?800:500}}><td style={{padding:"4px 8px"}}>{x.ronda}</td><td style={{padding:"4px 8px"}}>{x.propone==="grupo_guia"?"Comprador":(x.propone==="vendedor"?"Vendedor":"Comprador")}</td><td style={{padding:"4px 8px"}}>{coMx(x.precio_m2)}</td><td style={{padding:"4px 8px"}}>{coMx(x.total)}</td><td style={{padding:"4px 8px"}}>{x.forma_pago}</td><td style={{padding:"4px 8px",color:d?"#b45309":B.grey3}}>{i?((d>=0?"+":"−")+coMx(Math.abs(d))+" ("+(d>=0?"+":"−")+Math.abs(d/(Number(rs[0].total)||1)*100).toFixed(1)+"%)"):"—"}</td></tr>); })}</tbody>
+        </table></div>)}
+      {(r.condiciones||r.comentarios) && <div style={{fontSize:12,color:"#334155",background:"#fffaf0",borderLeft:"3px solid "+B.gold,padding:"6px 9px",borderRadius:"0 7px 7px 0",marginTop:8}}>{r.condiciones&&<div><b>Condiciones:</b> {r.condiciones}</div>}{r.comentarios&&<div>💬 <b>{r.propone==="vendedor"?"Vendedor":(r.propone==="comprador"?"Comprador":"Nota")}:</b> {r.comentarios}</div>}</div>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:6,marginTop:8}}>
+        {firma("Comprador",r.comprador_firma_at,[r.comprador_firma_email,r.comprador_firma_ip?("IP "+r.comprador_firma_ip):""].filter(Boolean).join(" · "))}
+        {firma("Grupo Guía",c.gg_firma_at,c.gg_firma_email)}
+        {firma("Vendedor",r.vendedor_firma_at,[r.vendedor_firma_email,r.vendedor_firma_ip?("IP "+r.vendedor_firma_ip):""].filter(Boolean).join(" · "))}
+      </div>
+      {c.estado==="rechazada" && <div style={{fontSize:12,color:B.red,marginTop:8}}>✕ Rechazada por el <b>{c.rechazo_por}</b> el {coFH(c.rechazo_at)}{c.rechazo_motivo?(" · "+c.rechazo_motivo):""}</div>}
+      {c.estado==="firmada_comprador" && (
+        <div style={{border:"1.5px solid "+B.navy,borderRadius:10,padding:"9px 10px",marginTop:8,background:"#f6f8fb"}}>
+          <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>✍️ Autorizar y poner al vendedor (aparece en su carta; el comprador va confidencial)</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
+            <div><label style={lbS}>Vendedor (propietario)</label><input style={inS} value={v.nombre!=null?v.nombre:((cap&&cap.propietario)||"")} onChange={e=>setV("nombre",e.target.value)}/></div>
+            <div><label style={lbS}>Correo</label><input style={inS} value={v.email!=null?v.email:((cap&&cap.email)||"")} onChange={e=>setV("email",e.target.value)}/></div>
+            <div><label style={lbS}>WhatsApp</label><input style={inS} value={v.tel!=null?v.tel:((cap&&cap.telefono)||"")} onChange={e=>setV("tel",e.target.value)}/></div>
+          </div>
+          <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c)} style={{...btn(B.gold,B.navy),marginTop:8}}>{busy===c.id+"aut"?"Firmando…":"✍️ Firmar como Autorizado"}</button>
+        </div>)}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
+        {c.estado==="borrador" && <button onClick={()=>editar(c)} style={btn("#fff",B.navy,B.grey2)}>✏️ Editar</button>}
+        {esperaComprador && <button disabled={!!busy} onClick={()=>copiar(c,"comprador",venc)} style={btn(B.gold,B.navy)}>🔗 {venc?"Liga nueva":"Copiar liga"} comprador{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</button>}
+        {esperaComprador && <button disabled={!!busy} onClick={()=>whats(c,"comprador")} style={btn("#25D366","#fff")}>🟢 WhatsApp comprador</button>}
+        {esperaVendedor && <button disabled={!!busy} onClick={()=>copiar(c,"vendedor",venc)} style={btn(B.navy,"#fff")}>🔗 {venc?"Liga nueva":"Copiar liga"} vendedor{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</button>}
+        {esperaVendedor && <button disabled={!!busy} onClick={()=>whats(c,"vendedor")} style={btn("#25D366","#fff")}>🟢 WhatsApp vendedor</button>}
+        <button onClick={()=>{ if(!coImprimir(c,"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF interno</button>
+        {c.vendedor_nombre && <button onClick={()=>{ if(!coImprimir(c,"vendedor")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF vendedor (confidencial)</button>}
+        <button onClick={()=>borrar(c)} title="Eliminar carta" style={btn("#fff","#b91c1c","#fecaca")}>🗑</button>
+      </div>
+    </div>); };
+
+  return (
+    <div style={{border:"1.5px solid "+B.navy,borderRadius:12,overflow:"hidden",flexShrink:0}}>
+      <div onClick={()=>setAbierto(a=>!a)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"10px 12px",background:"#f3f6fa",cursor:"pointer"}}>
+        <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{abierto?"▾":"▸"} 📝 Cartas oferta {lista?<span style={{background:B.navy,color:B.gold,borderRadius:999,padding:"1px 8px",fontSize:11,marginLeft:4}}>{L.length}</span>:null}{pendientes>0&&<span style={{background:"#fff7ed",color:"#b45309",border:"1px solid #f59e0b",borderRadius:999,padding:"1px 8px",fontSize:11,marginLeft:6}}>{pendientes} por atender</span>}</div>
+        <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
+          <button onClick={cargar} title="Actualizar (ver si ya firmaron)" style={btn("#fff",B.navy,B.grey2)}>↻</button>
+          <button onClick={nueva} style={btn(B.navy,"#fff")}>＋ Nueva carta oferta</button>
+        </div>
+      </div>
+      {abierto && (
+        <div style={{padding:"10px 12px"}}>
+          {err && <div style={{fontSize:12.5,color:B.red,marginBottom:8}}>⚠ {err}</div>}
+          {form && (()=>{ const f=form; const set=(k,v)=>setForm(p=>({...p,[k]:v})); const tot=coNum(f.superficie_m2)*coNum(f.precio_m2); const apt=coNum(f.apartado); return (
+            <div style={{border:"1.5px solid "+B.gold,background:"#fffdf5",borderRadius:12,padding:"10px 12px",marginBottom:10}}>
+              <div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:8}}>{f.id?"✏️ Editar carta oferta":"＋ Nueva carta oferta"} · {nombreTerr}{ubic?(" · "+ubic):""}</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:8}}>
+                <div><label style={lbS}>Comprador (nombre) *</label><input style={inS} value={f.comprador_nombre} onChange={e=>set("comprador_nombre",e.target.value)}/></div>
+                <div><label style={lbS}>Empresa</label><input style={inS} value={f.comprador_empresa} onChange={e=>set("comprador_empresa",e.target.value)}/></div>
+                <div><label style={lbS}>Correo del comprador</label><input style={inS} value={f.comprador_email} onChange={e=>set("comprador_email",e.target.value)}/></div>
+                <div><label style={lbS}>WhatsApp del comprador</label><input style={inS} value={f.comprador_telefono} onChange={e=>set("comprador_telefono",e.target.value)}/></div>
+                <div><label style={lbS}>Asesor Grupo Guía</label><input style={inS} value={f.asesor_nombre} onChange={e=>set("asesor_nombre",e.target.value)}/></div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr auto 1.2fr",gap:8,alignItems:"end",marginTop:10,border:"1.5px solid "+B.navy,borderRadius:10,padding:"8px 10px",background:"#fff"}}>
+                <div><label style={lbS}>Superficie (m²) *</label><input style={{...inS,textAlign:"right"}} inputMode="decimal" value={f.superficie_m2} onChange={e=>set("superficie_m2",e.target.value)}/></div>
+                <div style={{fontSize:18,fontWeight:800,color:B.goldD,paddingBottom:6}}>×</div>
+                <div><label style={lbS}>Precio ofertado por m² *</label><input style={{...inS,textAlign:"right"}} inputMode="decimal" value={f.precio_m2} onChange={e=>set("precio_m2",e.target.value)}/></div>
+                <div style={{fontSize:18,fontWeight:800,color:B.goldD,paddingBottom:6}}>=</div>
+                <div style={{background:B.navy,color:"#fff",borderRadius:8,padding:"6px 10px",textAlign:"right"}}><div style={{fontSize:9,fontWeight:800,color:B.gold,letterSpacing:1,textTransform:"uppercase"}}>Total de la oferta</div><div style={{fontSize:18,fontWeight:800,fontFamily:"'Playfair Display',serif"}}>{coMx(tot)}</div></div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:8,marginTop:10}}>
+                <div><label style={lbS}>Forma de pago</label><select style={inS} value={f.forma_pago} onChange={e=>set("forma_pago",e.target.value)}>{CO_FORMAS.map(x=><option key={x}>{x}</option>)}</select></div>
+                <div><label style={lbS}>Monto de apartado</label><input style={{...inS,textAlign:"right"}} inputMode="decimal" value={f.apartado} onChange={e=>set("apartado",e.target.value)}/>{apt>0&&tot>0&&<div style={{fontSize:10.5,color:B.grey4,marginTop:2}}>{(apt/tot*100).toFixed(1)}% del total · saldo {coMx(tot-apt)}</div>}</div>
+                <div style={{gridColumn:"span 2"}}><label style={lbS}>Plazos / condiciones (opcional)</label><input style={inS} value={f.condiciones} onChange={e=>set("condiciones",e.target.value)} placeholder="Ej. 30% a la firma, saldo contra escritura"/></div>
+              </div>
+              <div style={{display:"flex",gap:8,marginTop:10,justifyContent:"flex-end"}}>
+                <button onClick={()=>setForm(null)} style={btn("#fff",B.grey4,B.grey2)}>Cancelar</button>
+                <button disabled={busy==="guardar"} onClick={guardar} style={btn(B.green,"#fff")}>{busy==="guardar"?"Guardando…":"💾 Guardar carta"}</button>
+              </div>
+              <div style={{fontSize:10.5,color:B.grey4,marginTop:6}}>El apartado y la superficie se congelan al mandar la primera liga. Las ligas valen 10 días.</div>
+            </div>); })()}
+          {lista===null ? <div style={{fontSize:12.5,color:B.grey3}}>Cargando…</div>
+            : (!L.length && !form) ? <div style={{fontSize:12.5,color:B.grey3}}>Sin cartas oferta para este terreno.</div>
+            : L.map(tarjeta)}
+        </div>)}
+    </div>
+  );
+}
+
 function MacroProMatcher({ sessionEmail } = {}) {
   // ═══════════════════════════════════════════════════════════
   // PERSISTENCIA: claves de localStorage y helpers
@@ -21609,7 +21848,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.75</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.76</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
@@ -21732,6 +21971,8 @@ Respuesta: [respuesta exacta, conversacional]
                   </div>
                 </div>
                 <div style={{padding:"20px 26px",maxHeight:"62vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:16}}>
+                  {/* 📝 Cartas oferta (solo equipo interno) */}
+                  {!esNueva && <CartasOfertaPanel key={"co-"+f.id} cap={f} onToast={toast}/>}
                   {/* 🔗 Liga Mágica: link único para que el propietario suba su expediente legal */}
                   {/* Captación que nació de una cotización aceptada: su liga de propietario es /aceptar
                       (ahí sube sus documentos a ESTA misma ficha). Una sola liga por terreno. */}
