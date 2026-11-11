@@ -5,7 +5,7 @@
 // La versión nueva ESPERA a que el usuario toque "Actualizar" (mensaje
 // SKIP_WAITING) para no interrumpir el trabajo a medias.
 
-const CACHE_NAME = 'macropro-v81';
+const CACHE_NAME = 'macropro-v82';
 const URLS_TO_CACHE = [
   './',
   './index.html',
