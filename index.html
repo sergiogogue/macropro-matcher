@@ -2860,7 +2860,7 @@ table{width:100%;border-collapse:collapse;font-size:11.5px}th{background:#002B49
 .lg{margin:10px 30px 0;padding:8px 0 12px;border-top:1px solid #e5e9ef;font-size:9.5px;color:#64748b;line-height:1.5}.pie{background:#002B49;color:#94a3b8;font-size:9.5px;text-align:center;padding:7px}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>
 <div class="h"><img src="${logo}"><div class="f">Folio <b>${esc(c.folio)}</b>${c.ronda_actual>1?(" · Ronda "+c.ronda_actual):""}<br>Guadalajara, Jal. · ${new Date(c.created_at||Date.now()).toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"})}</div></div>
 <h1>CARTA OFERTA DE COMPRA</h1>${r.propone&&r.propone!=="grupo_guia"?`<div class="rb">🔄 CONTRAPROPUESTA DEL ${r.propone==="vendedor"?"VENDEDOR":"COMPRADOR"} · RONDA ${r.ronda}</div>`:""}
-<div class="sec"><div class="g g2">${dato("Comprador",comprador)}${dato("Vendedor",esc(c.vendedor_nombre||"—"))}</div></div>
+<div class="sec"><div class="g ${conf?"g2":"g3"}">${dato("Comprador",comprador)}${dato("Vendedor",esc(c.vendedor_nombre||"—"))}${conf?"":dato("Asesor Grupo Guía",esc(c.asesor_nombre||"—"))}</div></div>
 <div class="sec"><h4>1 · Terreno</h4><div class="g g3">${dato("Terreno",esc(c.terreno_nombre))}${dato("Ubicación",esc(c.terreno_ubicacion||"—"))}${dato("Superficie",(Number(c.superficie_m2)||0).toLocaleString("es-MX")+" m²")}</div></div>
 <div class="sec"><h4>2 · Oferta</h4><div class="g g3">${dato("Superficie",(Number(c.superficie_m2)||0).toLocaleString("es-MX")+" m²")}${dato("Precio por m²",coMx(r.precio_m2))}<div class="t"><div class="l">Total de la oferta</div><div class="v">${coMx(r.total)}</div></div></div></div>
 <div class="sec"><h4>3 · Condiciones de pago</h4><div class="g g3">${dato("Forma de pago",esc(r.forma_pago||"—"))}${dato("Monto de apartado",coMx(c.apartado))}${dato("Exclusividad","30 días")}</div>${(r.condiciones||r.comentarios)?`<div class="n">${r.condiciones?"<b>Condiciones:</b> "+esc(r.condiciones)+"<br>":""}${r.comentarios?"<b>Comentarios:</b> "+esc(r.comentarios):""}</div>`:""}</div>
@@ -2873,9 +2873,13 @@ ${hist?`<div class="sec">${hist}</div>`:""}
   return true;
 }
 
-function CartasOfertaPanel({ cap, onToast }){
+const CO_UI={}; // estado de UI por ficha (sobrevive si la ficha se re-monta)
+function CartasOfertaPanel({ cap, lote, onToast, onNueva }){
   const toast=onToast||(()=>{});
-  const [abierto,setAbierto]=useState(false);
+  const loteId=lote?loteKey(lote):"";
+  const uiKey=cap&&cap.id?("cap:"+cap.id):("lote:"+loteId);
+  const [abierto,setAbiertoRaw]=useState(()=>!!(CO_UI[uiKey]&&CO_UI[uiKey].abierto));
+  const setAbierto=(fn)=>setAbiertoRaw(prev=>{ const v=typeof fn==="function"?fn(prev):fn; CO_UI[uiKey]={...(CO_UI[uiKey]||{}),abierto:v}; return v; });
   const [lista,setLista]=useState(null);
   const [err,setErr]=useState("");
   const [busy,setBusy]=useState("");
@@ -2886,14 +2890,15 @@ function CartasOfertaPanel({ cap, onToast }){
   const ubic=[cap&&cap.ubicacion&&cap.ubicacion!==cap.zona?cap.ubicacion:"", cap&&cap.ciudad].filter(Boolean).join(", ");
 
   const cargar=useCallback(async()=>{
-    if(!window.sb||!cap||!cap.id) return;
-    const { data, error } = await window.sb.from("cartas_oferta").select("*, cartas_oferta_rondas(*)").eq("captacion_id",cap.id).order("created_at",{ascending:false});
+    if(!window.sb||!((cap&&cap.id)||loteId)) return;
+    const { data, error } = await window.sb.from("cartas_oferta").select("*, cartas_oferta_rondas(*)").eq(cap&&cap.id?"captacion_id":"lote_id",cap&&cap.id?cap.id:loteId).order("created_at",{ascending:false});
     if(error){ setErr(/does not exist|schema cache|PGRST205|42P01/i.test(error.message)?"Falta correr sql/cartas_oferta.sql en Supabase.":("No se pudieron leer las cartas: "+error.message)); setLista([]); return; }
     setErr(""); setLista(data||[]);
-  },[cap&&cap.id]);
+  },[cap&&cap.id,loteId]);
   React.useEffect(()=>{ cargar(); },[cargar]);
+  React.useEffect(()=>{ const h=()=>cargar(); window.addEventListener("co-actualizado",h); return ()=>window.removeEventListener("co-actualizado",h); },[cargar]);
 
-  const nueva=()=>{ setAbierto(true); setForm({ comprador_nombre:"", comprador_empresa:"", comprador_email:"", comprador_telefono:"", asesor_nombre:(cap&&cap.asesorResponsableGG)||"", superficie_m2:supCap?String(supCap):"", precio_m2:"", forma_pago:"Contado", apartado:"", condiciones:"" }); };
+  const nueva=()=>{ setAbierto(true); if(onNueva){ onNueva(); return; } setForm({ comprador_nombre:"", comprador_empresa:"", comprador_email:"", comprador_telefono:"", asesor_nombre:(cap&&cap.asesorResponsableGG)||"", superficie_m2:supCap?String(supCap):"", precio_m2:"", forma_pago:"Contado", apartado:"", condiciones:"" }); };
   const editar=(c)=>{ const r=coActual(c); setForm({ id:c.id, ronda_id:r.id, comprador_nombre:c.comprador_nombre||"", comprador_empresa:c.comprador_empresa||"", comprador_email:c.comprador_email||"", comprador_telefono:c.comprador_telefono||"", asesor_nombre:c.asesor_nombre||"", superficie_m2:String(c.superficie_m2||""), precio_m2:String(r.precio_m2||""), forma_pago:r.forma_pago||"Contado", apartado:String(c.apartado||""), condiciones:r.condiciones||"" }); };
   const guardar=async()=>{
     const f=form; const sup=coNum(f.superficie_m2), pm2=coNum(f.precio_m2), apt=coNum(f.apartado);
@@ -2965,7 +2970,9 @@ function CartasOfertaPanel({ cap, onToast }){
         <div style={{fontSize:13,color:B.grey5}}><b style={{color:B.navy}}>{c.folio}</b> · {[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")}{c.vendedor_nombre?(" ⇄ "+c.vendedor_nombre):""}</div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>{venc&&<span style={{fontSize:11,fontWeight:800,color:B.grey4,background:B.offW,border:"1px solid "+B.grey2,borderRadius:999,padding:"2px 8px"}}>⌛ Liga vencida</span>}{pill(c.estado)}</div>
       </div>
-      <div style={{fontSize:13,marginTop:4,color:B.navy}}><b>{coMx(r.total)}</b> <span style={{color:B.grey4}}>({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m² × {coMx(r.precio_m2)}) · {r.forma_pago} · apartado {coMx(c.apartado)}{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</span></div>
+      <div style={{fontSize:13,marginTop:4,color:B.navy}}><b>{coMx(r.total)}</b> <span style={{color:B.grey4}}>({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m² × {coMx(r.precio_m2)}) · {r.forma_pago} · apartado {coMx(c.apartado)}{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</span>
+        {Number(c.precio_lista_m2)>0&&Number(r.precio_m2)>0&&(()=>{ const d=(Number(r.precio_m2)-Number(c.precio_lista_m2))/Number(c.precio_lista_m2)*100; return <span style={{marginLeft:8,fontSize:11.5,fontWeight:800,color:d<0?"#b45309":B.green}}>{d>=0?"+":""}{d.toFixed(1)}% vs lista</span>; })()}</div>
+      {c.asesor_nombre && <div style={{fontSize:11.5,color:B.grey4,marginTop:2}}>👔 Asesor: <b style={{color:B.navy}}>{c.asesor_nombre}</b>{c.asesor_email?(" · "+c.asesor_email):""}</div>}
       {timeline(c)}
       {rs.length>1 && (
         <div style={{overflowX:"auto",marginTop:8}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
@@ -3044,6 +3051,247 @@ function CartasOfertaPanel({ cap, onToast }){
           {lista===null ? <div style={{fontSize:12.5,color:B.grey3}}>Cargando…</div>
             : (!L.length && !form) ? <div style={{fontSize:12.5,color:B.grey3}}>Sin cartas oferta para este terreno.</div>
             : L.map(tarjeta)}
+        </div>)}
+    </div>
+  );
+}
+
+// ─── ➕ WIZARD "Nueva carta oferta" (relacional: lote/captación · cliente · asesor) ───────────
+// Bloque 1 busca en INVENTARIO (tabla lotes, solo disponibles) y en CAPTACIÓN (terrenos opcionados
+// aún no publicados). Bloque 2 = tabla clientes (+ Nuevo cliente). Bloque 3 = tabla asesores.
+// Bloque 4 = m² × $/m² = total, apartado, forma de pago y comparación contra precio de lista.
+// Guarda en cartas_oferta (lote_id/captacion_id, cliente_id, asesor_id) + ronda 1.
+const coNrm=(s)=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
+function CoCombo({ valor, placeholder, opciones, texto, render, onElegir }){
+  const [q,setQ]=useState(""); const [abierto,setAbierto]=useState(false);
+  const nq=coNrm(q); const ls=opciones.filter(o=>!nq||coNrm(texto(o)).includes(nq)).slice(0,40);
+  return (
+    <div style={{position:"relative"}}>
+      <input value={abierto?q:(valor||"")} placeholder={placeholder} onFocus={()=>{ setQ(""); setAbierto(true); }} onBlur={()=>setTimeout(()=>setAbierto(false),150)} onChange={e=>{ setQ(e.target.value); setAbierto(true); }}
+        style={{width:"100%",border:"1px solid "+B.grey2,borderRadius:9,padding:"10px 12px",fontSize:14,fontWeight:600,color:B.navy,background:"#fff",fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box"}}/>
+      {abierto && (
+        <div style={{position:"absolute",left:0,right:0,top:"calc(100% + 4px)",background:"#fff",border:"1px solid "+B.grey2,borderRadius:10,boxShadow:"0 12px 30px rgba(0,27,46,.18)",maxHeight:280,overflow:"auto",zIndex:30}}>
+          {ls.length ? ls.map((o,i)=>(<div key={i} onMouseDown={e=>{ e.preventDefault(); onElegir(o); setAbierto(false); }} style={{padding:"9px 12px",cursor:"pointer",borderBottom:"1px solid "+B.grey1,fontSize:13}} onMouseEnter={e=>e.currentTarget.style.background="#fffaf0"} onMouseLeave={e=>e.currentTarget.style.background="#fff"}>{render(o)}</div>))
+            : <div style={{padding:"10px 12px",fontSize:13,color:B.grey3}}>Sin resultados{opciones.length>40?" · escribe para buscar":""}</div>}
+          {!nq && opciones.length>40 && <div style={{padding:"7px 12px",fontSize:11.5,color:B.grey3}}>Mostrando 40 de {opciones.length}. Escribe para buscar.</div>}
+        </div>)}
+    </div>
+  );
+}
+
+function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, asesoresCatalog, onNuevoCliente, onAbrirTerreno, onClose, onToast }){
+  const toast=onToast||(()=>{});
+  const [lotesDB,setLotesDB]=useState(null);
+  const [clientesDB,setClientesDB]=useState(null);
+  const [asesoresDB,setAsesoresDB]=useState(null);
+  const [terr,setTerr]=useState(null);       // {origen,id,nombre,ubic,sup,pm2Lista,totalLista,etiqueta,raw}
+  const [cli,setCli]=useState(null);         // {id_cliente,nombre,empresa,email,telefono,asesor,nuevo}
+  const [aseId,setAseId]=useState("");
+  const [aseSug,setAseSug]=useState(false);
+  const [sup,setSup]=useState(""); const [pm2,setPm2]=useState(""); const [apt,setApt]=useState(""); const [forma,setForma]=useState("Contado");
+  const [nuevo,setNuevo]=useState(null);     // mini-modal {nombre,email,tel,err}
+  const [busy,setBusy]=useState(false);
+  const [listo,setListo]=useState(null);     // {carta, liga}
+
+  // ── Datos (nube primero; si falla, lo local) ──
+  React.useEffect(()=>{ let vivo=true;
+    (async()=>{
+      try{ const { data, error } = await window.sb.from("lotes").select("id,nombre,desarrollo,ciudad,estado,superficie_m2,precio_m2,precio_total,uso,status_inventario"); if(error) throw error; if(vivo) setLotesDB(data||[]); }
+      catch(e){ if(vivo) setLotesDB((inventory||[]).map(l=>({ id:loteKey(l), nombre:l.nombre||"", desarrollo:l.desarrollo||"", ciudad:l.ciudad||"", estado:l.estado||"", superficie_m2:Number(l.sup_m2)||0, precio_m2:Number(l.precio_m2)||null, precio_total:Number(l.precio_total)||null, uso:l.uso||"", status_inventario:l.status||"Disponible" }))); }
+    })();
+    (async()=>{ let nube=[]; try{ nube=(await rqCargarCompradores()).filter(r=>r&&r.activo!==false); }catch(e){}
+      const ids=new Set(nube.map(r=>String(r.id_cliente)));
+      const locales=(clientesLocal||[]).map(c=>{ const r=clienteToSupabase(c,{}); return r?{...r}:null; }).filter(r=>r&&!ids.has(String(r.id_cliente)));
+      if(vivo) setClientesDB([...nube,...locales].sort((a,b)=>String(a.nombre||"").localeCompare(String(b.nombre||""),"es"))); })();
+    (async()=>{ try{ const { data, error } = await window.sb.from("asesores").select("*"); if(error) throw error; const act=(data||[]).filter(a=>a&&a.nombre&&a.activo!==false); if(vivo) setAsesoresDB(act.length?act:(asesoresCatalog||[])); }catch(e){ if(vivo) setAsesoresDB(asesoresCatalog||[]); } })();
+    return ()=>{ vivo=false; };
+  },[]);
+
+  // ── Terrenos: inventario disponible + captación ──
+  const desdeLote=(l)=>{ const s=Number(l.superficie_m2)||0, p=Number(l.precio_m2)||(s&&Number(l.precio_total)?Number(l.precio_total)/s:0);
+    return { origen:"lote", id:String(l.id||"").toLowerCase(), nombre:String(l.id||"").toUpperCase()+(l.desarrollo?(" · "+l.desarrollo):""), ubic:[l.ciudad,l.estado].filter(Boolean).join(", "), sup:s, pm2Lista:p||null, totalLista:Number(l.precio_total)||(s*p)||null, etiquetaLista:"Precio de lista", uso:l.uso||"", estatus:l.status_inventario||"Disponible", raw:l }; };
+  const desdeCap=(c)=>{ const s=coNum(c.superficie), pa=coNum(c.precioAutorizado), pd=coNum(c.precioDueno), pm=coNum(c.precioM2);
+    const p=pa&&s?pa/s:(pm||(pd&&s?pd/s:0));
+    return { origen:"captacion", id:c.id, nombre:(String(c.zona||c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"Terreno en captación")), ubic:[c.ubicacion&&c.ubicacion!==c.zona?c.ubicacion:"",c.ciudad].filter(Boolean).join(", "), sup:s, pm2Lista:p||null, totalLista:(pa||pd||(s*p))||null, etiquetaLista:pa?"Precio autorizado":"Precio del dueño", uso:c.usoSuelo||"", estatus:c.pipeline||"", propietario:c.propietario||"", asesorCap:c.asesorResponsableGG||"", raw:c }; };
+  const disponible=(l)=>{ const s=coNrm(l.status_inventario||"disponible"); return !s||s.startsWith("disponible"); };
+  const terrenos=[...(lotesDB||[]).filter(disponible).map(desdeLote), ...(captaciones||[]).filter(c=>c&&c.pipeline!=="Descartado"&&c.pipeline!=="Firmado").map(desdeCap)];
+  const elegirTerr=(t)=>{ setTerr(t); setSup(t.sup?String(t.sup):""); setPm2(t.pm2Lista?String(Math.round(t.pm2Lista)):""); };
+  // Preselección (desde la ficha del lote o de la captación)
+  React.useEffect(()=>{ if(terr||!inicial) return;
+    if(inicial.cap) elegirTerr(desdeCap(inicial.cap));
+    else if(inicial.lote){ const k=loteKey(inicial.lote); const l=(lotesDB||[]).find(x=>String(x.id).toLowerCase()===k);
+      if(l) elegirTerr(desdeLote(l)); else if(lotesDB) elegirTerr(desdeLote({ id:k, nombre:inicial.lote.nombre, desarrollo:inicial.lote.desarrollo, ciudad:inicial.lote.ciudad, estado:inicial.lote.estado, superficie_m2:Number(inicial.lote.sup_m2)||0, precio_m2:Number(inicial.lote.precio_m2)||null, precio_total:Number(inicial.lote.precio_total)||null, uso:inicial.lote.uso, status_inventario:inicial.lote.status })); }
+  },[lotesDB]);
+
+  const ases=asesoresDB||[];
+  const ase=ases.find(a=>String(a.id||a.nombre)===aseId)||null;
+  const elegirCli=(c)=>{ setCli(c); const a=ases.find(x=>coNrm(x.nombre)===coNrm(c.asesor)) || (terr&&terr.asesorCap?ases.find(x=>coNrm(x.nombre)===coNrm(terr.asesorCap)):null);
+    if(a&&!aseId){ setAseId(String(a.id||a.nombre)); setAseSug(true); } };
+
+  const guardarNuevo=async()=>{ const n=nuevo; const nom=String(n.nombre||"").trim(), em=String(n.email||"").trim().toLowerCase(), tel=String(n.tel||"").trim();
+    if(nom.length<3) return setNuevo({...n,err:"Escribe el nombre."});
+    if(em&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return setNuevo({...n,err:"Correo inválido."});
+    if(!em&&!tel) return setNuevo({...n,err:"Pon al menos el correo o el teléfono."});
+    const td=tel.replace(/\D/g,"");
+    const dup=(clientesDB||[]).find(c=>(em&&coNrm(c.email)===em)||(td.length>=8&&String(c.telefono||"").replace(/\D/g,"").endsWith(td.slice(-10))));
+    if(dup&&!n.forzar) return setNuevo({...n,err:"Ya existe: "+dup.nombre+(dup.empresa?(" · "+dup.empresa):""),dup});
+    const local={ id:"CLI-W"+Date.now().toString(36).toUpperCase(), nombre:nom, empresa:"", email:em, telefono:tel, asesor:ase?ase.nombre:"", ciudad_interes:[], uso_interes:[], tipo_comprador:"", presupuesto_min:0, presupuesto_max:0, sup_min:0, sup_max:0, status:"Prospecto nuevo", notas:"Alta desde carta oferta", fecha_contacto:new Date().toISOString().slice(0,10) };
+    // MacroPro es de SOLO LECTURA en tablas compartidas (MP_READONLY_SHARED); la ÚNICA excepción
+    // es este alta: un INSERT de un registro NUEVO (clave única, nunca update/upsert de existentes).
+    const fila=clienteToSupabase(local,{});
+    setNuevo({...n,err:"",guardando:true});
+    try{ if(window.sb){ const { error } = await window.sb.from("clientes").insert(fila); if(error) throw error; } }
+    catch(e){ setNuevo({...n,guardando:false,err:"No se pudo guardar en la nube: "+((e&&e.message)||e)}); return; }
+    try{ onNuevoCliente&&onNuevoCliente(local); }catch(e){}
+    const row={...fila, nuevo:true};
+    setClientesDB(prev=>[row,...(prev||[])]); setNuevo(null); elegirCli(row); toast("✅ Cliente "+nom+" guardado y seleccionado"); };
+
+  const s_=coNum(sup), p_=coNum(pm2), a_=coNum(apt), total=s_*p_;
+  const ok=[!!terr,!!cli,!!ase,s_>0&&p_>0];
+  const faltan=["terreno","comprador","asesor","oferta"].filter((x,i)=>!ok[i]);
+
+  const guardar=async(conLiga)=>{
+    if(faltan.length){ toast("Falta: "+faltan.join(", ")); return; }
+    setBusy(true);
+    try{
+      let por=null; try{ const { data } = await window.sb.auth.getSession(); por=(data&&data.session&&data.session.user&&data.session.user.email)||null; }catch(e){}
+      const carta={ origen:terr.origen, lote_id:terr.origen==="lote"?terr.id:null, captacion_id:terr.origen==="captacion"?terr.id:null,
+        terreno_nombre:terr.nombre, terreno_ubicacion:terr.ubic||null, superficie_m2:s_, apartado:a_, precio_lista_m2:terr.pm2Lista?Math.round(terr.pm2Lista*100)/100:null,
+        cliente_id:String(cli.id_cliente||""), comprador_nombre:cli.nombre||"", comprador_empresa:cli.empresa||null, comprador_email:(cli.email||"").toLowerCase()||null, comprador_telefono:cli.telefono||null,
+        asesor_id:ase.id!=null?String(ase.id):null, asesor_nombre:ase.nombre, asesor_email:(ase.email||"").toLowerCase()||null,
+        vendedor_nombre:terr.origen==="captacion"?(terr.propietario||null):null, creado_por:por };
+      const ins=await window.sb.from("cartas_oferta").insert(carta).select("*").single();
+      if(ins.error) throw ins.error;
+      const r1=await window.sb.from("cartas_oferta_rondas").insert({ carta_id:ins.data.id, ronda:1, propone:"grupo_guia", precio_m2:p_, forma_pago:forma });
+      if(r1.error){ try{ await window.sb.from("cartas_oferta").delete().eq("id",ins.data.id); }catch(e){} throw r1.error; }
+      let liga=null;
+      if(conLiga){ const { data, error } = await window.sb.rpc("carta_oferta_liga",{ p_id:ins.data.id, p_rol:"comprador", p_renovar:false }); if(error) toast("La carta se guardó, pero no se generó la liga: "+error.message); else liga=CO_URL+data;
+        if(liga){ try{ await navigator.clipboard.writeText(liga); }catch(e){} } }
+      try{ window.dispatchEvent(new Event("co-actualizado")); }catch(e){}
+      setListo({ carta:ins.data, liga });
+      toast("✅ Carta "+(ins.data.folio||"")+" creada"+(liga?" · liga del comprador copiada":""));
+    }catch(e){ const m=String((e&&e.message)||e); toast(/cliente_id|asesor_id|origen|precio_lista_m2|schema cache/i.test(m)?"Falta correr sql/cartas_oferta_v2_relacional.sql en Supabase.":("No se pudo guardar: "+m)); }
+    setBusy(false);
+  };
+
+  // ── UI ──
+  const lbl={display:"block",fontSize:10,fontWeight:800,letterSpacing:0.8,textTransform:"uppercase",color:B.grey4,marginBottom:4};
+  const inS={width:"100%",border:"1px solid "+B.grey2,borderRadius:9,padding:"10px 12px",fontSize:14,fontWeight:600,color:B.navy,background:"#fff",fontFamily:"'DM Sans',sans-serif",boxSizing:"border-box"};
+  const blk=(n,ok_,t,children)=>(<div style={{border:"1.5px solid "+(ok_?"#86efac":B.grey1),borderRadius:14,padding:"14px 16px",marginBottom:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,fontSize:14,fontWeight:800,color:B.navy,marginBottom:10}}><span style={{width:24,height:24,borderRadius:"50%",background:ok_?B.green:B.navy,color:ok_?"#fff":B.gold,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:12}}>{ok_?"✓":n}</span>{t}</div>{children}</div>);
+  const dato=(l,v)=>(<div><div style={{fontSize:9.5,fontWeight:800,letterSpacing:0.8,textTransform:"uppercase",color:B.grey4}}>{l}</div><div style={{fontSize:13.5,fontWeight:800,color:B.navy}}>{v}</div></div>);
+  const caja={marginTop:8,border:"1px solid "+B.grey1,background:B.offW,borderRadius:10,padding:"9px 12px",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8};
+  const nota=(warn,c)=>(<div style={{fontSize:12,marginTop:8,padding:"7px 10px",borderRadius:"0 8px 8px 0",borderLeft:"3px solid "+(warn?B.red:B.gold),background:warn?"#fef2f2":"#fffaf0",color:warn?"#991b1b":B.grey5}}>{c}</div>);
+  const btn=(bg,fg,brd)=>({border:brd?("1.5px solid "+brd):"none",borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:800,cursor:"pointer",background:bg,color:fg,fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"});
+  const tagT=(t)=>t.origen==="lote"?<span style={{float:"right",fontSize:10.5,fontWeight:800,borderRadius:999,padding:"1px 7px",color:B.green,background:B.greenL}}>Inventario</span>:<span style={{float:"right",fontSize:10.5,fontWeight:800,borderRadius:999,padding:"1px 7px",color:"#b45309",background:"#fff7ed"}}>Captación</span>;
+  const dif=terr&&terr.pm2Lista&&p_?((p_-terr.pm2Lista)/terr.pm2Lista*100):null;
+
+  return (
+    <div onClick={e=>{ if(e.target===e.currentTarget&&!busy) onClose(); }} style={{position:"fixed",inset:0,background:"rgba(0,27,46,.55)",zIndex:3500,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"24px 14px",overflowY:"auto"}}>
+      <div style={{background:"#fff",borderRadius:16,width:"min(860px,100%)",boxShadow:"0 24px 80px rgba(0,0,0,.3)",margin:"auto"}}>
+        <div style={{background:B.navy,color:"#fff",padding:"18px 24px",borderRadius:"16px 16px 0 0",borderBottom:"4px solid "+B.gold,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div><div style={{color:B.gold,fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase"}}>📝 Cartas oferta · MacroPro</div><div style={{fontSize:22,fontWeight:800,fontFamily:"'Playfair Display',serif"}}>{listo?("Carta "+(listo.carta.folio||"")+" creada"):"Nueva carta oferta"}</div></div>
+          <button onClick={onClose} title="Cerrar" style={{background:"rgba(255,255,255,.14)",border:"none",color:"#fff",borderRadius:8,width:32,height:32,fontSize:16,cursor:"pointer"}}>✕</button>
+        </div>
+
+        {listo ? (
+          <div style={{padding:"20px 24px"}}>
+            <div style={{border:"2px solid "+B.green,background:B.greenL,borderRadius:12,padding:"14px 16px",color:"#0f6b38"}}>
+              <div style={{fontSize:16,fontWeight:800}}>✓ {listo.carta.folio} · {listo.carta.terreno_nombre}</div>
+              <div style={{fontSize:13,color:B.grey5,marginTop:4}}>{listo.carta.comprador_nombre} · {coMx(total)} ({s_.toLocaleString("es-MX")} m² × {coMx(p_)}) · {forma} · apartado {coMx(a_)} · asesor {listo.carta.asesor_nombre}</div>
+            </div>
+            {listo.liga && (<div style={{marginTop:12}}>
+              <label style={lbl}>Liga del comprador (vale 10 días)</label>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><input readOnly value={listo.liga} style={{...inS,flex:1,minWidth:240,fontSize:12.5,fontFamily:"ui-monospace,monospace"}} onFocus={e=>e.target.select()}/>
+                <button onClick={async()=>{ try{ await navigator.clipboard.writeText(listo.liga); toast("🔗 Liga copiada"); }catch(e){ try{ window.prompt("Copia la liga:",listo.liga); }catch(_){} } }} style={btn(B.gold,B.navy)}>🔗 Copiar</button>
+                <a href={rqWaUrl(listo.carta.comprador_telefono,"Hola "+(String(listo.carta.comprador_nombre||"").split(/\s+/)[0]||"")+", te compartimos la carta oferta "+listo.carta.folio+" del terreno "+listo.carta.terreno_nombre+" para tu revisión y firma electrónica:\n"+listo.liga+"\n\nLa liga es válida por 10 días. — Grupo Guía")} target="_blank" rel="noopener noreferrer" style={{...btn("#25D366","#fff"),textDecoration:"none"}}>🟢 WhatsApp comprador</a></div>
+            </div>)}
+            <div style={{fontSize:12.5,color:B.grey4,marginTop:12}}>El seguimiento (firmas, autorización, liga del vendedor, contrapropuestas y PDF) está en la ficha del terreno, sección <b>📝 Cartas oferta</b>.</div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14,flexWrap:"wrap"}}>
+              <button onClick={()=>{ if(!coImprimir({...listo.carta,ronda_actual:1,cartas_oferta_rondas:[{ronda:1,propone:"grupo_guia",precio_m2:p_,total,forma_pago:forma}]},"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF</button>
+              {onAbrirTerreno && <button onClick={()=>{ onAbrirTerreno(terr); onClose(); }} style={btn(B.navy,"#fff")}>Abrir ficha del terreno</button>}
+              <button onClick={onClose} style={btn(B.green,"#fff")}>Listo</button>
+            </div>
+          </div>
+        ) : (<>
+          <div style={{display:"flex",padding:"14px 24px 4px"}}>
+            {["Terreno","Comprador","Asesor","Oferta"].map((p,i)=>(<div key={p} style={{flex:1,textAlign:"center",fontSize:11.5,fontWeight:700,color:ok[i]?B.green:B.grey3,position:"relative",paddingTop:24}}>
+              <span style={{position:"absolute",top:10,left:i===0?"50%":0,right:i===3?"50%":0,height:3,background:ok[i]?B.green:B.grey1}}/>
+              <span style={{position:"absolute",top:0,left:"calc(50% - 12px)",width:24,height:24,borderRadius:"50%",background:ok[i]?B.green:"#fff",border:"2.5px solid "+(ok[i]?B.green:B.grey2),color:ok[i]?"#fff":B.grey3,fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1}}>{ok[i]?"✓":i+1}</span>{p}</div>))}
+          </div>
+          <div style={{padding:"10px 24px 8px"}}>
+            {blk(1,ok[0],"¿Qué terreno?",(<>
+              <label style={lbl}>Lote del inventario o terreno en captación</label>
+              {lotesDB===null ? <div style={{fontSize:12.5,color:B.grey3}}>Cargando terrenos…</div> :
+              <CoCombo valor={terr?(terr.nombre+(terr.ubic?(" · "+terr.ubic):"")):""} placeholder="Busca por clave, desarrollo, zona o ciudad… (ej. CN-014, Kulkana, Zapopan)" opciones={terrenos}
+                texto={t=>[t.nombre,t.ubic,t.uso,t.propietario,t.origen==="lote"?"inventario":"captacion"].join(" ")}
+                render={t=>(<>{tagT(t)}<b style={{color:B.navy}}>{t.nombre}</b>{t.ubic?(" · "+t.ubic):""}<div style={{fontSize:11.5,color:B.grey4,marginTop:1}}>{t.sup?(t.sup.toLocaleString("es-MX")+" m²"):"sin superficie"}{t.uso?(" · "+t.uso):""} · {t.pm2Lista?(coMx(t.pm2Lista)+"/m² · "+t.etiquetaLista.toLowerCase()+" "+coMx(t.totalLista)):"⚠ precio pendiente"}</div></>)}
+                onElegir={elegirTerr}/>}
+              {terr && <div style={caja}>{dato("Origen",terr.origen==="lote"?"Inventario":"Captación")}{dato(terr.origen==="lote"?"Clave":"Terreno",terr.origen==="lote"?terr.id.toUpperCase():terr.nombre)}{dato("Superficie",terr.sup?(terr.sup.toLocaleString("es-MX")+" m²"):"—")}{dato(terr.etiquetaLista,terr.pm2Lista?(coMx(terr.pm2Lista)+"/m²"):"Pendiente")}</div>}
+            </>))}
+            {blk(2,ok[1],"¿Quién es el comprador?",(<>
+              <label style={lbl}>Cliente (tabla clientes)</label>
+              <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                <div style={{flex:1,minWidth:0}}>{clientesDB===null ? <div style={{fontSize:12.5,color:B.grey3,padding:"10px 0"}}>Cargando clientes…</div> :
+                  <CoCombo valor={cli?(cli.nombre+(cli.empresa?(" · "+cli.empresa):"")):""} placeholder="Busca por nombre, empresa, correo o teléfono…" opciones={clientesDB}
+                    texto={c=>[c.nombre,c.empresa,c.email,c.telefono].join(" ")}
+                    render={c=>(<><b style={{color:B.navy}}>{c.nombre}</b>{c.empresa?(" · "+c.empresa):""}<div style={{fontSize:11.5,color:B.grey4,marginTop:1}}>{[c.email,c.telefono,c.asesor?("asesor: "+c.asesor):""].filter(Boolean).join(" · ")||"sin datos de contacto"}</div></>)}
+                    onElegir={elegirCli}/>}</div>
+                <button onClick={()=>setNuevo({nombre:"",email:"",tel:"",err:""})} style={btn("#fff",B.navy,B.navy)}>＋ Nuevo cliente</button>
+              </div>
+              {cli && <div style={caja}>{dato("Comprador",<>{cli.nombre}{cli.nuevo&&<span style={{marginLeft:6,fontSize:10.5,background:B.blueL,color:B.blue,borderRadius:999,padding:"1px 7px"}}>nuevo</span>}</>)}{dato("Correo",cli.email||<span style={{color:B.red}}>sin correo</span>)}{dato("Teléfono",cli.telefono||"—")}</div>}
+            </>))}
+            {blk(3,ok[2],"¿Quién es el asesor?",(<>
+              <label style={lbl}>Asesor que trajo al cliente (tabla asesores)</label>
+              <select value={aseId} onChange={e=>{ setAseId(e.target.value); setAseSug(false); }} style={inS}>
+                <option value="">{asesoresDB===null?"Cargando asesores…":"— Elige al asesor —"}</option>
+                {ases.slice().sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),"es")).map(a=><option key={String(a.id||a.nombre)} value={String(a.id||a.nombre)}>{a.nombre}</option>)}
+              </select>
+              {ase && <div style={{display:"inline-block",marginTop:8,fontSize:11.5,fontWeight:800,borderRadius:999,padding:"3px 10px",background:B.greenL,color:B.green}}>✓ {ase.nombre}{ase.email?(" · "+ase.email):""}{aseSug?" · sugerido: asesor del cliente":""}</div>}
+            </>))}
+            {blk(4,ok[3],"La oferta financiera",(<>
+              <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr auto 1.25fr",gap:10,alignItems:"end"}}>
+                <div><label style={lbl}>Superficie a ofertar (m²)</label><input value={sup} onChange={e=>setSup(e.target.value)} inputMode="decimal" style={{...inS,textAlign:"right"}}/></div>
+                <div style={{fontSize:20,fontWeight:800,color:B.goldD,paddingBottom:8}}>×</div>
+                <div><label style={lbl}>Precio ofertado por m²</label><input value={pm2} onChange={e=>setPm2(e.target.value)} inputMode="decimal" style={{...inS,textAlign:"right"}}/></div>
+                <div style={{fontSize:20,fontWeight:800,color:B.goldD,paddingBottom:8}}>=</div>
+                <div style={{background:B.navy,color:"#fff",borderRadius:10,padding:"9px 14px",textAlign:"right"}}><div style={{fontSize:9.5,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:B.gold}}>Total de la oferta</div><div style={{fontSize:22,fontWeight:800,fontFamily:"'Playfair Display',serif",whiteSpace:"nowrap"}}>{coMx(total)}</div></div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:10,marginTop:10}}>
+                <div><label style={lbl}>Monto de apartado</label><input value={apt} onChange={e=>setApt(e.target.value)} inputMode="decimal" placeholder="$0" style={{...inS,textAlign:"right"}}/></div>
+                <div><label style={lbl}>Forma de pago</label><select value={forma} onChange={e=>setForma(e.target.value)} style={inS}>{CO_FORMAS.map(f=><option key={f}>{f}</option>)}</select></div>
+                <div><label style={lbl}>{terr?terr.etiquetaLista:"Precio de lista"}</label><input readOnly value={terr?(terr.pm2Lista?(coMx(terr.pm2Lista)+"/m² · "+coMx(terr.totalLista)):"Pendiente"):""} placeholder="— elige un terreno —" style={{...inS,background:B.offW,textAlign:"right"}}/></div>
+              </div>
+              {dif!=null && nota(false,<>{dif<0?"📉":"📈"} Precio ofertado <b>{dif>=0?"+":""}{dif.toFixed(1)}%</b> vs. {terr.etiquetaLista.toLowerCase()} ({coMx(terr.pm2Lista)}/m²) · diferencia total <b>{coMx(Math.abs(total-s_*terr.pm2Lista))}</b> {Math.abs(dif)<0.05?"(igual)":(dif<0?"abajo":"arriba")}.</>)}
+              {terr&&terr.sup>0&&s_>terr.sup && nota(true,<>⚠ La superficie ofertada ({s_.toLocaleString("es-MX")} m²) es mayor que la del terreno ({terr.sup.toLocaleString("es-MX")} m²).</>)}
+              {a_>0&&total>0 && nota(false,<>Apartado: <b>{coMx(a_)}</b> ({(a_/total*100).toFixed(1)}% del total) · saldo {coMx(total-a_)}.</>)}
+              {cli&&!cli.email && nota(true,<>El comprador no tiene correo: manda la liga por WhatsApp; él captura su correo al firmar.</>)}
+            </>))}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",padding:"14px 24px 18px",borderTop:"1px solid "+B.grey1}}>
+            <span style={{fontSize:11.5,color:faltan.length?B.grey4:B.green}}>{faltan.length?("Falta: "+faltan.join(", ")):"✓ Lista para guardar"}</span>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button onClick={onClose} style={btn("#fff",B.grey4,B.grey2)}>Cancelar</button>
+              <button disabled={busy||faltan.length>0} onClick={()=>guardar(false)} style={{...btn(B.navy,"#fff"),opacity:faltan.length?0.45:1}}>{busy?"Guardando…":"💾 Guardar borrador"}</button>
+              <button disabled={busy||faltan.length>0} onClick={()=>guardar(true)} style={{...btn(B.gold,B.navy),opacity:faltan.length?0.45:1}}>{busy?"Guardando…":"💾 Guardar y generar liga comprador"}</button>
+            </div>
+          </div>
+        </>)}
+      </div>
+
+      {nuevo && (
+        <div onClick={e=>{ if(e.target===e.currentTarget) setNuevo(null); }} style={{position:"fixed",inset:0,background:"rgba(0,27,46,.45)",zIndex:3600,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"#fff",borderRadius:14,width:"min(420px,100%)",boxShadow:"0 20px 60px rgba(0,0,0,.35)",overflow:"hidden"}}>
+            <div style={{background:B.navy,color:"#fff",padding:"12px 16px",fontWeight:800,display:"flex",justifyContent:"space-between"}}>＋ Nuevo cliente <span style={{cursor:"pointer"}} onClick={()=>setNuevo(null)}>✕</span></div>
+            <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+              <div><label style={lbl}>Nombre *</label><input autoFocus value={nuevo.nombre} onChange={e=>setNuevo({...nuevo,nombre:e.target.value,err:"",dup:null})} placeholder="Nombre o razón social" style={inS}/></div>
+              <div><label style={lbl}>Correo</label><input value={nuevo.email} onChange={e=>setNuevo({...nuevo,email:e.target.value,err:"",dup:null})} type="email" placeholder="correo@empresa.com" style={inS}/></div>
+              <div><label style={lbl}>Teléfono / WhatsApp</label><input value={nuevo.tel} onChange={e=>setNuevo({...nuevo,tel:e.target.value,err:"",dup:null})} inputMode="tel" placeholder="33 1234 5678" style={inS}/></div>
+              <div style={{fontSize:11,color:B.grey4}}>Se guarda en clientes (lo ven los 3 usuarios) y queda seleccionado en esta oferta.</div>
+              {nuevo.err && <div style={{color:B.red,fontSize:12.5,fontWeight:700}}>{nuevo.err}{nuevo.dup&&<> · <a href="#" onClick={e=>{ e.preventDefault(); const d=nuevo.dup; setNuevo(null); elegirCli(d); }} style={{color:"#1d4ed8"}}>Usar este cliente</a> · <a href="#" onClick={e=>{ e.preventDefault(); setNuevo({...nuevo,forzar:true,err:"",dup:null}); }} style={{color:B.grey4}}>Es otro, crear de todos modos</a></>}</div>}
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><button onClick={()=>setNuevo(null)} style={btn("#fff",B.grey4,B.grey2)}>Cancelar</button><button disabled={!!nuevo.guardando} onClick={guardarNuevo} style={btn(B.green,"#fff")}>{nuevo.guardando?"Guardando…":"💾 Guardar y seleccionar"}</button></div>
+            </div>
+          </div>
         </div>)}
     </div>
   );
@@ -3695,6 +3943,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [captaciones, setCaptaciones] = React.useState(()=>loadCaptaciones());
   const [showCaptacionModal, setShowCaptacionModal] = React.useState(false);
   const [alertaMatch, setAlertaMatch] = React.useState(null); // 🚨 terreno nuevo que le sirve a requerimientos existentes
+  const [wizardCO, setWizardCO] = React.useState(null); // ➕ Nueva carta oferta: null | {} | {lote} | {cap}
   const [editingCaptacion, setEditingCaptacion] = React.useState(null);
   const [respComentario, setRespComentario] = React.useState(""); // texto del comentario a enviar al asesor (Opción)
   // Cross-Check (Option Engine): CLIENTES compatibles con el terreno en captación (api-matching modo lote→clientes)
@@ -19977,11 +20226,14 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{fontSize:13,color:B.grey2}}>{lot.ciudad}, {lot.estado} · {lot.uso}</div>
             </div>
             <div style={{display:"flex",gap:7,alignItems:"center"}}>
+              <button onClick={()=>setWizardCO({lote:lot})} title="Crear una carta oferta para este lote" style={{background:B.gold,color:B.navy,border:"none",borderRadius:8,padding:"7px 13px",fontSize:11,fontWeight:800,cursor:"pointer"}}>📝 Generar Carta Oferta</button>
               <button onClick={async()=>{try{await generarFichaTecnica(lot);}catch(e){alert("Error: "+e.message);}}} style={{background:B.navy,color:B.gold,border:`2px solid ${B.gold}`,borderRadius:8,padding:"7px 13px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📄 PPTX</button>
               <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",color:B.white,border:"none",borderRadius:8,padding:"7px 13px",fontSize:14,cursor:"pointer",fontWeight:700}}>✕</button>
             </div>
           </div>
           <div style={{padding:"20px 24px"}}>
+            {/* 📝 Cartas oferta de este lote */}
+            <div style={{marginBottom:14}}><CartasOfertaPanel key={"co-l-"+lot.id} lote={lot} onToast={toast} onNueva={()=>setWizardCO({lote:lot})}/></div>
             {/* Sección ficha técnica PDF */}
             <div style={{background:"#f8fafc",borderRadius:12,padding:"14px 16px",border:"1px solid #e5e7eb",marginBottom:18}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
@@ -21848,7 +22100,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.76</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.77</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
@@ -21858,6 +22110,7 @@ Respuesta: [respuesta exacta, conversacional]
           {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["equipo","👔 Asesores"],["requerimientos","🔍 Requerimientos"],["admin","⚙️ Admin"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
+          <button title="Crear una carta oferta desde cero" style={{...s.navBtn(false),background:B.gold,color:B.navy,fontWeight:800}} onClick={()=>setWizardCO({})}>➕ Nueva Carta Oferta</button>
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
           <button onClick={()=>{setApiKeyInput(localStorage.getItem("macropro_api_key")||"");setShowApiModal(true);}} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:apiKey?"#22c55e":"#ef4444",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title={apiKey?"API Key configurada ✓":"Sin API Key — click para configurar"}>{apiKey?"🔑":"⚠️"}</button>
           <button onClick={()=>setShowNotifModal(true)} style={{position:"relative",padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:notifActs.length>0?"#ef4444":B.grey3,fontSize:16,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center"}} title={notifActs.length>0?`${notifActs.length} actividad(es) urgente(s)`:"Sin actividades urgentes"}>
@@ -21972,7 +22225,7 @@ Respuesta: [respuesta exacta, conversacional]
                 </div>
                 <div style={{padding:"20px 26px",maxHeight:"62vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:16}}>
                   {/* 📝 Cartas oferta (solo equipo interno) */}
-                  {!esNueva && <CartasOfertaPanel key={"co-"+f.id} cap={f} onToast={toast}/>}
+                  {!esNueva && <CartasOfertaPanel key={"co-"+f.id} cap={f} onToast={toast} onNueva={()=>setWizardCO({cap:f})}/>}
                   {/* 🔗 Liga Mágica: link único para que el propietario suba su expediente legal */}
                   {/* Captación que nació de una cotización aceptada: su liga de propietario es /aceptar
                       (ahí sube sus documentos a ESTA misma ficha). Una sola liga por terreno. */}
@@ -23236,6 +23489,10 @@ Respuesta: [respuesta exacta, conversacional]
       {loading&&<LoadingView/>}
       {toastMsg&&<div style={s.toast}>{toastMsg}</div>}
       {alertaMatch&&<RqAlertaMatch data={alertaMatch} onClose={()=>setAlertaMatch(null)}/>}
+      {wizardCO&&<CartaOfertaWizard inicial={wizardCO} captaciones={captaciones} inventory={inventory} clientesLocal={clients} asesoresCatalog={asesoresCatalog}
+        onNuevoCliente={(c)=>{ setClients(prev=>[c,...(prev||[])]); }}
+        onAbrirTerreno={(t)=>{ if(t.origen==="captacion"){ const c=(captaciones||[]).find(x=>x.id===t.id); if(c){ setEditingCaptacion(c); setShowCaptacionModal(true); } } else { const l=(inventory||[]).find(x=>loteKey(x)===t.id); if(l) setSelectedLotDetail(l); else toast("Ese lote no está cargado en este equipo."); } }}
+        onClose={()=>setWizardCO(null)} onToast={toast}/>}
     </div>
   );
 }
