@@ -20869,7 +20869,7 @@ Respuesta: [respuesta exacta, conversacional]
       // ✅ Firmado
       const t2=tabla(showAse?["Asesor","Terreno","Ciudad","Convenio","Acción"]:["Terreno","Ciudad","Convenio","Acción"],
         g2.map((c,i)=>{ const a=acuerdoFirmadoDe(c); const esq=String((a&&a.esquema)||c.esquema_comision||"").replace("_","/"); return (<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
-          <td style={tdS}><span style={{background:B.greenL,color:B.green,borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}}>✅ {(a&&a.folio)||"Firmado"}{esq?(" · esquema "+esq):""}</span></td>{accCel(c,false)}</tr>); }));
+          <td style={tdS}><span style={/^100\s*\/\s*0$/.test(esq||"")?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}}>✓ {(a&&a.folio)||"Firmado"}{esq?(" · esquema "+esq):""}</span></td>{accCel(c,false)}</tr>); }));
 
       const seccion=(key,titulo,fg,bgc,count,vacioTxt,contenido,extra)=>{ const cerrado=!!col[key]; return (
         <div id={"kb-"+key} style={{marginBottom:14}}>
@@ -21580,7 +21580,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.73</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.74</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
