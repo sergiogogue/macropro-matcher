@@ -2935,6 +2935,21 @@ ${!conf&&c.asesor_nombre?`<div class="cc">c.c.p. ${esc(c.asesor_nombre)} · Ases
 }
 
 const CO_UI={}; // estado de UI por ficha (sobrevive si la ficha se re-monta)
+// 👔 Liga INFORMATIVA del asesor (solo lectura: no puede firmar ni responder) · sql v4.
+const CO_AVISADOS=new Set(); // carta+ronda ya avisadas por correo en esta sesión (sin duplicados)
+async function coLigaAsesor(cartaId){ const { data, error } = await window.sb.rpc("carta_oferta_liga",{ p_id:cartaId, p_rol:"asesor", p_renovar:false }); if(error) throw error; return data; }
+// Correo al asesor con su liga de solo lectura (lo resuelve el servidor desde la carta). forzar = reenviar.
+async function coAvisarAsesor(c, toast, forzar){
+  const clave=c.id+":"+(c.ronda_actual||1); if(!forzar&&CO_AVISADOS.has(clave)) return;
+  if(!c.asesor_email){ toast&&toast("La carta no tiene correo del asesor: usa 👔 WhatsApp asesor para avisarle."); return; }
+  try{
+    const token=await coLigaAsesor(c.id);
+    const r=await fetch(LANDING_URL+"/.netlify/functions/carta-oferta-avisar-asesor",{ method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ token }) });
+    const out=await r.json().catch(()=>({}));
+    if(out&&out.ok&&out.enviado){ CO_AVISADOS.add(clave); toast&&toast("📧 Correo informativo enviado al asesor ("+out.correo+")"); }
+    else toast&&toast("No se pudo mandar el correo al asesor"+(out&&out.motivo?(" ("+out.motivo+")"):"")+". Usa 👔 WhatsApp asesor.");
+  }catch(e){ const m=String((e&&e.message)||e); toast&&toast(/rol inválido|token_asesor/i.test(m)?"Falta correr sql/cartas_oferta_v4_asesor_informativo.sql en Supabase.":("No se pudo avisar al asesor: "+m)); }
+}
 function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista, onAbrirTerreno }){
   const toast=onToast||(()=>{});
   const loteId=lote?loteKey(lote):"";
@@ -3021,11 +3036,21 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
     finally{ setBusy(""); }
   };
   const copiar=async(c,rol,renovar)=>{ const url=await liga(c,rol,renovar); if(!url) return;
-    try{ await navigator.clipboard.writeText(url); toast("🔗 Liga del "+rol+" copiada · vale 10 días"); }catch(e){ try{ window.prompt("Copia la liga del "+rol+":",url); }catch(_){ toast(url); } } };
+    try{ await navigator.clipboard.writeText(url); toast("🔗 Liga del "+rol+" copiada · vale 10 días"); }catch(e){ try{ window.prompt("Copia la liga del "+rol+":",url); }catch(_){ toast(url); } }
+    if(rol==="comprador") coAvisarAsesor(c,toast); };
   const whats=async(c,rol)=>{ const w=window.open("","_blank"); const url=await liga(c,rol,false); if(!url){ try{ w&&w.close(); }catch(e){} return; }
     const nom=rol==="comprador"?(c.comprador_nombre||""):(c.vendedor_nombre||""); const tel=rol==="comprador"?c.comprador_telefono:(c.vendedor_telefono||(cap&&cap.telefono));
     const msg="Hola "+(String(nom).trim().split(/\s+/)[0]||"")+", te compartimos la carta oferta "+(c.folio||"")+" del terreno "+c.terreno_nombre+" para tu revisión y firma electrónica:\n"+url+"\n\nLa liga es válida por 10 días. — Grupo Guía";
-    const wa=rqWaUrl(tel,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener"); };
+    const wa=rqWaUrl(tel,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener");
+    if(rol==="comprador") coAvisarAsesor(c,toast); };
+  // 👔 WhatsApp al asesor con su liga de SOLO LECTURA
+  const whatsAsesor=async(c)=>{ const w=window.open("","_blank");
+    try{ const token=await coLigaAsesor(c.id); let tel="";
+      try{ if(c.asesor_email){ const { data } = await window.sb.from("asesores").select("telefono").ilike("email",c.asesor_email).limit(1); tel=(data&&data[0]&&data[0].telefono)||""; } }catch(e){}
+      const msg="Hola "+(String(c.asesor_nombre||"").trim().split(/\s+/)[0]||"")+", te comparto la carta oferta "+(c.folio||"")+" que enviamos a tu cliente "+[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")+" por el terreno "+c.terreno_nombre+". Es solo informativa (no requiere tu firma):\n"+CO_URL+token+"\n— Grupo Guía";
+      const wa=rqWaUrl(tel,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener");
+      if(!tel) toast("No tengo el WhatsApp del asesor: elige el contacto en WhatsApp.");
+    }catch(e){ try{ w&&w.close(); }catch(_){} toast(/rol inválido/i.test(String(e&&e.message))?"Falta correr sql/cartas_oferta_v4_asesor_informativo.sql en Supabase.":("No se pudo generar la liga del asesor: "+((e&&e.message)||e))); } };
   const autorizar=async(c)=>{ const v=vend[c.id]||{}; const nombre=(v.nombre!=null?v.nombre:(c.vendedor_nombre||(cap&&cap.propietario)||"")).trim();
     if(!nombre){ toast("Escribe el nombre del vendedor."); return; }
     if(!window.confirm("¿Registrar la carta "+c.folio+" como RECIBIDA por el Director Macrolotes (Grupo Guía) y habilitar la liga del vendedor?\n\nVendedor: "+nombre)) return;
@@ -3089,6 +3114,8 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
         {esperaComprador && <button disabled={!!busy} onClick={()=>whats(c,"comprador")} style={btn("#25D366","#fff")}>🟢 WhatsApp comprador</button>}
         {esperaVendedor && <button disabled={!!busy} onClick={()=>copiar(c,"vendedor",venc)} style={btn(B.navy,"#fff")}>🔗 {venc?"Liga nueva":"Copiar liga"} vendedor{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</button>}
         {esperaVendedor && <button disabled={!!busy} onClick={()=>whats(c,"vendedor")} style={btn("#25D366","#fff")}>🟢 WhatsApp vendedor</button>}
+        {c.asesor_nombre && <button onClick={()=>whatsAsesor(c)} title="Liga de solo lectura para el asesor (no puede firmar)" style={btn("#fff","#1d4ed8","#bfdbfe")}>👔 WhatsApp asesor (solo lectura)</button>}
+        {c.asesor_email && <button onClick={()=>coAvisarAsesor(c,toast,true)} title={"Reenviar el correo informativo a "+c.asesor_email} style={btn("#fff","#1d4ed8","#bfdbfe")}>📧 Correo al asesor</button>}
         <button onClick={()=>{ if(!coImprimir(c,"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF interno</button>
         {todas&&onAbrirTerreno&&<button onClick={()=>onAbrirTerreno(c)} style={btn("#fff",B.navy,B.grey2)}>🗂 Abrir ficha del terreno</button>}
         {c.vendedor_nombre && <button onClick={()=>{ if(!coImprimir(c,"vendedor")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF vendedor (confidencial)</button>}
@@ -3275,7 +3302,7 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
       if(r1.error){ try{ await window.sb.from("cartas_oferta").delete().eq("id",ins.data.id); }catch(e){} throw r1.error; }
       let liga=null;
       if(conLiga){ const { data, error } = await window.sb.rpc("carta_oferta_liga",{ p_id:ins.data.id, p_rol:"comprador", p_renovar:false }); if(error) toast("La carta se guardó, pero no se generó la liga: "+error.message); else liga=CO_URL+data;
-        if(liga){ try{ await navigator.clipboard.writeText(liga); }catch(e){} } }
+        if(liga){ try{ await navigator.clipboard.writeText(liga); }catch(e){} coAvisarAsesor({ ...ins.data, ronda_actual:1 }, toast); } }
       try{ window.dispatchEvent(new Event("co-actualizado")); }catch(e){}
       setListo({ carta:ins.data, liga });
       toast("✅ Carta "+(ins.data.folio||"")+" creada"+(liga?" · liga del comprador copiada":""));
@@ -22306,7 +22333,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.81</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.82</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
