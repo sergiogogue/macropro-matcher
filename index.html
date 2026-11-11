@@ -21095,13 +21095,6 @@ Respuesta: [respuesta exacta, conversacional]
               )}
             </div>
 
-            {/* ESTADÍSTICAS */}
-            <div style={{marginBottom:10}}><div style={s.sectionTitle}>📊 Estadísticas</div><div style={s.sectionSub}>Panorama del equipo{cf?(" · "+ciudadF):""}.</div></div>
-            {!chartReady && <div style={{fontSize:12,color:B.grey3,marginBottom:10}}>Cargando librería de gráficos…</div>}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:16,marginBottom:28}}>
-              <div style={{...s.resultCard(1),marginBottom:0,height:320}}><canvas ref={refCiu}/></div>
-            </div>
-
             {/* (La tabla de "Opciones del equipo" se movió a "Por asesor" y a la alerta de pendientes;
                  General queda limpio: estadísticas + requerimientos.) */}
 
@@ -21509,7 +21502,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.71</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.72</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
