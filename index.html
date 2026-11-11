@@ -17779,6 +17779,30 @@ Respuesta: [respuesta exacta, conversacional]
       }catch(e){ toast("No se pudo eliminar: "+((e&&e.message)||e)); }
       finally{ setOpcBorrando(""); }
     };
+    // 🗑 Eliminar un opcionador / cotización desde el kanban (misma lógica que "Eliminar" en 🧾 Cotización):
+    //    borra sus documentos (salvo que ya sea captación: esos archivos son de la ficha) y la cotización.
+    const [opcEliminando,setOpcEliminando]=React.useState("");
+    const eliminarOpc=async(o)=>{
+      if(!o||!window.sb) return;
+      const yaCaptacion=!!o.captacion_id;
+      if(!window.confirm("¿Eliminar a "+(o.cliente_nombre||"este opcionador")+(o.terreno_nombre?(" — "+o.terreno_nombre):"")+"?\n\n"+(yaCaptacion?"La captación que generó y sus documentos SE CONSERVAN.":"También se borran sus documentos.")+" Esta acción no se puede deshacer.")) return;
+      setOpcEliminando(o.id);
+      try{
+        if(!yaCaptacion) try{ const { data:docs }=await window.sb.from("documentos_opcionador").select("url").eq("cotizacion_id",o.id);
+          const paths=(docs||[]).map(d=>d.url).filter(Boolean);
+          if(paths.length) await window.sb.storage.from("documentos-opcionador").remove(paths);
+        }catch(e){}
+        if(!yaCaptacion) try{ await window.sb.from("documentos_opcionador").delete().eq("cotizacion_id",o.id); }catch(e){}
+        const del=await window.sb.from("cotizaciones_opcionador").delete().eq("id",o.id);
+        if(del.error) throw del.error;
+        if(opcSel&&opcSel.id===o.id) setOpcSel(null);
+        setOpcLista(prev=>(prev||[]).filter(x=>x.id!==o.id));
+        cargarOpc();
+        toast("🗑 Eliminado: "+(o.cliente_nombre||"opcionador"));
+      }catch(e){ toast("No se pudo eliminar: "+((e&&e.message)||e)); }
+      finally{ setOpcEliminando(""); }
+    };
+    const btnElimOpc=(o)=>(<button disabled={opcEliminando===o.id} onClick={e=>{ e.stopPropagation(); eliminarOpc(o); }} title="Eliminar" style={{fontSize:10,fontWeight:800,color:"#b91c1c",background:"#fff",border:"1px solid #fecaca",borderRadius:6,padding:"5px 8px",cursor:opcEliminando===o.id?"wait":"pointer",fontFamily:"'DM Sans',sans-serif"}}>{opcEliminando===o.id?"…":"🗑"}</button>);
     const docsDeOpc=(id)=>{ const m=opcDocs[id]||{}; return OPC_DOCS.map(d=>({ ...d, row:null })); };
     const ligaAceptarDe=(o)=>"https://macrolotes.grupoguia.mx/aceptar?c="+o.id;
     const renderOpcPendiente=(o)=>(
@@ -17790,6 +17814,7 @@ Respuesta: [respuesta exacta, conversacional]
         <div style={{display:"flex",gap:6}}>
           <button onClick={async()=>{ const url=ligaAceptarDe(o); try{ await navigator.clipboard.writeText(url); toast("📋 Liga copiada"); }catch(e){ try{ window.prompt("Copia la liga:", url); }catch(_){ toast(url); } } }} style={{flex:1,fontSize:10,fontWeight:800,color:B.navy,background:B.offW,border:"1px solid "+B.grey1,borderRadius:6,padding:"5px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📋 Copiar liga</button>
           <button onClick={()=>setView("pitch")} title="Ver en la pestaña Cotización" style={{fontSize:10,fontWeight:800,color:B.navy,background:"#fffaf0",border:"1px solid "+B.gold,borderRadius:6,padding:"5px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧾 Cotización</button>
+          {btnElimOpc(o)}
         </div>
         <div style={{fontSize:9,color:B.grey4,marginTop:6}}>Al aceptar, se convierte en captación en "Nueva opción" y ahí recibes sus documentos.</div>
       </div>
@@ -17803,6 +17828,7 @@ Respuesta: [respuesta exacta, conversacional]
         <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
           <button onClick={()=>setOpcSel(o)} style={{flex:1,fontSize:10,fontWeight:800,color:B.navy,background:B.offW,border:"1px solid "+B.grey1,borderRadius:6,padding:"5px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧱 Editar Terreno</button>
           <button onClick={()=>window.open(OPC_URL,"_blank")} title="Abrir Intelligence / documentos en la Landing" style={{fontSize:10,fontWeight:800,color:B.navy,background:"#fffaf0",border:"1px solid "+B.gold,borderRadius:6,padding:"5px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧠</button>
+          {btnElimOpc(o)}
         </div>
       </div>
     ); };
@@ -18063,7 +18089,10 @@ Respuesta: [respuesta exacta, conversacional]
                   <div style={{fontSize:19,fontWeight:800}}>{opcSel.cliente_nombre||"Sin nombre"}</div>
                   <div style={{fontSize:12,color:"#cbd5e1"}}>{[opcSel.terreno_nombre,opcSel.terreno_ciudad].filter(Boolean).join(" · ")||"—"}{opcSel.valor_terreno?(" · "+opcSel.valor_terreno):""}</div>
                 </div>
-                <button onClick={()=>setOpcSel(null)} style={{background:"transparent",color:"#cbd5e1",border:"1px solid rgba(255,255,255,.3)",borderRadius:8,padding:"6px 10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Cerrar</button>
+                <div style={{display:"flex",gap:8,flexShrink:0}}>
+                  <button disabled={opcEliminando===opcSel.id} onClick={()=>eliminarOpc(opcSel)} style={{background:"#fef2f2",color:"#b91c1c",border:"1px solid #fecaca",borderRadius:8,padding:"6px 10px",fontSize:13,fontWeight:700,cursor:opcEliminando===opcSel.id?"wait":"pointer"}}>{opcEliminando===opcSel.id?"Eliminando…":"🗑 Eliminar"}</button>
+                  <button onClick={()=>setOpcSel(null)} style={{background:"transparent",color:"#cbd5e1",border:"1px solid rgba(255,255,255,.3)",borderRadius:8,padding:"6px 10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Cerrar</button>
+                </div>
               </div>
               <div style={{padding:"18px 22px"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -21580,7 +21609,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.74</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.75</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
