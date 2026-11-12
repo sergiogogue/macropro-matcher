@@ -3673,6 +3673,38 @@ function ViewCalidadDatos({ s, clients, inventory, captaciones, onAbrirCliente, 
   );
 }
 
+// ─── ☁️ CLIENTES → NUBE (excepción acotada a MP_READONLY_SHARED, pedida por Dirección) ──────────
+// Al guardar la ficha de un cliente en MacroPro se sube a public.clientes para que la Landing y el
+// bot de WhatsApp lean lo más fresco. "Upsert" SEGURO (lección de la duplicación masiva por llaves
+// NULL): primero se BUSCA el registro y luego se ACTUALIZA o se CREA; nunca un upsert ciego.
+//   Búsqueda: vínculo guardado (sb_id_cliente) → correo → teléfono (últimos 10 dígitos) →
+//             misma clave id_cliente CON el mismo nombre.
+//   Actualiza solo los campos con dato (nunca borra en la nube lo que en MacroPro está vacío).
+//   Crea si no existe; si la clave choca con OTRO cliente, usa una clave nueva (no lo pisa).
+async function mpUpsertClienteNube(c, emailMap){
+  if(!window.sb||!c) return { accion:"sin-conexion" };
+  const base=clienteToSupabase(c, emailMap||{}); if(!base||!base.id_cliente) return { accion:"sin-llave" };
+  const nrm=(s)=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/\s+/g," ").trim();
+  const dig=(s)=>String(s||"").replace(/\D/g,"");
+  const uno=async(q)=>{ const { data, error } = await q.limit(1); if(error) throw error; return (data&&data[0])||null; };
+  let hit=null;
+  if(c.sb_id_cliente) hit=await uno(window.sb.from("clientes").select("id_cliente,nombre").eq("id_cliente",String(c.sb_id_cliente)));
+  if(!hit&&base.email) hit=await uno(window.sb.from("clientes").select("id_cliente,nombre").ilike("email",base.email));
+  const tel=dig(base.telefono);
+  if(!hit&&tel.length>=10){ const { data, error } = await window.sb.from("clientes").select("id_cliente,nombre,telefono").ilike("telefono","%"+tel.slice(-4)+"%").limit(100); if(error) throw error; hit=(data||[]).find(r=>dig(r.telefono).slice(-10)===tel.slice(-10))||null; }
+  if(!hit){ const r=await uno(window.sb.from("clientes").select("id_cliente,nombre").eq("id_cliente",base.id_cliente)); if(r&&nrm(r.nombre)===nrm(base.nombre)) hit=r; else if(r) base.id_cliente="MP-"+Date.now().toString(36).toUpperCase()+Math.floor(Math.random()*1e4); }
+  if(hit){
+    const patch={ updated_at:new Date().toISOString() };
+    Object.entries(base).forEach(([k,v])=>{ if(k==="id_cliente"||k==="updated_at") return; if(Array.isArray(v)?v.length:(typeof v==="number"?v>0:(v!=null&&String(v).trim()!==""))) patch[k]=v; });
+    const { error } = await window.sb.from("clientes").update(patch).eq("id_cliente",hit.id_cliente); if(error) throw error;
+    return { accion:"actualizado", id_cliente:hit.id_cliente };
+  }
+  let { error } = await window.sb.from("clientes").insert(base);
+  if(error&&/duplicate|23505/i.test(String(error.message||error.code))){ base.id_cliente="MP-"+Date.now().toString(36).toUpperCase()+Math.floor(Math.random()*1e4); ({ error } = await window.sb.from("clientes").insert(base)); }
+  if(error) throw error;
+  return { accion:"creado", id_cliente:base.id_cliente };
+}
+
 function MacroProMatcher({ sessionEmail } = {}) {
   // ═══════════════════════════════════════════════════════════
   // PERSISTENCIA: claves de localStorage y helpers
@@ -5969,16 +6001,24 @@ function MacroProMatcher({ sessionEmail } = {}) {
       sup_min:parseFloat(newClient.sup_min)||0, sup_max:parseFloat(newClient.sup_max)||0,
       status:newClient.status||"Prospecto nuevo", notas:newClient.notas||""
     };
+    let final=null;
     if(editingClientId){
       // EDICIÓN: conserva los demás campos del cliente (sb_id, fecha_contacto, etc.) y solo actualiza estos.
+      const prevC=(clients||[]).find(c=>c.id===editingClientId)||{}; final={...prevC,...campos};
       setClients(prev=>prev.map(c=>c.id===editingClientId?{...c,...campos}:c));
       toast("✓ Ficha del cliente actualizada");
     } else {
       const id=`CLI-${String(clients.length+1).padStart(3,"0")}`;
       const nc={...campos,id,fecha_contacto:new Date().toISOString().slice(0,10)};
+      final=nc;
       setClients(prev=>[...prev,nc]);
       toast("✓ Cliente agregado correctamente");
     }
+    // ☁️ También a la nube (Landing + bot de WhatsApp leen lo más fresco). Busca → actualiza o crea.
+    if(final){ const localId=final.id;
+      mpUpsertClienteNube(final, asesorEmailMap()).then(r=>{
+        if(r&&r.id_cliente){ setClients(prev=>prev.map(c=>c.id===localId?{...c,sb_id_cliente:r.id_cliente}:c)); toast("☁️ "+(r.accion==="creado"?"Cliente creado":"Cliente actualizado")+" también en la nube"); }
+      }).catch(e=>toast("⚠ Se guardó en MacroPro pero no en la nube: "+((e&&e.message)||e))); }
     setNewClient({nombre:"",empresa:"",email:"",telefono:"",asesor:"",tipo_comprador:"",ciudad_interes_raw:"",uso_interes_raw:"",presupuesto_min:"",presupuesto_max:"",sup_min:"",sup_max:"",status:"Prospecto nuevo",notas:""});
     setEditingClientId(null);
     setShowAddClient(false);
@@ -22491,7 +22531,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.85</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.86</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.

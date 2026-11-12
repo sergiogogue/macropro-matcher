@@ -81,6 +81,11 @@ exportación a PDF/PPTX/iCal y sincronización con Supabase. Está construido co
   (incidente repetido 2026-06-04, 147→294). Mitigado con un **índice único** en la base:
   `CREATE UNIQUE INDEX lotes_id_norm_uniq ON lotes (lower(regexp_replace(btrim(id),'\s+','_','g')))`.
   La subida SIEMPRE debe minimizar el id (`loteKey`). Idealmente blindar/deshabilitar esos botones.
+- **`MP_READONLY_SHARED = true`**: MacroPro no escribe en tablas compartidas (la Landing es la dueña).
+  Excepciones acotadas, pedidas por Dirección: (1) ficha del cliente → `mpUpsertClienteNube`
+  (busca por vínculo/correo/teléfono/clave+nombre y luego UPDATE solo con campos con dato, o INSERT;
+  nunca upsert ciego), (2) wizard de Cartas oferta → INSERT de cliente nuevo, (3) 🔍 Requerimientos →
+  baja lógica (`activo=false`) de compradores de prueba.
 - **`bajarDeSupabase` ahora FUSIONA, no reemplaza** el CRM (nunca borra lo local). La bajada de
   lotes/clientes completa es trabajo de la Fase 2 (ver `SPRINT6_LOGIN_SYNC.md`).
 
