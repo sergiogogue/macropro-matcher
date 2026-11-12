@@ -3051,9 +3051,11 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       const wa=rqWaUrl(tel,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener");
       if(!tel) toast("No tengo el WhatsApp del asesor: elige el contacto en WhatsApp.");
     }catch(e){ try{ w&&w.close(); }catch(_){} toast(/rol inválido/i.test(String(e&&e.message))?"Falta correr sql/cartas_oferta_v4_asesor_informativo.sql en Supabase.":("No se pudo generar la liga del asesor: "+((e&&e.message)||e))); } };
-  // modo: "enviar" (correo al vendedor) · "copiar" (copias la liga y la mandas tú; sin correo al vendedor)
-  const autorizar=async(c,modo)=>{ modo=modo||"enviar"; const v=vend[c.id]||{}; const nombre=(v.nombre!=null?v.nombre:(c.vendedor_nombre||(cap&&cap.propietario)||"")).trim();
-    if(!nombre){ toast("Escribe el nombre del vendedor."); return; }
+  // modo: "enviar" (correo al vendedor) · "copiar" (copias la liga) · "whatsapp" (WhatsApp al vendedor)
+  const autorizar=async(c,modo)=>{ modo=modo||"enviar"; const v=vend[c.id]||{};
+    const w=modo==="whatsapp"?window.open("","_blank"):null; // dentro del clic para que el navegador no lo bloquee
+    const nombre=(v.nombre!=null?v.nombre:(c.vendedor_nombre||(cap&&cap.propietario)||"")).trim();
+    if(!nombre){ try{ w&&w.close(); }catch(e){} toast("Escribe el nombre del vendedor."); return; }
     const email=String(v.email!=null?v.email:(c.vendedor_email||(cap&&cap.email)||"")).trim();
     if(modo==="enviar"&&!window.confirm("¿Enviar la carta "+c.folio+" al vendedor "+nombre+"?\n\n"+(email?("Le llega por correo a "+email+"."):"No tiene correo: después mándale la liga por WhatsApp.")+"\nTambién se avisa a Grupo Guía y al asesor.")) return;
     setBusy(c.id+"aut");
@@ -3061,12 +3063,16 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       if(error) throw error;
       const { data:tk, error:e2 } = await window.sb.rpc("carta_oferta_liga",{ p_id:c.id, p_rol:"vendedor", p_renovar:false }); if(e2) throw e2;
       const url=CO_URL+tk;
+      if(modo==="whatsapp"){ const tel=String(v.tel!=null?v.tel:(c.vendedor_telefono||(cap&&cap.telefono)||"")).trim();
+        const txt="Hola "+(String(nombre).split(/\s+/)[0]||"")+", Grupo Guía recibió una carta oferta de compra por su terreno "+c.terreno_nombre+" ("+(c.folio||"")+"). Puede revisarla, imprimirla y responderla (aceptar, contrapropuesta o rechazar) aquí:\n"+url+"\n\nLa liga es válida por 10 días. — Grupo Guía";
+        const wa=rqWaUrl(tel,txt); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener");
+        if(!tel) toast("No tengo el WhatsApp del vendedor: elige el contacto en WhatsApp."); }
       if(modo==="copiar"){ try{ await navigator.clipboard.writeText(url); toast("🔗 Liga del vendedor copiada · vale 10 días"); }catch(e){ try{ window.prompt("Copia la liga del vendedor:",url); }catch(_){ toast(url); } } }
-      let msg=modo==="copiar"?"":"📤 Carta enviada al vendedor";
-      try{ const r=await fetch(LANDING_URL+"/.netlify/functions/carta-oferta-notificar",{ method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ token:tk, sin_vendedor:modo==="copiar" }) }); const out=await r.json().catch(()=>({}));
-        if(modo!=="copiar"){ const alV=(out&&out.enviados||[]).find(x=>x.to===email.toLowerCase()&&x.enviado); msg+=alV?(" por correo ("+email+")"):" · mándale la liga por 🟢 WhatsApp vendedor"; } }catch(e){ if(modo!=="copiar") msg+=" · mándale la liga por 🟢 WhatsApp vendedor"; }
+      let msg=modo==="enviar"?"📤 Carta enviada al vendedor":(modo==="whatsapp"?"🟢 Carta enviada al vendedor por WhatsApp":"");
+      try{ const r=await fetch(LANDING_URL+"/.netlify/functions/carta-oferta-notificar",{ method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ token:tk, sin_vendedor:modo!=="enviar" }) }); const out=await r.json().catch(()=>({}));
+        if(modo==="enviar"){ const alV=(out&&out.enviados||[]).find(x=>x.to===email.toLowerCase()&&x.enviado); msg+=alV?(" por correo ("+email+")"):" · mándale la liga por 🟢 WhatsApp vendedor"; } }catch(e){ if(modo==="enviar") msg+=" · mándale la liga por 🟢 WhatsApp vendedor"; }
       if(msg) toast(msg); await cargar(); }
-    catch(e){ toast("No se pudo enviar al vendedor: "+((e&&e.message)||e)); }
+    catch(e){ try{ w&&w.close(); }catch(_){} toast("No se pudo enviar al vendedor: "+((e&&e.message)||e)); }
     setBusy(""); };
   const borrar=async(c)=>{ if(!window.confirm("¿Eliminar la carta oferta "+c.folio+"? Se borran todas sus rondas y firmas. No se puede deshacer.")) return;
     const { error } = await window.sb.from("cartas_oferta").delete().eq("id",c.id); if(error){ toast("No se pudo eliminar: "+error.message); return; } toast("🗑 Carta "+c.folio+" eliminada"); cargar(); };
@@ -3117,6 +3123,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
           </div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
             <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"enviar")} title="Le llega por correo su liga (10 días)" style={btn(B.gold,B.navy)}>{busy===c.id+"aut"?"Enviando…":"📤 Enviar al vendedor"}</button>
+            <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"whatsapp")} title="Abre WhatsApp al vendedor con su liga y el mensaje listo" style={btn("#25D366","#fff")}>🟢 WhatsApp al vendedor</button>
             <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"copiar")} title="Copias la liga y se la mandas tú (sin correo al vendedor)" style={btn(B.navy,"#fff")}>🔗 Copiar liga para el vendedor</button>
           </div>
         </div>)}
@@ -22354,7 +22361,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.83</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.84</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
