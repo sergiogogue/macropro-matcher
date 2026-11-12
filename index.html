@@ -3543,6 +3543,136 @@ function ViewCartasOferta({ s, onToast, onNueva, onAbrirTerreno, embebido }){
   );
 }
 
+// ─── 🩺 CALIDAD DE DATOS (Data Health Check): qué falta para poder operar ─────────────────────
+// 1) Clientes que el MOTOR DE MATCHING no puede usar: sin presupuesto máximo, ciudad o uso de interés.
+// 2) Terrenos (inventario y captación) sin precio, superficie o fecha de entrega ("s/d" cuenta como vacío).
+// Lee lo mismo que usa la app (clients / inventory / captaciones), así que al completar una ficha el
+// panel se actualiza solo. Nivel superior (no se re-crea con cada aviso).
+const CD_VACIO=(v)=>{ if(v==null) return true; if(Array.isArray(v)) return !v.filter(x=>String(x||"").trim()&&!CD_VACIO(x)).length; const s=String(v).trim().toLowerCase(); return !s||["s/d","sd","s.d.","n/d","nd","na","n/a","-","—","–","0","pendiente","por definir","sin dato","sin datos","?"].includes(s); };
+const CD_NUM=(v)=>{ const n=parseFloat(String(v==null?"":v).replace(/[^\d.]/g,"")); return isNaN(n)?0:n; };
+function ViewCalidadDatos({ s, clients, inventory, captaciones, onAbrirCliente, onAbrirLote, onAbrirCaptacion }){
+  const [tab,setTab]=useState("clientes");
+  const [falta,setFalta]=useState("");           // filtro por dato faltante
+  const [q,setQ]=useState("");
+  const [fAse,setFAse]=useState("");
+  const [lim,setLim]=useState(100);
+  const [origen,setOrigen]=useState("inventario");
+
+  // ── 1) Clientes ──
+  const cli=(clients||[]).filter(c=>c&&c.activo!==false);
+  const faltasCli=(c)=>{ const f=[]; if(!(CD_NUM(c.presupuesto_max)>0)) f.push("presupuesto"); if(CD_VACIO(c.ciudad_interes)) f.push("ciudad"); if(CD_VACIO(c.uso_interes)) f.push("uso"); return f; };
+  const cliInc=cli.map(c=>({c,f:faltasCli(c)})).filter(x=>x.f.length);
+  const cuentaCli=(k)=>cliInc.filter(x=>x.f.includes(k)).length;
+  // ── 2) Terrenos ──
+  const lotes=(inventory||[]).filter(l=>l&&!/vendid/i.test(String(l.status||"")));
+  const faltasLote=(l)=>{ const f=[]; if(!(CD_NUM(l.precio_total)>0||CD_NUM(l.precio_m2)>0)) f.push("precio"); if(!(CD_NUM(l.sup_m2)>0)) f.push("superficie"); if(CD_VACIO(l.entrega)) f.push("entrega"); return f; };
+  const loteInc=lotes.map(l=>({l,f:faltasLote(l)})).filter(x=>x.f.length);
+  const caps=(captaciones||[]).filter(c=>c&&c.pipeline!=="Descartado");
+  const faltasCap=(c)=>{ const f=[]; if(!(CD_NUM(c.precioAutorizado)>0||CD_NUM(c.precioDueno)>0||CD_NUM(c.precioM2)>0)) f.push("precio"); if(!(CD_NUM(c.superficie)>0)) f.push("superficie"); return f; };
+  const capInc=caps.map(c=>({c,f:faltasCap(c)})).filter(x=>x.f.length);
+  const pct=(ok,tot)=>tot?Math.round(ok/tot*100):100;
+  const salud=pct((cli.length-cliInc.length)+(lotes.length-loteInc.length)+(caps.length-capInc.length), cli.length+lotes.length+caps.length);
+
+  const nq=coNrm(q);
+  const asesores=[...new Set(cli.map(c=>String(c.asesor||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es"));
+  const visCli=cliInc.filter(x=>(!falta||x.f.includes(falta))&&(!fAse||String(x.c.asesor||"").trim()===fAse)&&(!nq||coNrm([x.c.nombre,x.c.empresa,x.c.email,x.c.telefono,x.c.asesor].join(" ")).includes(nq)));
+  const visLot=(origen==="inventario"?loteInc:capInc).filter(x=>(!falta||x.f.includes(falta))&&(!nq||coNrm(origen==="inventario"?[x.l.id,x.l.nombre,x.l.desarrollo,x.l.ciudad].join(" "):[x.c.zona,x.c.ubicacion,x.c.propietario,x.c.ciudad,x.c.asesorResponsableGG].join(" ")).includes(nq)));
+
+  const ETQ={ presupuesto:"Presupuesto máx.", ciudad:"Ciudad de interés", uso:"Uso de suelo", precio:"Precio", superficie:"Superficie", entrega:"Fecha de entrega" };
+  const chipF=(k)=><span key={k} style={{display:"inline-block",fontSize:11,fontWeight:800,color:"#b91c1c",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:999,padding:"1px 8px",margin:"1px 4px 1px 0",whiteSpace:"nowrap"}}>✕ {ETQ[k]}</span>;
+  const lbl={fontSize:11,fontWeight:700,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5};
+  const th={padding:"9px 12px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,color:"#fff",textAlign:"left",whiteSpace:"nowrap"};
+  const td={padding:"7px 12px",verticalAlign:"middle",fontSize:13};
+  const tile=(n,tot,t,sub,activo,onClick)=>{ const ok=n===0; const col=ok?B.green:"#b91c1c"; return (
+    <div onClick={onClick} style={{cursor:"pointer",background:"#fff",border:"1.5px solid "+(activo?B.navy:B.grey1),borderRadius:14,padding:"14px 16px",boxShadow:"0 1px 3px rgba(0,43,73,.06)"}}>
+      <div style={{display:"flex",alignItems:"baseline",gap:6}}><span style={{fontSize:28,fontWeight:900,color:col,fontFamily:"'Playfair Display',serif"}}>{n.toLocaleString("es-MX")}</span><span style={{fontSize:12,color:B.grey4}}>de {tot.toLocaleString("es-MX")}</span></div>
+      <div style={{fontSize:12.5,fontWeight:800,color:B.grey5}}>{t}</div>
+      <div style={{height:6,background:B.grey1,borderRadius:4,marginTop:7,overflow:"hidden"}}><div style={{height:"100%",width:pct(tot-n,tot)+"%",background:ok?B.green:B.gold,borderRadius:4}}/></div>
+      <div style={{fontSize:11,color:B.grey4,marginTop:4}}>{ok?"✓ Completo":(pct(tot-n,tot)+"% completo · "+sub)}</div>
+    </div>); };
+  const btnS={...s.btn("sm"),padding:"4px 10px",fontSize:12,boxShadow:"none",whiteSpace:"nowrap"};
+  const filtroChip=(k,n)=><button key={k} onClick={()=>{ setFalta(falta===k?"":k); setLim(100); }} style={{border:"1.5px solid "+(falta===k?"#b91c1c":B.grey1),background:falta===k?"#fef2f2":"#fff",color:falta===k?"#b91c1c":B.grey5,borderRadius:999,padding:"6px 12px",fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Sin {ETQ[k].toLowerCase()} <span style={{opacity:.75}}>{n}</span></button>;
+
+  return (
+    <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}>
+      <div style={{...s.page,maxWidth:1320}}>
+        <div style={{...s.hero,padding:"26px 32px",marginBottom:14}}>
+          <div style={s.heroDecor}/>
+          <div style={{position:"relative",display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:16,flexWrap:"wrap"}}>
+            <div><div style={s.heroEyebrow}>Data Health Check · Grupo Guía</div><div style={{...s.heroTitle,fontSize:32,marginBottom:4}}>🩺 Calidad de datos</div>
+              <div style={{...s.heroSub,fontSize:13.5}}>Lo que falta capturar para que el matching y las cotizaciones funcionen. Completa cada ficha desde aquí.</div></div>
+            <div style={{textAlign:"right"}}><div style={{fontSize:44,fontWeight:900,color:salud>=90?"#4ade80":(salud>=70?B.gold:"#f87171"),fontFamily:"'Playfair Display',serif",lineHeight:1}}>{salud}%</div><div style={{fontSize:12,color:"rgba(255,255,255,.8)",fontWeight:700}}>salud de los datos</div></div>
+          </div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:12,marginBottom:14}}>
+          {tile(cliInc.length,cli.length,"Clientes sin perfil completo","no entran al matching",tab==="clientes",()=>{ setTab("clientes"); setFalta(""); setLim(100); })}
+          {tile(loteInc.length,lotes.length,"Lotes de inventario incompletos","sin precio, superficie o entrega",tab==="terrenos"&&origen==="inventario",()=>{ setTab("terrenos"); setOrigen("inventario"); setFalta(""); setLim(100); })}
+          {tile(capInc.length,caps.length,"Terrenos en captación incompletos","sin precio o superficie",tab==="terrenos"&&origen==="captacion",()=>{ setTab("terrenos"); setOrigen("captacion"); setFalta(""); setLim(100); })}
+        </div>
+
+        {tab==="clientes" && cliInc.length>0 && (
+          <div style={{display:"flex",alignItems:"center",gap:12,background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:14,padding:"14px 18px",marginBottom:14}}>
+            <span style={{fontSize:24}}>⚠️</span>
+            <div><div style={{fontSize:15,fontWeight:800,color:"#b91c1c"}}>Tienes {cliInc.length.toLocaleString("es-MX")} cliente{cliInc.length===1?"":"s"} sin perfil completo. El motor de matching no puede operar con ellos.</div>
+              <div style={{fontSize:12.5,color:B.grey5,marginTop:2}}>{cuentaCli("presupuesto")} sin presupuesto máximo · {cuentaCli("ciudad")} sin ciudad de interés · {cuentaCli("uso")} sin uso de suelo. Da “✏️ Completar ficha” y guarda: desaparecen de esta lista.</div></div>
+          </div>)}
+
+        <div style={{...s.filterBar,alignItems:"flex-end"}}>
+          <div style={{display:"flex",gap:4,background:B.grey1,borderRadius:12,padding:4,alignSelf:"center"}}>
+            {[["clientes","👥 Clientes",cliInc.length],["terrenos","🏗 Terrenos",loteInc.length+capInc.length]].map(([k,l,n])=>(
+              <button key={k} onClick={()=>{ setTab(k); setFalta(""); setLim(100); }} style={{padding:"9px 16px",borderRadius:10,border:"none",cursor:"pointer",fontFamily:"inherit",fontWeight:800,fontSize:13.5,background:tab===k?B.navy:"transparent",color:tab===k?"#fff":B.grey4}}>{l} <span style={{marginLeft:4,background:tab===k?B.gold:"#fff",color:B.navy,borderRadius:999,padding:"1px 8px",fontSize:12}}>{n}</span></button>))}
+          </div>
+          {tab==="terrenos" && <div style={{display:"flex",flexDirection:"column",gap:5}}><label style={lbl}>Origen</label><select value={origen} onChange={e=>{ setOrigen(e.target.value); setFalta(""); }} style={{...s.select,minWidth:170}}><option value="inventario">Inventario ({loteInc.length})</option><option value="captacion">Captación ({capInc.length})</option></select></div>}
+          <div style={{display:"flex",flexDirection:"column",gap:5,flex:"1 1 220px",minWidth:0}}><label style={lbl}>Buscar</label><input value={q} onChange={e=>{ setQ(e.target.value); setLim(100); }} placeholder={tab==="clientes"?"Cliente, empresa, correo o asesor…":"Clave, terreno, desarrollo o ciudad…"} style={{...s.select,cursor:"text",width:"100%"}}/></div>
+          {tab==="clientes" && <div style={{display:"flex",flexDirection:"column",gap:5}}><label style={lbl}>Asesor</label><select value={fAse} onChange={e=>{ setFAse(e.target.value); setLim(100); }} style={{...s.select,minWidth:180}}><option value="">Todos</option>{asesores.map(a=><option key={a} value={a}>{a}</option>)}</select></div>}
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",margin:"-4px 0 12px"}}>
+          {tab==="clientes" ? ["presupuesto","ciudad","uso"].map(k=>filtroChip(k,cuentaCli(k)))
+            : (origen==="inventario"?["precio","superficie","entrega"]:["precio","superficie"]).map(k=>filtroChip(k,(origen==="inventario"?loteInc:capInc).filter(x=>x.f.includes(k)).length))}
+        </div>
+
+        <div style={{...s.resultCard(1),padding:0,overflow:"hidden",marginBottom:30}}>
+          {tab==="clientes" ? (
+            !visCli.length ? <div style={{padding:24,textAlign:"center",color:cliInc.length?B.grey3:B.green,fontWeight:700}}>{cliInc.length?"Ningún cliente coincide con los filtros.":"✓ Todos los clientes tienen su perfil completo."}</div> : (
+            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:980}}>
+              <thead><tr style={{background:B.navy}}><th style={th}>Cliente</th><th style={th}>Asesor</th><th style={th}>Le falta</th><th style={{...th,textAlign:"right"}}>Presupuesto máx.</th><th style={th}>Ciudades</th><th style={th}>Usos</th><th style={{...th,textAlign:"right"}}>Acción</th></tr></thead>
+              <tbody>{visCli.slice(0,lim).map(({c,f},i)=>(
+                <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
+                  <td style={td}><b style={{color:B.navy}}>{c.nombre||"—"}</b>{c.empresa?<div style={{fontSize:11.5,color:B.grey4}}>{c.empresa}</div>:null}</td>
+                  <td style={{...td,color:B.grey5}}>{c.asesor||<span style={{color:B.grey3}}>Sin asesor</span>}</td>
+                  <td style={td}>{f.map(chipF)}</td>
+                  <td style={{...td,textAlign:"right",whiteSpace:"nowrap"}}>{CD_NUM(c.presupuesto_max)>0?coMx(c.presupuesto_max):<span style={{color:B.grey3}}>—</span>}</td>
+                  <td style={{...td,color:B.grey5}}>{Array.isArray(c.ciudad_interes)&&c.ciudad_interes.length?c.ciudad_interes.join(", "):<span style={{color:B.grey3}}>—</span>}</td>
+                  <td style={{...td,color:B.grey5}}>{Array.isArray(c.uso_interes)&&c.uso_interes.length?c.uso_interes.join(", "):<span style={{color:B.grey3}}>—</span>}</td>
+                  <td style={{...td,textAlign:"right"}}><button onClick={()=>onAbrirCliente(c)} style={{...btnS,background:B.gold,color:B.navy}}>✏️ Completar ficha</button></td>
+                </tr>))}</tbody></table>
+              {visCli.length>lim && <div style={{padding:12,textAlign:"center",borderTop:"1px solid "+B.grey1}}><button onClick={()=>setLim(l=>l+100)} style={s.btn("sm")}>Mostrar más ({visCli.length-lim} restantes)</button></div>}
+            </div>)
+          ) : (
+            !visLot.length ? <div style={{padding:24,textAlign:"center",color:(origen==="inventario"?loteInc:capInc).length?B.grey3:B.green,fontWeight:700}}>{(origen==="inventario"?loteInc:capInc).length?"Ningún terreno coincide con los filtros.":"✓ Todos los terrenos tienen sus datos completos."}</div> : (
+            <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
+              <thead><tr style={{background:B.navy}}><th style={th}>Terreno</th><th style={th}>{origen==="inventario"?"Desarrollo":"Asesor"}</th><th style={th}>Ciudad</th><th style={th}>Le falta</th><th style={{...th,textAlign:"right"}}>Precio</th><th style={{...th,textAlign:"right"}}>Superficie</th>{origen==="inventario"&&<th style={th}>Entrega</th>}<th style={{...th,textAlign:"right"}}>Acción</th></tr></thead>
+              <tbody>{visLot.slice(0,lim).map((x,i)=>{ const inv=origen==="inventario"; const o=inv?x.l:x.c; const precio=inv?(CD_NUM(o.precio_total)||CD_NUM(o.precio_m2)*CD_NUM(o.sup_m2)):(CD_NUM(o.precioAutorizado)||CD_NUM(o.precioDueno)); const sup=inv?CD_NUM(o.sup_m2):CD_NUM(o.superficie); return (
+                <tr key={(inv?o.id:o.id)||i} style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW}}>
+                  <td style={td}><b style={{color:B.navy}}>{inv?String(o.id||"").toUpperCase():(o.zona||o.ubicacion||("Terreno de "+(o.propietario||"—")))}</b><div style={{fontSize:11.5,color:B.grey4}}>{inv?(o.nombre||""):(o.propietario||"")}</div></td>
+                  <td style={{...td,color:B.grey5}}>{inv?(o.desarrollo||"—"):(o.asesorResponsableGG||"—")}</td>
+                  <td style={{...td,color:B.grey5}}>{o.ciudad||"—"}</td>
+                  <td style={td}>{x.f.map(chipF)}</td>
+                  <td style={{...td,textAlign:"right",whiteSpace:"nowrap"}}>{precio>0?coMx(precio):<span style={{color:B.grey3}}>—</span>}</td>
+                  <td style={{...td,textAlign:"right",whiteSpace:"nowrap"}}>{sup>0?(sup.toLocaleString("es-MX")+" m²"):<span style={{color:B.grey3}}>—</span>}</td>
+                  {inv&&<td style={{...td,color:B.grey5}}>{CD_VACIO(o.entrega)?<span style={{color:B.grey3}}>{String(o.entrega||"—")}</span>:o.entrega}</td>}
+                  <td style={{...td,textAlign:"right"}}><button onClick={()=>inv?onAbrirLote(o):onAbrirCaptacion(o)} style={{...btnS,background:B.gold,color:B.navy}}>🗂 Abrir ficha</button></td>
+                </tr>); })}</tbody></table>
+              {visLot.length>lim && <div style={{padding:12,textAlign:"center",borderTop:"1px solid "+B.grey1}}><button onClick={()=>setLim(l=>l+100)} style={s.btn("sm")}>Mostrar más ({visLot.length-lim} restantes)</button></div>}
+            </div>)
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MacroProMatcher({ sessionEmail } = {}) {
   // ═══════════════════════════════════════════════════════════
   // PERSISTENCIA: claves de localStorage y helpers
@@ -3572,7 +3702,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const setView=(v)=>{setViewRaw(v);savePersisted(STORAGE_KEYS.view,v);};
   // Back-Office "Option Engine": si al cargar, la vista persistida/por URL es OCULTA, redirige a
   // Captación (solo al montar; la navegación interna no se bloquea). Reversible.
-  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch","equipo","requerimientos"];
+  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch","equipo","requerimientos","calidad"];
     if(!permitidas.includes(view)){ setView("captacion"); try{ if(window.location.hash && window.location.hash!=="#captacion") window.history.replaceState(null,"","#captacion"); }catch(e){} }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -22361,14 +22491,14 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.84</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.85</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
               NO se borran vistas: componentes y render (view===) siguen intactos; reversible re-agregando entradas.
               Ocultas (solo accesibles internamente): dashboard, corretaje, asesores(Buscando), quickSearch,
               matchClient, matchLot, matches, clients, lots(Inventario), crm, metas, ejecutivo, comparador. */}
-          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["equipo","👔 Asesores"],["requerimientos","🔍 Requerimientos"],["admin","⚙️ Admin"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["equipo","👔 Asesores"],["requerimientos","🔍 Requerimientos"],["calidad","🩺 Calidad de datos"],["admin","⚙️ Admin"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <button title="Crear una carta oferta desde cero" style={{...s.navBtn(false),background:B.gold,color:B.navy,fontWeight:800}} onClick={()=>setWizardCO({})}>➕ Nueva Carta Oferta</button>
@@ -22425,6 +22555,8 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="pitch"&&<TramiteOpcionPaso1 asesores={asesoresCloud} onToast={toast} onCotizar={iniciarCotizacionDeAcuerdo} ver={acuerdosVer+"-"+cotPrefillVer}/>}
       {view==="pitch"&&<ViewPitchCotizacion key={"cot-"+cotPrefillVer}/>}
       {view==="equipo"&&<ViewFichaAsesores/>}
+      {view==="calidad"&&<ViewCalidadDatos s={s} clients={clients} inventory={inventory} captaciones={captaciones}
+        onAbrirCliente={(c)=>abrirFichaCliente(c)} onAbrirLote={(l)=>setSelectedLotDetail(l)} onAbrirCaptacion={(c)=>{ setEditingCaptacion(c); setShowCaptacionModal(true); }}/>}
       {view==="requerimientos"&&<ViewRequerimientos s={s} onToast={toast} onBorrarCompradores={(ids)=>{ const set=new Set((ids||[]).map(String)); setClients(prev=>(prev||[]).filter(c=>{ const r=clienteToSupabase(c,{}); return !(r&&set.has(String(r.id_cliente))); })); }}/>}
       {view==="pitch" && acuerdoCotG && (
         <div onClick={()=>{ setAcuerdoCotG(null); setAcuerdosVer(v=>v+1); }} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
