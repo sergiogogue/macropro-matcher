@@ -298,13 +298,11 @@ $("#another").addEventListener("click", () => {
 (function(){
   try{
     const token = new URLSearchParams(location.search).get("token");
-    if(!token) return;  // sin token → formulario normal de siempre
-    const formCard = document.querySelector(".card:not(.ok-screen)");
-    if(formCard) formCard.style.display = "none";
-    const okCard = document.getElementById("ok"); if(okCard) okCard.style.display = "none";
-    const portal = document.getElementById("portal"); if(portal) portal.style.display = "block";
-    window.__ligaToken = token;
-    cargarPortal(token);
+    if(!token) return;  // sin token → formulario de auto-registro normal
+    // La liga de documentos del propietario se UNIFICÓ en el landing (una sola
+    // fuente de verdad, mismo diseño que /aceptar). Redirige ahí.
+    location.replace("https://macrolotes.grupoguia.mx/expediente/" + encodeURIComponent(token));
+    return;
   }catch(e){}
 })();
 

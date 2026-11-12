@@ -17557,7 +17557,7 @@ Respuesta: [respuesta exacta, conversacional]
       try{ const { data } = await window.sb.from('captaciones').select('liga_token').eq('id', f.id).limit(1); token=(data&&data[0]&&data[0].liga_token)||""; if(token) setEditingCaptacion(prev=>({ ...prev, ligaToken:token })); }catch(e){}
     }
     if(!token){ toast("⚠ Aún no hay liga (guarda y espera la sync, o corre el SQL de Liga Mágica)"); return; }
-    const url = "https://sergiogogue.github.io/macropro-matcher/captar.html?token="+token;
+    const url = "https://macrolotes.grupoguia.mx/expediente/"+token;
     try{ await navigator.clipboard.writeText(url); toast("🔗 Liga Mágica copiada al portapapeles"); }
     catch(e){ try{ window.prompt("Copia la Liga Mágica:", url); }catch(_){ toast(url); } }
   };
@@ -17572,7 +17572,7 @@ Respuesta: [respuesta exacta, conversacional]
       const token = data;
       if(!token) throw new Error("No se recibió el token nuevo (¿corriste liga_magica_vencimiento.sql?)");
       setEditingCaptacion(prev=>({ ...prev, ligaToken:token }));
-      const url = "https://sergiogogue.github.io/macropro-matcher/captar.html?token="+token;
+      const url = "https://macrolotes.grupoguia.mx/expediente/"+token;
       try{ await navigator.clipboard.writeText(url); toast("♻ Liga regenerada (15 días) y copiada"); }
       catch(e){ try{ window.prompt("Nueva Liga Mágica:", url); }catch(_){ toast(url); } }
     }catch(e){ toast("No se pudo regenerar: "+((e&&e.message)||e)); }
@@ -22559,7 +22559,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.91</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.92</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
