@@ -22555,7 +22555,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.89</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.90</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
@@ -22565,14 +22565,6 @@ Respuesta: [respuesta exacta, conversacional]
           {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["equipo","👔 Asesores"],["requerimientos","🔍 Requerimientos"],["calidad","🩺 Calidad de datos"],["admin","⚙️ Admin"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
-          {/* SIEMPRE a la mano: liga fija para mandar a un asesor a opcionar (Alta de terreno + Acuerdo de Comisión). */}
-          <button title="Mandar a un asesor a opcionar un terreno (Acuerdo de Comisión)" style={{...s.navBtn(false),background:B.navy,color:"#fff",fontWeight:800}} onClick={()=>{
-            const liga=LANDING_URL+"/acuerdo", pdf=LANDING_URL+"/acuerdo-comision.pdf";
-            const txt="Hola 👋 Para iniciar la opción de tu terreno con Grupo Guía · Macrolotes, llena aquí el *Alta de terreno y Acuerdo de Comisión* (sin cuenta, 5 min): tus datos, tu cliente, el terreno con la liga de Google Maps o Earth, eliges tu esquema (100/0 ó 60/40) y firmas:\n"+liga+"\n\nAquí tienes el *Acuerdo de Comisión* completo en PDF:\n"+pdf+"\n\nDudas: llamada o WhatsApp al 33 1605 7715";
-            try{ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(txt); }catch(e){}
-            try{ toast("✅ Liga de opcionar copiada — pégala en WhatsApp"); }catch(e){}
-            try{ window.open("https://wa.me/?text="+encodeURIComponent(txt),"_blank","noopener"); }catch(e){}
-          }}>📨 Opcionar</button>
           <button title="Crear una carta oferta desde cero" style={{...s.navBtn(false),background:B.gold,color:B.navy,fontWeight:800}} onClick={()=>setWizardCO({})}>➕ Nueva Carta Oferta</button>
           <SyncIndicator syncAuto={syncAuto} onToggle={()=>setSyncAuto(v=>!v)}/>
           <button onClick={()=>{setApiKeyInput(localStorage.getItem("macropro_api_key")||"");setShowApiModal(true);}} style={{padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",background:"transparent",color:apiKey?"#22c55e":"#ef4444",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}} title={apiKey?"API Key configurada ✓":"Sin API Key — click para configurar"}>{apiKey?"🔑":"⚠️"}</button>
