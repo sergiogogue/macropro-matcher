@@ -2820,7 +2820,7 @@ const CO_FORMAS = ["Contado","Financiamiento","Diferido"];
 const CO_EST = {
   borrador:                  { t:"📝 Borrador",                        fg:"#64748b", bg:"#f1f5f9", paso:0 },
   enviada_comprador:         { t:"🔗 Enviada al comprador",             fg:"#2563AC", bg:"#EEF4FF", paso:1 },
-  firmada_comprador:         { t:"✓ Firmó el comprador · recibe y pon vendedor",     fg:"#2563AC", bg:"#EEF4FF", paso:2 },
+  firmada_comprador:         { t:"✓ Firmó el comprador · enviar al vendedor",     fg:"#2563AC", bg:"#EEF4FF", paso:2 },
   autorizada:                { t:"📥 Recibida · manda al vendedor",   fg:"#002B49", bg:"#eef2f7", paso:3 },
   enviada_vendedor:          { t:"🔗 Enviada al vendedor",              fg:"#002B49", bg:"#eef2f7", paso:4 },
   contrapropuesta_vendedor:  { t:"🔄 Contrapropuesta del vendedor",     fg:"#b45309", bg:"#fff7ed", paso:5 },
@@ -3051,13 +3051,22 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       const wa=rqWaUrl(tel,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener");
       if(!tel) toast("No tengo el WhatsApp del asesor: elige el contacto en WhatsApp.");
     }catch(e){ try{ w&&w.close(); }catch(_){} toast(/rol inválido/i.test(String(e&&e.message))?"Falta correr sql/cartas_oferta_v4_asesor_informativo.sql en Supabase.":("No se pudo generar la liga del asesor: "+((e&&e.message)||e))); } };
-  const autorizar=async(c)=>{ const v=vend[c.id]||{}; const nombre=(v.nombre!=null?v.nombre:(c.vendedor_nombre||(cap&&cap.propietario)||"")).trim();
+  // modo: "enviar" (correo al vendedor) · "copiar" (copias la liga y la mandas tú; sin correo al vendedor)
+  const autorizar=async(c,modo)=>{ modo=modo||"enviar"; const v=vend[c.id]||{}; const nombre=(v.nombre!=null?v.nombre:(c.vendedor_nombre||(cap&&cap.propietario)||"")).trim();
     if(!nombre){ toast("Escribe el nombre del vendedor."); return; }
-    if(!window.confirm("¿Registrar la carta "+c.folio+" como RECIBIDA por el Director Macrolotes (Grupo Guía) y habilitar la liga del vendedor?\n\nVendedor: "+nombre)) return;
+    const email=String(v.email!=null?v.email:(c.vendedor_email||(cap&&cap.email)||"")).trim();
+    if(modo==="enviar"&&!window.confirm("¿Enviar la carta "+c.folio+" al vendedor "+nombre+"?\n\n"+(email?("Le llega por correo a "+email+"."):"No tiene correo: después mándale la liga por WhatsApp.")+"\nTambién se avisa a Grupo Guía y al asesor.")) return;
     setBusy(c.id+"aut");
-    try{ const { error } = await window.sb.rpc("carta_oferta_autorizar",{ p_id:c.id, p_vendedor_nombre:nombre, p_vendedor_email:(v.email!=null?v.email:(c.vendedor_email||(cap&&cap.email)||""))||null, p_vendedor_telefono:(v.tel!=null?v.tel:(c.vendedor_telefono||(cap&&cap.telefono)||""))||null });
-      if(error) throw error; toast("📥 Carta recibida · ya puedes mandar la liga al vendedor"); await cargar(); }
-    catch(e){ toast("No se pudo autorizar: "+((e&&e.message)||e)); }
+    try{ const { error } = await window.sb.rpc("carta_oferta_autorizar",{ p_id:c.id, p_vendedor_nombre:nombre, p_vendedor_email:email||null, p_vendedor_telefono:String(v.tel!=null?v.tel:(c.vendedor_telefono||(cap&&cap.telefono)||"")).trim()||null });
+      if(error) throw error;
+      const { data:tk, error:e2 } = await window.sb.rpc("carta_oferta_liga",{ p_id:c.id, p_rol:"vendedor", p_renovar:false }); if(e2) throw e2;
+      const url=CO_URL+tk;
+      if(modo==="copiar"){ try{ await navigator.clipboard.writeText(url); toast("🔗 Liga del vendedor copiada · vale 10 días"); }catch(e){ try{ window.prompt("Copia la liga del vendedor:",url); }catch(_){ toast(url); } } }
+      let msg=modo==="copiar"?"":"📤 Carta enviada al vendedor";
+      try{ const r=await fetch(LANDING_URL+"/.netlify/functions/carta-oferta-notificar",{ method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ token:tk, sin_vendedor:modo==="copiar" }) }); const out=await r.json().catch(()=>({}));
+        if(modo!=="copiar"){ const alV=(out&&out.enviados||[]).find(x=>x.to===email.toLowerCase()&&x.enviado); msg+=alV?(" por correo ("+email+")"):" · mándale la liga por 🟢 WhatsApp vendedor"; } }catch(e){ if(modo!=="copiar") msg+=" · mándale la liga por 🟢 WhatsApp vendedor"; }
+      if(msg) toast(msg); await cargar(); }
+    catch(e){ toast("No se pudo enviar al vendedor: "+((e&&e.message)||e)); }
     setBusy(""); };
   const borrar=async(c)=>{ if(!window.confirm("¿Eliminar la carta oferta "+c.folio+"? Se borran todas sus rondas y firmas. No se puede deshacer.")) return;
     const { error } = await window.sb.from("cartas_oferta").delete().eq("id",c.id); if(error){ toast("No se pudo eliminar: "+error.message); return; } toast("🗑 Carta "+c.folio+" eliminada"); cargar(); };
@@ -3100,13 +3109,16 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       {c.estado==="rechazada" && <div style={{fontSize:12,color:B.red,marginTop:8}}>✕ Rechazada por el <b>{c.rechazo_por}</b> el {coFH(c.rechazo_at)}{c.rechazo_motivo?(" · "+c.rechazo_motivo):""}</div>}
       {c.estado==="firmada_comprador" && (
         <div style={{border:"1.5px solid "+B.navy,borderRadius:10,padding:"9px 10px",marginTop:8,background:"#f6f8fb"}}>
-          <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>📥 Recibir la carta y poner al vendedor (aparece en su carta; el comprador va confidencial)</div>
+          <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>✓ El comprador firmó · confirma al vendedor y envíale la carta (el comprador va confidencial)</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
             <div><label style={lbS}>Vendedor (propietario)</label><input style={inS} value={v.nombre!=null?v.nombre:(c.vendedor_nombre||(cap&&cap.propietario)||"")} onChange={e=>setV("nombre",e.target.value)}/></div>
-            <div><label style={lbS}>Correo</label><input style={inS} value={v.email!=null?v.email:((cap&&cap.email)||"")} onChange={e=>setV("email",e.target.value)}/></div>
-            <div><label style={lbS}>WhatsApp</label><input style={inS} value={v.tel!=null?v.tel:((cap&&cap.telefono)||"")} onChange={e=>setV("tel",e.target.value)}/></div>
+            <div><label style={lbS}>Correo</label><input style={inS} value={v.email!=null?v.email:(c.vendedor_email||(cap&&cap.email)||"")} onChange={e=>setV("email",e.target.value)}/></div>
+            <div><label style={lbS}>WhatsApp</label><input style={inS} value={v.tel!=null?v.tel:(c.vendedor_telefono||(cap&&cap.telefono)||"")} onChange={e=>setV("tel",e.target.value)}/></div>
           </div>
-          <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c)} style={{...btn(B.gold,B.navy),marginTop:8}}>{busy===c.id+"aut"?"Registrando…":"📥 Recibir y habilitar liga del vendedor"}</button>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+            <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"enviar")} title="Le llega por correo su liga (10 días)" style={btn(B.gold,B.navy)}>{busy===c.id+"aut"?"Enviando…":"📤 Enviar al vendedor"}</button>
+            <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"copiar")} title="Copias la liga y se la mandas tú (sin correo al vendedor)" style={btn(B.navy,"#fff")}>🔗 Copiar liga para el vendedor</button>
+          </div>
         </div>)}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
         {coEditable(c) && <button onClick={()=>editar(c)} title={coCondLibres(c)?"Editar la carta (el comprador aún no firma)":"El comprador ya firmó: solo se editan los datos del vendedor"} style={btn("#fff",B.navy,B.grey2)}>✏️ {coCondLibres(c)?"Editar":"Editar vendedor"}</button>}
@@ -3225,6 +3237,7 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
   const [aseId,setAseId]=useState("");
   const [aseSug,setAseSug]=useState(false);
   const [sup,setSup]=useState(""); const [pm2,setPm2]=useState(""); const [apt,setApt]=useState(""); const [forma,setForma]=useState("Contado"); const [cl3,setCl3]=useState(()=>coFormaTxt("Contado"));
+  const [vNom,setVNom]=useState(""); const [vMail,setVMail]=useState(""); const [vTel,setVTel]=useState(""); // vendedor (propietario)
   const [nuevo,setNuevo]=useState(null);     // mini-modal {nombre,email,tel,err}
   const [busy,setBusy]=useState(false);
   const [listo,setListo]=useState(null);     // {carta, liga}
@@ -3251,7 +3264,8 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
     return { origen:"captacion", id:c.id, nombre:(String(c.zona||c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"Terreno en captación")), ubic:[c.ubicacion&&c.ubicacion!==c.zona?c.ubicacion:"",c.ciudad].filter(Boolean).join(", "), sup:s, pm2Lista:p||null, totalLista:(pa||pd||(s*p))||null, etiquetaLista:pa?"Precio autorizado":"Precio del dueño", uso:c.usoSuelo||"", estatus:c.pipeline||"", propietario:c.propietario||"", asesorCap:c.asesorResponsableGG||"", raw:c }; };
   const disponible=(l)=>{ const s=coNrm(l.status_inventario||"disponible"); return !s||s.startsWith("disponible"); };
   const terrenos=[...(lotesDB||[]).filter(disponible).map(desdeLote), ...(captaciones||[]).filter(c=>c&&c.pipeline!=="Descartado"&&c.pipeline!=="Firmado").map(desdeCap)];
-  const elegirTerr=(t)=>{ setTerr(t); setSup(t.sup?String(t.sup):""); setPm2(t.pm2Lista?String(Math.round(t.pm2Lista)):""); };
+  const elegirTerr=(t)=>{ setTerr(t); setSup(t.sup?String(t.sup):""); setPm2(t.pm2Lista?String(Math.round(t.pm2Lista)):"");
+    if(t.origen==="captacion"&&t.raw){ setVNom(String(t.raw.propietario||"").trim()); setVMail(String(t.raw.email||"").trim()); setVTel(String(t.raw.telefono||"").trim()); } };
   // Preselección (desde la ficha del lote o de la captación)
   React.useEffect(()=>{ if(terr||!inicial) return;
     if(inicial.cap) elegirTerr(desdeCap(inicial.cap));
@@ -3295,7 +3309,7 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
         terreno_nombre:terr.nombre, terreno_ubicacion:terr.ubic||null, superficie_m2:s_, apartado:a_, precio_lista_m2:terr.pm2Lista?Math.round(terr.pm2Lista*100)/100:null,
         cliente_id:String(cli.id_cliente||""), comprador_nombre:cli.nombre||"", comprador_empresa:cli.empresa||null, comprador_email:(cli.email||"").toLowerCase()||null, comprador_telefono:cli.telefono||null,
         asesor_id:ase.id!=null?String(ase.id):null, asesor_nombre:ase.nombre, asesor_email:(ase.email||"").toLowerCase()||null,
-        vendedor_nombre:terr.origen==="captacion"?(terr.propietario||null):null, creado_por:por };
+        vendedor_nombre:vNom.trim()||null, vendedor_email:vMail.trim().toLowerCase()||null, vendedor_telefono:vTel.trim()||null, creado_por:por };
       const ins=await window.sb.from("cartas_oferta").insert(carta).select("*").single();
       if(ins.error) throw ins.error;
       const r1=await window.sb.from("cartas_oferta_rondas").insert({ carta_id:ins.data.id, ronda:1, propone:"grupo_guia", precio_m2:p_, forma_pago:forma, condiciones:coCond3(forma,cl3) });
@@ -3364,6 +3378,13 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
                 render={t=>(<>{tagT(t)}<b style={{color:B.navy}}>{t.nombre}</b>{t.ubic?(" · "+t.ubic):""}<div style={{fontSize:11.5,color:B.grey4,marginTop:1}}>{t.sup?(t.sup.toLocaleString("es-MX")+" m²"):"sin superficie"}{t.uso?(" · "+t.uso):""} · {t.pm2Lista?(coMx(t.pm2Lista)+"/m² · "+t.etiquetaLista.toLowerCase()+" "+coMx(t.totalLista)):"⚠ precio pendiente"}</div></>)}
                 onElegir={elegirTerr}/>}
               {terr && <div style={caja}>{dato("Origen",terr.origen==="lote"?"Inventario":"Captación")}{dato(terr.origen==="lote"?"Clave":"Terreno",terr.origen==="lote"?terr.id.toUpperCase():terr.nombre)}{dato("Superficie",terr.sup?(terr.sup.toLocaleString("es-MX")+" m²"):"—")}{dato(terr.etiquetaLista,terr.pm2Lista?(coMx(terr.pm2Lista)+"/m²"):"Pendiente")}</div>}
+              {terr && (<div style={{marginTop:10,border:"1px solid "+B.grey1,borderRadius:10,padding:"9px 12px",background:"#fff"}}>
+                <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>🏡 Vendedor (propietario) <span style={{fontWeight:500,color:B.grey4}}>· si lo capturas, cuando el comprador firme la carta se le envía sola. El comprador no lo ve hasta que la oferta se acepte.</span></div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:8}}>
+                  <div><label style={lbl}>Nombre</label><input value={vNom} onChange={e=>setVNom(e.target.value)} placeholder="Nombre o razón social" style={inS}/></div>
+                  <div><label style={lbl}>Correo</label><input value={vMail} onChange={e=>setVMail(e.target.value)} placeholder="correo@propietario.com" style={inS}/></div>
+                  <div><label style={lbl}>WhatsApp</label><input value={vTel} onChange={e=>setVTel(e.target.value)} placeholder="33 1234 5678" style={inS}/></div>
+                </div></div>)}
             </>))}
             {blk(2,ok[1],"¿Quién es el comprador?",(<>
               <label style={lbl}>Cliente (tabla clientes)</label>
@@ -22333,7 +22354,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.82</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.83</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
