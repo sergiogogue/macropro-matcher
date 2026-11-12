@@ -2969,7 +2969,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
 
   const cargar=useCallback(async()=>{
     if(!window.sb||!(todas||(cap&&cap.id)||loteId)) return;
-    let q=window.sb.from("cartas_oferta").select("*, cartas_oferta_rondas(*)");
+    let q=window.sb.from("cartas_oferta").select("*, cartas_oferta_rondas(*), ofertas_seguimiento(etapa,tipo_operacion,documentos,enviado_legal_at,legal_email)");
     if(!todas) q=q.eq(cap&&cap.id?"captacion_id":"lote_id",cap&&cap.id?cap.id:loteId);
     const { data, error } = await q.order("created_at",{ascending:false});
     if(error){ setErr(/does not exist|schema cache|PGRST205|42P01/i.test(error.message)?"Falta correr sql/cartas_oferta.sql en Supabase.":("No se pudieron leer las cartas: "+error.message)); setLista([]); try{ onLista&&onLista([]); }catch(e){} return; }
@@ -3074,6 +3074,14 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       if(msg) toast(msg); await cargar(); }
     catch(e){ try{ w&&w.close(); }catch(_){} toast("No se pudo enviar al vendedor: "+((e&&e.message)||e)); }
     setBusy(""); };
+  const enviarLegal=async(c,email)=>{ setBusy(c.id+"leg");
+    try{
+      const {data:sess}=await window.sb.auth.getSession(); const tkn=(sess&&sess.session&&sess.session.access_token)||"";
+      const r=await fetch(LANDING_URL+"/.netlify/functions/oferta-legal",{method:"POST",headers:{"content-type":"application/json",Authorization:"Bearer "+tkn},body:JSON.stringify({carta_id:c.id,email:email||null})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok||d.error){ toast("No se pudo enviar a Legal: "+(d.error||r.status)); return; }
+      toast("📤 Expediente enviado a Legal ("+(d.legal_email||"")+")"+(d.correo_enviado===false?" — revisa el correo":"")); cargar();
+    }catch(e){ toast("Error al enviar a Legal: "+((e&&e.message)||e)); } finally{ setBusy(""); } };
   const borrar=async(c)=>{ if(!window.confirm("¿Eliminar la carta oferta "+c.folio+"? Se borran todas sus rondas y firmas. No se puede deshacer.")) return;
     const { error } = await window.sb.from("cartas_oferta").delete().eq("id",c.id); if(error){ toast("No se pudo eliminar: "+error.message); return; } toast("🗑 Carta "+c.folio+" eliminada"); cargar(); };
 
@@ -3127,6 +3135,22 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
             <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"copiar")} title="Copias la liga y se la mandas tú (sin correo al vendedor)" style={btn(B.navy,"#fff")}>🔗 Copiar liga para el vendedor</button>
           </div>
         </div>)}
+      {c.estado==="aceptada" && (()=>{
+        const seg=Array.isArray(c.ofertas_seguimiento)?c.ofertas_seguimiento[0]:c.ofertas_seguimiento;
+        const reqN=(seg&&seg.tipo_operacion==="credito")?8:4;
+        const docsN=(seg&&seg.documentos&&typeof seg.documentos==="object")?Object.keys(seg.documentos).length:0;
+        const listo=seg&&seg.etapa==="listo_contrato";
+        const enviado=(seg&&seg.etapa==="revision_legal")||(seg&&seg.enviado_legal_at);
+        const verde=listo||enviado;
+        return (
+          <div style={{border:"1.5px solid "+(verde?"#15803d":B.gold),borderRadius:10,padding:"9px 10px",marginTop:8,background:verde?"#f0fdf4":"#fffaf0"}}>
+            <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>🗂 Expediente para contrato · {seg?(seg.tipo_operacion==="credito"?"Crédito":"Contado"):"—"} · {docsN}/{reqN} documentos{enviado?" · ✅ en Revisión Legal":(listo?" · ✅ listo para contrato":" · ⏳ esperando al comprador")}</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+              <button disabled={(!listo&&!enviado)||busy===c.id+"leg"} onClick={()=>{ const mail=window.prompt("Correo de Legal (puedes cambiarlo por un abogado externo):",(seg&&seg.legal_email)||"legal@grupoguia.mx"); if(mail===null) return; enviarLegal(c,(mail||"").trim()); }} title={verde?"Manda el expediente a Legal: correo con las ligas a los documentos + datos de la carta":"El comprador aún no completa su expediente"} style={{...btn(verde?B.gold:B.grey1,verde?B.navy:B.grey4),opacity:verde?1:0.6}}>{busy===c.id+"leg"?"Enviando…":(enviado?"📤 Reenviar a Legal":"📤 Enviar Expediente a Legal")}</button>
+              {c.token_comprador&&<button onClick={()=>window.open(LANDING_URL+"/mi-oferta/"+c.token_comprador,"_blank","noopener")} style={btn("#fff",B.navy,B.grey2)}>📍 Ver portal del comprador</button>}
+            </div>
+          </div>);
+      })()}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
         {coEditable(c) && <button onClick={()=>editar(c)} title={coCondLibres(c)?"Editar la carta (el comprador aún no firma)":"El comprador ya firmó: solo se editan los datos del vendedor"} style={btn("#fff",B.navy,B.grey2)}>✏️ {coCondLibres(c)?"Editar":"Editar vendedor"}</button>}
         {esperaComprador && <button disabled={!!busy} onClick={()=>copiar(c,"comprador",venc)} style={btn(B.gold,B.navy)}>🔗 {venc?"Liga nueva":"Copiar liga"} comprador{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</button>}
@@ -22531,7 +22555,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.87</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.88</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
