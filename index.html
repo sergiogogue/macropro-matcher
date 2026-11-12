@@ -6210,11 +6210,11 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // ─── STYLES ───────────────────────────────────────────────────────
   const s = {
     app:{minHeight:"100vh",backgroundColor:B.offW,fontFamily:"'DM Sans',sans-serif",color:B.navy},
-    nav:{backgroundColor:B.navy,height:64,display:"flex",alignItems:"center",padding:"0 24px",gap:16,position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 20px rgba(0,43,73,0.3)"},
+    nav:{backgroundColor:B.navy,minHeight:64,display:"flex",alignItems:"center",flexWrap:"wrap",rowGap:8,padding:"8px 24px",gap:16,position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 20px rgba(0,43,73,0.3)"},
     navLogo:{display:"flex",alignItems:"center",gap:10,cursor:"pointer",flexShrink:0},
     navLogoText:{fontSize:20,fontWeight:800,color:B.white,fontFamily:"'Playfair Display',serif",letterSpacing:"-0.5px"},
     navGold:{color:B.gold},
-    navLinks:{display:"flex",gap:2,marginLeft:"auto",flexWrap:"nowrap"},
+    navLinks:{display:"flex",gap:4,rowGap:6,marginLeft:"auto",flexWrap:"wrap",justifyContent:"flex-end",alignItems:"center"},
     navBtn:(active)=>({padding:"7px 13px",borderRadius:8,border:"none",cursor:"pointer",backgroundColor:active?B.gold:"transparent",color:active?B.navy:B.grey2,fontSize:12,fontWeight:600,fontFamily:"'DM Sans',sans-serif",transition:"all 0.2s",whiteSpace:"nowrap"}),
     page:{maxWidth:1200,margin:"0 auto",padding:"28px 20px"},
     hero:{background:`linear-gradient(135deg,${B.navy} 0%,${B.navyL} 60%,${B.navy} 100%)`,borderRadius:20,padding:"48px 40px",marginBottom:28,position:"relative",overflow:"hidden"},
@@ -22555,7 +22555,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.88</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.89</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
