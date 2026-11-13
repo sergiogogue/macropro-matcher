@@ -18057,6 +18057,7 @@ Respuesta: [respuesta exacta, conversacional]
     // WhatsApp o correo, sin salir de la pantalla de cotizaciones.
     const OPC_TIPOS=[{k:"escrituras",t:"Escrituras"},{k:"uso_suelo",t:"Uso de Suelo"},{k:"libertad_gravamen",t:"Libertad de gravamen"},{k:"ine",t:"INE"},{k:"plano",t:"Plano"},{k:"predial",t:"Predial"},{k:"ubicacion",t:"Ubicación"},{k:"fotos",t:"Fotos"}];
     const [docCot,setDocCot]=useState(null);
+    const [expCot,setExpCot]=useState(null); // fila expandida (ficha + docs + timeline)
     // 🤝 Acuerdo de comisión del asesor por cotización (para que inicie el trámite de opción).
     const setAcuerdoCot=setAcuerdoCotG;
     const [acuerdosIdx,setAcuerdosIdx]=useState({cot:{},cap:{}});
@@ -18099,6 +18100,115 @@ Respuesta: [respuesta exacta, conversacional]
         toast("✓ Documento subido");
       }catch(e){ toast("No se pudo subir: "+((e&&e.message)||e)); }
       finally{ setDocBusy(""); }
+    };
+    // Subir un documento (genérico, por cotización) — reutilizado por "documento extra".
+    const slugDoc=(s)=>"extra_"+String(s||"doc").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9]+/g,"_").toLowerCase().slice(0,30);
+    const subirDocGenerico=async(cotId,cliente_email,tipoKey,file)=>{
+      if(!file||!cotId||!window.sb) return;
+      setDocBusy(tipoKey);
+      try{
+        let uemail=null; try{ const u=await window.sb.auth.getUser(); uemail=(u&&u.data&&u.data.user&&u.data.user.email)||null; }catch(e){}
+        const ext=((file.name.split(".").pop())||"bin").toLowerCase();
+        const path=cotId+"/"+tipoKey+"."+ext;
+        const up=await window.sb.storage.from("documentos-opcionador").upload(path,file,{upsert:true});
+        if(up.error) throw up.error;
+        const rowDoc={ cotizacion_id:cotId, cliente_email:cliente_email||null, tipo_documento:tipoKey, nombre_archivo:file.name, url:path, subido_por:uemail||"macropro", subido_at:new Date().toISOString() };
+        const ins=await window.sb.from("documentos_opcionador").upsert(rowDoc,{onConflict:"cotizacion_id,tipo_documento"});
+        if(ins.error) throw ins.error;
+        await cargarHistorial();
+        toast("✓ Documento subido");
+      }catch(e){ toast("No se pudo subir: "+((e&&e.message)||e)); }
+      finally{ setDocBusy(""); }
+    };
+    // "+ Subir documento extra": pide el nombre y abre el selector de archivo.
+    const subirExtra=(r)=>{
+      const nombre=window.prompt("Nombre del documento extra (ej. Avalúo, Poder notarial, Constancia):");
+      if(!nombre||!nombre.trim()) return;
+      const key=slugDoc(nombre.trim());
+      const inp=document.createElement("input"); inp.type="file"; inp.accept=".pdf,.jpg,.jpeg,.png,.webp";
+      inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(f) subirDocGenerico(r.id, r.cliente_email, key, f); };
+      inp.click();
+    };
+    // Detalle expandido de una cotización: ficha + expediente (qué falta) + timeline a inventario.
+    const detalleCotizacion=(r)=>{
+      const m=docsByCot[r.id]||{};
+      const hechos=OPC_TIPOS.filter(d=>m[d.k]).length, totalD=OPC_TIPOS.length;
+      const pct=Math.round(hechos/totalD*100);
+      const aceptada=estDe(r)==="aceptada";
+      const cap=r.captacion_id?(captaciones||[]).find(x=>x&&x.id===r.captacion_id):null;
+      const aprobada=!!(cap&&cap.aprobada_publicar), publicada=!!(cap&&cap.publicada_lote_id);
+      const extras=Object.keys(m).filter(k=>!OPC_TIPOS.some(d=>d.k===k));
+      const fdate=(x)=> x?new Date(x).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}):"";
+      const steps=[
+        {t:"Cotización enviada", s:fdate(r.created_at)||"—", st:"done"},
+        {t:"Aceptada por el propietario", s:aceptada?(fdate(r.terminos_aceptados_at||r.updated_at)||"Sí"):"Pendiente", st:aceptada?"done":"now"},
+        {t:"Expediente de documentos", s:hechos+" / "+totalD, st:hechos>=totalD?"done":(aceptada?"now":"todo")},
+        {t:"Revisión de Dirección", s:aprobada?"Aprobada":"Pendiente", st:aprobada?"done":(hechos>=totalD?"now":"todo")},
+        {t:"Publicado en inventario", s:publicada?"Publicado":"Pendiente", st:publicada?"done":"todo"},
+      ];
+      const dato=(k,v)=>(<div style={{display:"flex",justifyContent:"space-between",gap:10,padding:"7px 0",borderTop:"1px solid #eef2f7",fontSize:12.5}}><span style={{color:"#64748b"}}>{k}</span><span style={{color:AZUL,fontWeight:700,textAlign:"right"}}>{v||"—"}</span></div>);
+      const stCol=(s)=> s==="done"?{bg:"#002B49",bd:"#002B49",c:"#F5B335"}:s==="now"?{bg:"#fff",bd:"#F5B335",c:"#b9811f"}:{bg:"#fff",bd:"#e7ebf0",c:"#94a3b8"};
+      return (
+        <div style={{background:"#fff",borderTop:"3px solid "+DORADO,padding:"18px 20px 22px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+            {/* FICHA */}
+            <div style={{border:"1px solid #e7ebf0",borderRadius:12,overflow:"hidden"}}>
+              <div style={{background:"#F7F9FB",borderBottom:"1px solid #e7ebf0",padding:"9px 13px",fontSize:10.5,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:AZUL}}>Ficha del cliente y terreno</div>
+              <div style={{padding:"4px 14px 14px"}}>
+                {dato("Cliente",r.cliente_nombre)}
+                {dato("Teléfono",r.cliente_telefono)}
+                {dato("Correo",r.cliente_email)}
+                {dato("Terreno",r.terreno_nombre)}
+                {dato("Ubicación",r.terreno_ciudad)}
+                {dato("Asesor",r.asesor_nombre||r.asesor||r.asesor_responsable_gg)}
+                {dato("Valor",r.valor_terreno)}
+                {dato("Comisión",r.monto_comision)}
+                <div style={{display:"flex",gap:7,flexWrap:"wrap",marginTop:12}}>
+                  <button onClick={()=>copiarTxt(ligaAceptar(r))} style={{padding:"8px 12px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🔗 Copiar liga de documentos</button>
+                  <button onClick={()=>waLiga(r)} style={{padding:"8px 12px",borderRadius:8,border:"none",background:"#25D366",color:"#fff",fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🟢 WhatsApp</button>
+                </div>
+              </div>
+            </div>
+            {/* EXPEDIENTE */}
+            <div style={{border:"1px solid #e7ebf0",borderRadius:12,overflow:"hidden"}}>
+              <div style={{background:"#F7F9FB",borderBottom:"1px solid #e7ebf0",padding:"9px 13px",fontSize:10.5,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:AZUL}}>Expediente · qué le falta</div>
+              <div style={{padding:"12px 14px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:7}}><b style={{fontSize:12.5,color:AZUL}}>{hechos} de {totalD} documentos</b><span style={{fontSize:13,fontWeight:800,color:"#b9811f"}}>{pct}%</span></div>
+                <div style={{height:7,background:"#e7ebf0",borderRadius:20,overflow:"hidden",marginBottom:10}}><div style={{height:"100%",width:pct+"%",background:"linear-gradient(90deg,#F5B335,#b9811f)",borderRadius:20}}/></div>
+                {OPC_TIPOS.map(d=>{ const ok=!!m[d.k]; return (
+                  <div key={d.k} style={{display:"flex",alignItems:"center",gap:9,padding:"6px 0",borderTop:"1px solid #eef2f7",fontSize:12.5}}>
+                    <span style={{width:18,height:18,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:900,color:"#fff",background:ok?"#15803d":"#e2e8f0"}}>{ok?"✓":""}</span>
+                    <span style={{flex:1,color:ok?"#64748b":"#1b2a3a"}}>{d.t}</span>
+                    <span style={{fontSize:9.5,fontWeight:800,textTransform:"uppercase",color:ok?"#15803d":"#b45309"}}>{ok?"Recibido":"Falta"}</span>
+                  </div>
+                ); })}
+                {extras.map(k=>{ const row=m[k]; return (
+                  <div key={k} style={{display:"flex",alignItems:"center",gap:9,padding:"6px 0",borderTop:"1px solid #eef2f7",fontSize:12.5}}>
+                    <span style={{width:18,height:18,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:900,color:"#fff",background:"#15803d"}}>✓</span>
+                    <span style={{flex:1,color:"#64748b"}}>{(row&&row.nombre_archivo)||k.replace(/^extra_/,"").replace(/_/g," ")} <span style={{fontSize:10,color:"#94a3b8"}}>· extra</span></span>
+                    <span style={{fontSize:9.5,fontWeight:800,textTransform:"uppercase",color:"#15803d"}}>Recibido</span>
+                  </div>
+                ); })}
+                <button disabled={!!docBusy} onClick={()=>subirExtra(r)} style={{marginTop:12,padding:"7px 12px",borderRadius:8,border:"1.5px dashed #cbd5e1",background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:docBusy?"wait":"pointer",fontFamily:"inherit"}}>+ Subir documento extra</button>
+              </div>
+            </div>
+          </div>
+          {/* TIMELINE */}
+          <div style={{border:"1px solid #e7ebf0",borderRadius:12,overflow:"hidden",marginTop:16}}>
+            <div style={{background:"#F7F9FB",borderBottom:"1px solid #e7ebf0",padding:"9px 13px",fontSize:10.5,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:AZUL}}>Proceso hasta el inventario</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",padding:"16px 10px 14px"}}>
+              {steps.map((p,i)=>{ const c=stCol(p.st); return (
+                <div key={i} style={{position:"relative",textAlign:"center",padding:"0 6px"}}>
+                  {i>0&&<span style={{position:"absolute",top:13,left:"-50%",width:"100%",height:2,background:(p.st==="done"||p.st==="now")?"#F5B335":"#e7ebf0"}}/>}
+                  <div style={{position:"relative",zIndex:2,width:28,height:28,borderRadius:"50%",margin:"0 auto 8px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:900,background:c.bg,border:"2px solid "+c.bd,color:c.c,boxShadow:p.st==="now"?"0 0 0 4px rgba(245,179,53,.16)":"none"}}>{p.st==="done"?"✓":(p.st==="now"?"◔":"○")}</div>
+                  <div style={{fontSize:11.5,fontWeight:700,color:p.st==="todo"?"#94a3b8":AZUL,lineHeight:1.3}}>{p.t}</div>
+                  <div style={{fontSize:10,color:p.st==="now"?"#b9811f":"#64748b",fontWeight:p.st==="now"?700:400,marginTop:3}}>{p.s}</div>
+                </div>
+              ); })}
+            </div>
+          </div>
+        </div>
+      );
     };
     const eliminarDocCot=async(tipoKey,row)=>{
       if(!row||!window.sb) return;
@@ -18562,17 +18672,18 @@ Respuesta: [respuesta exacta, conversacional]
                         </thead>
                         <tbody>
                           {lista.map((r)=>{
-                            const est=estDe(r); const m=EST_META[est];
+                            const est=estDe(r); const m=EST_META[est]; const abierta=expCot===r.id;
                             return (
-                              <tr key={r.id} style={{borderBottom:"1px solid #eef2f7"}}>
-                                <td style={{padding:"8px 10px",color:"#334155",whiteSpace:"nowrap"}}>{r.created_at?new Date(r.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}):"—"}</td>
+                              <React.Fragment key={r.id}>
+                              <tr onClick={()=>setExpCot(abierta?null:r.id)} style={{borderBottom:abierta?"none":"1px solid #eef2f7",cursor:"pointer",background:abierta?"#fbfdff":undefined}}>
+                                <td style={{padding:"8px 10px",color:"#334155",whiteSpace:"nowrap"}}><span style={{color:DORADO,fontWeight:800,marginRight:6}}>{abierta?"▾":"▸"}</span>{r.created_at?new Date(r.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}):"—"}</td>
                                 <td style={{padding:"8px 10px",color:"#334155"}}>{r.cliente_nombre||"—"}</td>
                                 <td style={{padding:"8px 10px",color:AZUL,fontWeight:600}}>{r.terreno_nombre||"—"}{r.terreno_ciudad?<span style={{display:"block",fontSize:11,color:"#94a3b8",fontWeight:500}}>{r.terreno_ciudad}</span>:null}</td>
                                 <td style={{padding:"8px 10px",color:"#334155",whiteSpace:"nowrap"}}>{r.valor_terreno||"—"}</td>
                                 <td style={{padding:"8px 10px",color:"#334155"}}>{r.monto_comision||"—"}</td>
                                 <td style={{padding:"8px 10px"}}><span style={{background:m[2],color:m[1],borderRadius:999,padding:"3px 10px",fontSize:11,fontWeight:800}}>{m[3]||m[0]}</span></td>
-                                <td style={{padding:"8px 10px"}}>{botonAcuerdo(r)}</td>
-                                <td style={{padding:"8px 10px"}}>
+                                <td style={{padding:"8px 10px"}} onClick={e=>e.stopPropagation()}>{botonAcuerdo(r)}</td>
+                                <td style={{padding:"8px 10px"}} onClick={e=>e.stopPropagation()}>
                                   <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
                                     {r.captacion_id ? (()=>{ const cap=(captaciones||[]).find(x=>x&&x.id===r.captacion_id); const ed=cap?estadoDocsCaptacion(cap):null; return (
                                       <button onClick={()=>abrirFichaDeCotizacion(r)} title="Abrir la ficha de la captación (documentos, Intelligence)" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #86efac",background:"#f0fdf4",color:"#15803d",fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📂 Ficha{ed?(" "+ed.completas+"/"+ed.total):""}</button>
@@ -18588,6 +18699,8 @@ Respuesta: [respuesta exacta, conversacional]
                                   </div>
                                 </td>
                               </tr>
+                              {abierta && (<tr><td colSpan={8} style={{padding:0,borderBottom:"1px solid #eef2f7"}}>{detalleCotizacion(r)}</td></tr>)}
+                              </React.Fragment>
                             );
                           })}
                         </tbody>
@@ -22559,7 +22672,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.92</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.93</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
