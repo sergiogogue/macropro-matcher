@@ -18789,6 +18789,31 @@ Respuesta: [respuesta exacta, conversacional]
       }catch(e){}
     },[]);
     React.useEffect(()=>{ cargarOpc(); },[cargarOpc]);
+    // ── KANBAN AUTO-AVANCE (journey de las ligas) ──────────────────────────────
+    // La tarjeta se mueve sola según el avance real: captada → Nueva opción; con
+    // documentos → Documentación; expediente completo o aprobada → Contrato;
+    // publicada en inventario → Firmado. Solo avanza HACIA ADELANTE (nunca retrocede),
+    // respeta "Descartado" y respeta lo que muevas a mano en esta sesión.
+    const JRANK = React.useMemo(()=>{ const o={}; CAPTACION_PIPELINE.forEach((s,i)=>o[s]=i); return o; },[]);
+    const movManualRef = React.useRef(new Set());
+    const etapaJourney=(c)=>{
+      const ed=estadoDocsCaptacion(c);
+      if(c.publicadaLoteId) return "Firmado";
+      if((ed&&ed.total>0&&ed.completas>=ed.total) || c.aprobadaPublicar) return "Contrato";
+      if(ed&&ed.completas>0) return "Documentación";
+      return "Nueva opción";
+    };
+    React.useEffect(()=>{
+      if(!Array.isArray(captaciones)||!captaciones.length) return;
+      captaciones.forEach(c=>{
+        if(!c||!c.id) return;
+        const cur=c.pipeline||"Nueva opción";
+        if(cur==="Descartado") return;                  // los descartes se respetan
+        if(movManualRef.current.has(c.id)) return;       // movido a mano: respétalo
+        const meta=etapaJourney(c);
+        if((JRANK[meta]||0) > (JRANK[cur]||0)){ upsertCaptacion({...c, pipeline:meta}); }
+      });
+    }, [captaciones]); // eslint-disable-line
     const opcHechos=(id)=>OPC_DOCS.filter(d=>opcDocs[id]&&opcDocs[id][d.k]).length;
     // "En cotización" = esperando que el propietario acepte (las rechazadas se ven en el Panel).
     const opcEnCot=(opcLista||[]).filter(o=>!o.terminos_aceptados && !String(o.estatus||"").toLowerCase().startsWith("rechaz"));
@@ -19103,7 +19128,7 @@ Respuesta: [respuesta exacta, conversacional]
                             {c.tipoAcuerdo&&<div>📑 {c.tipoAcuerdo}</div>}
                           </div>
                           <div style={{marginTop:8}} onClick={e=>e.stopPropagation()}>
-                            <select value={c.pipeline} onChange={e=>{ upsertCaptacion({...c, pipeline:e.target.value}); }}
+                            <select value={c.pipeline} onChange={e=>{ movManualRef.current.add(c.id); upsertCaptacion({...c, pipeline:e.target.value}); }}
                               style={{width:"100%", fontSize:10, fontWeight:700, color:B.navy, border:"1px solid "+B.grey1, borderRadius:6, padding:"5px 6px", background:B.offW, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
                               {CAPTACION_PIPELINE.map(p=><option key={p} value={p}>{(CAPTACION_PIPELINE_ICONS[p]||"")+" "+p}</option>)}
                             </select>
@@ -22672,7 +22697,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.93</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.94</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
