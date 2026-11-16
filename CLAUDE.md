@@ -93,6 +93,19 @@ exportación a PDF/PPTX/iCal y sincronización con Supabase. Está construido co
   la lista de dependencias de un `useEffect` usaba `clients` 8 líneas antes de su `useState`. Declarar
   siempre el estado ANTES de usarlo (incluido en arreglos de dependencias). En el harness jsdom usar
   `presets:['react']` y la MISMA versión de Babel que producción (7.23.2).
+- **Arranque v5.97 (Fase 1 de rendimiento, 2026-11-16) — cómo carga la app ahora:**
+  - Babel **ya no se carga al inicio**. El script al final del `<body>` ("ARRANQUE RÁPIDO") traduce el
+    `<script type="text/babel">` una sola vez por versión y guarda el resultado en Cache Storage
+    (`mp-app-compilado`); las siguientes aperturas lo ejecutan directo (~0.2 s contra ~3.8 s).
+    Cualquier edición del código cambia la huella y se re-traduce sola. **Sigue editando el JSX igual.**
+  - React en build de **producción** (`react*.production.min.js`): los warnings de desarrollo ya no salen.
+  - **XLSX, pdf.js y PptxGenJS se cargan al usarlos** con `await mpLib("xlsx"|"pdfjs"|"pptx")` (devuelve
+    `true` si quedó lista). Código nuevo que use `XLSX.`, `pdfjsLib` o `new PptxGenJS()` DEBE llamar a
+    `mpLib` antes. jsPDF y Leaflet siguen cargándose al inicio.
+  - El logo de Grupo Guía vive en una sola constante `MP_LOGO_GG_B64` (antes había 4 copias de 185 KB).
+  - Service Worker v3: no intercepta Supabase/Netlify; librerías de CDN con versión = caché primero
+    (`mp-cdn-v1`, sobrevive a actualizaciones); la app = red primero. Al activar solo borra caches viejos
+    de la app (conserva `mp-cdn-v1` y `mp-app-compilado`).
 - **`bajarDeSupabase` ahora FUSIONA, no reemplaza** el CRM (nunca borra lo local). La bajada de
   lotes/clientes completa es trabajo de la Fase 2 (ver `SPRINT6_LOGIN_SYNC.md`).
 
