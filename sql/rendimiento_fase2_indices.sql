@@ -65,3 +65,36 @@ from pg_indexes
 where schemaname = 'public'
   and tablename in ('documentos_opcionador','cotizaciones_opcionador','clientes','macropro_req_estatus','landing_criterios','app_config')
 order by tablename, indexname;
+
+-- 3) LIMPIEZA ─────────────────────────────────────────────────────────────────
+-- Borra un índice creado por la Fase 2 SOLO si existe otro con exactamente las mismas columnas.
+do $$
+declare
+  r record;
+  gemelo text;
+begin
+  for r in select unnest(array['idx_docopc_cot_tipo','idx_clientes_id_cliente','idx_cotopc_created',
+                               'idx_clientes_email_trgm','idx_clientes_tel_trgm']) as idx
+  loop
+    if not exists (select 1 from pg_class where relname = r.idx and relkind = 'i') then
+      raise notice 'YA NO EXISTE %', r.idx; continue;
+    end if;
+    gemelo := null;
+    select oc.relname into gemelo
+    from pg_index mio
+    join pg_class mc on mc.oid = mio.indexrelid and mc.relname = r.idx
+    join pg_index otro on otro.indrelid = mio.indrelid and otro.indexrelid <> mio.indexrelid
+                      and otro.indkey::text = mio.indkey::text
+                      and otro.indexprs is null and mio.indexprs is null
+                      and otro.indpred is null
+                      and otro.indclass::text = mio.indclass::text
+    join pg_class oc on oc.oid = otro.indexrelid
+    limit 1;
+    if gemelo is not null then
+      execute format('drop index if exists public.%I', r.idx);
+      raise notice 'BORRADO %  (repetía a %)', r.idx, gemelo;
+    else
+      raise notice 'SE QUEDA %', r.idx;
+    end if;
+  end loop;
+end $$;
