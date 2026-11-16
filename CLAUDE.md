@@ -86,6 +86,13 @@ exportación a PDF/PPTX/iCal y sincronización con Supabase. Está construido co
   (busca por vínculo/correo/teléfono/clave+nombre y luego UPDATE solo con campos con dato, o INSERT;
   nunca upsert ciego), (2) wizard de Cartas oferta → INSERT de cliente nuevo, (3) 🔍 Requerimientos →
   baja lógica (`activo=false`) de compradores de prueba.
+- **Arranque rápido (v5.96, 2026-11-16):** el script usa `<script type="text/babel" data-presets="react">`.
+  Sin el preset `env`, Babel solo convierte JSX: la carga bajó de ~88 s a ~4 s (medido en Chromium con
+  Babel 7.23.2). **No volver a agregar `env`.** Consecuencia: el código corre como JS moderno, así que un
+  `const`/`let` usado antes de su declaración **truena** (TDZ) en vez de dar `undefined`. Ejemplo real:
+  la lista de dependencias de un `useEffect` usaba `clients` 8 líneas antes de su `useState`. Declarar
+  siempre el estado ANTES de usarlo (incluido en arreglos de dependencias). En el harness jsdom usar
+  `presets:['react']` y la MISMA versión de Babel que producción (7.23.2).
 - **`bajarDeSupabase` ahora FUSIONA, no reemplaza** el CRM (nunca borra lo local). La bajada de
   lotes/clientes completa es trabajo de la Fase 2 (ver `SPRINT6_LOGIN_SYNC.md`).
 
