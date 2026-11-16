@@ -5432,7 +5432,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
       // Fuente primaria: tabla `lotes` (trae desarrollador, metadata, status_inventario,
       // clave_unica, tipo_inventario y corretaje — que MacroPro sí usa). La vista
       // v_landing_lotes excluye corretaje/desarrollador, así que solo es respaldo.
-      let res = await _sb.from('lotes').select('*');
+      // Los dados de baja se filtran en Supabase (antes se bajaban los 297 y se descartaban 162 aquí).
+      // El filtro de abajo se conserva igual, así que el resultado es idéntico.
+      let res = await _sb.from('lotes').select('*').is('dado_baja_at', null);
       if(res.error){ res = await _sb.from('v_landing_lotes').select('*'); }
       if(res.error) throw res.error;
       const mapped = filtrarMapear(res.data);
