@@ -68,7 +68,8 @@ language plpgsql security definer set search_path = public as $$
 declare v_cap record; v json;
 begin
   select id, zona, ciudad, estado, uso_suelo, superficie, pipeline,
-         aprobada_publicar, publicada_lote_id, token_expira_at, documentos_urls
+         aprobada_publicar, publicada_lote_id, token_expira_at, documentos_urls,
+         propietario, contacto
     into v_cap
     from public.captaciones where liga_token = p_token limit 1;
   if v_cap.id is null then raise exception 'Token inválido'; end if;
@@ -76,6 +77,7 @@ begin
     'captacion', json_build_object(
       'id', v_cap.id, 'zona', v_cap.zona, 'ciudad', v_cap.ciudad, 'estado', v_cap.estado,
       'uso_suelo', v_cap.uso_suelo, 'superficie', v_cap.superficie,
+      'propietario', v_cap.propietario, 'contacto', v_cap.contacto,
       'pipeline', v_cap.pipeline, 'aprobada_publicar', v_cap.aprobada_publicar,
       'publicada_lote_id', v_cap.publicada_lote_id,
       'token_expira_at', v_cap.token_expira_at,
