@@ -4,8 +4,9 @@
 // Entrada:  POST { clienteId, limit? }   (o ?clienteId=...)
 // Salida:   { cliente:{id,nombre}, top: [ {lote, score, razones} ... ] }  (Top 5 por defecto)
 //
-// Reimplementa la MISMA fórmula de buscarMatchesParaSolicitud + scoreClienteLote
-// (pesos: superficie 20, precio 20, ciudad 15 fuzzy/ZMG, uso 15 → normalizado 0–100).
+// Fórmula (reingeniería): pesos superficie 20 · precio 25 · ciudad 15 · uso 20
+// (normalizado 0–100), con castigo por sobre-presupuesto (−30, visible) y por uso
+// distinto (−20), y bonus de perfil desarrollador (+12). Presupuesto en pesos.
 // NO modifica datos (solo lee lotes y clientes con service role, tras verificar sesión).
 //
 // Despliegue:
@@ -33,40 +34,76 @@ const ZMG = ["guadalajara","zapopan","tlajomulco","tonala","tlaquepaque","el sal
 const ciuMatch = (a: string, b: string) => { a = norm(a); b = norm(b); if (!a || !b) return false; if (a.includes(b) || b.includes(a)) return true; return ZMG.some(z => a.includes(z)) && ZMG.some(z => b.includes(z)); };
 const n = (v: unknown) => Number(v) || 0;
 
-// Score de UN lote vs UNA "solicitud" simple (misma lógica/pesos que el monolito, criterios de cliente)
-function scoreSolicitudLote(sol: any, lote: any) {
+// Presupuesto SIEMPRE en pesos. Red de seguridad: si viene un valor chico
+// (0 < v < 100000) se asume que quedó capturado en MDP y se pasa a pesos (×1e6),
+// para poder compararlo con lote.precio_total. 0/NULL = "sin tope" (no filtra).
+const normBudget = (v: unknown) => { const x = Number(v) || 0; return x > 0 && x < 100000 ? x * 1_000_000 : x; };
+// Perfil desarrollador: columna derivada es_desarrollador (backfill) o el texto.
+const esDesarrollador = (cl: any) => cl?.es_desarrollador === true || /desarrollad/i.test(String(cl?.tipo_comprador || ""));
+// El lote sirve para desarrollar si tiene un uso aprovechable (no reserva/agrícola).
+const loteDesarrollable = (uso: string) => { const u = norm(uso); return !!u && !/reserva|agricola|sin uso|conservacion/.test(u); };
+
+// Score CLIENTE↔LOTE 0–100. Arrays de ciudad/uso = condiciones OR (se toma la mejor).
+// Pesos base (sobre los criterios que el cliente SÍ definió):
+//   superficie 20 · precio 25 · ciudad 15 · uso 20.
+// Castigos y bonus (Spec reingeniería):
+//   · precio > presupuesto      → castigo FUERTE (−30): queda visible pero hundido, NO se elimina.
+//   · uso del cliente ≠ del lote → castigo (−20) (antes era neutro).
+//   · desarrollador + lote desarrollable → bonus (+12).
+// Descalifica (saca del match) SOLO por choques duros: superficie fuera de rango o ciudad distinta.
+function scoreClienteLote(cliente: any, lote: any) {
   const sup = n(lote.superficie_m2 ?? lote.sup_m2);
   const precio = n(lote.precio_total);
-  const lotCiudad = (lote.ciudad || "").toString();
-  const lotUso = (lote.uso || lote.uso_suelo || "").toString();
-  let score = 0; const razones: string[] = []; let desc = false;
-  const supMin = n(sol.sup_min), supMax = n(sol.sup_max), precioMax = n(sol.presupuesto_max);
-  if (supMin > 0 && sup < supMin) desc = true; else if (sup >= supMin && supMin > 0) { score += 20; razones.push("Superficie ✓"); } else if (supMin === 0 && sup > 0) { score += 20; }
-  if (supMax > 0 && sup > supMax) desc = true;
-  if (precioMax > 0) { if (precio > 0 && precio <= precioMax) { score += 20; razones.push("Precio en rango ✓"); } else if (precio > precioMax) desc = true; }
-  if (sol.ciudad) { if (ciuMatch(sol.ciudad, lotCiudad)) { score += 15; razones.push("Ciudad ✓"); } else if (lotCiudad) desc = true; }
-  if (sol.usoSuelo && lotUso) { const a = norm(sol.usoSuelo), b = norm(lotUso); if (a.includes(b) || b.includes(a)) { score += 15; razones.push("Uso ✓"); } }
-  return { score, razones, descalificado: desc };
-}
-
-// Score 0–100 CLIENTE↔LOTE (maneja arrays, normaliza sobre criterios aplicables)
-function scoreClienteLote(cliente: any, lote: any) {
+  const lotCiudad = String(lote.ciudad || "");
+  const lotUso = String(lote.uso || lote.uso_suelo || "");
+  const supMin = n(cliente.sup_min), supMax = n(cliente.sup_max);
+  const presMax = normBudget(cliente.presupuesto_max);
   const ciudades: string[] = Array.isArray(cliente.ciudad_interes) && cliente.ciudad_interes.length ? cliente.ciudad_interes : [""];
-  const usos: string[] = Array.isArray(cliente.uso_interes) && cliente.uso_interes.length ? cliente.uso_interes : [""];
+  const usos: string[]     = Array.isArray(cliente.uso_interes) && cliente.uso_interes.length ? cliente.uso_interes : [""];
+
   let best: any = null;
   for (const ci of ciudades) for (const us of usos) {
-    const sol = { sup_min: cliente.sup_min, sup_max: cliente.sup_max, presupuesto_max: cliente.presupuesto_max, ciudad: ci || "", usoSuelo: us || "" };
-    const m = scoreSolicitudLote(sol, lote);
-    if (!best || (m.descalificado === best.descalificado ? m.score > best.score : (!m.descalificado && best.descalificado))) best = m;
+    let pos = 0, pen = 0, maxApp = 0, desc = false;
+    const raz: string[] = [];
+    // Superficie — choque duro si el lote cae fuera del rango pedido
+    if (supMin > 0 || supMax > 0) {
+      maxApp += 20;
+      const bajoMin  = supMin > 0 && sup > 0 && sup < supMin;
+      const sobreMax = supMax > 0 && sup > 0 && sup > supMax;
+      if (bajoMin || sobreMax) desc = true; else { pos += 20; raz.push("Superficie ✓"); }
+    }
+    // Precio vs presupuesto — castigo fuerte (visible), NO descalifica
+    if (presMax > 0) {
+      maxApp += 25;
+      if (precio > 0 && precio <= presMax) { pos += 25; raz.push("Precio en rango ✓"); }
+      else if (precio > presMax) { pen += 30; raz.push("Sobre presupuesto ✗"); }
+    }
+    // Ciudad — choque duro si el lote es de otra ciudad
+    if (ci) {
+      maxApp += 15;
+      if (ciuMatch(ci, lotCiudad)) { pos += 15; raz.push("Ciudad ✓"); }
+      else if (lotCiudad) desc = true;
+    }
+    // Uso — castigo si no coincide (ya no es neutro)
+    if (us) {
+      maxApp += 20;
+      const a = norm(us), b = norm(lotUso);
+      if (lotUso && (a.includes(b) || b.includes(a))) { pos += 20; raz.push("Uso ✓"); }
+      else if (lotUso) { pen += 20; raz.push("Uso distinto ✗"); }
+    }
+    const cand = { pos, pen, maxApp, desc, raz };
+    const mejor = !best ? true
+      : (cand.desc === best.desc ? (cand.pos - cand.pen) > (best.pos - best.pen) : (!cand.desc && best.desc));
+    if (mejor) best = cand;
   }
-  if (!best) return { score: 0, razones: [], descalificado: false, na: true };
-  let maxApp = 0;
-  if (n(cliente.sup_min) > 0 || n(cliente.sup_max) > 0) maxApp += 20;
-  if (n(cliente.presupuesto_max) > 0) maxApp += 20;
-  if (ciudades[0] !== "") maxApp += 15;
-  if (usos[0] !== "") maxApp += 15;
-  const score = maxApp > 0 ? Math.round(Math.min(best.score, maxApp) / maxApp * 100) : 0;
-  return { score, razones: best.razones, descalificado: best.descalificado, na: maxApp === 0 };
+  if (!best || best.maxApp === 0) return { score: 0, razones: [], descalificado: false, na: true };
+  let score = Math.round(Math.max(0, best.pos - best.pen) / best.maxApp * 100);
+  // Bonus desarrollador (empresa que construye) sobre un terreno desarrollable
+  if (esDesarrollador(cliente) && loteDesarrollable(lotUso)) {
+    score = Math.min(100, score + 12);
+    best.raz.push("Perfil desarrollador ✓");
+  }
+  return { score, razones: best.raz, descalificado: best.desc, na: false };
 }
 
 Deno.serve(async (req) => {
