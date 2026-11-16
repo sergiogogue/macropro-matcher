@@ -2150,6 +2150,8 @@ const SH_ICO={
   ok:"m5 12 5 5 9-10",
   ml:"M3 6h18v12H3zM3 7l9 7 9-7"
 };
+// Primer nombre con mayúscula inicial ("ANA KARINA" → "Ana"), para saludar en los mensajes.
+function shNombre(t){ const w=String(t||"").trim().split(/\s+/)[0]||""; return w? w.charAt(0).toUpperCase()+w.slice(1).toLowerCase() : ""; }
 function shTel(t){ const d=String(t||"").replace(/\D/g,""); if(d.length===10) return "52"+d; return d.length>=11?d:""; }
 function ShareButtons({ url, mensaje, asunto, telefono, email, chico, onToast, etiqueta, mostrarMensaje }){
   const [copiado,setCopiado]=useState(false);
@@ -17762,7 +17764,7 @@ Respuesta: [respuesta exacta, conversacional]
     const compartirCot = (r)=>{
       const cap=r.captacion_id?(captaciones||[]).find(x=>x&&x.id===r.captacion_id):null;
       const token=(cap&&cap.ligaToken)||tokensCap[r.captacion_id]||"";
-      const nom=String(r.cliente_nombre||"").trim().split(/\s+/)[0]||"";
+      const nom=shNombre(r.cliente_nombre);
       const terreno=(r.terreno_nombre||"tu terreno")+(r.terreno_ciudad?(" ("+r.terreno_ciudad+")"):"");
       if(token){
         const m=docsByCot[r.id]||{}; const hechos=OPC_TIPOS.filter(d=>m[d.k]).length, tot=OPC_TIPOS.length;
@@ -17937,7 +17939,7 @@ Respuesta: [respuesta exacta, conversacional]
                 {dato("Valor",r.valor_terreno)}
                 {dato("Comisión",r.monto_comision)}
                 <div style={{display:"flex",gap:7,flexWrap:"wrap",marginTop:12}}>
-                  {(()=>{ const sh=compartirCot(r); const nom=String(r.cliente_nombre||"").trim().split(/\s+/)[0]; return (
+                  {(()=>{ const sh=compartirCot(r); const nom=shNombre(r.cliente_nombre); return (
                     <div style={{flex:"1 1 100%",borderTop:"1px dashed #cbd5e1",paddingTop:12}}>
                       <ShareButtons url={sh.url} mensaje={sh.mensaje} asunto={sh.asunto} telefono={r.cliente_telefono} email={r.cliente_email} onToast={toast} mostrarMensaje etiqueta={"Compartir su estatus"+(nom?" con "+nom:"")}/>
                     </div>); })()}
@@ -21636,6 +21638,20 @@ Respuesta: [respuesta exacta, conversacional]
     const emailValido=(e)=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(e||"").trim());
     const correoDe=(nombre)=>{ const i=asesorInfo(nombre); return (i&&i.email)||""; };
     const nombreTerreno=(c)=> (String(c.zona||"").trim()||String(c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"")||String(c.ciudad||"").trim()||"Terreno");
+    // ── Compartir con el ASESOR: estatus de cada cliente (propietario) de su pipeline ──
+    const ASE_PANEL="https://macrolotes.grupoguia.mx/asesores";
+    const n1=shNombre;
+    const clienteDeCap=(c)=>String(c.propietario||c.contacto||"").trim()||"sin nombre";
+    const estatusCap=(c)=>{ const a=acuerdoFirmadoDe(c); const esq=String((a&&a.esquema)||c.esquema_comision||"").replace("_","/");
+      const conv=convenioOK(c)?("convenio firmado"+(esq?(" "+esq):"")):(acuerdoDeAsesor(c.asesorResponsableGG)?"convenio enviado, por firmar":"sin convenio");
+      return (c.pipeline||"En opción")+" · "+conv; };
+    const compartirCapAsesor=(c,ase)=>{ const url=c.ligaToken?("https://macrolotes.grupoguia.mx/expediente/"+c.ligaToken):ASE_PANEL; const cli=clienteDeCap(c);
+      return { url, asunto:"Estatus de tu cliente "+cli+" · "+nombreTerreno(c)+" · Grupo Guía",
+        mensaje:"Hola"+(n1(ase&&ase.nombre)?" "+n1(ase.nombre):"")+", este es el estatus del cliente "+cli+" que tienes en tu pipeline ("+nombreTerreno(c)+(c.ciudad?(", "+c.ciudad):"")+" · "+estatusCap(c)+"): "+url }; };
+    const compartirPipeline=(lista,ase)=>{ const MAX=15; const lineas=lista.slice(0,MAX).map(c=>"• "+clienteDeCap(c)+" — "+nombreTerreno(c)+" · "+estatusCap(c));
+      if(lista.length>MAX) lineas.push("… y "+(lista.length-MAX)+" más");
+      return { url:ASE_PANEL, asunto:"Tu pipeline de terrenos en opción · Grupo Guía",
+        mensaje:"Hola"+(n1(ase&&ase.nombre)?" "+n1(ase.nombre):"")+", este es el estatus de tus "+lista.length+" terreno"+(lista.length===1?"":"s")+" en opción:\n"+lineas.join("\n")+"\n\nEntra a tu panel: "+ASE_PANEL }; };
     const pendientes=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && !convenioOK(c) && (!cf || norm(c.ciudad)===cf));
     const estatusPend=(c)=>{ const a=acuerdoDeCap(c.id); if(!a) return "Sin convenio"; if(a.estado==="pendiente") return "Enviado · por firmar"; return a.estado||"Sin convenio"; };
     // Orden de 3 niveles: 0 = Sin convenio (arriba), 1 = Enviado/por firmar (en medio), 2 = Firmado (abajo).
@@ -21725,7 +21741,8 @@ Respuesta: [respuesta exacta, conversacional]
       const thS={padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap"};
       const lnkT=(c)=>(<button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button>);
       const btnBorrar=(c)=>(<button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),padding:"3px 8px",background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>);
-      const accCel=(c,conEnvio)=>(<td style={{padding:"4px 14px"}}><div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"nowrap"}}>{conEnvio&&accionesFirma(c)}{btnBorrar(c)}</div></td>);
+      const shAse=(c)=>{ if(showAse||!sa) return null; const sh=compartirCapAsesor(c,sa); return <ShareButtons chico url={sh.url} mensaje={sh.mensaje} asunto={sh.asunto} telefono={sa.telefono} email={sa.email} onToast={toast}/>; };
+      const accCel=(c,conEnvio)=>(<td style={{padding:"4px 14px"}}><div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"nowrap"}}>{shAse(c)}{conEnvio&&accionesFirma(c)}{btnBorrar(c)}</div></td>);
       const asCel=(c)=> showAse ? <td style={{...tdS,color:B.grey5}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td> : null;
       const bg=(i)=>({borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW});
       const tabla=(heads,rows)=>(<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -22163,6 +22180,11 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{marginBottom:28}}>
                 <div style={s.sectionTitle}>🗂️ Terrenos opcionados · estatus de firma</div>
                 <div style={s.sectionSub}>{baseT.length} terreno(s) en opción de {sa.nombre}{cf?(" en "+ciudadF):""} · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Cada terreno baja de sección según avanza.</div>
+                {baseT.length>0 && (()=>{ const sh=compartirPipeline(baseT,sa); return (
+                  <div style={{background:"#fff",border:"1px solid "+B.grey1,borderLeft:"4px solid #25D366",borderRadius:12,padding:"12px 16px",marginBottom:14}}>
+                    <ShareButtons url={sh.url} mensaje={sh.mensaje} asunto={sh.asunto} telefono={sa.telefono} email={sa.email} onToast={toast} mostrarMensaje etiqueta={"Compartir su pipeline con "+(n1(sa.nombre)||"el asesor")}/>
+                    <div style={{fontSize:11.5,color:B.grey4,marginTop:8}}>En cada terreno de abajo también puedes mandarle el estatus de ese cliente (botones 🟢 🔗 ✉).</div>
+                  </div>); })()}
                 {nTram>0 && (()=>{ const p=baseT.find(c=>!convenioOK(c)); const busyP=genId===(p&&p.id); return (
                   <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",background:B.navy+"0a",border:"1px solid "+B.grey1,borderLeft:"4px solid "+B.gold,borderRadius:12,padding:"12px 14px",margin:"4px 0 16px"}}>
                     <div style={{flex:"1 1 230px",minWidth:0,fontSize:13,color:B.grey5}}>📨 Manda a <b style={{color:B.navy}}>{sa.nombre}</b> sus <b style={{color:B.red}}>{nTram}</b> terreno(s) en trámite en <b>un solo mensaje</b> (todos juntos){sa.email?(" → "+sa.email):""}.</div>
@@ -22469,7 +22491,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.99</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.00</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
