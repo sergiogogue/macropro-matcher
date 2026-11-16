@@ -3120,6 +3120,16 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
         {firma("Grupo Guía",c.gg_firma_at,c.gg_firma_email)}
         {firma("Vendedor",r.vendedor_firma_at,[r.vendedor_firma_email,r.vendedor_firma_ip?("IP "+r.vendedor_firma_ip):""].filter(Boolean).join(" · "))}
       </div>
+      {c.token_comprador && !["borrador","enviada_comprador","rechazada","aceptada"].includes(c.estado) && (()=>{
+        // Portal del comprador (/mi-oferta/) — SOLO aquí, en Cartas oferta (decisión de Dirección).
+        const url=LANDING_URL+"/mi-oferta/"+c.token_comprador; const nom=shNombre(c.comprador_nombre||c.comprador_empresa);
+        const terr=(c.terreno_nombre||"tu terreno")+(c.terreno_ubicacion?(" ("+c.terreno_ubicacion+")"):"");
+        return (
+        <div style={{border:"1px solid "+B.grey1,borderLeft:"4px solid #25D366",borderRadius:10,padding:"9px 10px",marginTop:8,background:"#fbfefc"}}>
+          <ShareButtons url={url} mensaje={"Hola"+(nom?" "+nom:"")+", aquí puedes ver el avance de tu oferta para el terreno "+terr+": "+url}
+            asunto={"Avance de tu oferta · "+(c.terreno_nombre||"terreno")+(c.folio?(" · "+c.folio):"")+" · Grupo Guía"}
+            telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast} etiqueta="📲 Compartir el avance con el comprador" mostrarMensaje/>
+        </div>); })()}
       {form && form.id===c.id && <div style={{marginTop:10}}>{formUI}</div>}
       {c.estado==="rechazada" && <div style={{fontSize:12,color:B.red,marginTop:8}}>✕ Rechazada por el <b>{c.rechazo_por}</b> el {coFH(c.rechazo_at)}{c.rechazo_motivo?(" · "+c.rechazo_motivo):""}</div>}
       {c.estado==="firmada_comprador" && (
@@ -3148,9 +3158,8 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
             <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>🗂 Expediente para contrato · {seg?(seg.tipo_operacion==="credito"?"Crédito":"Contado"):"—"} · {docsN}/{reqN} documentos{enviado?" · ✅ en Revisión Legal":(listo?" · ✅ listo para contrato":" · ⏳ esperando al comprador")}</div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
               <button disabled={(!listo&&!enviado)||busy===c.id+"leg"} onClick={()=>{ const mail=window.prompt("Correo de Legal (puedes cambiarlo por un abogado externo):",(seg&&seg.legal_email)||"legal@grupoguia.mx"); if(mail===null) return; enviarLegal(c,(mail||"").trim()); }} title={verde?"Manda el expediente a Legal: correo con las ligas a los documentos + datos de la carta":"El comprador aún no completa su expediente"} style={{...btn(verde?B.gold:B.grey1,verde?B.navy:B.grey4),opacity:verde?1:0.6}}>{busy===c.id+"leg"?"Enviando…":(enviado?"📤 Reenviar a Legal":"📤 Enviar Expediente a Legal")}</button>
-              {c.token_comprador&&(()=>{ const docUrl=LANDING_URL+"/mi-oferta/"+c.token_comprador; const nom=String(c.comprador_nombre||"").split(/\s+/)[0]||""; const msg="Hola "+nom+" 👋 Para preparar tu contrato de compraventa"+(c.folio?(" ("+c.folio+")"):"")+" sube aquí tus documentos y confirma tus datos de contacto:\n"+docUrl+"\n\n— Grupo Guía"; return (<React.Fragment>
-                <button onClick={()=>window.open(rqWaUrl(c.comprador_telefono,msg),"_blank","noopener")} title="Le mandas al comprador la liga para subir sus documentos del contrato" style={btn("#25D366","#fff")}>🟢 WhatsApp · liga de documentos</button>
-                <button onClick={async()=>{ try{ await navigator.clipboard.writeText(docUrl); toast("🔗 Liga de documentos copiada"); }catch(e){ try{ window.prompt("Copia la liga de documentos del comprador:",docUrl); }catch(_){ toast(docUrl); } } }} title="Copias la liga y se la mandas tú" style={btn(B.navy,"#fff")}>🔗 Copiar liga de documentos</button>
+              {c.token_comprador&&(()=>{ const docUrl=LANDING_URL+"/mi-oferta/"+c.token_comprador; const nom=shNombre(c.comprador_nombre||c.comprador_empresa); const msg="Hola"+(nom?" "+nom:"")+" 👋 Para preparar tu contrato de compraventa"+(c.folio?(" ("+c.folio+")"):"")+" sube aquí tus documentos y confirma tus datos de contacto:\n"+docUrl+"\n\n— Grupo Guía"; return (<React.Fragment>
+                <ShareButtons url={docUrl} mensaje={msg} asunto={"Tu expediente para el contrato · "+(c.terreno_nombre||"terreno")+(c.folio?(" · "+c.folio):"")+" · Grupo Guía"} telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast}/>
                 <button onClick={()=>window.open(docUrl,"_blank","noopener")} title="Abres el portal del comprador para ver su avance" style={btn("#fff",B.navy,B.grey2)}>📍 Ver portal del comprador</button>
               </React.Fragment>); })()}
             </div>
@@ -22491,7 +22500,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.00</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.01</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
