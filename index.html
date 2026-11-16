@@ -3165,13 +3165,6 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
             </div>
           </div>);
       })()}
-      {c.token_comprador && (()=>{ const firmaUrl=LANDING_URL+"/mi-oferta/"+c.token_comprador; const nomC=String(c.comprador_nombre||"").trim(); const terr=String(c.terreno_nombre||"").trim(); const msg="Hola "+nomC+", aquí está el link para revisar y firmar tu carta oferta del terreno "+terr+": "+firmaUrl; const asunto="Tu carta oferta — Terreno "+terr; return (
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:10,border:"1px dashed "+B.grey2,borderRadius:10,padding:"8px 10px",background:"#fbfbfd"}}>
-          <span style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>Compartir con el comprador</span>
-          <button onClick={()=>window.open(rqWaUrl(c.comprador_telefono,msg),"_blank","noopener")} title="Abre WhatsApp con el mensaje y la liga listos para el comprador" style={btn("#25D366","#fff")}>🟢 WhatsApp</button>
-          <button onClick={async()=>{ try{ await navigator.clipboard.writeText(firmaUrl); toast("🔗 Liga de la carta oferta copiada"); }catch(e){ try{ window.prompt("Copia la liga para el comprador:",firmaUrl); }catch(_){ toast(firmaUrl); } } }} title="Copias la liga y se la mandas tú" style={btn(B.navy,"#fff")}>🔗 Copiar liga</button>
-          <a href={"mailto:"+encodeURIComponent(c.comprador_email||"")+"?subject="+encodeURIComponent(asunto)+"&body="+encodeURIComponent(msg)} title="Abre tu correo con el mensaje y la liga listos" style={{...btn("#fff",B.navy,B.grey2),textDecoration:"none",display:"inline-block"}}>✉️ Correo</a>
-        </div>); })()}
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
         {coEditable(c) && <button onClick={()=>editar(c)} title={coCondLibres(c)?"Editar la carta (el comprador aún no firma)":"El comprador ya firmó: solo se editan los datos del vendedor"} style={btn("#fff",B.navy,B.grey2)}>✏️ {coCondLibres(c)?"Editar":"Editar vendedor"}</button>}
         {esperaComprador && <button disabled={!!busy} onClick={()=>copiar(c,"comprador",venc)} style={btn(B.gold,B.navy)}>🔗 {venc?"Liga nueva":"Copiar liga"} comprador{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</button>}
@@ -22507,7 +22500,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.01</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.02</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
