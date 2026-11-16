@@ -2138,6 +2138,19 @@ function rqTerrenoSirve(req, cap){
 // del landing y compradores de MacroPro). Si el usuario no es admin
 // (o falta la migración) no hace nada: nunca bloquea el guardado.
 // Todos los compradores de la nube (tabla `clientes`, en páginas de 1000).
+// Trae TODAS las filas de una consulta, en páginas de 1000. Supabase corta cada respuesta en 1000
+// filas por defecto: sin esto, con 1,645 clientes solo bajaban 1,000. `armar` devuelve la consulta
+// SIN .range() y con un .order() estable. Devuelve {data, error} igual que Supabase.
+async function mpTraerTodo(armar){
+  const out=[];
+  for(let from=0; from<200000; from+=1000){
+    const r=await armar().range(from, from+999);
+    if(r.error) return { data:null, error:r.error };
+    const d=r.data||[]; out.push(...d);
+    if(d.length<1000) break;
+  }
+  return { data:out, error:null };
+}
 async function rqCargarCompradores(){
   const out=[]; for(let from=0; from<50000; from+=1000){ const { data, error } = await window.sb.from("clientes").select("*").range(from,from+999); if(error) throw error; out.push(...(data||[])); if(!data||data.length<1000) break; }
   return out;
@@ -4161,7 +4174,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
         const sk=(SS&&!SS.error&&Array.isArray(SS.data))?JSON.stringify(SS.data):null;
         if(!stop&&sk!==null&&sk!==lastSolRef.current){ lastSolRef.current=sk; any=true; setSolicitudesAsesor(prev=>{ const byId={}; (prev||[]).forEach(s=>{if(s&&s.id)byId[s.id]=s;}); SS.data.forEach(r=>{ if(!r||!r.id||r.eliminado===true) return; byId[r.id]=solicitudDeFila(r); }); const arr=Object.values(byId); saveSolicitudesAsesor(arr); return arr; }); }
         // ── CLIENTES (fusión por email: la nube manda en los que coinciden; conserva locales sin email o no subidos) ──
-        const CL=await window.sb.from('clientes').select('*');
+        const CL=await mpTraerTodo(()=>window.sb.from('clientes').select('*').order('id'));
         const clk=(CL&&!CL.error&&Array.isArray(CL.data))?JSON.stringify(CL.data):null;
         if(!stop&&clk!==null&&clk!==lastCliRef.current){ lastCliRef.current=clk;
           const cloud=CL.data.map(clienteFromSupabase).filter(Boolean);
@@ -5049,7 +5062,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
       }
       // 2) BAJAR (fusión) — clientes + CRM
       const [C,K] = await Promise.all([
-        sb.from('clientes').select('*'),
+        mpTraerTodo(()=>sb.from('clientes').select('*').order('id')),
         sb.from('crm_lotes').select('lote_id,pipeline,asesor_asignado,prospectos,interacciones,dev_feedback,seguimientos_asesor'),
       ]);
       if(C.error) throw new Error('clientes: '+C.error.message);
@@ -5096,7 +5109,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
     try {
       const [L,C,K] = await Promise.all([
         sb.from('lotes').select('*'),
-        sb.from('clientes').select('*'),
+        mpTraerTodo(()=>sb.from('clientes').select('*').order('id')),
         sb.from('crm_lotes').select('lote_id,pipeline,asesor_asignado,prospectos,interacciones,dev_feedback,seguimientos_asesor'),
       ]);
       if(L.error) throw new Error('lotes: '+L.error.message);
