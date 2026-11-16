@@ -2138,6 +2138,50 @@ function rqTerrenoSirve(req, cap){
 // del landing y compradores de MacroPro). Si el usuario no es admin
 // (o falta la migración) no hace nada: nunca bloquea el guardado.
 // Todos los compradores de la nube (tabla `clientes`, en páginas de 1000).
+// ═══ COMPARTIR (WhatsApp · Copiar liga · Correo) — componente reutilizable ═══
+// <ShareButtons url mensaje asunto telefono email chico onToast etiqueta mostrarMensaje/>
+//  · WhatsApp: abre wa.me con el mensaje (al número si hay teléfono; si no, eliges el contacto).
+//  · Copiar liga: copia SOLO la liga y avisa "¡Liga copiada!" (el botón se pone verde 2 s).
+//  · Correo: abre tu correo con asunto y cuerpo (destinatario en blanco si no hay correo).
+//  · chico: solo íconos (para filas de tablas).
+const SH_ICO={
+  wa:"M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z",
+  lk:"M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1",
+  ok:"m5 12 5 5 9-10",
+  ml:"M3 6h18v12H3zM3 7l9 7 9-7"
+};
+function shTel(t){ const d=String(t||"").replace(/\D/g,""); if(d.length===10) return "52"+d; return d.length>=11?d:""; }
+function ShareButtons({ url, mensaje, asunto, telefono, email, chico, onToast, etiqueta, mostrarMensaje }){
+  const [copiado,setCopiado]=useState(false);
+  const tRef=useRef(null);
+  React.useEffect(()=>()=>clearTimeout(tRef.current),[]);
+  const msg=mensaje||url||"";
+  const avisa=(t)=>{ try{ (onToast||window.alert)(t); }catch(e){} };
+  const ok=()=>{ setCopiado(true); avisa("✓ ¡Liga copiada!"); clearTimeout(tRef.current); tRef.current=setTimeout(()=>setCopiado(false),2000); };
+  const copiar=(e)=>{ if(e) e.stopPropagation(); const txt=url||"";
+    const respaldo=()=>{ try{ const t=document.createElement("textarea"); t.value=txt; t.setAttribute("readonly",""); t.style.position="fixed"; t.style.opacity="0"; document.body.appendChild(t); t.select(); const r=document.execCommand("copy"); document.body.removeChild(t); if(r){ ok(); return; } }catch(_){} try{ window.prompt("Copia la liga:",txt); }catch(_){} };
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(ok,respaldo); else respaldo(); };
+  const whatsapp=(e)=>{ if(e) e.stopPropagation(); const ph=shTel(telefono); window.open("https://wa.me/"+(ph?ph:"")+"?text="+encodeURIComponent(msg),"_blank"); };
+  const correo=(e)=>{ if(e) e.stopPropagation(); window.location.href="mailto:"+encodeURIComponent(String(email||"").trim())+"?subject="+encodeURIComponent(asunto||"Grupo Guía")+"&body="+encodeURIComponent(msg); };
+  const ico=(d,fill)=>(<svg viewBox="0 0 24 24" width={chico?14:17} height={chico?14:17} aria-hidden="true" style={{flexShrink:0}}><path d={d} fill={fill?"currentColor":"none"} stroke={fill?"none":"currentColor"} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"/></svg>);
+  const base={display:"inline-flex",alignItems:"center",gap:7,borderRadius:chico?8:10,padding:chico?"7px 9px":"9px 14px",fontSize:chico?11.5:13,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit",lineHeight:1.1};
+  return (
+    <div onClick={e=>e.stopPropagation()}>
+      {etiqueta && <div style={{fontSize:11,fontWeight:900,letterSpacing:0.8,textTransform:"uppercase",color:"#002B49",marginBottom:8}}>{etiqueta}</div>}
+      <div style={{display:"flex",gap:chico?6:8,flexWrap:"wrap",justifyContent:chico?"flex-end":"flex-start"}}>
+        <button type="button" onClick={whatsapp} title={shTel(telefono)?"Enviar por WhatsApp":"Enviar por WhatsApp (elige el contacto)"} aria-label="WhatsApp" style={{...base,border:"none",background:"#25D366",color:"#fff",boxShadow:chico?"none":"0 3px 10px rgba(37,211,102,.30)"}}>{ico(SH_ICO.wa,true)}{!chico&&"WhatsApp"}</button>
+        <button type="button" onClick={copiar} title="Copiar la liga" aria-label="Copiar liga" style={{...base,border:"1.5px solid "+(copiado?"#86efac":"#cbd5e1"),background:copiado?"#dcfce7":"#fff",color:copiado?"#15803d":"#002B49"}}>{ico(copiado?SH_ICO.ok:SH_ICO.lk,false)}{!chico&&(copiado?"¡Copiada!":"Copiar liga")}</button>
+        <button type="button" onClick={correo} title={email?("Enviar por correo a "+email):"Enviar por correo (escribe el destinatario)"} aria-label="Correo" style={{...base,border:"none",background:"#2563EB",color:"#fff",boxShadow:chico?"none":"0 3px 10px rgba(37,99,235,.28)"}}>{ico(SH_ICO.ml,false)}{!chico&&"Enviar por correo"}</button>
+      </div>
+      {mostrarMensaje && msg && (
+        <div style={{marginTop:10,background:"#f8fafc",border:"1px dashed #cbd5e1",borderRadius:10,padding:"9px 11px",fontSize:12.5,color:"#334155",lineHeight:1.5,overflowWrap:"anywhere"}}>
+          <div style={{fontSize:10.5,fontWeight:800,letterSpacing:1,textTransform:"uppercase",color:"#94a3b8",marginBottom:3}}>Mensaje que se enviará</div>{msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Trae TODAS las filas de una consulta, en páginas de 1000. Supabase corta cada respuesta en 1000
 // filas por defecto: sin esto, con 1,645 clientes solo bajaban 1,000. `armar` devuelve la consulta
 // SIN .range() y con un .order() estable. Devuelve {data, error} igual que Supabase.
@@ -17654,6 +17698,7 @@ Respuesta: [respuesta exacta, conversacional]
     // ── Panel de cotizaciones: carga TODAS las cotizaciones (de todos los clientes) ──
     // para ver estadísticas y las ligas de aceptación en un solo lugar.
     const [docsByCot,setDocsByCot]=useState({});
+    const [tokensCap,setTokensCap]=useState({}); // captacion_id → liga_token (para la liga /expediente/)
     const cargarHistorial = async ()=>{
       if(!window.sb){ setHistorial([]); return; }
       setCargandoHist(true);
@@ -17666,6 +17711,9 @@ Respuesta: [respuesta exacta, conversacional]
         const ids=(data||[]).map(c=>c.id); const map={};
         if(ids.length){ try{ const { data:dd }=await window.sb.from("documentos_opcionador").select("*").in("cotizacion_id",ids); (dd||[]).forEach(r=>{ (map[r.cotizacion_id]=map[r.cotizacion_id]||{})[r.tipo_documento]=r; }); }catch(e){} }
         setDocsByCot(map);
+        // Liga Mágica (/expediente/) de las cotizaciones que ya tienen captación.
+        const capIds=[...new Set((data||[]).map(c=>c.captacion_id).filter(Boolean))];
+        if(capIds.length){ try{ const { data:tk }=await window.sb.from("captaciones").select("id,liga_token").in("id",capIds); const t={}; (tk||[]).forEach(x=>{ if(x&&x.id&&x.liga_token) t[x.id]=x.liga_token; }); setTokensCap(t); }catch(_){ } }
       }catch(e){ setHistorial([]); }
       finally{ setCargandoHist(false); }
     };
@@ -17709,6 +17757,25 @@ Respuesta: [respuesta exacta, conversacional]
 
     // Liga de aceptación del cliente (Landing) + utilidades para copiar/compartir.
     const ligaAceptar = (r)=> "https://macrolotes.grupoguia.mx/aceptar?c="+r.id;
+    // Compartir con el PROPIETARIO: si ya hay captación → su expediente (/expediente/<liga_token>);
+    // si aún no acepta → la liga para revisar y aceptar la cotización (/aceptar?c=).
+    const compartirCot = (r)=>{
+      const cap=r.captacion_id?(captaciones||[]).find(x=>x&&x.id===r.captacion_id):null;
+      const token=(cap&&cap.ligaToken)||tokensCap[r.captacion_id]||"";
+      const nom=String(r.cliente_nombre||"").trim().split(/\s+/)[0]||"";
+      const terreno=(r.terreno_nombre||"tu terreno")+(r.terreno_ciudad?(" ("+r.terreno_ciudad+")"):"");
+      if(token){
+        const m=docsByCot[r.id]||{}; const hechos=OPC_TIPOS.filter(d=>m[d.k]).length, tot=OPC_TIPOS.length;
+        const aprob=!!(cap&&cap.aprobada_publicar), publ=!!(cap&&cap.publicada_lote_id);
+        const paso= hechos<tot ? ("Expediente · "+hechos+" de "+tot+" documentos") : (!aprob ? "Revisión de Dirección" : (!publ ? "Publicación en inventario" : "Publicado en inventario"));
+        const url="https://macrolotes.grupoguia.mx/expediente/"+token;
+        return { url, asunto:"Avance de tu expediente · "+(r.terreno_nombre||"terreno")+" · Grupo Guía",
+          mensaje:"Hola"+(nom?" "+nom:"")+", aquí puedes ver el avance de tu expediente del terreno "+terreno+". Vas en: "+paso+". "+url };
+      }
+      const url=ligaAceptar(r);
+      return { url, asunto:"Tu cotización · "+(r.terreno_nombre||"terreno")+" · Grupo Guía",
+        mensaje:"Hola"+(nom?" "+nom:"")+", aquí puedes revisar y aceptar la cotización de tu terreno "+terreno+" y subir tus documentos: "+url };
+    };
     const copiarTxt = async (txt)=>{
       try{ await navigator.clipboard.writeText(txt); toast("📋 Liga copiada"); }
       catch(e){ try{ const t=document.createElement("textarea"); t.value=txt; t.style.position="fixed"; t.style.opacity="0"; document.body.appendChild(t); t.select(); document.execCommand("copy"); document.body.removeChild(t); toast("📋 Liga copiada"); }catch(_){ toast("No se pudo copiar"); } }
@@ -17870,8 +17937,10 @@ Respuesta: [respuesta exacta, conversacional]
                 {dato("Valor",r.valor_terreno)}
                 {dato("Comisión",r.monto_comision)}
                 <div style={{display:"flex",gap:7,flexWrap:"wrap",marginTop:12}}>
-                  <button onClick={()=>copiarTxt(ligaAceptar(r))} style={{padding:"8px 12px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🔗 Copiar liga de documentos</button>
-                  <button onClick={()=>waLiga(r)} style={{padding:"8px 12px",borderRadius:8,border:"none",background:"#25D366",color:"#fff",fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🟢 WhatsApp</button>
+                  {(()=>{ const sh=compartirCot(r); const nom=String(r.cliente_nombre||"").trim().split(/\s+/)[0]; return (
+                    <div style={{flex:"1 1 100%",borderTop:"1px dashed #cbd5e1",paddingTop:12}}>
+                      <ShareButtons url={sh.url} mensaje={sh.mensaje} asunto={sh.asunto} telefono={r.cliente_telefono} email={r.cliente_email} onToast={toast} mostrarMensaje etiqueta={"Compartir su estatus"+(nom?" con "+nom:"")}/>
+                    </div>); })()}
                 </div>
               </div>
             </div>
@@ -18397,8 +18466,7 @@ Respuesta: [respuesta exacta, conversacional]
                                     ) : (
                                       <span title="Los documentos se reciben cuando el propietario acepta" style={{padding:"6px 10px",borderRadius:8,border:"1.5px dashed #e5e7eb",color:"#94a3b8",fontSize:11.5,fontWeight:800}}>⏳ Sin aceptar</span>
                                     ))}
-                                    <button onClick={()=>copiarTxt(ligaAceptar(r))} title="Copiar la liga de aceptación del cliente" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:"pointer"}}>📋 Liga</button>
-                                    <button onClick={()=>waLiga(r)} title="Enviar la liga por WhatsApp al cliente" style={{padding:"6px 10px",borderRadius:8,border:"none",background:"#25D366",color:"#fff",fontSize:11.5,fontWeight:800,cursor:"pointer"}}>🟢 WA</button>
+                                    {(()=>{ const sh=compartirCot(r); return <ShareButtons chico url={sh.url} mensaje={sh.mensaje} asunto={sh.asunto} telefono={r.cliente_telefono} email={r.cliente_email} onToast={toast}/>; })()}
                                     <button disabled={pdfBusy} onClick={()=>generarPDF(r)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid "+DORADO,background:"#fff",color:AZUL,fontSize:11.5,fontWeight:800,cursor:pdfBusy?"not-allowed":"pointer",opacity:pdfBusy?0.5:1}}>📄 PDF</button>
                                     <button disabled={borrandoId===r.id} onClick={()=>eliminarCotizacion(r)} title="Eliminar esta cotización y sus documentos" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #fecaca",background:"#fff",color:"#b91c1c",fontSize:11.5,fontWeight:800,cursor:borrandoId===r.id?"wait":"pointer",opacity:borrandoId===r.id?0.5:1}}>{borrandoId===r.id?"…":"🗑"}</button>
                                   </div>
@@ -22401,7 +22469,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.98</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.99</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
