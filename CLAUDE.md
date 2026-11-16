@@ -106,6 +106,12 @@ exportación a PDF/PPTX/iCal y sincronización con Supabase. Está construido co
   - Service Worker v3: no intercepta Supabase/Netlify; librerías de CDN con versión = caché primero
     (`mp-cdn-v1`, sobrevive a actualizaciones); la app = red primero. Al activar solo borra caches viejos
     de la app (conserva `mp-cdn-v1` y `mp-app-compilado`).
+- **Compartir (v5.99, 2026-11-16):** componente de nivel superior `ShareButtons` en `index.html`
+  (`url, mensaje, asunto, telefono, email, chico, onToast, etiqueta, mostrarMensaje`): WhatsApp (wa.me),
+  Copiar liga (copia SOLO la liga + aviso "¡Liga copiada!") y Correo (mailto). Reutilízalo; no hagas
+  botones sueltos. Ligas por contexto (decisión de Dirección): **propietario/opcionador → `/expediente/<liga_token>`**
+  (si aún no acepta, `/aceptar?c=<id>`); **comprador → `/mi-oferta/<token>`, SOLO en Cartas oferta**.
+  El Journey público para directores vive en `journey.html` (sin datos de clientes).
 - **`bajarDeSupabase` ahora FUSIONA, no reemplaza** el CRM (nunca borra lo local). La bajada de
   lotes/clientes completa es trabajo de la Fase 2 (ver `SPRINT6_LOGIN_SYNC.md`).
 
