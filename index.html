@@ -153,6 +153,12 @@
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #E8EDF2; border-radius: 3px; }
     ::-webkit-scrollbar-thumb { background: #8FA3B4; border-radius: 3px; }
+    .mp-det>summary { list-style: none; cursor: pointer; }
+    .mp-det>summary::-webkit-details-marker { display: none; }
+    .mp-det .mp-chev { display: inline-block; transition: transform .2s; }
+    .mp-det[open] .mp-chev { transform: rotate(90deg); }
+    .mp-det[open] .mp-det-resumen { display: none !important; }
+    .mp-det>summary:focus-visible { outline: 2px solid #C49A22; outline-offset: 4px; border-radius: 6px; }
     @media print { nav, button, .no-print { display: none !important; } body { background: white !important; } * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
   </style>
 </head>
@@ -2935,6 +2941,8 @@ ${!conf&&c.asesor_nombre?`<div class="cc">c.c.p. ${esc(c.asesor_nombre)} · Ases
 }
 
 const CO_UI={}; // estado de UI por ficha (sobrevive si la ficha se re-monta)
+// Reporte de captación plegable: recuerda si quedó abierto (por equipo). Cerrado por defecto.
+const CAP_REP_UI={ abierto:(()=>{ try{ return localStorage.getItem("mp_cap_reporte_abierto")==="1"; }catch(e){ return false; } })() };
 // 👔 Liga INFORMATIVA del asesor (solo lectura: no puede firmar ni responder) · sql v4.
 const CO_AVISADOS=new Set(); // carta+ronda ya avisadas por correo en esta sesión (sin duplicados)
 async function coLigaAsesor(cartaId){ const { data, error } = await window.sb.rpc("carta_oferta_liga",{ p_id:cartaId, p_rol:"asesor", p_renovar:false }); if(error) throw error; return data; }
@@ -19001,12 +19009,24 @@ Respuesta: [respuesta exacta, conversacional]
             {l:"Tiempo resp. prom.", v:R.tRespProm?R.tRespProm.toFixed(1)+" d":"—", c:"#b45309"},
           ];
           return (
-            <div style={{background:B.white, borderRadius:14, padding:18, border:"1px solid "+B.grey1, marginBottom:20, boxShadow:"0 2px 10px rgba(0,43,73,0.04)"}}>
-              <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:14}}>
-                <div style={{fontSize:13, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1}}>📊 Reporte de captación</div>
-                <button onClick={descargarReporteCaptacionPDF} style={{padding:"7px 14px", borderRadius:8, border:"1px solid "+B.navy, background:B.white, color:B.navy, fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>📄 Descargar PDF</button>
-              </div>
-              <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))", gap:10, marginBottom:16}}>
+            <details className="mp-det" open={CAP_REP_UI.abierto} onToggle={(e)=>{ const ab=e.currentTarget.open; CAP_REP_UI.abierto=ab; try{ localStorage.setItem("mp_cap_reporte_abierto", ab?"1":"0"); }catch(_){} }} style={{background:B.white, borderRadius:14, padding:18, border:"1px solid "+B.grey1, marginBottom:20, boxShadow:"0 2px 10px rgba(0,43,73,0.04)"}}>
+              <summary title="Mostrar / ocultar el reporte" style={{display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10}}>
+                <div style={{display:"flex", alignItems:"center", gap:10, flexWrap:"wrap"}}>
+                  <span className="mp-chev" aria-hidden="true" style={{fontSize:12, color:B.navy}}>▶</span>
+                  <span style={{fontSize:13, fontWeight:800, color:B.navy, textTransform:"uppercase", letterSpacing:1}}>📊 Reporte de captación</span>
+                  <span className="mp-det-resumen" style={{display:"inline-flex", gap:6, flexWrap:"wrap", fontSize:11, color:B.grey4}}>
+                    <span style={{background:B.offW, borderRadius:6, padding:"2px 8px"}}>Recibidos <b style={{color:B.navy}}>{R.totalRecibidos}</b></span>
+                    <span style={{background:B.offW, borderRadius:6, padding:"2px 8px"}}>Aceptados <b style={{color:"#15803d"}}>{R.totalAceptados}</b></span>
+                    <span style={{background:B.offW, borderRadius:6, padding:"2px 8px"}}>Firmados <b style={{color:"#0e7490"}}>{R.totalFirmados}</b></span>
+                    <span style={{background:B.offW, borderRadius:6, padding:"2px 8px"}}>Tasa <b style={{color:"#7c3aed"}}>{R.tasaAcept}%</b></span>
+                  </span>
+                </div>
+                <div style={{display:"flex", alignItems:"center", gap:10}}>
+                  <button className="mp-det-pdf" onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); descargarReporteCaptacionPDF(); }} style={{padding:"7px 14px", borderRadius:8, border:"1px solid "+B.navy, background:B.white, color:B.navy, fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>📄 Descargar PDF</button>
+                  <span className="mp-det-resumen" style={{fontSize:11, fontWeight:700, color:"#2563AC"}}>Ver reporte</span>
+                </div>
+              </summary>
+              <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))", gap:10, marginBottom:16, marginTop:14}}>
                 {kpis.map((k,i)=>(
                   <div key={i} style={{background:B.offW, borderRadius:10, padding:"10px 12px", borderLeft:"3px solid "+k.c}}>
                     <div style={{fontSize:9, fontWeight:800, color:B.grey4, textTransform:"uppercase", letterSpacing:0.5}}>{k.l}</div>
@@ -19040,7 +19060,7 @@ Respuesta: [respuesta exacta, conversacional]
                 </table>
               </div>
               <div style={{fontSize:9, color:B.grey3, fontStyle:"italic", marginTop:8}}>Aceptados = viabilidad 🟢 o en negociación/documentación/contrato/firmado. Tiempo de respuesta = días de la recepción a la última gestión.</div>
-            </div>
+            </details>
           );
         })()}
 
@@ -22697,7 +22717,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.94</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.95</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
