@@ -4072,6 +4072,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // para que la ficha NO se cierre mientras el usuario edita/guarda.
   const mpSyncEvt=(s,at)=>{ try{ window.__mpSync={s:s,at:(at!=null?at:((window.__mpSync&&window.__mpSync.at)||null))}; window.dispatchEvent(new CustomEvent("mp-sync",{detail:{s:s,at:(at!=null?at:null)}})); }catch(e){} };
   const lastCrmRef=React.useRef(null), lastCapRef=React.useRef(null), lastOfRef=React.useRef(null), lastSolRef=React.useRef(null), lastCliRef=React.useRef(null);
+  const ultimoTickRef=React.useRef(0); // última bajada automática (para ponerse al día al volver a la pestaña)
   React.useEffect(()=>{ try{ localStorage.setItem("macropro_sync_auto", syncAuto?"1":"0"); }catch(e){} },[syncAuto]);
   // Subida del CRM por LOTE (mismas columnas que la sync manual; lote_id canónico = loteKey)
   const crmFila=(key,e)=>({ lote_id: loteKey({id:key}), pipeline: e.pipeline||"Disponible", asesor_asignado: e.asesorResponsable||null, prospectos: e.prospectos||[], interacciones: e.interacciones||[], dev_feedback: e.devFeedback||[], seguimientos_asesor: e.seguimientosAsesor||(e.seguimientoAsesor?[e.seguimientoAsesor]:[]), updated_at:new Date().toISOString() });
@@ -4121,6 +4122,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
       // No jalar de la nube mientras el usuario tiene una ficha abierta escribiendo
       // (evita que el modal se remonte y se pierda lo no guardado).
       if(modalOpenRef.current) return;
+      // Pestaña en segundo plano: no bajar nada (antes bajaba 5 tablas completas cada 45 s aunque nadie mirara).
+      // Al volver a la pestaña se pone al día de inmediato (ver visibilitychange abajo).
+      if(typeof document!=="undefined" && document.hidden) return;
+      ultimoTickRef.current=Date.now();
       if(typeof navigator!=="undefined" && navigator.onLine===false){ mpSyncEvt("offline"); return; }
       mpSyncEvt("pulling");
       try{
@@ -4175,7 +4180,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
       }catch(e){ if(!stop) mpSyncEvt(navigator.onLine===false?"offline":"error"); /* queda lo local */ }
     };
     const iv=setInterval(tick, 45000); const t0=setTimeout(tick, 3000);
-    return ()=>{ stop=true; clearInterval(iv); clearTimeout(t0); };
+    const alVolver=()=>{ if(!document.hidden && Date.now()-ultimoTickRef.current>45000) tick(); };
+    document.addEventListener("visibilitychange", alVolver);
+    return ()=>{ stop=true; clearInterval(iv); clearTimeout(t0); document.removeEventListener("visibilitychange", alVolver); };
   },[syncAuto, inventory]);
   // ═══ AUTO-RE-ENLACE CRM↔inventario (fix raíz): el CRM se "desaparecía" cuando sus claves no
   // empataban con los ids del inventario por mayúsculas/espacios (ej. clave 'gen_05' vs lote 'GEN_05').
@@ -22379,7 +22386,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.97</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v5.98</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
