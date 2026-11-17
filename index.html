@@ -21731,7 +21731,7 @@ Respuesta: [respuesta exacta, conversacional]
     universoAse.forEach(e=>{
       if(asesorFirmo(e.nombre)) return;                                   // ya firmó → cubierto, fuera del detector
       const tok=acuerdoDeAsesor(e.nombre);
-      if(tok && tok.token){ asesoresEnviados.push({nombre:e.nombre,acuerdo:tok,soloCorretaje:(e.caps.length===0 && e.lotes.length>0)}); return; } // (C) ya tiene liga, esperando firma
+      if(tok && tok.token){ asesoresEnviados.push({nombre:e.nombre,acuerdo:tok,lotes:e.lotes,soloCorretaje:(e.caps.length===0 && e.lotes.length>0)}); return; } // (C) ya tiene liga, esperando firma
       const capsPend=e.caps.filter(c=>!convenioOK(c));
       if(e.lotes.length){ asesoresSinConvenio.push({nombre:e.nombre,caps:capsPend,lotes:e.lotes,total:capsPend.length+e.lotes.length}); } // (B) tiene corretaje → su hogar es esta pestaña
       else if(capsPend.length){ sinConvCaptacion += capsPend.length; } // captación pura → se genera en "Por asesor → Sin convenio"
@@ -21754,16 +21754,39 @@ Respuesta: [respuesta exacta, conversacional]
     const ligaConv=(token)=> token?(LANDING_URL+"/acuerdo/"+token):(LANDING_URL+"/acuerdo");
     const msgConv=(nombre,link)=>{ const nom=String(nombre||"asesor").split(/\s+/)[0]||"asesor";
       return "Hola "+nom+", te saludamos del Equipo Macrolotes de Grupo Guía. Para poder trabajar tus terrenos necesitamos que firmes *una sola vez* tu convenio de comisiones (cubre todos). Fírmalo aquí:\n"+link+"\n— Equipo Macrolotes de Grupo Guía"; };
-    const genConvWA=async(nombre)=>{ const ai=asesorInfo(nombre); const tel=String((ai&&ai.telefono)||"").replace(/\D/g,""); const ph=tel.length===10?("52"+tel):tel;
+    // Marca en memoria que la liga ya se envió (la fila pasa de "Por enviar" a "Enviados" al instante).
+    const marcarLigaEnviada=(token,cuando,via)=>{ if(!token) return; const t=cuando||new Date().toISOString(); setAcuerdos(prev=>(prev||[]).map(a=> a&&a.token===token?{...a,liga_enviada_at:t,liga_enviada_via:via||a.liga_enviada_via}:a)); };
+    const genConvWA=async(nombre)=>{ const ai=asesorInfo(nombre); const acW=acuerdoDeAsesor(nombre); const tel=String((ai&&ai.telefono)||(acW&&acW.asesor_celular)||"").replace(/\D/g,""); const ph=tel.length===10?("52"+tel):tel;
       const w=window.open("","_blank"); setGenNom(norm(nombre));
       const token=await asegurarTokenAsesor(nombre); setGenNom("");
       if(!ph) toast("Ese asesor no tiene WhatsApp — se abrirá para elegir contacto.");
       const url=ph?("https://wa.me/"+ph+"?text="+encodeURIComponent(msgConv(nombre,ligaConv(token)))):("https://api.whatsapp.com/send?text="+encodeURIComponent(msgConv(nombre,ligaConv(token))));
-      if(w){ w.location.href=url; } else window.open(url,"_blank","noopener"); };
-    const genConvCorreo=async(nombre)=>{ const ai=asesorInfo(nombre); if(!(ai&&ai.email)){ toast("Ese asesor no tiene correo en el catálogo — usa WhatsApp."); return; }
+      if(w){ w.location.href=url; } else window.open(url,"_blank","noopener");
+      // Registra el envío por WhatsApp (en la Landing) y lo mueve a "Enviados".
+      if(token){ marcarLigaEnviada(token,null,"whatsapp"); try{ fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token,solo_marcar:"whatsapp"})}).catch(()=>{}); }catch(e){} } };
+    const genConvCorreo=async(nombre)=>{ const ai=asesorInfo(nombre); const acC=acuerdoDeAsesor(nombre); if(!(ai&&ai.email) && !(acC&&emailValido(acC.asesor_email))){ toast("Ese asesor no tiene correo — captúralo con ✏️ Contacto o usa WhatsApp."); return; }
       setGenNom(norm(nombre)); const token=await asegurarTokenAsesor(nombre); if(!token){ setGenNom(""); toast("No se pudo generar el convenio. Intenta de nuevo."); return; }
-      try{ const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token,terrenos:[]})}); const out=await r.json().catch(()=>({})); if(out&&out.ok&&out.enviado) toast("✅ Convenio enviado a "+(out.correo||ai.email)); else toast("Convenio generado; el correo no salió — prueba WhatsApp."); }catch(e){ toast("Convenio generado; el correo no salió — prueba WhatsApp."); }
+      try{ const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token,terrenos:[]})}); const out=await r.json().catch(()=>({})); if(out&&out.ok&&out.enviado){ marcarLigaEnviada(token,out.liga_enviada_at,"correo"); toast("✅ Convenio enviado a "+(out.correo||(ai&&ai.email)||"su correo")); } else toast("Convenio generado; el correo no salió — prueba WhatsApp."); }catch(e){ toast("Convenio generado; el correo no salió — prueba WhatsApp."); }
       setGenNom(""); };
+    // 📧 Enviar (o reenviar) la liga POR CORREO a TODOS los de una lista, de golpe. El servidor
+    // resuelve el correo por token (o del catálogo) y registra el envío → pasan a "Enviados".
+    const enviarLigaTodos=async(lista,etiqueta)=>{
+      const conTok=(lista||[]).filter(g=>g&&g.acuerdo&&g.acuerdo.token);
+      if(!conTok.length){ toast("No hay convenios para enviar."); return; }
+      if(!window.confirm(etiqueta+" por correo a "+conTok.length+" asesor(es).\n\nA cada uno le llega su liga personal para firmar (con copia a macrolotes@grupoguia.mx).\n\n¿Enviar ahora?")) return;
+      setBulkBusy(true); let ok=0; const sinCorreo=[], fallos=[];
+      for(const g of conTok){
+        try{
+          const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:g.acuerdo.token,terrenos:(g.lotes||[]).map(nombreLote)})});
+          const out=await r.json().catch(()=>({}));
+          if(out&&out.ok&&out.enviado){ ok++; marcarLigaEnviada(g.acuerdo.token,out.liga_enviada_at,"correo"); }
+          else if(out&&out.motivo==="sin-correo") sinCorreo.push(g.nombre);
+          else fallos.push(g.nombre+(out&&out.motivo?(" ("+out.motivo+")"):""));
+        }catch(e){ fallos.push(g.nombre); }
+      }
+      setBulkBusy(false);
+      toast("✅ "+ok+" liga(s) enviada(s) por correo"+(sinCorreo.length?(" · sin correo: "+sinCorreo.join(", ")+" (captúralo con ✏️ Contacto o usa WhatsApp)"):"")+(fallos.length?(" · no se pudo: "+fallos.join(", ")):""));
+    };
     // Generar el convenio para TODOS los asesores con hueco (crea, no manda; entran al flujo de recordatorios).
     const generarTodosHuecos=async()=>{
       if(!asesoresSinConvenio.length) return;
@@ -22333,27 +22356,21 @@ Respuesta: [respuesta exacta, conversacional]
                 </div>
               )}
 
-              {/* (C) CORRETAJE ya generado, esperando firma — su ÚNICO hogar (el corretaje no vive en "Por asesor"). */}
-              {asesoresEnviados.filter(g=>g.soloCorretaje).length>0 && (
-                <div style={{background:"#fff",borderTop:"1px solid "+B.grey1}}>
-                  <div style={{padding:"10px 18px",background:"#f0f9ff",fontSize:13,fontWeight:800,color:"#1d4ed8"}}>✅ {asesoresEnviados.filter(g=>g.soloCorretaje).length} convenio(s) de corretaje · esperando firma — reenvíales la liga cuando quieras.</div>
-                  <div style={{overflowX:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                      <thead><tr style={{textAlign:"left",color:B.navy,background:B.offW}}>
-                        <th style={{padding:"9px 14px"}}>Asesor</th>
-                        <th style={{padding:"9px 14px",textAlign:"center"}}>Estatus</th>
-                        <th style={{padding:"9px 14px"}}>Contacto</th>
-                        <th style={{padding:"9px 14px",textAlign:"right"}}>Reenviar liga</th>
-                      </tr></thead>
-                      <tbody>
-                        {asesoresEnviados.filter(g=>g.soloCorretaje).map((g,i)=>{ const a=g.acuerdo||{}; const intentos=Number(a.recordatorio_intentos)||0; const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const liga=LANDING_URL+"/acuerdo/"+(a.token||""); const abierto=capRow===norm(g.nombre);
+              {/* (C) CORRETAJE con convenio generado. Dos lugares (Dirección, 2026-11-17):
+                   📨 POR ENVIAR (nunca se le mandó la liga) → ✅ ENVIADOS · esperando firma.
+                   Al enviar (correo, WhatsApp o "a todos") la fila se MUEVE sola a Enviados. */}
+              {(()=>{ const todos=asesoresEnviados.filter(g=>g.soloCorretaje); if(!todos.length) return null;
+                const yaEnviada=(g)=>{ const a=g.acuerdo||{}; return !!a.liga_enviada_at || (Number(a.recordatorio_intentos)||0)>0; };
+                const porEnviar=todos.filter(g=>!yaEnviada(g)), enviados=todos.filter(yaEnviada);
+                const fila=(g,i)=>{ const a=g.acuerdo||{}; const intentos=Number(a.recordatorio_intentos)||0; const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const liga=LANDING_URL+"/acuerdo/"+(a.token||""); const abierto=capRow===norm(g.nombre);
                           // Respaldo: si el catálogo no lo encuentra por nombre (p. ej. "Eliseo Gonzalez O"), se muestra el contacto que trae el propio convenio.
                           const emAc=emailValido(a.asesor_email)?a.asesor_email:""; const telAc=String(a.asesor_celular||"").trim();
+                          const enviada=yaEnviada(g); const fEnv=a.liga_enviada_at||a.ultimo_recordatorio_at; const fechaEnv=fEnv?new Date(fEnv).toLocaleDateString("es-MX",{day:"numeric",month:"short"}):"";
                           return (
                           <React.Fragment key={i}>
                           <tr style={{borderTop:"1px solid "+B.grey1}}>
                             <td style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}} onClick={()=>setSel(g.nombre)} title="Ver su ficha">{g.nombre} <span style={{color:"#1d4ed8"}}>↗</span></td>
-                            <td style={{padding:"9px 14px",textAlign:"center"}}>{pill("Generado · por firmar"+(intentos>0?(" · intento "+intentos+" de 5"):""),"#1d4ed8","#eff6ff")}</td>
+                            <td style={{padding:"9px 14px",textAlign:"center"}}>{enviada? pill("Enviada "+fechaEnv+(intentos>0?(" · recordatorio "+intentos+" de 5"):""),"#15803d","#ecfdf5") : pill("Generada · sin enviar","#b45309","#fff7ed")}</td>
                             <td style={{padding:"9px 14px",fontSize:12}}>
                               {(emOk||tel)? <span style={{color:B.grey5}}>{emOk?em:""}{emOk&&tel?" · ":""}{tel?("📱 "+tel):""}</span>
                                 : (emAc||telAc)? <span style={{color:"#b45309"}} title="Viene del convenio; guárdalo en el catálogo con ✏️ Contacto para que Correo/WhatsApp funcionen">{emAc}{emAc&&telAc?" · ":""}{telAc?("📱 "+telAc):""} <b>(del convenio)</b></span>
@@ -22382,13 +22399,33 @@ Respuesta: [respuesta exacta, conversacional]
                             </tr>
                           )}
                           </React.Fragment>
-                        ); })}
-                      </tbody>
+                        ); };
+                const tabla=(lista)=>(
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                      <thead><tr style={{textAlign:"left",color:B.navy,background:B.offW}}>
+                        <th style={{padding:"9px 14px"}}>Asesor</th>
+                        <th style={{padding:"9px 14px",textAlign:"center"}}>Estatus</th>
+                        <th style={{padding:"9px 14px"}}>Contacto</th>
+                        <th style={{padding:"9px 14px",textAlign:"right"}}>Mandar liga</th>
+                      </tr></thead>
+                      <tbody>{lista.map(fila)}</tbody>
                     </table>
-                  </div>
-                  <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Son de corretaje (no están en “Por asesor”). El recordatorio automático les llega solo cada 2 días hasta que firmen.</div>
+                  </div>);
+                const encabezado=(txt,color,bg,lista,boton)=>(
+                  <div style={{padding:"10px 18px",background:bg,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",borderTop:"1px solid "+B.grey1}}>
+                    <span style={{fontSize:13,fontWeight:800,color,flex:"1 1 300px",minWidth:0}}>{txt}</span>
+                    {lista.length>0 && <button disabled={bulkBusy} onClick={()=>enviarLigaTodos(lista,boton)} style={{...s.btn("sm"),background:bulkBusy?"#94a3b8":color,color:"#fff",boxShadow:"none",whiteSpace:"nowrap",cursor:bulkBusy?"wait":"pointer"}}>{bulkBusy?"Enviando…":"📧 "+boton+" ("+lista.length+")"}</button>}
+                  </div>);
+                return (
+                <div style={{background:"#fff",borderTop:"1px solid "+B.grey1}}>
+                  {encabezado("📨 "+porEnviar.length+" convenio(s) de corretaje POR ENVIAR — aún no se les manda la liga.","#b45309","#fff7ed",porEnviar,"Enviar la liga a todos")}
+                  {porEnviar.length>0 ? tabla(porEnviar) : <div style={{padding:"10px 18px",fontSize:12.5,color:B.green,fontWeight:700}}>✓ Nada por enviar: todos ya tienen su liga.</div>}
+                  {encabezado("✅ "+enviados.length+" convenio(s) de corretaje ENVIADOS · esperando firma — el recordatorio automático les llega cada 2 días.","#1d4ed8","#f0f9ff",enviados,"Reenviar a todos")}
+                  {enviados.length>0 ? tabla(enviados) : <div style={{padding:"10px 18px",fontSize:12.5,color:B.grey4}}>Todavía no hay enviados.</div>}
+                  <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Son de corretaje (no están en “Por asesor”). “Enviar a todos” manda la liga por correo a cada uno; por WhatsApp se manda desde cada fila (🟢). Al enviarla, la fila pasa sola a “Enviados”.</div>
                 </div>
-              )}
+                ); })()}
               {/* Los de CAPTACIÓN ya generados viven en "Por asesor"; aquí sólo acceso directo, SIN duplicar la lista. */}
               {asesoresEnviados.filter(g=>!g.soloCorretaje).length>0 && (
                 <div style={{background:"#f8fafc",borderTop:"1px solid "+B.grey1,padding:"11px 18px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
