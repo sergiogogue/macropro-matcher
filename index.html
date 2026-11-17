@@ -22084,10 +22084,18 @@ Respuesta: [respuesta exacta, conversacional]
           {modo==="cartas" ? (
             <ViewCartasOferta embebido s={s} onToast={toast} onNueva={()=>setWizardCO({})} onAbrirTerreno={(c)=>{ if(c.captacion_id){ const x=(captaciones||[]).find(y=>y.id===c.captacion_id); if(x){ setEditingCaptacion(x); setShowCaptacionModal(true); } else toast("Ese terreno de captación no está cargado en este equipo."); } else if(c.lote_id){ const l=(inventory||[]).find(y=>loteKey(y)===c.lote_id); if(l) setSelectedLotDetail(l); else toast("Ese lote no está cargado en este equipo."); } }}/>
           ) : modo==="huecos" ? (<>
-            <div style={{marginBottom:6}}>
-              <div style={s.sectionTitle}>🚩 Terrenos sin asesor / sin convenio</div>
-              <div style={s.sectionSub}>Pestaña fija para que no se escape ninguno: asigna el asesor al terreno que no lo tiene y genera su convenio desde aquí mismo.{cf?(" · filtrando "+ciudadF):""}</div>
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:10}}>
+              <div style={{minWidth:0}}>
+                <div style={s.sectionTitle}>🚩 Terrenos sin asesor / sin convenio</div>
+                <div style={s.sectionSub}>Pestaña fija para que no se escape ninguno: asigna el asesor al terreno que no lo tiene y genera su convenio desde aquí mismo.{cf?(" · filtrando "+ciudadF):""}</div>
+              </div>
+              <button onClick={()=>{ setEditingCaptacion(nuevaCaptacion()); setShowCaptacionModal(true); }} title="Registrar un terreno que falta (p. ej. uno que un asesor opcionó y nunca se capturó)" style={{padding:"10px 16px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(21,128,61,0.35)"}}>➕ Registrar terreno</button>
             </div>
+            {terrenosSinAsesor.length===0 && (
+              <div style={{marginBottom:16,padding:"12px 16px",borderRadius:10,border:"1px dashed "+B.grey1,background:"#f8fafc",fontSize:12.5,color:B.grey5,lineHeight:1.55}}>
+                ✓ Por ahora <b>no hay terrenos capturados sin asesor</b>. ¿Te falta uno que un asesor opcionó y nunca se registró (como el de <b>Eliseo</b>)? Dale a <b>➕ Registrar terreno</b> (arriba), escribe al asesor en el campo <b>“Asesor responsable (Grupo Guía)”</b> y guárdalo — aparecerá aquí abajo listo para generarle su convenio.
+              </div>
+            )}
             {/* 🕳️ DETECTOR DE HUECOS · terrenos sin asesor + asesores sin convenio (que no se escape ninguno) */}
             <div style={{marginBottom:22,borderRadius:14,overflow:"hidden",border:"1.5px solid "+(totalHuecos?"#fdba74":"#a7f3d0"),boxShadow:"0 4px 16px rgba(0,0,0,.05)"}}>
               <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",background:totalHuecos?"#fff7ed":"#f0fdf4"}}>
@@ -22633,7 +22641,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.06</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.07</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
