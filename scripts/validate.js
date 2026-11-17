@@ -21,7 +21,7 @@ const html = fs.readFileSync(FILE, 'utf8');
 let errors = [];
 
 // ── 1) Compila el bloque Babel ──────────────────────────────────────────
-const m = html.match(/<script type="text\/babel">([\s\S]*?)<\/script>/);
+const m = html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/); // admite data-presets="react" (arranque rápido v5.96)
 if (!m) { console.error('❌ No se encontró el bloque <script type="text/babel"> en index.html'); process.exit(1); }
 const code = m[1];
 try {
