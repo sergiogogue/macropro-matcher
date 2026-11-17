@@ -21721,6 +21721,14 @@ Respuesta: [respuesta exacta, conversacional]
       lotesCorretaje.forEach(l=>{ const nom=String(l.asesor||"").trim(); if(!nom||asesorFirmo(nom)) return; add(nom,{lote:l}); });
       return [...m.values()].map(e=>({...e,total:e.caps.length+e.lotes.length})).sort((a,b)=> b.total-a.total || a.nombre.localeCompare(b.nombre)); })();
     const totalHuecos=sinAsesorTotal+asesoresSinConvenio.length;
+    // (C) Convenios YA generados pero SIN firmar todavía (a dónde van los asesores al darles "Generar"):
+    // tienen liga/token pero aún no firman. Aquí se ven y se les puede REENVIAR la liga.
+    const asesoresEnviados=(()=>{ const m=new Map();
+      const consider=(nombre)=>{ const nom=String(nombre||"").trim(); if(!nom) return; const k=norm(nom); if(m.has(k)) return;
+        const tok=acuerdoDeAsesor(nom); if(tok && tok.token && !asesorFirmo(nom)) m.set(k,{nombre:nom,acuerdo:tok}); };
+      capActivas.forEach(c=> consider(c.asesorResponsableGG));
+      lotesCorretaje.forEach(l=> consider(l.asesor));
+      return [...m.values()].sort((a,b)=> (Number(a.acuerdo&&a.acuerdo.recordatorio_intentos)||0)-(Number(b.acuerdo&&b.acuerdo.recordatorio_intentos)||0) || a.nombre.localeCompare(b.nombre)); })();
     // Asignar asesor a una CAPTACIÓN suelta (la mete al flujo).
     const asignarAsesor=(c)=>{ const nom=String(asignInput[c.id]||"").trim(); if(!nom){ toast("Escribe el nombre del asesor"); return; }
       upsertCaptacion({...c, asesorResponsableGG:nom});
@@ -22296,6 +22304,41 @@ Respuesta: [respuesta exacta, conversacional]
                   <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Incluye terrenos opcionados (captación) <b>y</b> de corretaje (inventario de la Landing). “⚡ Generar a todos” crea los convenios de golpe (sin mandar nada) y los mete al flujo de recordatorios. Los botones 📧/🟢 generan y mandan la liga a ese asesor al instante.</div>
                 </div>
               )}
+
+              {/* (C) Convenios YA generados, esperando firma — a dónde van al darles "Generar" */}
+              {asesoresEnviados.length>0 && (
+                <div style={{background:"#fff",borderTop:"1px solid "+B.grey1}}>
+                  <div style={{padding:"10px 18px",background:"#f0f9ff",fontSize:13,fontWeight:800,color:"#1d4ed8"}}>✅ {asesoresEnviados.length} convenio(s) generado(s) · esperando firma — aquí llegaron al darles “Generar”. Reenvíales la liga cuando quieras.</div>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                      <thead><tr style={{textAlign:"left",color:B.navy,background:B.offW}}>
+                        <th style={{padding:"9px 14px"}}>Asesor</th>
+                        <th style={{padding:"9px 14px",textAlign:"center"}}>Estatus</th>
+                        <th style={{padding:"9px 14px"}}>Contacto</th>
+                        <th style={{padding:"9px 14px",textAlign:"right"}}>Reenviar liga</th>
+                      </tr></thead>
+                      <tbody>
+                        {asesoresEnviados.map((g,i)=>{ const a=g.acuerdo||{}; const intentos=Number(a.recordatorio_intentos)||0; const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const liga=LANDING_URL+"/acuerdo/"+(a.token||"");
+                          return (
+                          <tr key={i} style={{borderTop:"1px solid "+B.grey1}}>
+                            <td style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}} onClick={()=>setSel(g.nombre)} title="Ver su ficha">{g.nombre} <span style={{color:"#1d4ed8"}}>↗</span></td>
+                            <td style={{padding:"9px 14px",textAlign:"center"}}>{pill("Generado · por firmar"+(intentos>0?(" · intento "+intentos+" de 5"):""),"#1d4ed8","#eff6ff")}</td>
+                            <td style={{padding:"9px 14px",fontSize:12}}>{(emOk||tel)? <span style={{color:B.grey5}}>{emOk?em:""}{emOk&&tel?" · ":""}{tel?("📱 "+tel):""}</span> : <span style={{color:B.red,fontWeight:700}}>⚠ sin contacto — ✏️ captúralo arriba</span>}</td>
+                            <td style={{padding:"9px 14px",textAlign:"right"}}>
+                              <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"nowrap"}}>
+                                <button onClick={async()=>{ try{ await navigator.clipboard.writeText(liga); toast("🔗 Liga copiada"); }catch(_){ try{ window.prompt("Copia la liga:",liga);}catch(e2){} } }} style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:B.navy,color:"#fff",whiteSpace:"nowrap"}}>🔗 Liga</button>
+                                <button disabled={busy} onClick={()=>genConvCorreo(g.nombre)} title="Reenviar la liga por correo" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:busy?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:busy?"wait":"pointer",whiteSpace:"nowrap"}}>{busy?"…":"📧 Correo"}</button>
+                                <button disabled={busy} onClick={()=>genConvWA(g.nombre)} title="Reenviar la liga por WhatsApp" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:busy?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:busy?"wait":"pointer",whiteSpace:"nowrap"}}>{busy?"…":"🟢 WhatsApp"}</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ); })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Estos ya tienen su convenio creado; además el recordatorio automático les llega solo cada 2 días hasta que firmen.</div>
+                </div>
+              )}
             </div>
             </>
           ) : modo==="general" ? (<>
@@ -22771,7 +22814,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.10</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.11</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
