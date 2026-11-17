@@ -1717,6 +1717,7 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
   // El estado se lee por firma + cotización (ya NO por "tiene captación": el alta nace con su
   // tarjeta del Kanban). El avance fino (semáforo, cliente aceptó, publicado) se ve en el Kanban.
   const etapa=(a)=> a.estado==="pendiente"?["⏳ Esperando firma del asesor","#92400e","#fffbeb"]
+    : a.estado==="forzado_6040"?["⚖️ 60/40 por política (sin firma)","#b45309","#fff7ed"]
     : a.estado==="validado"?["✅ "+a.esquema+" validado","#15803d","#f0fdf4"]
     : (!a.cotizacion_id&&!a.lote_id)?["🚦 Firmó "+a.esquema+" · en Viabilidad: falta semáforo y cotización","#b45309","#fffbeb"]
     : ["🧾 Cotización con el cliente","#7c3aed","#f5f3ff"];
@@ -2810,7 +2811,7 @@ function SelloConvenio({ cap, captaciones, catalogo, onToast }){
   const idx=rqIndiceAsesores(d&&d.as, d&&d.cat, catalogo);
   const ct=nombre?rqContacto(idx,{asesor:nombre,asesor_email:"",asesor_tel:""}):{nombre:"",email:"",tel:""};
   const esDelAsesor=(a)=> !!nombre && ((ct.email&&rqNorm(a.asesor_email)===rqNorm(ct.email)) || (a.asesor_nombre&&rqNorm(a.asesor_nombre)===rqNorm(nombre)));
-  const firmado=(a)=>a&&(a.estado==="firmado"||a.estado==="validado");
+  const firmado=(a)=>mpAcCerrado(a); // firmado/validado o 60/40 por política (cerrado)
   const acs=(d&&d.acuerdos)||[];
   const aFirm=acs.find(a=>firmado(a)&&a.captacion_id===cap.id) || acs.find(a=>firmado(a)&&esDelAsesor(a)) || null;
   const aPend=acs.find(a=>a&&a.token&&!firmado(a)&&(a.captacion_id===cap.id||esDelAsesor(a))) || null;
@@ -3796,6 +3797,21 @@ async function mpUpsertClienteNube(c, emailMap){
   if(error) throw error;
   return { accion:"creado", id_cliente:base.id_cliente };
 }
+
+// ── Tablero de convenios (👔 Asesores) · estado que debe sobrevivir a los re-montajes ──
+// ViewFichaAsesores vive DENTRO de MacroProMatcher, así que se re-monta con cada aviso (toast):
+// un useState local se pierde a media operación. Las banderas "en curso" (envíos, generar a
+// todos, aplicar 60/40) y el último listado de acuerdos viven aquí, a nivel de módulo, para que
+// un doble clic tras un re-montaje NO mande dos veces y la vista no parpadee en "Cargando…".
+const MP_FA_BUSY = { ase:{}, bulk:"" };
+function mpFaBusy(k){ return k ? (MP_FA_BUSY.ase[k]||"") : ""; }
+function mpFaBusySet(k,v){ if(!k) return; if(v) MP_FA_BUSY.ase[k]=v; else delete MP_FA_BUSY.ase[k]; try{ window.dispatchEvent(new CustomEvent("mp-fa-busy")); }catch(e){} }
+function mpFaBulkSet(v){ MP_FA_BUSY.bulk=v||""; try{ window.dispatchEvent(new CustomEvent("mp-fa-busy")); }catch(e){} }
+const MP_FA_CACHE = { acuerdos:null, cots:null };
+// Estados que CIERRAN el convenio: firmado/validado por el asesor, o 60/40 aplicado por política
+// tras 5 recordatorios sin firma (forzado_6040: tiene PDF pero NO lleva firma del asesor).
+const MP_AC_CERRADOS = ["firmado","validado","forzado_6040"];
+function mpAcCerrado(a){ return !!a && MP_AC_CERRADOS.includes(a.estado); }
 
 function MacroProMatcher({ sessionEmail } = {}) {
   // ═══════════════════════════════════════════════════════════
