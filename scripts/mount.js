@@ -17,7 +17,7 @@ const { JSDOM } = require('jsdom');
 
 const FILE = path.join(path.resolve(__dirname, '..'), 'index.html');
 const html = fs.readFileSync(FILE, 'utf8');
-const m = html.match(/<script type="text\/babel">([\s\S]*?)<\/script>/);
+const m = html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/); // admite data-presets="react"
 if (!m) { console.error('❌ No se encontró el bloque babel'); process.exit(1); }
 const code = m[1];
 
