@@ -2153,6 +2153,60 @@ const SH_ICO={
 // Primer nombre con mayúscula inicial ("ANA KARINA" → "Ana"), para saludar en los mensajes.
 function shNombre(t){ const w=String(t||"").trim().split(/\s+/)[0]||""; return w? w.charAt(0).toUpperCase()+w.slice(1).toLowerCase() : ""; }
 function shTel(t){ const d=String(t||"").replace(/\D/g,""); if(d.length===10) return "52"+d; return d.length>=11?d:""; }
+// 📬 ESTADO DE CORREOS · ventana de nivel superior (estable: NO se re-monta con cada aviso, a
+// diferencia de ViewFichaAsesores). Se abre con window.dispatchEvent(new Event("mp-estado-correos")).
+// Consulta /.netlify/functions/correo-diagnostico (solo admin) → estatus REAL en Resend de los
+// últimos 50 correos: entregado · rebotó · spam · retrasado · bloqueado.
+function EstadoCorreosModal(){
+  const [d,setD]=React.useState(null);
+  const cargar=React.useCallback(async()=>{
+    setD({cargando:true});
+    try{
+      const ses=window.sb&&window.sb.auth?(await window.sb.auth.getSession()):null; const tk=ses&&ses.data&&ses.data.session&&ses.data.session.access_token;
+      if(!tk){ setD({error:"Tu sesión venció: vuelve a entrar a MacroPro."}); return; }
+      const r=await fetch(LANDING_URL+"/.netlify/functions/correo-diagnostico",{method:"POST",headers:{"content-type":"application/json",Authorization:"Bearer "+tk},body:"{}"});
+      const out=await r.json().catch(()=>({}));
+      if(r.status===403){ setD({error:"Solo un administrador puede ver el estado de los correos."}); return; }
+      setD(out&&typeof out==="object"?out:{error:"Respuesta vacía del servidor."});
+    }catch(e){ setD({error:"No se pudo consultar: "+((e&&e.message)||e)}); }
+  },[]);
+  React.useEffect(()=>{ const f=()=>cargar(); window.addEventListener("mp-estado-correos",f); return ()=>window.removeEventListener("mp-estado-correos",f); },[cargar]);
+  if(!d) return null;
+  const btn={border:"1px solid #cbd5e1",background:"#fff",color:"#002B49",borderRadius:9,padding:"6px 12px",fontWeight:700,cursor:"pointer",fontFamily:"inherit"};
+  return (
+    <div onClick={()=>setD(null)} style={{position:"fixed",inset:0,background:"rgba(0,20,40,.55)",zIndex:99999,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"60px 14px",overflowY:"auto"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"min(920px,100%)",padding:"18px 20px",boxShadow:"0 20px 60px rgba(0,0,0,.35)",color:"#002B49"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+          <b style={{fontSize:18,flex:1}}>📬 Estado de los correos (últimos 50)</b>
+          <button onClick={cargar} style={btn}>↻</button>
+          <button onClick={()=>setD(null)} style={btn}>✕ Cerrar</button>
+        </div>
+        {d.cargando ? <div style={{padding:20,color:"#64748b"}}>Consultando a Resend…</div>
+        : d.error ? <div style={{padding:14,background:"#fef2f2",color:"#b91c1c",borderRadius:10,fontWeight:700}}>{d.error}</div>
+        : (<>
+          {d.alerta && <div style={{padding:12,background:"#fef2f2",color:"#b91c1c",borderRadius:10,fontWeight:800,marginBottom:10}}>⚠ {d.alerta}</div>}
+          {d.ok===false && <div style={{padding:12,background:"#fef2f2",color:"#b91c1c",borderRadius:10,fontWeight:700,marginBottom:10}}>⚠ Resend no respondió ({d.motivo}). {d.detalle||""}</div>}
+          {d.config && <div style={{fontSize:12,color:"#64748b",marginBottom:10}}>Remitente: <b>{d.config.remitente}</b> · copia a {d.config.copia} · Resend {d.config.resend_configurado?"✅ configurado":"❌ SIN configurar"}</div>}
+          {d.resumen && <div style={{fontSize:13.5,fontWeight:800,marginBottom:8,color:d.resumen.con_problema?"#b91c1c":"#15803d"}}>{d.resumen.total} correo(s) · {d.resumen.con_problema?("⚠ "+d.resumen.con_problema+" con problema (rebotó / spam / bloqueado)"):"✅ ninguno rebotó"}</div>}
+          <div style={{overflowX:"auto",maxHeight:"60vh",overflowY:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5}}>
+              <thead><tr style={{textAlign:"left",background:"#f8fafc"}}><th style={{padding:"7px 10px"}}>Cuándo</th><th style={{padding:"7px 10px"}}>Para</th><th style={{padding:"7px 10px"}}>Asunto</th><th style={{padding:"7px 10px"}}>Estatus</th></tr></thead>
+              <tbody>{(d.correos||[]).map((m,i)=>{ const malo=["bounced","complained","failed","suppressed"].includes(m.evento); const bien=["delivered","opened","clicked"].includes(m.evento); return (
+                <tr key={m.id||i} style={{borderTop:"1px solid #e5e7eb",background:malo?"#fef2f2":"#fff"}}>
+                  <td style={{padding:"6px 10px",whiteSpace:"nowrap",color:"#475569"}}>{m.creado?new Date(m.creado).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"—"}</td>
+                  <td style={{padding:"6px 10px"}}>{m.para}</td>
+                  <td style={{padding:"6px 10px",color:"#475569"}}>{m.asunto}</td>
+                  <td style={{padding:"6px 10px",fontWeight:800,whiteSpace:"nowrap",color:malo?"#b91c1c":(bien?"#15803d":"#b45309")}}>{malo?"❌ ":(bien?"✅ ":"⏳ ")}{m.estado}</td>
+                </tr>); })}</tbody>
+            </table>
+          </div>
+          <div style={{fontSize:11.5,color:"#64748b",marginTop:8}}>✅ entregado = llegó al servidor del destinatario (si no lo ve, revisar spam o cuarentena). ❌ rebotó/bloqueado = no llegó: corregir el correo o usar WhatsApp.</div>
+        </>)}
+      </div>
+    </div>
+  );
+}
+
 function ShareButtons({ url, mensaje, asunto, telefono, email, chico, onToast, etiqueta, mostrarMensaje }){
   const [copiado,setCopiado]=useState(false);
   const tRef=useRef(null);
@@ -22149,6 +22203,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{...s.hero,padding:"30px 36px",marginBottom:12}}>
             <div style={s.heroDecor}/>
             <button onClick={recargar} style={{position:"absolute",top:22,right:26,zIndex:2,...s.btn("sm"),background:"rgba(255,255,255,.12)",color:B.white,boxShadow:"none",border:"1px solid rgba(255,255,255,.25)"}}>↻ Actualizar</button>
+            <button onClick={()=>{ try{ window.dispatchEvent(new Event("mp-estado-correos")); }catch(e){} }} title="¿Llegaron los correos de las ligas? Estatus real de cada envío" style={{position:"absolute",top:22,right:160,zIndex:2,...s.btn("sm"),background:"#F5B335",color:"#002B49",boxShadow:"none",border:"none",fontWeight:800}}>📬 Estado de correos</button>
             {modo!=="asesor" ? (
               <div style={{position:"relative"}}>
                 <div style={s.heroEyebrow}>Dashboard del Equipo · Grupo Guía</div>
@@ -23006,6 +23061,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="pitch"&&<TramiteOpcionPaso1 asesores={asesoresCloud} onToast={toast} onCotizar={iniciarCotizacionDeAcuerdo} ver={acuerdosVer+"-"+cotPrefillVer}/>}
       {view==="pitch"&&<ViewPitchCotizacion key={"cot-"+cotPrefillVer}/>}
       {view==="equipo"&&<ViewFichaAsesores/>}
+      {view==="equipo"&&<EstadoCorreosModal/>}
       {view==="calidad"&&<ViewCalidadDatos s={s} clients={clients} inventory={inventory} captaciones={captaciones}
         onAbrirCliente={(c)=>abrirFichaCliente(c)} onAbrirLote={(l)=>setSelectedLotDetail(l)} onAbrirCaptacion={(c)=>{ setEditingCaptacion(c); setShowCaptacionModal(true); }}/>}
       {view==="requerimientos"&&<ViewRequerimientos s={s} onToast={toast} onBorrarCompradores={(ids)=>{ const set=new Set((ids||[]).map(String)); setClients(prev=>(prev||[]).filter(c=>{ const r=clienteToSupabase(c,{}); return !(r&&set.has(String(r.id_cliente))); })); }}/>}
