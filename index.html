@@ -21622,6 +21622,7 @@ Respuesta: [respuesta exacta, conversacional]
     const [bulkBusy,setBulkBusy]=React.useState(false); const [asignInput,setAsignInput]=React.useState({}); const [genNom,setGenNom]=React.useState("");
     // Captura de contacto (correo/WhatsApp) del asesor DESDE la fila del detector.
     const [capRow,setCapRow]=React.useState(""); const [capRowEmail,setCapRowEmail]=React.useState(""); const [capRowTel,setCapRowTel]=React.useState(""); const [capRowBusy,setCapRowBusy]=React.useState(false);
+    const [detRow,setDetRow]=React.useState(""); // qué asesor tiene desplegada la lista de SUS terrenos
     React.useEffect(()=>{ setCapEmail((sa&&sa.email)||""); setCapTel((sa&&sa.telefono)||""); },[sa&&sa.nombre]); // eslint-disable-line
     const guardarDatosAsesor=async()=>{
       if(!sa) return;
@@ -21773,6 +21774,9 @@ Respuesta: [respuesta exacta, conversacional]
         toast("✅ Contacto guardado para "+nombre+" · ya puedes mandarle el convenio.");
       }catch(e){ toast("No se pudo guardar: "+((e&&e.message)||e)); }
       setCapRowBusy(false); };
+    // Abrir la ficha de un terreno desde el detector (captación → modal; lote de corretaje → ficha del lote).
+    const abrirFichaCap=(c)=>{ try{ setEditingCaptacion(c); setShowCaptacionModal(true); }catch(e){ toast("No se pudo abrir la ficha."); } };
+    const abrirFichaLote=(l)=>{ try{ setSelectedLotDetail(l); }catch(e){ toast("No se pudo abrir la ficha del lote."); } };
 
     // 📧 UN correo al asesor con TODOS sus terrenos + copia a macrolotes@grupoguia.mx. Espera y confirma.
     const enviarCorreoFirma=async(c)=>{
@@ -22180,7 +22184,7 @@ Respuesta: [respuesta exacta, conversacional]
                       <tbody>
                         {terrenosSinAsesor.map((c,i)=>(
                           <tr key={"cap"+(c.id||i)} style={{borderTop:"1px solid "+B.grey1}}>
-                            <td style={{padding:"9px 14px",fontWeight:700,color:B.navy}}>{nombreTerreno(c)}{c.propietario?<span style={{display:"block",fontSize:11,color:B.grey4,fontWeight:500}}>Prop.: {c.propietario}</span>:null}</td>
+                            <td onClick={()=>abrirFichaCap(c)} title="Abrir la ficha del terreno" style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}}>{nombreTerreno(c)} <span style={{color:"#1d4ed8",fontSize:11}}>↗</span>{c.propietario?<span style={{display:"block",fontSize:11,color:B.grey4,fontWeight:500}}>Prop.: {c.propietario}</span>:null}</td>
                             <td style={{padding:"9px 14px"}}><span style={{fontSize:11,fontWeight:700,color:"#1d4ed8",background:"#eff6ff",borderRadius:6,padding:"2px 7px"}}>Captación</span></td>
                             <td style={{padding:"9px 14px",color:B.grey5}}>{c.ciudad||"—"}</td>
                             <td style={{padding:"9px 14px"}}>
@@ -22193,7 +22197,7 @@ Respuesta: [respuesta exacta, conversacional]
                         ))}
                         {lotesSinAsesor.map((l,i)=>(
                           <tr key={"lote"+(l.id||i)} style={{borderTop:"1px solid "+B.grey1}}>
-                            <td style={{padding:"9px 14px",fontWeight:700,color:B.navy}}>{nombreLote(l)}<span style={{display:"block",fontSize:11,color:B.grey4,fontWeight:500}}>Corretaje · {l.id}</span></td>
+                            <td onClick={()=>abrirFichaLote(l)} title="Abrir la ficha del terreno" style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}}>{nombreLote(l)} <span style={{color:"#1d4ed8",fontSize:11}}>↗</span><span style={{display:"block",fontSize:11,color:B.grey4,fontWeight:500}}>Corretaje · {l.id}</span></td>
                             <td style={{padding:"9px 14px"}}><span style={{fontSize:11,fontWeight:700,color:"#15803d",background:"#ecfdf5",borderRadius:6,padding:"2px 7px"}}>Corretaje</span></td>
                             <td style={{padding:"9px 14px",color:B.grey5}}>{l.ciudad||"—"}</td>
                             <td style={{padding:"9px 14px"}}>
@@ -22224,12 +22228,17 @@ Respuesta: [respuesta exacta, conversacional]
                         <th style={{padding:"9px 14px",textAlign:"right"}}>Generar convenio</th>
                       </tr></thead>
                       <tbody>
-                        {asesoresSinConvenio.map((g,i)=>{ const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const abierto=capRow===norm(g.nombre);
+                        {asesoresSinConvenio.map((g,i)=>{ const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const abierto=capRow===norm(g.nombre); const abiertoDet=detRow===norm(g.nombre);
                           return (
                           <React.Fragment key={i}>
                           <tr style={{borderTop:"1px solid "+B.grey1}}>
-                            <td style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}} onClick={()=>setSel(g.nombre)} title="Ver su ficha">{g.nombre} <span style={{color:"#1d4ed8"}}>↗</span></td>
-                            <td style={{padding:"9px 14px",textAlign:"center",fontWeight:800,color:B.red}}>{g.total}{(g.caps.length&&g.lotes.length)?<span style={{display:"block",fontSize:10,fontWeight:600,color:B.grey4}}>{g.caps.length} capt · {g.lotes.length} corr</span>:(g.lotes.length?<span style={{display:"block",fontSize:10,fontWeight:600,color:"#15803d"}}>corretaje</span>:null)}</td>
+                            <td style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}} onClick={()=>setSel(g.nombre)} title="Ver su ficha de asesor">{g.nombre} <span style={{color:"#1d4ed8"}}>↗</span></td>
+                            <td style={{padding:"9px 14px",textAlign:"center"}}>
+                              <button onClick={()=>setDetRow(abiertoDet?"":norm(g.nombre))} title="Ver cuáles terrenos son" style={{border:"none",background:"transparent",cursor:"pointer",fontFamily:"inherit",fontWeight:800,color:B.red,fontSize:13}}>
+                                {g.total} <span style={{color:"#1d4ed8",fontSize:11,fontWeight:700}}>{abiertoDet?"▾ ocultar":"▸ ver"}</span>
+                                {(g.caps.length&&g.lotes.length)?<span style={{display:"block",fontSize:10,fontWeight:600,color:B.grey4}}>{g.caps.length} capt · {g.lotes.length} corr</span>:(g.lotes.length?<span style={{display:"block",fontSize:10,fontWeight:600,color:"#15803d"}}>corretaje</span>:null)}
+                              </button>
+                            </td>
                             <td style={{padding:"9px 14px",fontSize:12}}>
                               {(emOk||tel)? <span style={{color:B.grey5}}>{emOk?em:""}{emOk&&tel?" · ":""}{tel?("📱 "+tel):""}</span> : <span style={{color:B.red,fontWeight:700}}>⚠ sin correo ni WhatsApp</span>}
                               <button onClick={()=>abierto?setCapRow(""):abrirCapRow(g.nombre)} title="Capturar o editar el correo/WhatsApp del asesor" style={{marginLeft:8,border:"1px solid "+B.grey1,background:"#fff",borderRadius:7,padding:"2px 8px",fontSize:11,fontWeight:700,color:abierto?B.red:B.navy,cursor:"pointer",whiteSpace:"nowrap"}}>{abierto?"✕ Cerrar":"✏️ Contacto"}</button>
@@ -22241,6 +22250,31 @@ Respuesta: [respuesta exacta, conversacional]
                               </div>
                             </td>
                           </tr>
+                          {abiertoDet && (
+                            <tr style={{background:"#fafcff"}}>
+                              <td colSpan={4} style={{padding:"8px 14px 12px",borderTop:"1px dashed "+B.grey1}}>
+                                <div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5,marginBottom:7}}>Terrenos de {g.nombre} ({g.total}) — clic para abrir su ficha</div>
+                                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                                  {g.caps.map((c,j)=>(
+                                    <div key={"c"+j} onClick={()=>abrirFichaCap(c)} title="Abrir la ficha del terreno (captación)" style={{display:"flex",alignItems:"center",gap:9,padding:"7px 11px",borderRadius:9,border:"1px solid "+B.grey1,background:"#fff",cursor:"pointer",flexWrap:"wrap"}}>
+                                      <span style={{fontSize:10,fontWeight:700,color:"#1d4ed8",background:"#eff6ff",borderRadius:6,padding:"2px 7px"}}>Captación</span>
+                                      <span style={{fontWeight:700,color:B.navy}}>{nombreTerreno(c)}</span>
+                                      {c.ciudad?<span style={{color:B.grey4,fontSize:12}}>{c.ciudad}</span>:null}
+                                      <span style={{marginLeft:"auto",color:"#1d4ed8",fontSize:12,fontWeight:700}}>Abrir ficha ↗</span>
+                                    </div>
+                                  ))}
+                                  {g.lotes.map((l,j)=>(
+                                    <div key={"l"+j} onClick={()=>abrirFichaLote(l)} title="Abrir la ficha del terreno (corretaje)" style={{display:"flex",alignItems:"center",gap:9,padding:"7px 11px",borderRadius:9,border:"1px solid "+B.grey1,background:"#fff",cursor:"pointer",flexWrap:"wrap"}}>
+                                      <span style={{fontSize:10,fontWeight:700,color:"#15803d",background:"#ecfdf5",borderRadius:6,padding:"2px 7px"}}>Corretaje</span>
+                                      <span style={{fontWeight:700,color:B.navy}}>{nombreLote(l)}</span>
+                                      <span style={{color:B.grey4,fontSize:12}}>{[l.ciudad,l.id].filter(Boolean).join(" · ")}</span>
+                                      <span style={{marginLeft:"auto",color:"#1d4ed8",fontSize:12,fontWeight:700}}>Abrir ficha ↗</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
                           {abierto && (
                             <tr style={{background:"#fbfdff"}}>
                               <td colSpan={4} style={{padding:"10px 14px",borderTop:"1px dashed "+B.grey1}}>
@@ -22737,7 +22771,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.09</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.10</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
