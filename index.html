@@ -22004,7 +22004,7 @@ Respuesta: [respuesta exacta, conversacional]
       </div>
     ); };
     const grid={display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))",gap:16};
-    const tabBtn=(id,label)=>(<button onClick={()=>setModo(id)} style={{padding:"9px 18px",borderRadius:10,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13.5,fontWeight:800,background:modo===id?B.navy:"transparent",color:modo===id?B.white:B.grey4}}>{label}</button>);
+    const tabBtn=(id,label,badge)=>(<button onClick={()=>setModo(id)} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"9px 18px",borderRadius:10,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13.5,fontWeight:800,background:modo===id?B.navy:"transparent",color:modo===id?B.white:B.grey4}}>{label}{badge?<span style={{background:modo===id?B.gold:"#fecaca",color:modo===id?B.navy:"#b91c1c",borderRadius:999,padding:"1px 8px",fontSize:12,fontWeight:800}}>{badge}</span>:null}</button>);
 
     if(cargando) return <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}><div style={{...s.page,textAlign:"center",color:B.grey3,paddingTop:60}}>Cargando dashboard…</div></div>;
 
@@ -22056,6 +22056,7 @@ Respuesta: [respuesta exacta, conversacional]
             <div style={{display:"flex",gap:4,background:B.grey1,borderRadius:12,padding:4}}>
               {tabBtn("general","📊 General")}
               {tabBtn("asesor","👤 Por asesor")}
+              {tabBtn("huecos","🚩 Sin asesor",terrenosSinAsesor.length||null)}
               {tabBtn("cartas","📝 Cartas oferta")}
             </div>
             <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
@@ -22082,7 +22083,11 @@ Respuesta: [respuesta exacta, conversacional]
 
           {modo==="cartas" ? (
             <ViewCartasOferta embebido s={s} onToast={toast} onNueva={()=>setWizardCO({})} onAbrirTerreno={(c)=>{ if(c.captacion_id){ const x=(captaciones||[]).find(y=>y.id===c.captacion_id); if(x){ setEditingCaptacion(x); setShowCaptacionModal(true); } else toast("Ese terreno de captación no está cargado en este equipo."); } else if(c.lote_id){ const l=(inventory||[]).find(y=>loteKey(y)===c.lote_id); if(l) setSelectedLotDetail(l); else toast("Ese lote no está cargado en este equipo."); } }}/>
-          ) : modo==="general" ? (<>
+          ) : modo==="huecos" ? (<>
+            <div style={{marginBottom:6}}>
+              <div style={s.sectionTitle}>🚩 Terrenos sin asesor / sin convenio</div>
+              <div style={s.sectionSub}>Pestaña fija para que no se escape ninguno: asigna el asesor al terreno que no lo tiene y genera su convenio desde aquí mismo.{cf?(" · filtrando "+ciudadF):""}</div>
+            </div>
             {/* 🕳️ DETECTOR DE HUECOS · terrenos sin asesor + asesores sin convenio (que no se escape ninguno) */}
             <div style={{marginBottom:22,borderRadius:14,overflow:"hidden",border:"1.5px solid "+(totalHuecos?"#fdba74":"#a7f3d0"),boxShadow:"0 4px 16px rgba(0,0,0,.05)"}}>
               <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",background:totalHuecos?"#fff7ed":"#f0fdf4"}}>
@@ -22154,6 +22159,8 @@ Respuesta: [respuesta exacta, conversacional]
                 </div>
               )}
             </div>
+            </>
+          ) : modo==="general" ? (<>
 
             {/* ⚠️ CONTROL DE RIESGO · Convenios pendientes de firma */}
             <div style={{marginBottom:22,borderRadius:14,overflow:"hidden",border:"1.5px solid "+(pendientes.length?"#fca5a5":"#a7f3d0"),boxShadow:"0 4px 16px rgba(0,0,0,.05)"}}>
@@ -22626,7 +22633,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.05</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.06</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
