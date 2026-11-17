@@ -3041,14 +3041,14 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
     if(rol==="comprador") coAvisarAsesor(c,toast); };
   const whats=async(c,rol)=>{ const w=window.open("","_blank"); const url=await liga(c,rol,false); if(!url){ try{ w&&w.close(); }catch(e){} return; }
     const nom=rol==="comprador"?(c.comprador_nombre||""):(c.vendedor_nombre||""); const tel=rol==="comprador"?c.comprador_telefono:(c.vendedor_telefono||(cap&&cap.telefono));
-    const msg="Hola "+(String(nom).trim().split(/\s+/)[0]||"")+", te compartimos la carta oferta "+(c.folio||"")+" del terreno "+c.terreno_nombre+" para tu revisión y firma electrónica:\n"+url+"\n\nLa liga es válida por 10 días. — Grupo Guía";
+    const msg="Hola "+(String(nom).trim().split(/\s+/)[0]||"")+", te compartimos la carta oferta "+(c.folio||"")+" del terreno "+c.terreno_nombre+" para tu revisión y firma electrónica:\n"+url+"\n\nLa liga es válida por 10 días. — Equipo Macrolotes de Grupo Guía";
     const wa=rqWaUrl(tel,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener");
     if(rol==="comprador") coAvisarAsesor(c,toast); };
   // 👔 WhatsApp al asesor con su liga de SOLO LECTURA
   const whatsAsesor=async(c)=>{ const w=window.open("","_blank");
     try{ const token=await coLigaAsesor(c.id); let tel="";
       try{ if(c.asesor_email){ const { data } = await window.sb.from("asesores").select("telefono").ilike("email",c.asesor_email).limit(1); tel=(data&&data[0]&&data[0].telefono)||""; } }catch(e){}
-      const msg="Hola "+(String(c.asesor_nombre||"").trim().split(/\s+/)[0]||"")+", te comparto la carta oferta "+(c.folio||"")+" que enviamos a tu cliente "+[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")+" por el terreno "+c.terreno_nombre+". Es solo informativa (no requiere tu firma):\n"+CO_URL+token+"\n— Grupo Guía";
+      const msg="Hola "+(String(c.asesor_nombre||"").trim().split(/\s+/)[0]||"")+", te comparto la carta oferta "+(c.folio||"")+" que enviamos a tu cliente "+[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")+" por el terreno "+c.terreno_nombre+". Es solo informativa (no requiere tu firma):\n"+CO_URL+token+"\n— Equipo Macrolotes de Grupo Guía";
       const wa=rqWaUrl(tel,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener");
       if(!tel) toast("No tengo el WhatsApp del asesor: elige el contacto en WhatsApp.");
     }catch(e){ try{ w&&w.close(); }catch(_){} toast(/rol inválido/i.test(String(e&&e.message))?"Falta correr sql/cartas_oferta_v4_asesor_informativo.sql en Supabase.":("No se pudo generar la liga del asesor: "+((e&&e.message)||e))); } };
@@ -3065,7 +3065,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       const { data:tk, error:e2 } = await window.sb.rpc("carta_oferta_liga",{ p_id:c.id, p_rol:"vendedor", p_renovar:false }); if(e2) throw e2;
       const url=CO_URL+tk;
       if(modo==="whatsapp"){ const tel=String(v.tel!=null?v.tel:(c.vendedor_telefono||(cap&&cap.telefono)||"")).trim();
-        const txt="Hola "+(String(nombre).split(/\s+/)[0]||"")+", Grupo Guía recibió una carta oferta de compra por su terreno "+c.terreno_nombre+" ("+(c.folio||"")+"). Puede revisarla, imprimirla y responderla (aceptar, contrapropuesta o rechazar) aquí:\n"+url+"\n\nLa liga es válida por 10 días. — Grupo Guía";
+        const txt="Hola "+(String(nombre).split(/\s+/)[0]||"")+", Grupo Guía recibió una carta oferta de compra por su terreno "+c.terreno_nombre+" ("+(c.folio||"")+"). Puede revisarla, imprimirla y responderla (aceptar, contrapropuesta o rechazar) aquí:\n"+url+"\n\nLa liga es válida por 10 días. — Equipo Macrolotes de Grupo Guía";
         const wa=rqWaUrl(tel,txt); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener");
         if(!tel) toast("No tengo el WhatsApp del vendedor: elige el contacto en WhatsApp."); }
       if(modo==="copiar"){ try{ await navigator.clipboard.writeText(url); toast("🔗 Liga del vendedor copiada · vale 10 días"); }catch(e){ try{ window.prompt("Copia la liga del vendedor:",url); }catch(_){ toast(url); } } }
@@ -3158,7 +3158,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
             <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>🗂 Expediente para contrato · {seg?(seg.tipo_operacion==="credito"?"Crédito":"Contado"):"—"} · {docsN}/{reqN} documentos{enviado?" · ✅ en Revisión Legal":(listo?" · ✅ listo para contrato":" · ⏳ esperando al comprador")}</div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
               <button disabled={(!listo&&!enviado)||busy===c.id+"leg"} onClick={()=>{ const mail=window.prompt("Correo de Legal (puedes cambiarlo por un abogado externo):",(seg&&seg.legal_email)||"legal@grupoguia.mx"); if(mail===null) return; enviarLegal(c,(mail||"").trim()); }} title={verde?"Manda el expediente a Legal: correo con las ligas a los documentos + datos de la carta":"El comprador aún no completa su expediente"} style={{...btn(verde?B.gold:B.grey1,verde?B.navy:B.grey4),opacity:verde?1:0.6}}>{busy===c.id+"leg"?"Enviando…":(enviado?"📤 Reenviar a Legal":"📤 Enviar Expediente a Legal")}</button>
-              {c.token_comprador&&(()=>{ const docUrl=LANDING_URL+"/mi-oferta/"+c.token_comprador; const nom=shNombre(c.comprador_nombre||c.comprador_empresa); const msg="Hola"+(nom?" "+nom:"")+" 👋 Para preparar tu contrato de compraventa"+(c.folio?(" ("+c.folio+")"):"")+" sube aquí tus documentos y confirma tus datos de contacto:\n"+docUrl+"\n\n— Grupo Guía"; return (<React.Fragment>
+              {c.token_comprador&&(()=>{ const docUrl=LANDING_URL+"/mi-oferta/"+c.token_comprador; const nom=shNombre(c.comprador_nombre||c.comprador_empresa); const msg="Hola"+(nom?" "+nom:"")+" 👋 Para preparar tu contrato de compraventa"+(c.folio?(" ("+c.folio+")"):"")+" sube aquí tus documentos y confirma tus datos de contacto:\n"+docUrl+"\n\n— Equipo Macrolotes de Grupo Guía"; return (<React.Fragment>
                 <ShareButtons url={docUrl} mensaje={msg} asunto={"Tu expediente para el contrato · "+(c.terreno_nombre||"terreno")+(c.folio?(" · "+c.folio):"")+" · Grupo Guía"} telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast}/>
                 <button onClick={()=>window.open(docUrl,"_blank","noopener")} title="Abres el portal del comprador para ver su avance" style={btn("#fff",B.navy,B.grey2)}>📍 Ver portal del comprador</button>
               </React.Fragment>); })()}
@@ -3399,7 +3399,7 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
               <label style={lbl}>Liga del comprador (vale 10 días)</label>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><input readOnly value={listo.liga} style={{...inS,flex:1,minWidth:240,fontSize:12.5,fontFamily:"ui-monospace,monospace"}} onFocus={e=>e.target.select()}/>
                 <button onClick={async()=>{ try{ await navigator.clipboard.writeText(listo.liga); toast("🔗 Liga copiada"); }catch(e){ try{ window.prompt("Copia la liga:",listo.liga); }catch(_){} } }} style={btn(B.gold,B.navy)}>🔗 Copiar</button>
-                <a href={rqWaUrl(listo.carta.comprador_telefono,"Hola "+(String(listo.carta.comprador_nombre||"").split(/\s+/)[0]||"")+", te compartimos la carta oferta "+listo.carta.folio+" del terreno "+listo.carta.terreno_nombre+" para tu revisión y firma electrónica:\n"+listo.liga+"\n\nLa liga es válida por 10 días. — Grupo Guía")} target="_blank" rel="noopener noreferrer" style={{...btn("#25D366","#fff"),textDecoration:"none"}}>🟢 WhatsApp comprador</a></div>
+                <a href={rqWaUrl(listo.carta.comprador_telefono,"Hola "+(String(listo.carta.comprador_nombre||"").split(/\s+/)[0]||"")+", te compartimos la carta oferta "+listo.carta.folio+" del terreno "+listo.carta.terreno_nombre+" para tu revisión y firma electrónica:\n"+listo.liga+"\n\nLa liga es válida por 10 días. — Equipo Macrolotes de Grupo Guía")} target="_blank" rel="noopener noreferrer" style={{...btn("#25D366","#fff"),textDecoration:"none"}}>🟢 WhatsApp comprador</a></div>
             </div>)}
             <div style={{fontSize:12.5,color:B.grey4,marginTop:12}}>El seguimiento (firmas, autorización, liga del vendedor, contrapropuestas y PDF) está en la ficha del terreno, sección <b>📝 Cartas oferta</b>.</div>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14,flexWrap:"wrap"}}>
@@ -22523,7 +22523,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.03</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.04</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
