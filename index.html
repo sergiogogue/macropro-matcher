@@ -22209,14 +22209,37 @@ Respuesta: [respuesta exacta, conversacional]
             <div style={{marginBottom:28}}>
               <div style={s.sectionTitle}>🤝 Convenio de comisión</div>
               <div style={s.sectionSub}>Esquema de comisión del asesor (se crea desde Cotización → “Enviar al asesor”).</div>
-              {acs.length===0 ? vacio("Sin convenio registrado.") : acs.map(a=>{ const e=estAc(a.estado); return (
-                <div key={a.id||a.folio} style={{...s.resultCard(a.estado==="validado"?0:1),display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                  <div style={{flex:1,minWidth:200}}>
-                    <div style={{fontSize:15,fontWeight:800,color:B.navy}}>{a.esquema?("Esquema "+a.esquema):"Esquema —"} {a.folio?<span style={{fontSize:11,color:B.grey3,fontWeight:600}}>· {a.folio}</span>:null}</div>
-                    <div style={{fontSize:12.5,color:B.grey4,marginTop:3}}>{[a.terreno_nombre,a.propietario_nombre].filter(Boolean).join(" · ")||"—"}{a.firmado_at?(" · firmado "+fAMD(a.firmado_at)):""}</div>
+              {acs.length===0 ? vacio("Sin convenio registrado.") : acs.map(a=>{ const e=estAc(a.estado);
+                const intentos=Number(a.recordatorio_intentos)||0; const forzado=!!a.forzado_6040_at; const pendiente=a.estado==="pendiente"&&!forzado;
+                const liga=LANDING_URL+"/acuerdo/"+(a.token||""); const nomA=n1(sa.nombre)||"";
+                const msg="Hola "+nomA+", te saludamos de Grupo Guía. Te pedimos de la manera más atenta que revises y firmes tu convenio de comisiones. Si en los próximos días no recibimos tu firma, daremos por entendido que eliges la opción 60/40. Fírmalo aquí:\n"+liga;
+                return (
+                <div key={a.id||a.folio} style={{marginBottom:12}}>
+                  <div style={{...s.resultCard(a.estado==="validado"?0:1),display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:0}}>
+                    <div style={{flex:1,minWidth:200}}>
+                      <div style={{fontSize:15,fontWeight:800,color:B.navy}}>{a.esquema?("Esquema "+a.esquema):"Esquema —"} {a.folio?<span style={{fontSize:11,color:B.grey3,fontWeight:600}}>· {a.folio}</span>:null}{forzado?<span style={{fontSize:11,color:"#b45309",fontWeight:800,marginLeft:6}}>· opción 60/40 tomada</span>:null}</div>
+                      <div style={{fontSize:12.5,color:B.grey4,marginTop:3}}>{[a.terreno_nombre,a.propietario_nombre].filter(Boolean).join(" · ")||"—"}{a.firmado_at?(" · firmado "+fAMD(a.firmado_at)):(forzado?(" · se tomó la opción 60/40 el "+fAMD(a.forzado_6040_at)):"")}</div>
+                    </div>
+                    {forzado?pill("Opción 60/40 tomada","#b45309","#fff7ed"):pill(e[0],e[1],e[2])}
+                    <button onClick={()=>verPdf(a)} style={s.btn("sm")}>📄 PDF</button>
                   </div>
-                  {pill(e[0],e[1],e[2])}
-                  <button onClick={()=>verPdf(a)} style={s.btn("sm")}>📄 PDF</button>
+                  {pendiente && (
+                    <div style={{border:"1px solid "+B.grey1,borderTop:"none",borderRadius:"0 0 12px 12px",padding:"12px 14px",background:"#fff"}}>
+                      <div style={{display:"inline-flex",alignItems:"center",gap:8,fontWeight:800,fontSize:13,background:"#fff7ed",color:"#b45309",border:"1px solid #fdba74",borderRadius:9,padding:"7px 12px"}}>⏳ Convenio Pendiente {intentos>0?<span style={{fontSize:11.5,background:"#b45309",color:"#fff",borderRadius:999,padding:"2px 8px"}}>Intento {intentos} de 5</span>:null}</div>
+                      <div style={{display:"flex",gap:5,marginTop:10}}>{[1,2,3,4,5].map(nn=>(<div key={nn} style={{flex:1,height:6,borderRadius:999,background:nn<=intentos?"#C8962E":(nn===intentos+1?"#b45309":"#e2e8f0")}}/>))}</div>
+                      <div style={{display:"flex",gap:10,marginTop:12,padding:"10px 12px",background:"#fff7ed",border:"1px solid #fdba74",borderLeft:"4px solid #b45309",borderRadius:10}}>
+                        <span>⚠️</span>
+                        <div style={{fontSize:12.5,color:"#7c5312",lineHeight:1.5}}><b style={{color:"#b45309"}}>Te pedimos de la manera más atenta que firme su convenio.</b> Si en 10 días (5.º recordatorio) no recibimos su firma, se tomará su decisión como la <b>opción 60/40</b> (Asesor 60% · Macrolotes 40%).</div>
+                      </div>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12,alignItems:"center"}}>
+                        <span style={{fontSize:11.5,color:B.grey4}}>Reenviar la liga de firma:</span>
+                        <a href={rqWaUrl(sa.telefono,msg)} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",background:"#25D366",color:"#fff",fontWeight:800,fontSize:12.5,padding:"8px 13px",borderRadius:9}}>🟢 WhatsApp</a>
+                        <button onClick={async()=>{ try{ await navigator.clipboard.writeText(liga); toast("🔗 Liga copiada"); }catch(_){ try{ window.prompt("Copia la liga:",liga);}catch(e2){} } }} style={{...s.btn("sm"),background:B.navy,color:"#fff"}}>🔗 Copiar liga</button>
+                        <a href={"mailto:"+encodeURIComponent(a.asesor_email||sa.email||"")+"?subject="+encodeURIComponent("Firma tu convenio de comisiones")+"&body="+encodeURIComponent(msg)} style={{textDecoration:"none",...s.btn("sm")}}>✉️ Correo</a>
+                      </div>
+                      <div style={{fontSize:11,color:B.grey3,marginTop:8}}>El recordatorio automático sale solo cada 2 días; estos botones son para mandarlo a mano.</div>
+                    </div>
+                  )}
                 </div>
               ); })}
             </div>
