@@ -21711,24 +21711,29 @@ Respuesta: [respuesta exacta, conversacional]
     const lotesSinAsesor=lotesCorretaje.filter(l=> !String(l.asesor||"").trim());
     const sinAsesorTotal=capsSinAsesor.length+lotesSinAsesor.length;
     const terrenosSinAsesor=capsSinAsesor; // (compat con referencias previas)
-    // (B) Asesores con terreno (captación O corretaje) pero SIN convenio generado, agrupados.
-    const asesoresSinConvenio=(()=>{ const m=new Map();
-      const add=(nombre,ref)=>{ const nom=String(nombre||"").trim(); if(!nom) return;
-        if(acuerdoDeAsesor(nom)) return; // ya tiene convenio generado/firmado → en flujo
-        const k=norm(nom); const e=m.get(k)||{nombre:nom,caps:[],lotes:[]};
-        if(ref.lote) e.lotes.push(ref.lote); else e.caps.push(ref.cap); m.set(k,e); };
-      capActivas.forEach(c=>{ const nom=String(c.asesorResponsableGG||"").trim(); if(!nom||convenioOK(c)) return; add(nom,{cap:c}); });
-      lotesCorretaje.forEach(l=>{ const nom=String(l.asesor||"").trim(); if(!nom||asesorFirmo(nom)) return; add(nom,{lote:l}); });
-      return [...m.values()].map(e=>({...e,total:e.caps.length+e.lotes.length})).sort((a,b)=> b.total-a.total || a.nombre.localeCompare(b.nombre)); })();
+    // ── Universo de asesores con terreno (captación O corretaje), UNIFICADO por identidad ──
+    // Clave canónica = su correo si se resuelve (así "Carlos Watanabe" y "Carlos González
+    // Watanabe" son el MISMO asesor); si no hay correo, por nombre normalizado. Cada asesor
+    // se clasifica UNA sola vez → nunca aparece duplicado en dos secciones.
+    const asesorKey=(nombre)=>{ const ai=asesorInfo(nombre); return (ai&&ai.email)?("@"+norm(ai.email)):("#"+norm(nombre)); };
+    const universoAse=(()=>{ const m=new Map();
+      const add=(nombre,ref)=>{ const nom=String(nombre||"").trim(); if(!nom) return; const k=asesorKey(nom);
+        const e=m.get(k)||{nombre:nom,caps:[],lotes:[]}; if(ref.lote) e.lotes.push(ref.lote); else e.caps.push(ref.cap); m.set(k,e); };
+      capActivas.forEach(c=>{ if(String(c.asesorResponsableGG||"").trim()) add(c.asesorResponsableGG,{cap:c}); });
+      lotesCorretaje.forEach(l=>{ if(String(l.asesor||"").trim()) add(l.asesor,{lote:l}); });
+      return [...m.values()]; })();
+    // Clasificación ÚNICA (un asesor, un bucket): firmado (fuera) · generado-esperando-firma (C) · sin convenio (B).
+    const asesoresSinConvenio=[]; const asesoresEnviados=[];
+    universoAse.forEach(e=>{
+      if(asesorFirmo(e.nombre)) return;                                   // ya firmó → cubierto, fuera del detector
+      const tok=acuerdoDeAsesor(e.nombre);
+      if(tok && tok.token){ asesoresEnviados.push({nombre:e.nombre,acuerdo:tok}); return; } // (C) ya tiene liga, esperando firma
+      const capsPend=e.caps.filter(c=>!convenioOK(c));
+      if(capsPend.length || e.lotes.length) asesoresSinConvenio.push({nombre:e.nombre,caps:capsPend,lotes:e.lotes,total:capsPend.length+e.lotes.length}); // (B) falta generar
+    });
+    asesoresSinConvenio.sort((a,b)=> b.total-a.total || a.nombre.localeCompare(b.nombre));
+    asesoresEnviados.sort((a,b)=> (Number(a.acuerdo&&a.acuerdo.recordatorio_intentos)||0)-(Number(b.acuerdo&&b.acuerdo.recordatorio_intentos)||0) || a.nombre.localeCompare(b.nombre));
     const totalHuecos=sinAsesorTotal+asesoresSinConvenio.length;
-    // (C) Convenios YA generados pero SIN firmar todavía (a dónde van los asesores al darles "Generar"):
-    // tienen liga/token pero aún no firman. Aquí se ven y se les puede REENVIAR la liga.
-    const asesoresEnviados=(()=>{ const m=new Map();
-      const consider=(nombre)=>{ const nom=String(nombre||"").trim(); if(!nom) return; const k=norm(nom); if(m.has(k)) return;
-        const tok=acuerdoDeAsesor(nom); if(tok && tok.token && !asesorFirmo(nom)) m.set(k,{nombre:nom,acuerdo:tok}); };
-      capActivas.forEach(c=> consider(c.asesorResponsableGG));
-      lotesCorretaje.forEach(l=> consider(l.asesor));
-      return [...m.values()].sort((a,b)=> (Number(a.acuerdo&&a.acuerdo.recordatorio_intentos)||0)-(Number(b.acuerdo&&b.acuerdo.recordatorio_intentos)||0) || a.nombre.localeCompare(b.nombre)); })();
     // Asignar asesor a una CAPTACIÓN suelta (la mete al flujo).
     const asignarAsesor=(c)=>{ const nom=String(asignInput[c.id]||"").trim(); if(!nom){ toast("Escribe el nombre del asesor"); return; }
       upsertCaptacion({...c, asesorResponsableGG:nom});
@@ -22814,7 +22819,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.11</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.12</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
