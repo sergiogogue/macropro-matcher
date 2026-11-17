@@ -21797,6 +21797,10 @@ Respuesta: [respuesta exacta, conversacional]
     // Corretaje con liga YA ENVIADA → su lugar es "Por asesor → 📨 Enviado · por firmar" (junto a captación).
     const corretajeEnviado=asesoresEnviados.filter(g=>g.soloCorretaje && ligaYaEnviada(g));
     const nLotesCorrEnv=corretajeEnviado.reduce((n,g)=>n+((g.lotes&&g.lotes.length)||1),0);
+    // Corretaje con convenio FIRMADO → "Por asesor → ✅ Firmado" (antes desaparecía de todas las listas).
+    const acuerdoFirmadoAsesor=(nombre)=>{ const ai=asesorInfo(nombre); return (acuerdos||[]).filter(a=>a&&(a.estado==="firmado"||a.estado==="validado")&&((ai&&ai.email&&norm(a.asesor_email)===norm(ai.email))||(a.asesor_nombre&&norm(a.asesor_nombre)===norm(nombre)))).sort((x,y)=>String(y.firmado_at||y.creado_at||"").localeCompare(String(x.firmado_at||x.creado_at||"")))[0]||null; };
+    const corretajeFirmado=universoAse.filter(e=>e.lotes.length>0 && asesorFirmo(e.nombre)).map(e=>({nombre:e.nombre,lotes:e.lotes,acuerdo:acuerdoFirmadoAsesor(e.nombre)}));
+    const nLotesCorrFirm=corretajeFirmado.reduce((n,g)=>n+g.lotes.length,0);
     const totalHuecos=sinAsesorTotal+asesoresSinConvenio.length;
     // Asignar asesor a una CAPTACIÓN suelta (la mete al flujo).
     const asignarAsesor=(c)=>{ const nom=String(asignInput[c.id]||"").trim(); if(!nom){ toast("Escribe el nombre del asesor"); return; }
@@ -21997,6 +22001,21 @@ Respuesta: [respuesta exacta, conversacional]
         g2.map((c,i)=>{ const a=acuerdoFirmadoDe(c); const esq=String((a&&a.esquema)||c.esquema_comision||"").replace("_","/"); return (<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
           <td style={tdS}><span style={/^100\s*\/\s*0$/.test(esq||"")?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}}>✓ {(a&&a.folio)||"Firmado"}{esq?(" · esquema "+esq):""}</span></td>{accCel(c,false)}</tr>); }));
 
+      // Filas de CORRETAJE firmado (vista Todos), respetando el filtro de esquema.
+      const corrFirm=showAse?corretajeFirmado.filter(g=>{ const esq=String((g.acuerdo&&g.acuerdo.esquema)||"").replace("_","/"); return !fEsq||esq===fEsq; }):[];
+      const nCorrFirm=corrFirm.reduce((n,g)=>n+g.lotes.length,0);
+      const t2c=corrFirm.flatMap((g,gi)=>g.lotes.map((l,i)=>{ const a=g.acuerdo||{}; const esq=String(a.esquema||"").replace("_","/"); return (
+        <tr key={"cf"+gi+"-"+i} style={{borderTop:"1px solid "+B.grey1,background:"#fff"}}>
+          <td style={{...tdS,color:B.grey5}}>{g.nombre}</td>
+          <td style={{padding:"5px 14px"}}><span style={{fontSize:10,fontWeight:700,color:"#15803d",background:"#ecfdf5",borderRadius:6,padding:"2px 7px",marginRight:8}}>Corretaje</span><button onClick={()=>abrirFichaLote(l)} title="Ver ficha del lote" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>{nombreLote(l)} ↗</button></td>
+          <td style={{...tdS,color:B.grey5}}>{l.ciudad||"—"}</td>
+          <td style={tdS}><span style={/^100\s*\/\s*0$/.test(esq||"")?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}}>✓ {a.folio||"Firmado"}{esq?(" · esquema "+esq):""}{a.estado==="validado"?" · validado":""}</span></td>
+          <td style={{padding:"4px 14px"}}></td>
+        </tr>); }));
+      const t2Full=t2c.length?(<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+        <thead><tr style={{textAlign:"left",color:B.grey4}}>{["Asesor","Terreno","Ciudad","Convenio",""].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead>
+        <tbody>{g2.map((c,i)=>{ const a=acuerdoFirmadoDe(c); const esq=String((a&&a.esquema)||c.esquema_comision||"").replace("_","/"); return (<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
+          <td style={tdS}><span style={/^100\s*\/\s*0$/.test(esq||"")?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}}>✓ {(a&&a.folio)||"Firmado"}{esq?(" · esquema "+esq):""}</span></td>{accCel(c,false)}</tr>); })}{t2c}</tbody></table></div>):t2;
       const seccion=(key,titulo,fg,bgc,count,vacioTxt,contenido,extra)=>{ const cerrado=!!col[key]; return (
         <div id={"kb-"+key} style={{marginBottom:14}}>
           <div onClick={()=>toggleCol(key)} title={cerrado?"Mostrar":"Ocultar"} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:bgc,borderRadius:cerrado?"12px":"12px 12px 0 0",border:"1px solid "+B.grey1,borderBottom:cerrado?("1px solid "+B.grey1):"none",cursor:"pointer",userSelect:"none"}}>
@@ -22013,7 +22032,7 @@ Respuesta: [respuesta exacta, conversacional]
       return (<div>
         {seccion("g0","⏳ Sin convenio",B.red,B.redL,g0.length,"Nada por mandar — todos tienen al menos su liga enviada.",t0)}
         {seccion("g1","📨 Enviado · por firmar","#b45309","#fff7ed",g1.length+(showAse?nLotesCorrEnv:0),"Nada enviado todavía.",t1)}
-        {seccion("g2","✅ Firmado",B.green,B.greenL,g2.length,fEsq?("Nadie ha firmado "+fEsq+" todavía."):"Aún no hay convenios firmados.",t2,
+        {seccion("g2","✅ Firmado",B.green,B.greenL,g2.length+nCorrFirm,fEsq?("Nadie ha firmado "+fEsq+" todavía."):"Aún no hay convenios firmados.",t2Full,
           fEsq ? <span onClick={e=>{ e.stopPropagation(); setFEsq(""); }} title="Quitar filtro" style={{marginLeft:6,background:"#fff",border:"1px solid "+B.green,color:B.green,borderRadius:999,padding:"1px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Solo esquema {fEsq} ✕</span> : null)}
       </div>);
     };
@@ -22058,7 +22077,7 @@ Respuesta: [respuesta exacta, conversacional]
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:16}}>
           {kpi("⏳ Sin convenio",k0.length,"Falta mandar la liga",B.red,()=>irA(["g0"]))}
           {kpi("📨 Enviado · por firmar",k1.length+nLotesCorrEnv,(nAseEnv+corretajeEnviado.length)+" asesor"+((nAseEnv+corretajeEnviado.length)===1?"":"es")+" · esperando firma"+(nLotesCorrEnv?(" · "+nLotesCorrEnv+" de corretaje"):""),"#b45309",()=>irA(["g1"]))}
-          {kpi("✅ Firmado",k2.length,"Convenio con PDF",B.green,()=>irA(["g2"]))}
+          {kpi("✅ Firmado",k2.length+nLotesCorrFirm,"Convenio con PDF"+(nLotesCorrFirm?(" · "+nLotesCorrFirm+" de corretaje"):""),B.green,()=>irA(["g2"]))}
           {kpi("Total en opción",base.length,pct+"% firmado",B.navy)}
         </div>
         <div style={{...s.resultCard(1),marginBottom:16}}>
@@ -22092,7 +22111,7 @@ Respuesta: [respuesta exacta, conversacional]
 
     // Menú flotante del kanban (izquierda): lleva a cada sección y la abre si estaba cerrada.
     const irSeccion=(key)=>{ if(col[key]) toggleCol(key); setTimeout(()=>{ const el=document.getElementById("kb-"+key); if(!el) return; const off=((window.innerWidth>760)?(navH+hdrH):navH)+10; window.scrollTo({top:el.getBoundingClientRect().top+window.scrollY-off,behavior:"smooth"}); },40); };
-    const menuKanban=(lista)=>{ const n0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG)).length, n1=lista.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG)).length+nLotesCorrEnv, n2=lista.filter(c=>convenioOK(c)).length;
+    const menuKanban=(lista)=>{ const n0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG)).length, n1=lista.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG)).length+nLotesCorrEnv, n2=lista.filter(c=>convenioOK(c)).length+nLotesCorrFirm;
       const fijo=typeof window!=="undefined"&&window.innerWidth>900;
       return (<nav style={{position:fijo?"sticky":"static",top:((typeof window!=="undefined"&&window.innerWidth>760)?(navH+hdrH):navH)+12,alignSelf:"start",background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:10,display:fijo?"block":"flex",gap:6,flexWrap:"wrap"}}>
         {fijo&&<div style={{fontSize:10.5,letterSpacing:"0.14em",fontWeight:800,color:B.grey4,padding:"4px 8px 8px"}}>KANBAN</div>}
