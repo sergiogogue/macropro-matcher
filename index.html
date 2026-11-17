@@ -21738,6 +21738,11 @@ Respuesta: [respuesta exacta, conversacional]
     });
     asesoresSinConvenio.sort((a,b)=> b.total-a.total || a.nombre.localeCompare(b.nombre));
     asesoresEnviados.sort((a,b)=> (Number(a.acuerdo&&a.acuerdo.recordatorio_intentos)||0)-(Number(b.acuerdo&&b.acuerdo.recordatorio_intentos)||0) || a.nombre.localeCompare(b.nombre));
+    // ¿Ya se le mandó la liga? (registro de envío o algún recordatorio automático)
+    const ligaYaEnviada=(g)=>{ const a=(g&&g.acuerdo)||{}; return !!a.liga_enviada_at || (Number(a.recordatorio_intentos)||0)>0; };
+    // Corretaje con liga YA ENVIADA → su lugar es "Por asesor → 📨 Enviado · por firmar" (junto a captación).
+    const corretajeEnviado=asesoresEnviados.filter(g=>g.soloCorretaje && ligaYaEnviada(g));
+    const nLotesCorrEnv=corretajeEnviado.reduce((n,g)=>n+((g.lotes&&g.lotes.length)||1),0);
     const totalHuecos=sinAsesorTotal+asesoresSinConvenio.length;
     // Asignar asesor a una CAPTACIÓN suelta (la mete al flujo).
     const asignarAsesor=(c)=>{ const nom=String(asignInput[c.id]||"").trim(); if(!nom){ toast("Escribe el nombre del asesor"); return; }
@@ -21901,12 +21906,26 @@ Respuesta: [respuesta exacta, conversacional]
       if(showAse){
         const grupos=[]; const gm=new Map();
         g1.forEach(c=>{ const k=norm(c.asesorResponsableGG); if(!gm.has(k)){ const g={nombre:c.asesorResponsableGG,items:[]}; gm.set(k,g); grupos.push(g); } gm.get(k).items.push(c); });
+        corretajeEnviado.forEach(ce=>{ const k=norm(ce.nombre); if(!gm.has(k)){ const g={nombre:ce.nombre,items:[]}; gm.set(k,g); grupos.push(g); } const g=gm.get(k); g.corr=ce; });
         grupos.sort((a,b)=>String(a.nombre||"").localeCompare(String(b.nombre||"")));
-        t1=tabla(["Asesor / terreno","Ciudad","Envío","Acción"], grupos.map((g,gi)=>{ const n=g.items.length; const em=correoDe(g.nombre); return [
+        t1=tabla(["Asesor / terreno","Ciudad","Envío","Acción"], grupos.map((g,gi)=>{ const ce=g.corr; const lotesC=(ce&&ce.lotes)||[]; const n=g.items.length+lotesC.length; const em=correoDe(g.nombre)||(ce&&emailValido(ce.acuerdo.asesor_email)?ce.acuerdo.asesor_email:"");
+          const aC=ce&&ce.acuerdo; const fC=aC&&(aC.liga_enviada_at||aC.ultimo_recordatorio_at); const envC=aC?((aC.folio||"")+(fC?(" · enviada "+fmtFecha(fC)):"")+((Number(aC.recordatorio_intentos)||0)>0?(" · recordatorio "+aC.recordatorio_intentos+" de 5"):"")):"";
+          const accCorr=aC?(<div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"nowrap"}}>
+              <button onClick={async()=>{ const l=LANDING_URL+"/acuerdo/"+aC.token; try{ await navigator.clipboard.writeText(l); toast("🔗 Liga copiada"); }catch(_){ try{ window.prompt("Copia la liga:",l);}catch(e2){} } }} style={{...s.btn("sm"),padding:"3px 9px",fontSize:12,background:B.navy,color:"#fff",whiteSpace:"nowrap"}}>🔗 Liga</button>
+              <button onClick={()=>genConvCorreo(ce.nombre)} title="Reenviar la liga por correo" style={{...s.btn("sm"),padding:"3px 9px",fontSize:12,background:B.blue,color:"#fff",boxShadow:"none",whiteSpace:"nowrap"}}>📧 Correo</button>
+              <button onClick={()=>genConvWA(ce.nombre)} title="Reenviar la liga por WhatsApp" style={{...s.btn("sm"),padding:"3px 9px",fontSize:12,background:"#25D366",color:"#fff",boxShadow:"none",whiteSpace:"nowrap"}}>🟢 WhatsApp</button>
+            </div>):null;
+          return [
           <tr key={"g"+gi} style={{borderTop:"1px solid "+B.grey1,background:"#fff7ed"}}>
             <td colSpan={3} style={{padding:"7px 14px",fontWeight:800,color:B.navy}}>{g.nombre||"Sin asesor"}{em&&<span style={{fontWeight:600,color:B.grey4,fontSize:12,marginLeft:8}}>{em}</span>}<span style={{marginLeft:10,background:"#fff",border:"1px solid #f3d19c",color:"#b45309",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>📨 1 correo · cubre {n} terreno{n===1?"":"s"}</span></td>
-            <td style={{padding:"4px 14px"}}><div style={{display:"flex",justifyContent:"flex-end"}}>{accionesFirma(g.items[0])}</div></td>
+            <td style={{padding:"4px 14px"}}><div style={{display:"flex",justifyContent:"flex-end"}}>{g.items.length?accionesFirma(g.items[0]):accCorr}</div></td>
           </tr>,
+          ...lotesC.map((l,i)=>(<tr key={"c"+gi+"-"+i} style={{borderTop:"1px solid "+B.grey1,background:"#fff"}}>
+            <td style={{padding:"5px 14px 5px 34px"}}><span style={{fontSize:10,fontWeight:700,color:"#15803d",background:"#ecfdf5",borderRadius:6,padding:"2px 7px",marginRight:8}}>Corretaje</span><button onClick={()=>abrirFichaLote(l)} title="Ver ficha del lote" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>{nombreLote(l)} ↗</button></td>
+            <td style={{...tdS,color:B.grey5}}>{l.ciudad||"—"}</td>
+            <td style={{...tdS,color:B.grey4,fontSize:12}}>{envC||"—"}</td>
+            <td style={{padding:"4px 14px"}}>{g.items.length&&i===0?accCorr:null}</td>
+          </tr>)),
           ...g.items.map((c,i)=>(<tr key={c.id||("s"+gi+"-"+i)} style={{borderTop:"1px solid "+B.grey1,background:"#fff"}}>
             <td style={{padding:"5px 14px 5px 34px"}}>{lnkT(c)}</td>
             <td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
@@ -21939,7 +21958,7 @@ Respuesta: [respuesta exacta, conversacional]
       ); };
       return (<div>
         {seccion("g0","⏳ Sin convenio",B.red,B.redL,g0.length,"Nada por mandar — todos tienen al menos su liga enviada.",t0)}
-        {seccion("g1","📨 Enviado · por firmar","#b45309","#fff7ed",g1.length,"Nada enviado todavía.",t1)}
+        {seccion("g1","📨 Enviado · por firmar","#b45309","#fff7ed",g1.length+(showAse?nLotesCorrEnv:0),"Nada enviado todavía.",t1)}
         {seccion("g2","✅ Firmado",B.green,B.greenL,g2.length,fEsq?("Nadie ha firmado "+fEsq+" todavía."):"Aún no hay convenios firmados.",t2,
           fEsq ? <span onClick={e=>{ e.stopPropagation(); setFEsq(""); }} title="Quitar filtro" style={{marginLeft:6,background:"#fff",border:"1px solid "+B.green,color:B.green,borderRadius:999,padding:"1px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Solo esquema {fEsq} ✕</span> : null)}
       </div>);
@@ -21984,7 +22003,7 @@ Respuesta: [respuesta exacta, conversacional]
       return (<div style={{marginBottom:24}}>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:16}}>
           {kpi("⏳ Sin convenio",k0.length,"Falta mandar la liga",B.red,()=>irA(["g0"]))}
-          {kpi("📨 Enviado · por firmar",k1.length,nAseEnv+" asesor"+(nAseEnv===1?"":"es")+" · esperando firma","#b45309",()=>irA(["g1"]))}
+          {kpi("📨 Enviado · por firmar",k1.length+nLotesCorrEnv,(nAseEnv+corretajeEnviado.length)+" asesor"+((nAseEnv+corretajeEnviado.length)===1?"":"es")+" · esperando firma"+(nLotesCorrEnv?(" · "+nLotesCorrEnv+" de corretaje"):""),"#b45309",()=>irA(["g1"]))}
           {kpi("✅ Firmado",k2.length,"Convenio con PDF",B.green,()=>irA(["g2"]))}
           {kpi("Total en opción",base.length,pct+"% firmado",B.navy)}
         </div>
@@ -22019,7 +22038,7 @@ Respuesta: [respuesta exacta, conversacional]
 
     // Menú flotante del kanban (izquierda): lleva a cada sección y la abre si estaba cerrada.
     const irSeccion=(key)=>{ if(col[key]) toggleCol(key); setTimeout(()=>{ const el=document.getElementById("kb-"+key); if(!el) return; const off=((window.innerWidth>760)?(navH+hdrH):navH)+10; window.scrollTo({top:el.getBoundingClientRect().top+window.scrollY-off,behavior:"smooth"}); },40); };
-    const menuKanban=(lista)=>{ const n0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG)).length, n1=lista.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG)).length, n2=lista.filter(c=>convenioOK(c)).length;
+    const menuKanban=(lista)=>{ const n0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG)).length, n1=lista.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG)).length+nLotesCorrEnv, n2=lista.filter(c=>convenioOK(c)).length;
       const fijo=typeof window!=="undefined"&&window.innerWidth>900;
       return (<nav style={{position:fijo?"sticky":"static",top:((typeof window!=="undefined"&&window.innerWidth>760)?(navH+hdrH):navH)+12,alignSelf:"start",background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:10,display:fijo?"block":"flex",gap:6,flexWrap:"wrap"}}>
         {fijo&&<div style={{fontSize:10.5,letterSpacing:"0.14em",fontWeight:800,color:B.grey4,padding:"4px 8px 8px"}}>KANBAN</div>}
@@ -22360,7 +22379,7 @@ Respuesta: [respuesta exacta, conversacional]
                    📨 POR ENVIAR (nunca se le mandó la liga) → ✅ ENVIADOS · esperando firma.
                    Al enviar (correo, WhatsApp o "a todos") la fila se MUEVE sola a Enviados. */}
               {(()=>{ const todos=asesoresEnviados.filter(g=>g.soloCorretaje); if(!todos.length) return null;
-                const yaEnviada=(g)=>{ const a=g.acuerdo||{}; return !!a.liga_enviada_at || (Number(a.recordatorio_intentos)||0)>0; };
+                const yaEnviada=ligaYaEnviada;
                 const porEnviar=todos.filter(g=>!yaEnviada(g)), enviados=todos.filter(yaEnviada);
                 const fila=(g,i)=>{ const a=g.acuerdo||{}; const intentos=Number(a.recordatorio_intentos)||0; const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const liga=LANDING_URL+"/acuerdo/"+(a.token||""); const abierto=capRow===norm(g.nombre);
                           // Respaldo: si el catálogo no lo encuentra por nombre (p. ej. "Eliseo Gonzalez O"), se muestra el contacto que trae el propio convenio.
@@ -22421,9 +22440,13 @@ Respuesta: [respuesta exacta, conversacional]
                 <div style={{background:"#fff",borderTop:"1px solid "+B.grey1}}>
                   {encabezado("📨 "+porEnviar.length+" convenio(s) de corretaje POR ENVIAR — aún no se les manda la liga.","#b45309","#fff7ed",porEnviar,"Enviar la liga a todos")}
                   {porEnviar.length>0 ? tabla(porEnviar) : <div style={{padding:"10px 18px",fontSize:12.5,color:B.green,fontWeight:700}}>✓ Nada por enviar: todos ya tienen su liga.</div>}
-                  {encabezado("✅ "+enviados.length+" convenio(s) de corretaje ENVIADOS · esperando firma — el recordatorio automático les llega cada 2 días.","#1d4ed8","#f0f9ff",enviados,"Reenviar a todos")}
-                  {enviados.length>0 ? tabla(enviados) : <div style={{padding:"10px 18px",fontSize:12.5,color:B.grey4}}>Todavía no hay enviados.</div>}
-                  <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Son de corretaje (no están en “Por asesor”). “Enviar a todos” manda la liga por correo a cada uno; por WhatsApp se manda desde cada fila (🟢). Al enviarla, la fila pasa sola a “Enviados”.</div>
+                  {enviados.length>0 && (
+                    <div style={{background:"#f0f9ff",borderTop:"1px solid "+B.grey1,padding:"11px 18px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                      <span style={{fontSize:13,color:"#1d4ed8",fontWeight:700,flex:"1 1 320px",minWidth:0}}>✅ {enviados.length} convenio(s) de corretaje ya ENVIADOS · esperando firma — pasaron a <b>Por asesor → 📨 Enviado</b> (ahí se reenvían; el recordatorio automático les llega cada 2 días).</span>
+                      <button onClick={()=>{ setModo("asesor"); setSel("__todos"); setTimeout(()=>{ try{ irSeccion("g1"); }catch(e){} },300); }} style={{...s.btn("sm"),background:"#1d4ed8",color:"#fff",whiteSpace:"nowrap"}}>Ir a “Enviado” →</button>
+                    </div>
+                  )}
+                  <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Son de corretaje (no están en “Por asesor”). “Enviar la liga a todos” la manda por correo a cada uno; por WhatsApp se manda desde cada fila (🟢). Al enviarla, el convenio pasa solo a <b>Por asesor → 📨 Enviado</b>.</div>
                 </div>
                 ); })()}
               {/* Los de CAPTACIÓN ya generados viven en "Por asesor"; aquí sólo acceso directo, SIN duplicar la lista. */}
