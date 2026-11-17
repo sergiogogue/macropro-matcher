@@ -21623,6 +21623,7 @@ Respuesta: [respuesta exacta, conversacional]
     // Captura de contacto (correo/WhatsApp) del asesor DESDE la fila del detector.
     const [capRow,setCapRow]=React.useState(""); const [capRowEmail,setCapRowEmail]=React.useState(""); const [capRowTel,setCapRowTel]=React.useState(""); const [capRowBusy,setCapRowBusy]=React.useState(false);
     const [detRow,setDetRow]=React.useState(""); // qué asesor tiene desplegada la lista de SUS terrenos
+    const [comsAcuerdo,setComsAcuerdo]=React.useState({}); // acuerdo_id -> comunicados oficiales enviados (historial permanente)
     React.useEffect(()=>{ setCapEmail((sa&&sa.email)||""); setCapTel((sa&&sa.telefono)||""); },[sa&&sa.nombre]); // eslint-disable-line
     const guardarDatosAsesor=async()=>{
       if(!sa) return;
@@ -22013,6 +22014,16 @@ Respuesta: [respuesta exacta, conversacional]
     const gTerrPend=gTerr.length-gTerrFirm;
     // POR ASESOR
     const acs=acDe(sa);
+    // Historial PERMANENTE de comunicados oficiales enviados a este asesor (por acuerdo).
+    React.useEffect(()=>{ if(!window.sb||!Array.isArray(acs)||!acs.length){ setComsAcuerdo({}); return; }
+      let vivo=true;
+      (async()=>{ const out={};
+        for(const a of acs){ if(!a||!a.id) continue;
+          try{ const {data}=await window.sb.rpc("comunicados_de_acuerdo",{p_acuerdo_id:a.id}); out[a.id]=Array.isArray(data)?data:[]; }catch(e){ out[a.id]=[]; } }
+        if(vivo) setComsAcuerdo(out);
+      })();
+      return ()=>{ vivo=false; };
+    },[sa&&sa.nombre, acs.map(a=>a&&a.id).join(",")]); // eslint-disable-line
     const aOps=opcDe(sa).filter(inCiuOp);
     const aReqs=reqDe(sa).filter(inCiuReq);
     const firmadosSa=acs.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
@@ -22554,6 +22565,11 @@ Respuesta: [respuesta exacta, conversacional]
                       <div style={{fontSize:11,color:B.grey3,marginTop:8}}>El recordatorio automático sale solo cada 2 días; estos botones son para mandarlo a mano.</div>
                     </div>
                   )}
+                  {(comsAcuerdo[a.id]||[]).length>0 && (
+                    <div style={{borderTop:"1px dashed "+B.grey1,padding:"8px 14px",background:"#f8fafc",fontSize:11.5,color:B.grey5,borderRadius:"0 0 12px 12px"}}>
+                      📜 {(comsAcuerdo[a.id]||[]).map((c)=>("Comunicado oficial de política enviado el "+fAMD(c.enviado_at)+(c.canal&&c.canal!=="ninguno"?(" · "+c.canal):""))).join("  ·  ")}
+                    </div>
+                  )}
                 </div>
               ); })}
             </div>
@@ -22837,7 +22853,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.13</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.14</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
