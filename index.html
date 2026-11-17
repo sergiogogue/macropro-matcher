@@ -21554,9 +21554,15 @@ Respuesta: [respuesta exacta, conversacional]
     // re-monta con cada toast/sync, así que sin esto se "regresaba" a General y perdía el lugar.
     const FA=(k,d)=>{ try{ const v=localStorage.getItem("mp_fa_"+k); return v==null?d:v; }catch(e){ return d; } };
     const FAset=(k,v)=>{ try{ localStorage.setItem("mp_fa_"+k, v==null?"":String(v)); }catch(e){} };
-    const [acuerdos,setAcuerdos]=React.useState([]);
-    const [cots,setCots]=React.useState([]);
-    const [cargando,setCargando]=React.useState(true);
+    // Arranca con el último listado (MP_FA_CACHE, nivel módulo) para no parpadear en "Cargando…"
+    // en cada re-montaje; recargar() trae lo fresco de la base y actualiza la caché.
+    const [acuerdos,setAcuerdosRaw]=React.useState(()=>MP_FA_CACHE.acuerdos||[]);
+    const setAcuerdos=(fn)=>setAcuerdosRaw(prev=>{ const n=(typeof fn==="function")?fn(prev):fn; MP_FA_CACHE.acuerdos=n; return n; });
+    const [cots,setCots]=React.useState(()=>MP_FA_CACHE.cots||[]);
+    const [cargando,setCargando]=React.useState(()=>!MP_FA_CACHE.acuerdos);
+    // Banderas "en curso" a nivel módulo (MP_FA_BUSY): este tick solo re-pinta cuando cambian.
+    const [,setBusyTick]=React.useState(0);
+    React.useEffect(()=>{ const f=()=>setBusyTick(t=>t+1); window.addEventListener("mp-fa-busy",f); return ()=>window.removeEventListener("mp-fa-busy",f); },[]);
     const [modo,setModo]=React.useState(()=>FA("modo","general")); // general | asesor
     const [sel,setSel]=React.useState(()=>FA("sel",""));
     const [ciudadF,setCiudadF]=React.useState(()=>FA("ciudad",""));
@@ -21593,14 +21599,14 @@ Respuesta: [respuesta exacta, conversacional]
 
     const recargar=React.useCallback(async()=>{
       if(!window.sb){ setCargando(false); return; }
-      setCargando(true);
+      if(!MP_FA_CACHE.acuerdos) setCargando(true);
       try{
         const [ac,ct]=await Promise.all([
           window.sb.rpc("acuerdos_lista",{p_captacion_id:null,p_lote_id:null}),
           window.sb.from("cotizaciones_opcionador").select("id,cliente_nombre,terreno_nombre,terreno_ciudad,estatus,terminos_aceptados,asesor_nombre,created_at,valor_terreno,monto_comision").order("created_at",{ascending:false}).limit(1000),
         ]);
-        setAcuerdos(((ac&&ac.data)||[]).filter(a=>a&&a.estado!=="anulado"));
-        setCots((ct&&ct.data)||[]);
+        if(ac&&!ac.error&&Array.isArray(ac.data)){ const lst=ac.data.filter(a=>a&&a.estado!=="anulado"); MP_FA_CACHE.acuerdos=lst; setAcuerdosRaw(lst); }
+        if(ct&&!ct.error&&Array.isArray(ct.data)){ MP_FA_CACHE.cots=ct.data; setCots(ct.data); }
       }catch(e){}
       setCargando(false);
     },[]);
@@ -21655,19 +21661,21 @@ Respuesta: [respuesta exacta, conversacional]
       arr.forEach(a=>{ if(!a.email){ const col=buscarColab(a.nombre); if(col&&col.email){ a.email=col.email; if(!a.telefono&&col.telefono) a.telefono=col.telefono; } } });
       return arr.sort((x,y)=>x.nombre.localeCompare(y.nombre)); })();
     // Solo los asesores que SÍ tienen terrenos opcionados (captaciones vigentes) salen en el filtro.
-    const nombresConOpcion = new Set((captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && c.asesorResponsableGG).map(c=>norm(c.asesorResponsableGG)));
+    // (También los de CORRETAJE puro: su ficha muestra sus lotes en las 3 etapas.)
+    const nombresConOpcion = new Set([
+      ...(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && c.asesorResponsableGG).map(c=>norm(c.asesorResponsableGG)),
+      ...(inventory||[]).filter(l=> l && esCorretaje(l) && String(l.asesor||"").trim() && !/vendid|baja|bloque|descart/i.test(norm(l.status))).map(l=>norm(l.asesor))]);
     const asesoresConOpcion = asesores.filter(a=>nombresConOpcion.has(norm(a.nombre)));
     const verTodos = sel === "__todos";
     const sa = verTodos ? null : (asesores.find(a=>norm(a.nombre)===norm(sel)) || asesoresConOpcion[0] || asesores[0] || null);
 
-    const acDe=(a)=> a? acuerdos.filter(x=> (x.asesor_email&&norm(x.asesor_email)===norm(a.email)) || norm(x.asesor_nombre)===norm(a.nombre)) : [];
     const opcDe=(a)=> a? cots.filter(x=> norm(x.asesor_nombre)===norm(a.nombre)) : [];
     const reqDe=(a)=> a? (clients||[]).filter(c=> norm(c.asesor)===norm(a.nombre)).slice().sort((x,y)=> new Date(y.fecha||0)-new Date(x.fecha||0)) : [];
 
     const verPdf=async(a)=>{ if(!a||!a.pdf_path){ toast("Este convenio aún no tiene PDF (falta firmarlo)."); return; } try{ const {data,error}=await window.sb.storage.from("acuerdos-comision").createSignedUrl(a.pdf_path,600); if(error) throw error; window.open(data.signedUrl,"_blank"); }catch(e){ toast("No se pudo abrir el PDF"); } };
     const fAMD=(iso)=>{ if(!iso) return "—"; try{ return new Date(iso).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}); }catch(e){ return "—"; } };
     const iniciales=(n)=>String(n||"").trim().split(/\s+/).slice(0,2).map(w=>w[0]||"").join("").toUpperCase()||"?";
-    const estAc=(e)=> e==="validado"?["✅ Validado",B.green,B.greenL] : e==="firmado"?["✍️ Firmado",B.blue,B.blueL] : e==="pendiente"?["⏳ Por firmar","#b45309","#fff7ed"] : [(e||"—"),B.grey4,B.grey1];
+    const estAc=(e)=> e==="validado"?["✅ Validado",B.green,B.greenL] : e==="firmado"?["✍️ Firmado",B.blue,B.blueL] : e==="forzado_6040"?["⚖️ 60/40 por política","#b45309","#fff7ed"] : e==="pendiente"?["⏳ Por firmar","#b45309","#fff7ed"] : [(e||"—"),B.grey4,B.grey1];
     const estCot=(r)=>{ const e=norm(r&&r.estatus); if(r&&r.terminos_aceptados) return ["✓ Aceptada",B.green,B.greenL]; if(e==="enviada") return ["Enviada",B.blue,B.blueL]; if(e.startsWith("rechaz")) return ["Rechazada",B.red,B.redL]; if(e==="borrador") return ["Borrador",B.grey4,B.grey1]; return [(r&&r.estatus)||"—",B.grey4,B.grey1]; };
 
     // Ciudades para el filtro (de TODO)
@@ -21680,22 +21688,23 @@ Respuesta: [respuesta exacta, conversacional]
     const inCiuOp=(o)=> !cf || norm(o.terreno_ciudad)===cf;
     const inCiuReq=(r)=> !cf || (Array.isArray(r.ciudad_interes)?r.ciudad_interes:[]).some(c=>norm(c)===cf);
 
-    const firmadosTot=acuerdos.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
-
     // ── CONTROL DE RIESGO · Convenios pendientes de firma ──
-    // Terrenos en inventario (captaciones activas) SIN convenio firmado/validado.
-    const [verPend,setVerPend]=React.useState(false);
+    // Terrenos (captaciones + lotes de corretaje) SIN convenio cerrado. "Ver pendientes" se recuerda:
+    // la vista se re-monta con cada aviso y antes se cerraba sola.
+    const [verPend,setVerPendRaw]=React.useState(()=>FA("verPend","0")==="1");
+    const setVerPend=(fn)=>setVerPendRaw(p=>{ const n=!!((typeof fn==="function")?fn(p):fn); FAset("verPend",n?"1":"0"); return n; });
     const [verResAse,setVerResAse]=React.useState(()=>FA("resAse","0")==="1"); // 📊 Resumen por asesor: oculto por defecto (se recuerda)
-    const [genId,setGenId]=React.useState(""); // captación cuyo convenio se está generando
     // Captura inline de correo/WhatsApp del asesor (para generar convenios sin salir de la Ficha).
     const [capEmail,setCapEmail]=React.useState(""); const [capTel,setCapTel]=React.useState(""); const [capBusy,setCapBusy]=React.useState(false);
-    // 🕳️ Detector de huecos: generar convenios en lote + asignar asesor a terrenos sueltos (caso Eliseo).
-    const [bulkBusy,setBulkBusy]=React.useState(false); const [asignInput,setAsignInput]=React.useState({}); const [genNom,setGenNom]=React.useState("");
+    // 🕳️ Detector de huecos: asignar asesor a terrenos sueltos (caso Eliseo).
+    const [asignInput,setAsignInput]=React.useState({});
     // Captura de contacto (correo/WhatsApp) del asesor DESDE la fila del detector.
     const [capRow,setCapRow]=React.useState(""); const [capRowEmail,setCapRowEmail]=React.useState(""); const [capRowTel,setCapRowTel]=React.useState(""); const [capRowBusy,setCapRowBusy]=React.useState(false);
     const [detRow,setDetRow]=React.useState(""); // qué asesor tiene desplegada la lista de SUS terrenos
     const [comsAcuerdo,setComsAcuerdo]=React.useState({}); // acuerdo_id -> comunicados oficiales enviados (historial permanente)
     React.useEffect(()=>{ setCapEmail((sa&&sa.email)||""); setCapTel((sa&&sa.telefono)||""); },[sa&&sa.nombre]); // eslint-disable-line
+    // Envíos "en curso": viven en MP_FA_BUSY (nivel módulo) → sobreviven al re-montaje y bloquean el doble envío.
+    const bulkBusy=MP_FA_BUSY.bulk;
     const guardarDatosAsesor=async()=>{
       if(!sa) return;
       const email=capEmail.trim().toLowerCase(); const tel=capTel.trim();
@@ -21715,22 +21724,101 @@ Respuesta: [respuesta exacta, conversacional]
       setCapBusy(false);
     };
     const URL_ACUERDO=LANDING_URL+"/acuerdo"; // formulario de alta/firma (sin cuenta)
-    const acuerdoDeCap=(capId)=> acuerdos.find(a=>a&&a.captacion_id===capId) || null;
-    // Un convenio por PERSONA: si el asesor tiene cualquier acuerdo firmado/validado, cuenta para TODOS sus terrenos.
-    const asesorFirmo=(nombre)=>{ const ai=asesorInfo(nombre); return (acuerdos||[]).some(a=> a && (a.estado==="firmado"||a.estado==="validado") && ((ai&&ai.email&&norm(a.asesor_email)===norm(ai.email)) || (a.asesor_nombre&&norm(a.asesor_nombre)===norm(nombre)))); };
-    const convenioOK=(c)=>{ const a=acuerdoDeCap(c.id); if(a&&(a.estado==="firmado"||a.estado==="validado")) return true; if(c.firma_nombre&&c.esquema_comision) return true; if(asesorFirmo(c.asesorResponsableGG)) return true; return false; };
-    // Eliminar un terreno de las opciones (soft-delete: queda marcado como eliminado en la nube, reversible).
     const borrarTerreno=(c)=>{ if(!c||!c.id) return; if(window.confirm("¿Eliminar el terreno «"+nombreTerreno(c)+"» de la lista de opciones?\n\nSe quita de MacroPro y de la nube (queda marcado como eliminado; no se borra el historial). Lo verán los 3 usuarios.")){ try{ removeCaptacion(c.id); toast("Terreno eliminado de las opciones."); }catch(e){ toast("No se pudo eliminar."); } } };
-    const asesorInfo=(nombre)=>{ const base=asesores.find(a=>norm(a.nombre)===norm(nombre))||null; if(base&&base.email) return base; const col=buscarColab(nombre); if(!base&&!col) return null; return {nombre:(base&&base.nombre)||(col&&col.nombre)||nombre, email:(base&&base.email)||(col&&col.email)||"", telefono:(base&&base.telefono)||(col&&col.telefono)||""}; };
+    // ── Identidad del asesor ─────────────────────────────────────────────────
+    // (memo por render: asesorInfo/asesorKey se llaman cientos de veces)
+    const _aiC=new Map();
+    const asesorInfo=(nombre)=>{ const q=norm(nombre); if(_aiC.has(q)) return _aiC.get(q);
+      const base=asesores.find(a=>norm(a.nombre)===q)||null; let r;
+      if(base&&base.email) r=base;
+      else { const col=buscarColab(nombre); r=(!base&&!col)?null:{nombre:(base&&base.nombre)||(col&&col.nombre)||nombre, email:(base&&base.email)||(col&&col.email)||"", telefono:(base&&base.telefono)||(col&&col.telefono)||""}; }
+      _aiC.set(q,r); return r; };
     const emailValido=(e)=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(e||"").trim());
     const correoDe=(nombre)=>{ const i=asesorInfo(nombre); return (i&&i.email)||""; };
-    const nombreTerreno=(c)=> (String(c.zona||"").trim()||String(c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"")||String(c.ciudad||"").trim()||"Terreno");
+    const nombreLote=(l)=> String((l&&(l.nombre||l.clave_unica||l.id))||"Terreno");
+    const nombreTerreno=(c)=> (c&&c.__lote) ? nombreLote(c.__lote) : (String(c.zona||"").trim()||String(c.ubicacion||"").trim()||(c.propietario?("Terreno de "+c.propietario):"")||String(c.ciudad||"").trim()||"Terreno");
+    const idLote=(x)=>String(x==null?"":x).trim().toLowerCase();
+    // Clave canónica = su correo si se resuelve (así "Carlos Watanabe" y "Carlos González
+    // Watanabe" son el MISMO asesor); si no hay correo, por nombre normalizado.
+    const _keyC=new Map();
+    const asesorKey=(nombre)=>{ const q=norm(nombre); if(_keyC.has(q)) return _keyC.get(q); const ai=asesorInfo(nombre); const k=(ai&&ai.email)?("@"+norm(ai.email)):("#"+q); _keyC.set(q,k); return k; };
+    const kA=(nombre)=>"ase:"+asesorKey(nombre);
+    const ocupado=(nombre)=> String(nombre||"").trim() ? mpFaBusy(kA(nombre)) : "";
+    // Lote de corretaje como "terreno" del tablero (mismas etapas que una captación).
+    const itemLote=(l)=>({__lote:l, id:"lote:"+idLote(l.id), asesorResponsableGG:String(l.asesor||"").trim(), ciudad:l.ciudad||"", pipeline:"Corretaje"});
+    const loteVivo=(l)=> l && esCorretaje(l) && !/vendid|baja|bloque|descart/i.test(norm(l.status));
+    // Índice de TERRENOS por asesor (todas las ciudades): liga convenios a su asesor por captacion_id / lote_id.
+    const plotIdx=(()=>{ const m=new Map();
+      const get=(nom)=>{ const k=asesorKey(nom); let e=m.get(k); if(!e){ e={caps:new Set(),lotes:new Set()}; m.set(k,e); } return e; };
+      (captaciones||[]).forEach(c=>{ if(c&&c.id!=null&&c.pipeline!=="Descartado"&&String(c.asesorResponsableGG||"").trim()) get(c.asesorResponsableGG).caps.add(String(c.id)); });
+      (inventory||[]).forEach(l=>{ if(l&&esCorretaje(l)&&String(l.asesor||"").trim()){ const e=get(l.asesor); if(l.id!=null) e.lotes.add(idLote(l.id)); try{ e.lotes.add(idLote(loteKey(l))); }catch(_){} } });
+      return m; })();
+    // Asesores con CAPTACIÓN (todas las ciudades): su hogar es "Por asesor" (también su corretaje).
+    const capKeysAll=new Set((captaciones||[]).filter(c=>c&&c.pipeline!=="Descartado"&&String(c.asesorResponsableGG||"").trim()).map(c=>asesorKey(c.asesorResponsableGG)));
+    // Acuerdos por terreno
+    const acPorCap=new Map(), acPorLoteM=new Map();
+    (acuerdos||[]).forEach(a=>{ if(!a) return; if(a.captacion_id!=null){ const k=String(a.captacion_id); if(!acPorCap.has(k)) acPorCap.set(k,[]); acPorCap.get(k).push(a); } if(a.lote_id!=null&&a.lote_id!==""){ const k=idLote(a.lote_id); if(!acPorLoteM.has(k)) acPorLoteM.set(k,[]); acPorLoteM.get(k).push(a); } });
+    const acPorLote=(l)=>{ if(!l) return []; const out=[...(acPorLoteM.get(idLote(l.id))||[])]; try{ const k2=idLote(loteKey(l)); if(k2!==idLote(l.id)) out.push(...(acPorLoteM.get(k2)||[])); }catch(_){} return out; };
+    // ¿Ya se le mandó la liga? (primer envío, reenvío o algún recordatorio automático). Un convenio cerrado nunca es "enviado".
+    const ligaEnviadaAc=(a)=> !!a && !mpAcCerrado(a) && (!!a.liga_enviada_at || !!a.liga_ultimo_envio_at || (Number(a.recordatorio_intentos)||0)>0);
+    const ligaYaEnviada=(g)=> ligaEnviadaAc(g&&g.acuerdo);
+    const fechaAc=(a)=> String((a&&(a.creado_at||a.created_at))||"");
+    // Varios acuerdos → 1º cerrado (firmado/validado/60-40), 2º el que ya se envió, 3º el más nuevo.
+    const rankAc=(a)=> mpAcCerrado(a)?0:(ligaEnviadaAc(a)?1:2);
+    const mejorAc=(lst)=> (lst||[]).filter(Boolean).slice().sort((x,y)=> rankAc(x)-rankAc(y) || fechaAc(y).localeCompare(fechaAc(x)))[0]||null;
+    // ¿Ese correo es de OTRA persona del catálogo? (para no ligar por terreno un convenio ajeno, p. ej. terreno reasignado)
+    const correoDeOtro=(aem,nombre)=>{ if(!aem) return false; const hit=idxColab.find(x=>x.email&&x.email===aem); if(!hit) return false; const t1=norm(hit.nombre).split(" ")[0], t2=norm(nombre).split(" ")[0]; return !!t1 && !!t2 && t1!==t2; };
+    // TODOS los convenios de un asesor: por correo, por nombre o por TERRENO (captacion_id/lote_id de sus
+    // terrenos). Caso Eliseo: el lote dice "Eliseo Gonzalez O" y el convenio trae el nombre de otro catálogo.
+    const _acC=new Map();
+    const acuerdosAsesor=(nombre)=>{ const nm=String(nombre||"").trim(); if(!nm) return []; const q=norm(nm); if(_acC.has(q)) return _acC.get(q);
+      const ai=asesorInfo(nm); const em=(ai&&ai.email)?norm(ai.email):""; const p=plotIdx.get(asesorKey(nm));
+      const out=(acuerdos||[]).filter(a=>{ if(!a) return false; const aem=norm(a.asesor_email);
+        if(em&&aem&&aem===em) return true;
+        if(a.asesor_nombre&&norm(a.asesor_nombre)===q) return true;
+        if(!p) return false;
+        const porTerreno=(a.captacion_id!=null&&p.caps.has(String(a.captacion_id))) || (a.lote_id!=null&&a.lote_id!==""&&p.lotes.has(idLote(a.lote_id)));
+        if(!porTerreno) return false;
+        if(em&&aem&&aem!==em) return false;          // el correo dice que es de otra persona
+        if(!em&&correoDeOtro(aem,nm)) return false;  // correo conocido de otro asesor del catálogo
+        return true; });
+      _acC.set(q,out); return out; };
+    // UN convenio por PERSONA (el mejor según rankAc).
+    const acuerdoDeAsesor=(nombre)=> mejorAc(acuerdosAsesor(nombre).filter(a=>a.token||mpAcCerrado(a)));
+    const acuerdoDeCap=(capId)=> mejorAc(acPorCap.get(String(capId))||[]);
+    // Si el asesor tiene cualquier convenio CERRADO, cuenta para TODOS sus terrenos.
+    const asesorFirmo=(nombre)=> acuerdosAsesor(nombre).some(mpAcCerrado);
+    const acuerdoFirmadoAsesor=(nombre)=> acuerdosAsesor(nombre).filter(mpAcCerrado).sort((x,y)=> ((x.estado==="forzado_6040")-(y.estado==="forzado_6040")) || String(y.firmado_at||y.forzado_6040_at||fechaAc(y)).localeCompare(String(x.firmado_at||x.forzado_6040_at||fechaAc(x))))[0]||null;
+    const convenioOK=(c)=>{ if(!c) return false;
+      if(c.__lote){ if(acPorLote(c.__lote).some(mpAcCerrado)) return true; }
+      else { if((acPorCap.get(String(c.id))||[]).some(mpAcCerrado)) return true; if(c.firma_nombre&&c.esquema_comision) return true; }
+      return asesorFirmo(c.asesorResponsableGG); };
+    // Convenio cerrado que cubre este terreno (el del terreno, o el de su asesor).
+    const acuerdoFirmadoDe=(c)=>{ if(!c) return null; const propio=(c.__lote?acPorLote(c.__lote):(acPorCap.get(String(c.id))||[])).filter(mpAcCerrado); return mejorAc(propio)||acuerdoFirmadoAsesor(c.asesorResponsableGG); };
+    // Esquema del convenio ("100/0" | "60/40"); el 60/40 por política puede venir sin esquema → 60/40.
+    const esqTxt=(a,c)=> String((a&&a.esquema)||(c&&!c.__lote&&c.esquema_comision)||((a&&a.estado==="forzado_6040")?"60/40":"")||"").replace("_","/").trim();
+    // ── ETAPA de un terreno: 0 Sin convenio · 1 Enviado (liga REALMENTE mandada) · 2 Cerrado ──
+    // Fuente ÚNICA para kanban, recuadros, menú, encabezados y héroes.
+    const etapaDe=(c)=>{ if(convenioOK(c)) return 2; const nom=String((c&&c.asesorResponsableGG)||"").trim(); if(!nom) return 0; const a=acuerdoDeAsesor(nom); return (a&&ligaEnviadaAc(a))?1:0; };
+    const etapas=(items)=>{ const r={g0:[],g1:[],g2:[]}; (items||[]).forEach(c=>{ r["g"+etapaDe(c)].push(c); }); return r; };
+    const filtraEsq=(lst)=> (lst||[]).filter(c=>!fEsq||esqTxt(acuerdoFirmadoDe(c),c)===fEsq);
+    // Contacto: 1º catálogo; si falta, el que trae su convenio (asesor_email / asesor_celular).
+    const contactoDe=(nombre)=>{ const ai=asesorInfo(nombre); const lst=[acuerdoDeAsesor(nombre),...acuerdosAsesor(nombre)].filter(Boolean);
+      const emAc=String((lst.find(a=>emailValido(a.asesor_email))||{}).asesor_email||"").trim().toLowerCase();
+      const telAc=String((lst.find(a=>String(a.asesor_celular||"").replace(/\D/g,"").length>=10)||{}).asesor_celular||"").trim();
+      const emCat=(ai&&emailValido(ai.email))?String(ai.email).trim().toLowerCase():""; const telCat=String((ai&&ai.telefono)||"").trim();
+      return { email:emCat||emAc, telefono:telCat||telAc, emailDelConvenio:!emCat&&!!emAc, telDelConvenio:!telCat&&!!telAc }; };
+    // TODOS los terrenos del asesor (captaciones + lotes de corretaje, todas las ciudades).
+    const plotsDeAsesor=(nombre)=>{ const k=asesorKey(nombre);
+      return { caps:(captaciones||[]).filter(c=>c&&c.pipeline!=="Descartado"&&String(c.asesorResponsableGG||"").trim()&&asesorKey(c.asesorResponsableGG)===k),
+               lotes:(inventory||[]).filter(l=>loteVivo(l)&&String(l.asesor||"").trim()&&asesorKey(l.asesor)===k) }; };
+    const terrenosDeAsesor=(nombre)=>{ const p=plotsDeAsesor(nombre); return [...p.caps.map(nombreTerreno),...p.lotes.map(nombreLote)]; };
     // ── Compartir con el ASESOR: estatus de cada cliente (propietario) de su pipeline ──
     const ASE_PANEL="https://macrolotes.grupoguia.mx/asesores";
     const n1=shNombre;
     const clienteDeCap=(c)=>String(c.propietario||c.contacto||"").trim()||"sin nombre";
-    const estatusCap=(c)=>{ const a=acuerdoFirmadoDe(c); const esq=String((a&&a.esquema)||c.esquema_comision||"").replace("_","/");
-      const conv=convenioOK(c)?("convenio firmado"+(esq?(" "+esq):"")):(acuerdoDeAsesor(c.asesorResponsableGG)?"convenio enviado, por firmar":"sin convenio");
+    const estatusCap=(c)=>{ const a=acuerdoFirmadoDe(c); const esq=esqTxt(a,c); const et=etapaDe(c);
+      const conv=et===2?((a&&a.estado==="forzado_6040")?"convenio 60/40 por política":("convenio firmado"+(esq?(" "+esq):""))):(et===1?"convenio enviado, por firmar":"sin convenio");
       return (c.pipeline||"En opción")+" · "+conv; };
     const compartirCapAsesor=(c,ase)=>{ const url=c.ligaToken?("https://macrolotes.grupoguia.mx/expediente/"+c.ligaToken):ASE_PANEL; const cli=clienteDeCap(c);
       return { url, asunto:"Estatus de tu cliente "+cli+" · "+nombreTerreno(c)+" · Grupo Guía",
@@ -21739,84 +21827,55 @@ Respuesta: [respuesta exacta, conversacional]
       if(lista.length>MAX) lineas.push("… y "+(lista.length-MAX)+" más");
       return { url:ASE_PANEL, asunto:"Tu pipeline de terrenos en opción · Grupo Guía",
         mensaje:"Hola"+(n1(ase&&ase.nombre)?" "+n1(ase.nombre):"")+", este es el estatus de tus "+lista.length+" terreno"+(lista.length===1?"":"s")+" en opción:\n"+lineas.join("\n")+"\n\nEntra a tu panel: "+ASE_PANEL }; };
-    const pendientes=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && !convenioOK(c) && (!cf || norm(c.ciudad)===cf));
-    const estatusPend=(c)=>{ const a=acuerdoDeCap(c.id); if(!a) return "Sin convenio"; if(a.estado==="pendiente") return "Enviado · por firmar"; return a.estado||"Sin convenio"; };
-    // Orden de 3 niveles: 0 = Sin convenio (arriba), 1 = Enviado/por firmar (en medio), 2 = Firmado (abajo).
-    // Todos los terrenos EN TRÁMITE de un asesor (para agrupar en un solo convenio/liga).
-    const terrenosPendAsesor=(nombre)=> (captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && norm(c.asesorResponsableGG)===norm(nombre) && !convenioOK(c));
-    // Acuerdo (token) ya existente para ese asesor, sin importar el terreno.
-    const acuerdoDeAsesor=(nombre)=>{ const ai=asesorInfo(nombre); return (acuerdos||[]).find(a=> a && a.token && ((ai&&ai.email&&norm(a.asesor_email)===norm(ai.email)) || (a.asesor_nombre&&norm(a.asesor_nombre)===norm(nombre)))) || null; };
-    // UN convenio por PERSONA: reusa el acuerdo del asesor si existe; si no, lo crea con uno de sus terrenos.
-    // Al firmar ese único convenio, cuentan como firmados TODOS sus terrenos (ver convenioOK/asesorFirmo).
-    // UN convenio por PERSONA, sin importar de dónde venga el terreno: 1º una captación
-    // pendiente; si no tiene, uno de sus LOTES de corretaje (misma base; acuerdo_crear acepta lote_id).
-    const asegurarTokenAsesor=async(nombre)=>{
-      const ya=acuerdoDeAsesor(nombre); if(ya&&ya.token) return ya.token;
-      const ai=asesorInfo(nombre);
-      const capPend=terrenosPendAsesor(nombre)[0]||null;
-      const loteCorr=capPend?null:(inventory||[]).find(l=>l&&esCorretaje(l)&&norm(l.asesor)===norm(nombre));
-      if(!capPend && !loteCorr) return null;
-      const params=capPend?{p_captacion_id:capPend.id,p_lote_id:null}:{p_captacion_id:null,p_lote_id:loteCorr.id};
-      try{
-        const {data,error}=await window.sb.rpc("acuerdo_crear",{...params,p_cotizacion_id:null,p_asesor_email:(ai&&ai.email)||null,p_asesor_nombre:(ai&&ai.nombre)||nombre||null,p_adenda:false,p_motivo:null,p_semaforo_ok:null});
-        if(error) throw error;
-        let token=(data&&(data.token||(Array.isArray(data)&&data[0]&&data[0].token)))||null;
-        if(!token){ const {data:lst}=await window.sb.rpc("acuerdos_lista",params); const f=(lst||[]).find(x=>x&&x.token); token=f&&f.token; }
-        recargar();
-        return token||null;
-      }catch(e){ return null; }
-    };
-    // Lleva a capturar el correo del asesor (salta a su ficha si hace falta).
-    const pedirCorreo=(c)=>{ if(modo!=="asesor"||verTodos){ setModo("asesor"); setSel(c.asesorResponsableGG||sel); } toast("Captura el correo de "+(c.asesorResponsableGG||"este asesor")+" en “Datos del asesor” (arriba) y vuelve a intentar."); };
 
-    // ── 🕳️ DETECTOR DE HUECOS (coordinado con TODA la base) ─────────────────
+    // ── Universo del tablero (con filtro de ciudad) ──────────────────────────
     // Que NO se escape ningún terreno de la Landing, venga de donde venga:
     //   • captaciones (terrenos opcionados)  • lotes de corretaje (inventario, tabla `lotes`).
-    // El convenio es UNO por asesor y acuerdo_crear acepta captacion_id O lote_id.
     const capActivas=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf));
-    const lotesCorretaje=(inventory||[]).filter(l=> l && esCorretaje(l)
-      && !/vendid|baja|bloque|descart/i.test(norm(l.status))
-      && (!cf||norm(l.ciudad)===cf));
-    const nombreLote=(l)=> String((l&&(l.nombre||l.clave_unica||l.id))||"Terreno");
+    const lotesCorretaje=(inventory||[]).filter(l=> loteVivo(l) && (!cf||norm(l.ciudad)===cf));
     // (A) Terrenos SIN asesor: captaciones + lotes de corretaje sin asesor.
     const capsSinAsesor=capActivas.filter(c=> !String(c.asesorResponsableGG||"").trim());
     const lotesSinAsesor=lotesCorretaje.filter(l=> !String(l.asesor||"").trim());
     const sinAsesorTotal=capsSinAsesor.length+lotesSinAsesor.length;
     const terrenosSinAsesor=capsSinAsesor; // (compat con referencias previas)
-    // ── Universo de asesores con terreno (captación O corretaje), UNIFICADO por identidad ──
-    // Clave canónica = su correo si se resuelve (así "Carlos Watanabe" y "Carlos González
-    // Watanabe" son el MISMO asesor); si no hay correo, por nombre normalizado. Cada asesor
-    // se clasifica UNA sola vez → nunca aparece duplicado en dos secciones.
-    const asesorKey=(nombre)=>{ const ai=asesorInfo(nombre); return (ai&&ai.email)?("@"+norm(ai.email)):("#"+norm(nombre)); };
+    const lotesConAse=lotesCorretaje.filter(l=> String(l.asesor||"").trim());
+    // Todos los terrenos (captaciones + corretaje con asesor) y sus etapas.
+    const itemsGlobal=[...capActivas, ...lotesConAse.map(itemLote)];
+    const etGlobal=etapas(itemsGlobal);
+    // "Por asesor → Todos": todo, MENOS el corretaje puro que aún no tiene liga enviada (ese vive en
+    // 🚩 Sin asesor, donde se genera/manda). Un asesor con captación vive aquí con TODO su corretaje.
+    const enTodos=(c)=> !c.__lote || capKeysAll.has(asesorKey(c.asesorResponsableGG)) || etapaDe(c)>0;
+    const itemsTodos=itemsGlobal.filter(enTodos);
+    const etTodos={ g0:etGlobal.g0.filter(enTodos), g1:etGlobal.g1, g2:etGlobal.g2.filter(enTodos) };
+    const corrSoloPend=etGlobal.g0.filter(c=>!enTodos(c)); // lotes de corretaje puro sin liga → 🚩 Sin asesor
+    // General · alerta de riesgo: todo lo que aún no tiene convenio cerrado.
+    const pendientes=[...etGlobal.g0,...etGlobal.g1];
+    const estatusPend=(c)=>{ const et=etapaDe(c); if(et===2) return "Firmado"; if(et===1) return "Enviado · por firmar"; const a=String(c.asesorResponsableGG||"").trim()?acuerdoDeAsesor(c.asesorResponsableGG):null; return a?"Generada · sin enviar":"Sin convenio"; };
+
+    // ── 🕳️ DETECTOR DE HUECOS (coordinado con TODA la base) ─────────────────
+    // El convenio es UNO por asesor y acuerdo_crear acepta captacion_id O lote_id.
+    // Universo de asesores con terreno (captación O corretaje), UNIFICADO por identidad.
     const universoAse=(()=>{ const m=new Map();
       const add=(nombre,ref)=>{ const nom=String(nombre||"").trim(); if(!nom) return; const k=asesorKey(nom);
         const e=m.get(k)||{nombre:nom,caps:[],lotes:[]}; if(ref.lote) e.lotes.push(ref.lote); else e.caps.push(ref.cap); m.set(k,e); };
       capActivas.forEach(c=>{ if(String(c.asesorResponsableGG||"").trim()) add(c.asesorResponsableGG,{cap:c}); });
-      lotesCorretaje.forEach(l=>{ if(String(l.asesor||"").trim()) add(l.asesor,{lote:l}); });
+      lotesConAse.forEach(l=>add(l.asesor,{lote:l}));
       return [...m.values()]; })();
-    // Clasificación ÚNICA (un asesor, un bucket). Para NO duplicar con el tablero "Por asesor"
-    // (que es de CAPTACIONES), la pestaña "Sin asesor" se queda con el CORRETAJE y los huecos;
-    // lo de captación se cuenta y se manda con un acceso directo a "Por asesor".
-    const asesoresSinConvenio=[]; const asesoresEnviados=[]; let sinConvCaptacion=0;
+    // Clasificación ÚNICA (un asesor, un lugar). "Sin asesor" se queda SOLO con el corretaje PURO
+    // (asesores sin ninguna captación) y los huecos; quien tiene captación vive en "Por asesor"
+    // (Sin convenio / Enviado / Firmado) junto con TODO su corretaje → nunca sale dos veces.
+    const asesoresSinConvenio=[]; const asesoresEnviados=[]; let sinConvCaptacion=0; let sinConvMixtosLotes=0;
     universoAse.forEach(e=>{
-      if(asesorFirmo(e.nombre)) return;                                   // ya firmó → cubierto, fuera del detector
-      const tok=acuerdoDeAsesor(e.nombre);
-      if(tok && tok.token){ asesoresEnviados.push({nombre:e.nombre,acuerdo:tok,lotes:e.lotes,soloCorretaje:(e.caps.length===0 && e.lotes.length>0)}); return; } // (C) ya tiene liga, esperando firma
+      if(asesorFirmo(e.nombre)) return;                                   // convenio cerrado → cubierto
+      const tieneCap=capKeysAll.has(asesorKey(e.nombre));
+      const ac=acuerdoDeAsesor(e.nombre);
+      if(ac && ac.token && !mpAcCerrado(ac)){ asesoresEnviados.push({nombre:e.nombre,acuerdo:ac,caps:e.caps,lotes:e.lotes,soloCorretaje:(!tieneCap && e.lotes.length>0)}); return; } // (C) ya tiene convenio generado
+      if(!tieneCap && e.lotes.length){ asesoresSinConvenio.push({nombre:e.nombre,caps:[],lotes:e.lotes,total:e.lotes.length}); return; } // (B) corretaje puro
       const capsPend=e.caps.filter(c=>!convenioOK(c));
-      if(e.lotes.length){ asesoresSinConvenio.push({nombre:e.nombre,caps:capsPend,lotes:e.lotes,total:capsPend.length+e.lotes.length}); } // (B) tiene corretaje → su hogar es esta pestaña
-      else if(capsPend.length){ sinConvCaptacion += capsPend.length; } // captación pura → se genera en "Por asesor → Sin convenio"
+      sinConvCaptacion += capsPend.length + e.lotes.length; sinConvMixtosLotes += e.lotes.length;  // → Por asesor → Sin convenio
     });
     asesoresSinConvenio.sort((a,b)=> b.total-a.total || a.nombre.localeCompare(b.nombre));
     asesoresEnviados.sort((a,b)=> (Number(a.acuerdo&&a.acuerdo.recordatorio_intentos)||0)-(Number(b.acuerdo&&b.acuerdo.recordatorio_intentos)||0) || a.nombre.localeCompare(b.nombre));
-    // ¿Ya se le mandó la liga? (registro de envío o algún recordatorio automático)
-    const ligaYaEnviada=(g)=>{ const a=(g&&g.acuerdo)||{}; return !!a.liga_enviada_at || (Number(a.recordatorio_intentos)||0)>0; };
-    // Corretaje con liga YA ENVIADA → su lugar es "Por asesor → 📨 Enviado · por firmar" (junto a captación).
-    const corretajeEnviado=asesoresEnviados.filter(g=>g.soloCorretaje && ligaYaEnviada(g));
-    const nLotesCorrEnv=corretajeEnviado.reduce((n,g)=>n+((g.lotes&&g.lotes.length)||1),0);
-    // Corretaje con convenio FIRMADO → "Por asesor → ✅ Firmado" (antes desaparecía de todas las listas).
-    const acuerdoFirmadoAsesor=(nombre)=>{ const ai=asesorInfo(nombre); return (acuerdos||[]).filter(a=>a&&(a.estado==="firmado"||a.estado==="validado")&&((ai&&ai.email&&norm(a.asesor_email)===norm(ai.email))||(a.asesor_nombre&&norm(a.asesor_nombre)===norm(nombre)))).sort((x,y)=>String(y.firmado_at||y.creado_at||"").localeCompare(String(x.firmado_at||x.creado_at||"")))[0]||null; };
-    const corretajeFirmado=universoAse.filter(e=>e.lotes.length>0 && asesorFirmo(e.nombre)).map(e=>({nombre:e.nombre,lotes:e.lotes,acuerdo:acuerdoFirmadoAsesor(e.nombre)}));
-    const nLotesCorrFirm=corretajeFirmado.reduce((n,g)=>n+g.lotes.length,0);
     const totalHuecos=sinAsesorTotal+asesoresSinConvenio.length;
     // Asignar asesor a una CAPTACIÓN suelta (la mete al flujo).
     const asignarAsesor=(c)=>{ const nom=String(asignInput[c.id]||"").trim(); if(!nom){ toast("Escribe el nombre del asesor"); return; }
@@ -21829,54 +21888,150 @@ Respuesta: [respuesta exacta, conversacional]
         setAsignInput(p=>{ const n={...p}; delete n["lote:"+l.id]; return n; });
         toast("✅ Asesor asignado al lote «"+nombreLote(l)+"»: "+nom+". Dale a ↻ Actualizar para verlo listo para convenio.");
       }catch(e){ toast("No se pudo asignar en el lote: "+((e&&e.message)||e)); } };
-    // Generar convenio POR NOMBRE de asesor (captación o corretaje) + mandar liga.
-    const ligaConv=(token)=> token?(LANDING_URL+"/acuerdo/"+token):(LANDING_URL+"/acuerdo");
-    const msgConv=(nombre,link)=>{ const nom=String(nombre||"asesor").split(/\s+/)[0]||"asesor";
-      return "Hola "+nom+", te saludamos del Equipo Macrolotes de Grupo Guía. Para poder trabajar tus terrenos necesitamos que firmes *una sola vez* tu convenio de comisiones (cubre todos). Fírmalo aquí:\n"+link+"\n— Equipo Macrolotes de Grupo Guía"; };
-    // Marca en memoria que la liga ya se envió (la fila pasa de "Por enviar" a "Enviados" al instante).
-    const marcarLigaEnviada=(token,cuando,via)=>{ if(!token) return; const t=cuando||new Date().toISOString(); setAcuerdos(prev=>(prev||[]).map(a=> a&&a.token===token?{...a,liga_enviada_at:t,liga_enviada_via:via||a.liga_enviada_via}:a)); };
-    const genConvWA=async(nombre)=>{ const ai=asesorInfo(nombre); const acW=acuerdoDeAsesor(nombre); const tel=String((ai&&ai.telefono)||(acW&&acW.asesor_celular)||"").replace(/\D/g,""); const ph=tel.length===10?("52"+tel):tel;
-      const w=window.open("","_blank"); setGenNom(norm(nombre));
-      const token=await asegurarTokenAsesor(nombre); setGenNom("");
-      if(!ph) toast("Ese asesor no tiene WhatsApp — se abrirá para elegir contacto.");
-      const url=ph?("https://wa.me/"+ph+"?text="+encodeURIComponent(msgConv(nombre,ligaConv(token)))):("https://api.whatsapp.com/send?text="+encodeURIComponent(msgConv(nombre,ligaConv(token))));
-      if(w){ w.location.href=url; } else window.open(url,"_blank","noopener");
-      // Registra el envío por WhatsApp (en la Landing) y lo mueve a "Enviados".
-      if(token){ marcarLigaEnviada(token,null,"whatsapp"); try{ fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token,solo_marcar:"whatsapp"})}).catch(()=>{}); }catch(e){} } };
-    const genConvCorreo=async(nombre)=>{ const ai=asesorInfo(nombre); const acC=acuerdoDeAsesor(nombre); if(!(ai&&ai.email) && !(acC&&emailValido(acC.asesor_email))){ toast("Ese asesor no tiene correo — captúralo con ✏️ Contacto o usa WhatsApp."); return; }
-      setGenNom(norm(nombre)); const token=await asegurarTokenAsesor(nombre); if(!token){ setGenNom(""); toast("No se pudo generar el convenio. Intenta de nuevo."); return; }
-      try{ const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token,terrenos:[]})}); const out=await r.json().catch(()=>({})); if(out&&out.ok&&out.enviado){ marcarLigaEnviada(token,out.liga_enviada_at,"correo"); toast("✅ Convenio enviado a "+(out.correo||(ai&&ai.email)||"su correo")); } else toast("Convenio generado; el correo no salió — prueba WhatsApp."); }catch(e){ toast("Convenio generado; el correo no salió — prueba WhatsApp."); }
-      setGenNom(""); };
+    // Liga de firma del convenio.
+    const ligaConv=(token)=> token?(LANDING_URL+"/acuerdo/"+token):URL_ACUERDO;
+    // Marca en memoria que la liga ya se envió (solo DESPUÉS de que el servidor lo confirmó).
+    // liga_enviada_at conserva el PRIMER envío; liga_ultimo_envio_at, el más reciente.
+    const marcarLigaEnviada=(token,cuando,via)=>{ if(!token) return; const t=cuando||new Date().toISOString(); setAcuerdos(prev=>(prev||[]).map(a=> a&&a.token===token?{...a,liga_enviada_at:a.liga_enviada_at||t,liga_ultimo_envio_at:t,liga_enviada_via:via||a.liga_enviada_via}:a)); };
+    // UN convenio por PERSONA: reusa el del asesor; si no tiene, lo crea con uno de SUS terrenos que
+    // NO esté ligado al convenio de otro asesor (nunca "secuestra" el convenio pendiente de alguien más).
+    // Devuelve el token o LANZA un Error con el motivo real (el error del RPC incluido).
+    const asegurarTokenAsesor=async(nombre)=>{
+      const nm=String(nombre||"").trim(); if(!nm) throw new Error("Ese terreno no tiene asesor asignado.");
+      const ya=acuerdoDeAsesor(nm);
+      if(ya&&mpAcCerrado(ya)) throw new Error("El convenio de "+nm+" ya está cerrado"+(ya.folio?(" ("+ya.folio+")"):"")+".");
+      if(ya&&ya.token) return ya.token;
+      if(!window.sb) throw new Error("Sin conexión con la base.");
+      const ai=asesorInfo(nm); const mios=new Set(acuerdosAsesor(nm).map(a=>a.id));
+      const ajeno=(lst)=>(lst||[]).some(a=>a&&!mios.has(a.id)&&a.estado!=="anulado");
+      const p=plotsDeAsesor(nm);
+      const cand=[...p.caps.filter(c=>!convenioOK(c)).map(c=>({prm:{p_captacion_id:c.id,p_lote_id:null},lst:acPorCap.get(String(c.id))})),
+                  ...p.lotes.map(l=>({prm:{p_captacion_id:null,p_lote_id:l.id},lst:acPorLote(l)}))];
+      if(!cand.length) throw new Error(nm+" no tiene terrenos activos para ligar su convenio.");
+      const libre=cand.find(x=>!ajeno(x.lst));
+      if(!libre) throw new Error("Los terrenos de "+nm+" ya están ligados al convenio de OTRO asesor. Revisa el asesor asignado antes de generar.");
+      const {data,error}=await window.sb.rpc("acuerdo_crear",{...libre.prm,p_cotizacion_id:null,p_asesor_email:(ai&&ai.email)||null,p_asesor_nombre:(ai&&ai.nombre)||nm,p_adenda:false,p_motivo:null,p_semaforo_ok:null});
+      if(error) throw new Error("No se pudo generar el convenio: "+(error.message||error.details||error.hint||String(error)));
+      const row=Array.isArray(data)?data[0]:data;
+      if(row&&typeof row==="object"){
+        if(ai&&ai.email&&row.asesor_email&&norm(row.asesor_email)!==norm(ai.email)) throw new Error("El servidor regresó el convenio de otra persona ("+row.asesor_email+"); no se usó.");
+        if(mpAcCerrado(row)){ await recargar(); throw new Error("El convenio de "+nm+" ya está cerrado"+(row.folio?(" ("+row.folio+")"):"")+"."); }
+      }
+      let token=(row&&typeof row==="object"&&row.token)||(typeof data==="string"?data:null);
+      if(!token){ const {data:lst}=await window.sb.rpc("acuerdos_lista",libre.prm); const f=(lst||[]).find(x=>x&&x.token&&x.estado!=="anulado"&&!mpAcCerrado(x)&&(!(ai&&ai.email)||!x.asesor_email||norm(x.asesor_email)===norm(ai.email))); token=f&&f.token; }
+      if(!token) throw new Error("El convenio se generó pero no regresó su liga. Dale a ↻ Actualizar y vuelve a intentar.");
+      await recargar();
+      return token; };
+    const errTxt=(e)=> String((e&&e.message)||e||"error desconocido");
+
+    // 📧 UN correo al asesor con TODOS sus terrenos (captaciones + corretaje) + copia a macrolotes@grupoguia.mx.
+    // No exige correo en el catálogo: el servidor lo resuelve por token (o del propio convenio).
+    const mandarCorreoAsesor=async(nombre)=>{
+      const nm=String(nombre||"").trim(); if(!nm){ toast("Asigna primero un asesor a ese terreno."); return; }
+      const k=kA(nm); if(mpFaBusy(k)) return; // ya hay un envío en curso para este asesor
+      mpFaBusySet(k,"correo");
+      try{
+        let token; try{ token=await asegurarTokenAsesor(nm); }catch(e){ toast("⚠️ "+errTxt(e)); return; }
+        const terrenos=terrenosDeAsesor(nm);
+        const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token,terrenos})});
+        const out=await r.json().catch(()=>({}));
+        if(out&&out.ok&&out.enviado){ marcarLigaEnviada(token,out.liga_enviada_at,"correo"); toast("✅ Correo enviado a "+(out.correo||contactoDe(nm).email||"su correo")+" ("+terrenos.length+" terreno"+(terrenos.length===1?"":"s")+") · copia a macrolotes@grupoguia.mx"); }
+        else if(out&&out.motivo==="sin-correo") toast("No hay correo de "+nm+": captúralo con ✏️ Contacto (o en Datos del asesor) o usa 🟢 WhatsApp.");
+        else toast("No se pudo enviar el correo"+(out&&out.motivo?(" ("+out.motivo+")"):"")+". Prueba 🟢 WhatsApp.");
+      }catch(e){ toast("No se pudo enviar el correo. Prueba 🟢 WhatsApp."); }
+      finally{ mpFaBusySet(k,null); } };
+
+    // 🟢 UN WhatsApp con la liga y la lista de TODOS sus terrenos. NUNCA manda una liga sin token:
+    // si no se pudo generar el convenio, cierra la ventana y avisa el error real.
+    const mandarWAAsesor=async(nombre)=>{
+      const nm=String(nombre||"").trim(); if(!nm){ toast("Asigna primero un asesor a ese terreno."); return; }
+      const k=kA(nm); if(mpFaBusy(k)) return;
+      const ct=contactoDe(nm); const tel=String(ct.telefono||"").replace(/\D/g,""); const ph=tel.length===10?("52"+tel):tel;
+      const yaEnviada=ligaEnviadaAc(acuerdoDeAsesor(nm));
+      let w=null; try{ w=window.open("","_blank"); }catch(_){ w=null; } // abrir dentro del gesto para que no lo bloqueen
+      const cerrar=()=>{ try{ if(w&&!w.closed) w.close(); }catch(_){} };
+      mpFaBusySet(k,"whatsapp");
+      try{
+        let token=null; try{ token=await asegurarTokenAsesor(nm); }catch(e){ cerrar(); toast("⚠️ "+errTxt(e)+" · No se abrió WhatsApp."); return; }
+        if(!token){ cerrar(); toast("⚠️ No se pudo generar la liga del convenio · No se abrió WhatsApp."); return; }
+        const terrenos=terrenosDeAsesor(nm); const link=ligaConv(token); const nom1=nm.split(/\s+/)[0]||"asesor";
+        const lista=terrenos.length>1?("tus terrenos:\n• "+terrenos.join("\n• ")):(terrenos.length?("el terreno *"+terrenos[0]+"*"):"tus terrenos");
+        const msg="Hola "+nom1+", te saludamos del Equipo Macrolotes de Grupo Guía. Para poder trabajar "+lista+"\n\nnecesitamos que firmes *una sola vez* tu convenio de comisiones (cubre todos). Fírmalo aquí:\n"+link+"\n— Equipo Macrolotes de Grupo Guía";
+        const url=ph?("https://wa.me/"+ph+"?text="+encodeURIComponent(msg)):("https://api.whatsapp.com/send?text="+encodeURIComponent(msg));
+        if(w){ try{ w.location.href=url; }catch(_){ window.open(url,"_blank","noopener"); } } else window.open(url,"_blank","noopener");
+        const sinTel=ph?"":" (no tengo su WhatsApp: elige el contacto)";
+        // Registrar el envío en la Landing; SOLO si el servidor lo confirma pasa a "📨 Enviado".
+        try{
+          const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token,terrenos,solo_marcar:"whatsapp"})});
+          const out=await r.json().catch(()=>({}));
+          if(out&&out.ok&&out.liga_enviada_at){ marcarLigaEnviada(token,out.liga_enviada_at,"whatsapp"); toast("🟢 WhatsApp abierto · envío registrado"+sinTel); }
+          else toast(yaEnviada?("🟢 WhatsApp abierto (reenvío)"+sinTel):("🟢 WhatsApp abierto, pero el envío NO quedó registrado"+(out&&out.motivo?(" ("+out.motivo+")"):"")+": sigue en “Sin convenio”."+sinTel));
+        }catch(e){ toast("🟢 WhatsApp abierto, pero no se pudo registrar el envío (sin conexión)."+sinTel); }
+      }finally{ mpFaBusySet(k,null); } };
+    // Alias (mismos botones en Sin asesor, kanban y alerta de riesgo).
+    const genConvCorreo=(nombre)=>mandarCorreoAsesor(nombre);
+    const genConvWA=(nombre)=>mandarWAAsesor(nombre);
+    const enviarCorreoFirma=(c)=>mandarCorreoAsesor(c&&c.asesorResponsableGG);
+    const enviarWhatsFirma=(c)=>mandarWAAsesor(c&&c.asesorResponsableGG);
     // 📧 Enviar (o reenviar) la liga POR CORREO a TODOS los de una lista, de golpe. El servidor
     // resuelve el correo por token (o del catálogo) y registra el envío → pasan a "Enviados".
     const enviarLigaTodos=async(lista,etiqueta)=>{
-      const conTok=(lista||[]).filter(g=>g&&g.acuerdo&&g.acuerdo.token);
+      if(MP_FA_BUSY.bulk) return;
+      const conTok=(lista||[]).filter(g=>g&&g.acuerdo&&g.acuerdo.token&&!mpAcCerrado(g.acuerdo));
       if(!conTok.length){ toast("No hay convenios para enviar."); return; }
       if(!window.confirm(etiqueta+" por correo a "+conTok.length+" asesor(es).\n\nA cada uno le llega su liga personal para firmar (con copia a macrolotes@grupoguia.mx).\n\n¿Enviar ahora?")) return;
-      setBulkBusy(true); let ok=0; const sinCorreo=[], fallos=[];
-      for(const g of conTok){
-        try{
-          const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:g.acuerdo.token,terrenos:(g.lotes||[]).map(nombreLote)})});
-          const out=await r.json().catch(()=>({}));
-          if(out&&out.ok&&out.enviado){ ok++; marcarLigaEnviada(g.acuerdo.token,out.liga_enviada_at,"correo"); }
-          else if(out&&out.motivo==="sin-correo") sinCorreo.push(g.nombre);
-          else fallos.push(g.nombre+(out&&out.motivo?(" ("+out.motivo+")"):""));
-        }catch(e){ fallos.push(g.nombre); }
-      }
-      setBulkBusy(false);
+      mpFaBulkSet("Enviando…"); let ok=0; const sinCorreo=[], fallos=[];
+      try{
+        for(const g of conTok){
+          const k=kA(g.nombre); if(mpFaBusy(k)){ fallos.push(g.nombre+" (envío en curso)"); continue; }
+          mpFaBusySet(k,"correo");
+          try{
+            const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:g.acuerdo.token,terrenos:terrenosDeAsesor(g.nombre)})});
+            const out=await r.json().catch(()=>({}));
+            if(out&&out.ok&&out.enviado){ ok++; marcarLigaEnviada(g.acuerdo.token,out.liga_enviada_at,"correo"); }
+            else if(out&&out.motivo==="sin-correo") sinCorreo.push(g.nombre);
+            else fallos.push(g.nombre+(out&&out.motivo?(" ("+out.motivo+")"):""));
+          }catch(e){ fallos.push(g.nombre); }
+          finally{ mpFaBusySet(k,null); }
+        }
+      }finally{ mpFaBulkSet(""); }
       toast("✅ "+ok+" liga(s) enviada(s) por correo"+(sinCorreo.length?(" · sin correo: "+sinCorreo.join(", ")+" (captúralo con ✏️ Contacto o usa WhatsApp)"):"")+(fallos.length?(" · no se pudo: "+fallos.join(", ")):""));
     };
-    // Generar el convenio para TODOS los asesores con hueco (crea, no manda; entran al flujo de recordatorios).
+    // ⚡ Generar el convenio para TODOS los asesores de corretaje sin convenio. Solo lo CREA (no manda
+    // nada): queda "Generada · sin enviar" en la lista POR ENVIAR hasta que se mande la liga.
     const generarTodosHuecos=async()=>{
-      if(!asesoresSinConvenio.length) return;
-      if(!window.confirm("Se generará el convenio para "+asesoresSinConvenio.length+" asesor(es) con terrenos (captación o corretaje) sin convenio.\n\nNo se manda ningún mensaje ahora: los convenios quedan creados y entran al flujo de recordatorios automáticos. Tú decides cuándo mandarlos desde cada ficha.\n\n¿Generar los "+asesoresSinConvenio.length+" convenios?")) return;
-      setBulkBusy(true); let ok=0, fail=0;
-      for(const g of asesoresSinConvenio){ try{ const t=await asegurarTokenAsesor(g.nombre); if(t) ok++; else fail++; }catch(e){ fail++; } }
-      setBulkBusy(false);
-      toast("✅ "+ok+" convenio(s) generado(s)"+(fail?(" · "+fail+" no se pudieron, revisa correo/WhatsApp"):"")+". Entran al flujo de recordatorios.");
-      recargar(); };
+      if(MP_FA_BUSY.bulk||!asesoresSinConvenio.length) return;
+      if(!window.confirm("Se generará el convenio para "+asesoresSinConvenio.length+" asesor(es) de corretaje sin convenio.\n\nNO se manda ningún mensaje ahora: cada convenio queda «Generada · sin enviar» en la lista POR ENVIAR. Pasa a «📨 Enviado» cuando le mandes la liga (📧/🟢 o «Enviar la liga a todos»).\n\n¿Generar los "+asesoresSinConvenio.length+" convenios?")) return;
+      mpFaBulkSet("Generando…"); let ok=0; const fallos=[];
+      try{ for(const g of asesoresSinConvenio){ try{ const t=await asegurarTokenAsesor(g.nombre); if(t) ok++; else fallos.push(g.nombre); }catch(e){ fallos.push(g.nombre+" ("+errTxt(e)+")"); } } }
+      finally{ mpFaBulkSet(""); }
+      await recargar();
+      toast("✅ "+ok+" convenio(s) generado(s) · quedan «Generada · sin enviar» hasta mandar la liga"+(fallos.length?(" · no se pudo: "+fallos.join(", ")):"")+"."); };
+    // ⚖️ Aplicar el 60/40 por política AHORA (admin). Cierra el convenio sin firma del asesor,
+    // genera el PDF y le avisa. Definitivo → confirmación explícita.
+    const aplicar6040=async(nombre)=>{
+      const nm=String(nombre||"").trim(); const a=acuerdoDeAsesor(nm);
+      if(!a||!a.id){ toast("Ese asesor no tiene un convenio pendiente."); return; }
+      if(mpAcCerrado(a)){ toast("El convenio de "+nm+" ya está cerrado."); return; }
+      const k=kA(nm); if(mpFaBusy(k)) return;
+      const intentos=Number(a.recordatorio_intentos)||0;
+      if(!window.confirm("⚖️ Aplicar 60/40 ahora · "+nm+(a.folio?(" · "+a.folio):"")+"\n\nEsto CIERRA su convenio de forma DEFINITIVA con el esquema 60/40 (Asesor 60% · Macrolotes 40%) por política, SIN su firma"+(intentos?(" (lleva "+intentos+" de 5 recordatorios)"):"")+".\n\nSe genera el PDF y al asesor se le avisa por correo/WhatsApp. No se puede deshacer desde MacroPro.\n\n¿Aplicar el 60/40 ahora?")) return;
+      mpFaBusySet(k,"6040");
+      try{
+        let tok=null; try{ const {data}=await window.sb.auth.getSession(); tok=data&&data.session&&data.session.access_token; }catch(_){}
+        if(!tok){ toast("⚠️ No hay sesión activa: vuelve a iniciar sesión para aplicar el 60/40."); return; }
+        const r=await fetch(LANDING_URL+"/.netlify/functions/convenio-aplicar-6040",{method:"POST",headers:{"content-type":"application/json",Authorization:"Bearer "+tok},body:JSON.stringify({acuerdo_id:a.id})});
+        if(r&&r.status===403){ toast("⛔ Solo un administrador puede aplicar el 60/40 por política."); return; }
+        const out=await r.json().catch(()=>({}));
+        if(!r.ok||!out||!out.ok){ toast("⚠️ No se aplicó el 60/40"+(out&&out.motivo?(": "+out.motivo):(" (error "+(r&&r.status)+")"))+"."); return; }
+        const av=out.aviso||{}; const vias=[av.correo?"correo":null,av.whatsapp?"WhatsApp":null].filter(Boolean);
+        setAcuerdos(prev=>(prev||[]).map(x=>x&&x.id===a.id?{...x,estado:"forzado_6040",forzado_6040_at:x.forzado_6040_at||new Date().toISOString(),esquema:x.esquema||"60/40",folio:out.folio||x.folio,pdf_path:x.pdf_path||out.pdf_path||x.pdf_path}:x));
+        await recargar();
+        toast("✅ Aplicado 60/40 · folio "+(out.folio||a.folio||"—")+" · aviso por "+(vias.length?vias.join("/"):"— (sin aviso: revisa su contacto)"));
+      }catch(e){ toast("⚠️ No se pudo aplicar el 60/40: "+errTxt(e)); }
+      finally{ mpFaBusySet(k,null); } };
     // Abrir la captura de contacto del asesor en su fila (precarga lo que ya tenga).
-    const abrirCapRow=(nombre)=>{ const info=asesorInfo(nombre); setCapRowEmail((info&&info.email)||""); setCapRowTel((info&&info.telefono)||""); setCapRow(norm(nombre)); };
+    const abrirCapRow=(nombre)=>{ const ct=contactoDe(nombre); setCapRowEmail(ct.email||""); setCapRowTel(ct.telefono||""); setCapRow(norm(nombre)); };
     // Guardar correo/WhatsApp del asesor en la tabla `asesores` (y en memoria para que resuelva al instante).
     const guardarContactoAsesor=async(nombre)=>{
       const email=String(capRowEmail||"").trim().toLowerCase(); const tel=String(capRowTel||"").trim();
@@ -21898,146 +22053,85 @@ Respuesta: [respuesta exacta, conversacional]
     const abrirFichaCap=(c)=>{ try{ setEditingCaptacion(c); setShowCaptacionModal(true); }catch(e){ toast("No se pudo abrir la ficha."); } };
     const abrirFichaLote=(l)=>{ try{ setSelectedLotDetail(l); }catch(e){ toast("No se pudo abrir la ficha del lote."); } };
 
-    // 📧 UN correo al asesor con TODOS sus terrenos + copia a macrolotes@grupoguia.mx. Espera y confirma.
-    const enviarCorreoFirma=async(c)=>{
-      const nombre=c.asesorResponsableGG; const ai=asesorInfo(nombre);
-      if(!(ai&&ai.email)){ pedirCorreo(c); return; }
-      const terrenos=terrenosPendAsesor(nombre).map(nombreTerreno);
-      setGenId(c.id);
-      const token=await asegurarTokenAsesor(nombre);
-      if(!token){ setGenId(""); toast("No se pudo generar el convenio. Intenta de nuevo."); return; }
-      try{
-        const r=await fetch(LANDING_URL+"/.netlify/functions/acuerdo-enviar-link",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token,terrenos})});
-        const out=await r.json().catch(()=>({}));
-        if(out&&out.ok&&out.enviado){ toast("✅ Correo enviado a "+(out.correo||ai.email)+" ("+terrenos.length+" terreno"+(terrenos.length===1?"":"s")+") · copia a macrolotes@grupoguia.mx"); }
-        else if(out&&out.motivo==="sin-correo"){ pedirCorreo(c); }
-        else { toast("No se pudo enviar el correo"+(out&&out.motivo?(" ("+out.motivo+")"):"")+". Prueba la opción de WhatsApp."); }
-      }catch(e){ toast("No se pudo enviar el correo. Prueba la opción de WhatsApp."); }
-      setGenId("");
-    };
-
-    // 🟢 UN WhatsApp con el link y la lista de TODOS sus terrenos (no requiere correo).
-    const enviarWhatsFirma=async(c)=>{
-      const nombre=c.asesorResponsableGG; const ai=asesorInfo(nombre);
-      const nom=String(nombre||"asesor").trim().split(/\s+/)[0]||"asesor";
-      const terrenos=terrenosPendAsesor(nombre).map(nombreTerreno);
-      const tel=String((ai&&ai.telefono)||"").replace(/\D/g,""); const ph=tel.length===10?("52"+tel):tel;
-      const w=window.open("","_blank"); // abrir dentro del gesto para que no lo bloqueen
-      setGenId(c.id);
-      const token=await asegurarTokenAsesor(nombre);
-      setGenId("");
-      const link=token?(LANDING_URL+"/acuerdo/"+token):URL_ACUERDO;
-      const lista=terrenos.length>1 ? ("tus terrenos:\n• "+terrenos.join("\n• ")) : ("el terreno *"+(terrenos[0]||nombreTerreno(c))+"*");
-      const msg="Hola "+nom+", para poder publicar "+lista+"\n\nnecesitamos que firmes *una sola vez* tu convenio de comisiones (cubre todos). Fírmalo aquí:\n"+link;
-      const url=ph?("https://wa.me/"+ph+"?text="+encodeURIComponent(msg)):("https://api.whatsapp.com/send?text="+encodeURIComponent(msg));
-      if(!ph) toast("Ese asesor no tiene teléfono — se abrirá WhatsApp para elegir contacto.");
-      if(w){ w.location.href=url; } else { window.open(url,"_blank","noopener"); }
-    };
-
-    // Par de botones (Correo + WhatsApp) para una fila pendiente de firma.
-    const accionesFirma=(c)=>(
+    // Par de botones (Correo + WhatsApp) para una fila pendiente de firma (por ASESOR: un envío cubre todo).
+    const accionesFirma=(c)=>{ const b=ocupado(c&&c.asesorResponsableGG); return (
       <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"nowrap"}}>
-        <button disabled={genId===c.id} onClick={()=>enviarCorreoFirma(c)} title="Enviar el link por correo al asesor (con copia a macrolotes@grupoguia.mx)" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:genId===c.id?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"Enviando…":"📧 Correo"}</button>
-        <button disabled={genId===c.id} onClick={()=>enviarWhatsFirma(c)} title="Mandar el link por WhatsApp" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:genId===c.id?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:genId===c.id?"wait":"pointer",whiteSpace:"nowrap"}}>{genId===c.id?"…":"🟢 WhatsApp"}</button>
+        <button disabled={!!b} onClick={()=>enviarCorreoFirma(c)} title="Enviar el link por correo al asesor (con copia a macrolotes@grupoguia.mx)" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:b?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:b?"wait":"pointer",whiteSpace:"nowrap"}}>{b==="correo"?"Enviando…":"📧 Correo"}</button>
+        <button disabled={!!b} onClick={()=>enviarWhatsFirma(c)} title="Mandar el link por WhatsApp" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:b?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:b?"wait":"pointer",whiteSpace:"nowrap"}}>{b?"…":"🟢 WhatsApp"}</button>
       </div>
-    );
+    ); };
 
-    // Convenio firmado que cubre este terreno (el del terreno, o el que firmó su asesor).
-    const acuerdoFirmadoDe=(c)=>{ const a=acuerdoDeCap(c.id); if(a&&(a.estado==="firmado"||a.estado==="validado")) return a; const ai=asesorInfo(c.asesorResponsableGG); return (acuerdos||[]).find(x=>x&&(x.estado==="firmado"||x.estado==="validado")&&((ai&&ai.email&&norm(x.asesor_email)===norm(ai.email))||(x.asesor_nombre&&norm(x.asesor_nombre)===norm(c.asesorResponsableGG))))||null; };
     const fmtFecha=(iso)=>{ if(!iso) return ""; try{ return new Date(iso).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}); }catch(e){ return ""; } };
-    // Envío del asesor: folio + fecha del convenio (se crea al mandar la liga) + a qué terreno quedó ligado.
-    const envioDe=(nombre)=>{ const a=acuerdoDeAsesor(nombre); if(!a) return null; return {folio:a.folio||"",fecha:fmtFecha(a.created_at||a.enviado_at||a.updated_at),terrenoId:a.captacion_id}; };
+    // Envío del asesor: folio + fecha del PRIMER envío de la liga (o de creación) + a qué terreno quedó ligado.
+    const envioDe=(nombre)=>{ const a=acuerdoDeAsesor(nombre); if(!a) return null; return {folio:a.folio||"",fecha:fmtFecha(a.liga_enviada_at||a.creado_at||a.created_at),terrenoId:(a.captacion_id!=null&&a.captacion_id!=="")?String(a.captacion_id):((a.lote_id!=null&&a.lote_id!=="")?("lote:"+idLote(a.lote_id)):"")}; };
+    const pillConv=(a,c)=>{ const esq=esqTxt(a,c); const forz=a&&a.estado==="forzado_6040";
+      if(forz) return <span title="Cerrado por política tras 5 recordatorios sin firma (no lo firmó el asesor)" style={{background:"#fff7ed",color:"#b45309",border:"1px solid #fdba74",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>⚖️ 60/40 por política{a.folio?(" · "+a.folio):""}</span>;
+      return <span style={/^100\s*\/\s*0$/.test(esq||"")?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>✓ {(a&&a.folio)||"Firmado"}{esq?(" · esquema "+esq):""}{(a&&a.estado==="validado")?" · validado":""}</span>; };
 
-    // 🗂️ KANBAN VERTICAL de firma: 3 secciones apiladas (Sin convenio → Enviado → Firmado).
-    // Renglones delgados (una sola línea). En "Enviado" (vista Todos) se agrupa por asesor: un envío
-    // cubre todos sus terrenos, con folio y fecha.
-    const kanbanFirma=(lista,showAse)=>{
-      // "Enviado" es por ASESOR: si ya tiene un convenio (token), TODOS sus terrenos pendientes
-      // bajan a "Enviado" (el único correo cubre todos sus terrenos).
-      const g0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG));
-      const g1=lista.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG));
-      const esqDeC=(c)=>{ const a=acuerdoFirmadoDe(c); return String((a&&a.esquema)||c.esquema_comision||"").replace("_","/"); };
-      const g2=lista.filter(c=>convenioOK(c)&&(!fEsq||esqDeC(c)===fEsq));
+    // 🗂️ KANBAN VERTICAL de firma: 3 secciones apiladas (Sin convenio → Enviado → Firmado), con
+    // captaciones Y lotes de corretaje. `et` = etapas(...) — la MISMA fuente de los recuadros y el menú.
+    // "Enviado" se agrupa por asesor: un envío cubre todos sus terrenos, con folio, fecha y recordatorio.
+    const kanbanFirma=(et,showAse)=>{
+      const g0=et.g0, g1=et.g1, g2=filtraEsq(et.g2);
       const tdS={padding:"5px 14px",whiteSpace:"nowrap"};
       const thS={padding:"6px 14px",fontSize:10.5,textTransform:"uppercase",letterSpacing:0.5,whiteSpace:"nowrap"};
-      const lnkT=(c)=>(<button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button>);
-      const btnBorrar=(c)=>(<button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),padding:"3px 8px",background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>);
-      const shAse=(c)=>{ if(showAse||!sa) return null; const sh=compartirCapAsesor(c,sa); return <ShareButtons chico url={sh.url} mensaje={sh.mensaje} asunto={sh.asunto} telefono={sa.telefono} email={sa.email} onToast={toast}/>; };
+      const badgeCorr=<span style={{fontSize:10,fontWeight:700,color:"#15803d",background:"#ecfdf5",borderRadius:6,padding:"2px 7px",marginRight:8}}>Corretaje</span>;
+      const lnkT=(c)=> c.__lote
+        ? (<span>{badgeCorr}<button onClick={()=>abrirFichaLote(c.__lote)} title="Ver ficha del lote" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreLote(c.__lote)} ↗</button></span>)
+        : (<button onClick={()=>{setEditingCaptacion(c);setShowCaptacionModal(true);}} title="Ver ficha del terreno" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13,textAlign:"left"}}>{nombreTerreno(c)} ↗</button>);
+      const btnBorrar=(c)=> c.__lote ? null : (<button onClick={()=>borrarTerreno(c)} title="Eliminar de las opciones" style={{...s.btn("sm"),padding:"3px 8px",background:"#fff",color:B.red,border:"1.5px solid "+B.red,boxShadow:"none",cursor:"pointer"}}>🗑</button>);
+      const shAse=(c)=>{ if(showAse||!sa||c.__lote) return null; const sh=compartirCapAsesor(c,sa); return <ShareButtons chico url={sh.url} mensaje={sh.mensaje} asunto={sh.asunto} telefono={ctSa.telefono} email={ctSa.email} onToast={toast}/>; };
       const accCel=(c,conEnvio)=>(<td style={{padding:"4px 14px"}}><div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"nowrap"}}>{shAse(c)}{conEnvio&&accionesFirma(c)}{btnBorrar(c)}</div></td>);
       const asCel=(c)=> showAse ? <td style={{...tdS,color:B.grey5}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td> : null;
       const bg=(i)=>({borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW});
       const tabla=(heads,rows)=>(<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
         <thead><tr style={{textAlign:"left",color:B.grey4}}>{heads.map((h,i)=><th key={i} style={{...thS,textAlign:i===heads.length-1?"right":"left"}}>{h}</th>)}</tr></thead>
         <tbody>{rows}</tbody></table></div>);
-      const txtEnvio=(c)=>{ const env=envioDe(c.asesorResponsableGG); if(!env||!env.folio) return "—"; return c.id===env.terrenoId ? (env.folio+(env.fecha?(" · "+env.fecha):"")) : ("incluido en "+env.folio); };
+      const txtEnvio=(c)=>{ const env=envioDe(c.asesorResponsableGG); if(!env||!env.folio) return "—"; return String(c.id)===env.terrenoId ? (env.folio+(env.fecha?(" · "+env.fecha):"")) : ("incluido en "+env.folio); };
+      // Convenio generado pero la liga NUNCA se mandó → se queda en "Sin convenio" con esta etiqueta.
+      const generadaSinEnviar=(c)=>{ const nom=String(c.asesorResponsableGG||"").trim(); if(!nom) return null; const a=acuerdoDeAsesor(nom); return (a&&a.token&&!mpAcCerrado(a)&&!ligaEnviadaAc(a))?<span title={"Convenio "+(a.folio||"")+" generado; falta mandarle la liga"} style={{marginLeft:8,background:"#fff7ed",color:"#b45309",border:"1px solid #fdba74",borderRadius:999,padding:"0 8px",fontSize:11,fontWeight:800,whiteSpace:"nowrap"}}>Generada · sin enviar</span>:null; };
 
       // ⏳ Sin convenio
       const t0=tabla(showAse?["Asesor","Terreno","Ciudad","Acción"]:["Terreno","Ciudad","Acción"],
-        g0.map((c,i)=>(<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>{accCel(c,true)}</tr>)));
+        g0.map((c,i)=>(<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}{generadaSinEnviar(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>{accCel(c,true)}</tr>)));
 
-      // 📨 Enviado · por firmar
-      let t1;
-      if(showAse){
-        const grupos=[]; const gm=new Map();
-        g1.forEach(c=>{ const k=norm(c.asesorResponsableGG); if(!gm.has(k)){ const g={nombre:c.asesorResponsableGG,items:[]}; gm.set(k,g); grupos.push(g); } gm.get(k).items.push(c); });
-        corretajeEnviado.forEach(ce=>{ const k=norm(ce.nombre); if(!gm.has(k)){ const g={nombre:ce.nombre,items:[]}; gm.set(k,g); grupos.push(g); } const g=gm.get(k); g.corr=ce; });
-        grupos.sort((a,b)=>String(a.nombre||"").localeCompare(String(b.nombre||"")));
-        t1=tabla(["Asesor / terreno","Ciudad","Envío","Acción"], grupos.map((g,gi)=>{ const ce=g.corr; const lotesC=(ce&&ce.lotes)||[]; const n=g.items.length+lotesC.length; const em=correoDe(g.nombre)||(ce&&emailValido(ce.acuerdo.asesor_email)?ce.acuerdo.asesor_email:"");
-          const aC=ce&&ce.acuerdo; const fC=aC&&(aC.liga_enviada_at||aC.ultimo_recordatorio_at); const envC=aC?((aC.folio||"")+(fC?(" · enviada "+fmtFecha(fC)):"")+((Number(aC.recordatorio_intentos)||0)>0?(" · recordatorio "+aC.recordatorio_intentos+" de 5"):"")):"";
-          const accCorr=aC?(<div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"nowrap"}}>
-              <button onClick={async()=>{ const l=LANDING_URL+"/acuerdo/"+aC.token; try{ await navigator.clipboard.writeText(l); toast("🔗 Liga copiada"); }catch(_){ try{ window.prompt("Copia la liga:",l);}catch(e2){} } }} style={{...s.btn("sm"),padding:"3px 9px",fontSize:12,background:B.navy,color:"#fff",whiteSpace:"nowrap"}}>🔗 Liga</button>
-              <button onClick={()=>genConvCorreo(ce.nombre)} title="Reenviar la liga por correo" style={{...s.btn("sm"),padding:"3px 9px",fontSize:12,background:B.blue,color:"#fff",boxShadow:"none",whiteSpace:"nowrap"}}>📧 Correo</button>
-              <button onClick={()=>genConvWA(ce.nombre)} title="Reenviar la liga por WhatsApp" style={{...s.btn("sm"),padding:"3px 9px",fontSize:12,background:"#25D366",color:"#fff",boxShadow:"none",whiteSpace:"nowrap"}}>🟢 WhatsApp</button>
-            </div>):null;
+      // 📨 Enviado · por firmar (agrupado por ASESOR: correo o nombre)
+      const grupos=[]; const gm=new Map();
+      g1.forEach(c=>{ const k=asesorKey(c.asesorResponsableGG); let g=gm.get(k); if(!g){ g={nombre:c.asesorResponsableGG,items:[]}; gm.set(k,g); grupos.push(g); } g.items.push(c); });
+      grupos.sort((a,b)=>String(a.nombre||"").localeCompare(String(b.nombre||"")));
+      const t1=tabla(["Asesor / terreno","Ciudad","Envío","Acción"], grupos.map((g,gi)=>{ const a=acuerdoDeAsesor(g.nombre)||{}; const ct=contactoDe(g.nombre); const n=g.items.length; const busy=ocupado(g.nombre);
+          const intentos=Number(a.recordatorio_intentos)||0; const f1=a.liga_enviada_at||a.ultimo_recordatorio_at; const fU=a.liga_ultimo_envio_at;
+          const envTxt=(a.folio||"")+(f1?(" · enviada "+fmtFecha(f1)):"")+((fU&&fmtFecha(fU)!==fmtFecha(f1))?(" · último envío "+fmtFecha(fU)):"");
+          const liga=ligaConv(a.token);
           return [
           <tr key={"g"+gi} style={{borderTop:"1px solid "+B.grey1,background:"#fff7ed"}}>
-            <td colSpan={3} style={{padding:"7px 14px",fontWeight:800,color:B.navy}}>{g.nombre||"Sin asesor"}{em&&<span style={{fontWeight:600,color:B.grey4,fontSize:12,marginLeft:8}}>{em}</span>}<span style={{marginLeft:10,background:"#fff",border:"1px solid #f3d19c",color:"#b45309",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>📨 1 correo · cubre {n} terreno{n===1?"":"s"}</span></td>
-            <td style={{padding:"4px 14px"}}><div style={{display:"flex",justifyContent:"flex-end"}}>{g.items.length?accionesFirma(g.items[0]):accCorr}</div></td>
+            <td colSpan={2} style={{padding:"7px 14px",fontWeight:800,color:B.navy}}>{g.nombre||"Sin asesor"}{ct.email&&<span title={ct.emailDelConvenio?"Correo tomado del convenio":undefined} style={{fontWeight:600,color:B.grey4,fontSize:12,marginLeft:8}}>{ct.email}{ct.emailDelConvenio?" (del convenio)":""}</span>}<span style={{marginLeft:10,background:"#fff",border:"1px solid #f3d19c",color:"#b45309",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>📨 1 correo · cubre {n} terreno{n===1?"":"s"}</span></td>
+            <td style={{padding:"7px 14px",fontSize:12,color:B.grey5,whiteSpace:"nowrap"}}>{envTxt||"—"} <span style={{marginLeft:6,background:intentos>=4?"#b45309":"#fff",color:intentos>=4?"#fff":"#b45309",border:"1px solid #f3d19c",borderRadius:999,padding:"1px 8px",fontSize:11,fontWeight:800}}>recordatorio {intentos} de 5</span></td>
+            <td style={{padding:"4px 14px"}}><div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"nowrap"}}>
+              <button onClick={async()=>{ try{ await navigator.clipboard.writeText(liga); toast("🔗 Liga copiada"); }catch(_){ try{ window.prompt("Copia la liga:",liga);}catch(e2){} } }} style={{...s.btn("sm"),padding:"3px 9px",fontSize:12,background:B.navy,color:"#fff",whiteSpace:"nowrap"}}>🔗 Liga</button>
+              <button disabled={!!busy} onClick={()=>genConvCorreo(g.nombre)} title="Reenviar la liga por correo" style={{...s.btn("sm"),padding:"3px 9px",fontSize:12,background:busy?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",whiteSpace:"nowrap",cursor:busy?"wait":"pointer"}}>{busy==="correo"?"Enviando…":"📧 Correo"}</button>
+              <button disabled={!!busy} onClick={()=>genConvWA(g.nombre)} title="Reenviar la liga por WhatsApp" style={{...s.btn("sm"),padding:"3px 9px",fontSize:12,background:busy?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",whiteSpace:"nowrap",cursor:busy?"wait":"pointer"}}>{busy?"…":"🟢 WhatsApp"}</button>
+              <button disabled={!!busy} onClick={()=>aplicar6040(g.nombre)} title="Admin: cerrar YA su convenio con 60/40 por política (definitivo; se le avisa)" style={{...s.btn("sm"),padding:"3px 9px",fontSize:12,background:busy?"#94a3b8":"#fff",color:busy?"#fff":"#b45309",border:"1.5px solid #b45309",boxShadow:"none",whiteSpace:"nowrap",cursor:busy?"wait":"pointer"}}>{busy==="6040"?"Aplicando…":"⚖️ Aplicar 60/40 ahora"}</button>
+            </div></td>
           </tr>,
-          ...lotesC.map((l,i)=>(<tr key={"c"+gi+"-"+i} style={{borderTop:"1px solid "+B.grey1,background:"#fff"}}>
-            <td style={{padding:"5px 14px 5px 34px"}}><span style={{fontSize:10,fontWeight:700,color:"#15803d",background:"#ecfdf5",borderRadius:6,padding:"2px 7px",marginRight:8}}>Corretaje</span><button onClick={()=>abrirFichaLote(l)} title="Ver ficha del lote" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>{nombreLote(l)} ↗</button></td>
-            <td style={{...tdS,color:B.grey5}}>{l.ciudad||"—"}</td>
-            <td style={{...tdS,color:B.grey4,fontSize:12}}>{envC||"—"}</td>
-            <td style={{padding:"4px 14px"}}>{g.items.length&&i===0?accCorr:null}</td>
-          </tr>)),
-          ...g.items.map((c,i)=>(<tr key={c.id||("s"+gi+"-"+i)} style={{borderTop:"1px solid "+B.grey1,background:"#fff"}}>
+          ...g.items.map((c,i)=>(<tr key={(c.id||("s"+i))+"-"+gi} style={{borderTop:"1px solid "+B.grey1,background:"#fff"}}>
             <td style={{padding:"5px 14px 5px 34px"}}>{lnkT(c)}</td>
             <td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
             <td style={{...tdS,color:B.grey4,fontSize:12}}>{txtEnvio(c)}</td>
             {accCel(c,false)}
           </tr>))
         ]; }));
-      } else {
-        t1=tabla(["Terreno","Ciudad","Envío","Acción"],
-          g1.map((c,i)=>(<tr key={c.id||i} style={bg(i)}><td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td><td style={{...tdS,color:B.grey4,fontSize:12}}>{txtEnvio(c)}</td>{accCel(c,true)}</tr>)));
-      }
 
-      // ✅ Firmado
+      // ✅ Firmado (incluye "60/40 por política": convenio cerrado sin firma del asesor)
       const t2=tabla(showAse?["Asesor","Terreno","Ciudad","Convenio","Acción"]:["Terreno","Ciudad","Convenio","Acción"],
-        g2.map((c,i)=>{ const a=acuerdoFirmadoDe(c); const esq=String((a&&a.esquema)||c.esquema_comision||"").replace("_","/"); return (<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
-          <td style={tdS}><span style={/^100\s*\/\s*0$/.test(esq||"")?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}}>✓ {(a&&a.folio)||"Firmado"}{esq?(" · esquema "+esq):""}</span></td>{accCel(c,false)}</tr>); }));
-
-      // Filas de CORRETAJE firmado (vista Todos), respetando el filtro de esquema.
-      const corrFirm=showAse?corretajeFirmado.filter(g=>{ const esq=String((g.acuerdo&&g.acuerdo.esquema)||"").replace("_","/"); return !fEsq||esq===fEsq; }):[];
-      const nCorrFirm=corrFirm.reduce((n,g)=>n+g.lotes.length,0);
-      const t2c=corrFirm.flatMap((g,gi)=>g.lotes.map((l,i)=>{ const a=g.acuerdo||{}; const esq=String(a.esquema||"").replace("_","/"); return (
-        <tr key={"cf"+gi+"-"+i} style={{borderTop:"1px solid "+B.grey1,background:"#fff"}}>
-          <td style={{...tdS,color:B.grey5}}>{g.nombre}</td>
-          <td style={{padding:"5px 14px"}}><span style={{fontSize:10,fontWeight:700,color:"#15803d",background:"#ecfdf5",borderRadius:6,padding:"2px 7px",marginRight:8}}>Corretaje</span><button onClick={()=>abrirFichaLote(l)} title="Ver ficha del lote" style={{background:"transparent",border:"none",padding:0,fontWeight:700,color:"#1d4ed8",textDecoration:"underline",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>{nombreLote(l)} ↗</button></td>
-          <td style={{...tdS,color:B.grey5}}>{l.ciudad||"—"}</td>
-          <td style={tdS}><span style={/^100\s*\/\s*0$/.test(esq||"")?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}}>✓ {a.folio||"Firmado"}{esq?(" · esquema "+esq):""}{a.estado==="validado"?" · validado":""}</span></td>
-          <td style={{padding:"4px 14px"}}></td>
-        </tr>); }));
-      const t2Full=t2c.length?(<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-        <thead><tr style={{textAlign:"left",color:B.grey4}}>{["Asesor","Terreno","Ciudad","Convenio",""].map((h,i)=><th key={i} style={thS}>{h}</th>)}</tr></thead>
-        <tbody>{g2.map((c,i)=>{ const a=acuerdoFirmadoDe(c); const esq=String((a&&a.esquema)||c.esquema_comision||"").replace("_","/"); return (<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
-          <td style={tdS}><span style={/^100\s*\/\s*0$/.test(esq||"")?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800}}>✓ {(a&&a.folio)||"Firmado"}{esq?(" · esquema "+esq):""}</span></td>{accCel(c,false)}</tr>); })}{t2c}</tbody></table></div>):t2;
+        g2.map((c,i)=>{ const a=acuerdoFirmadoDe(c); return (<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
+          <td style={tdS}>{pillConv(a,c)}</td>{accCel(c,false)}</tr>); }));
       const seccion=(key,titulo,fg,bgc,count,vacioTxt,contenido,extra)=>{ const cerrado=!!col[key]; return (
         <div id={"kb-"+key} style={{marginBottom:14}}>
           <div onClick={()=>toggleCol(key)} title={cerrado?"Mostrar":"Ocultar"} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:bgc,borderRadius:cerrado?"12px":"12px 12px 0 0",border:"1px solid "+B.grey1,borderBottom:cerrado?("1px solid "+B.grey1):"none",cursor:"pointer",userSelect:"none"}}>
             <span style={{fontSize:13,color:fg,transform:cerrado?"rotate(-90deg)":"none",transition:"transform .15s"}}>▾</span>
             <span style={{fontSize:13.5,fontWeight:800,color:fg}}>{titulo}</span>
-            <span style={{fontSize:12,fontWeight:800,color:"#fff",background:fg,borderRadius:999,padding:"1px 9px"}}>{count}</span>
+            <span data-kb-count={key} style={{fontSize:12,fontWeight:800,color:"#fff",background:fg,borderRadius:999,padding:"1px 9px"}}>{count}</span>
             {extra}
           </div>
           {!cerrado && <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden",borderRadius:"0 0 12px 12px"}}>
@@ -22045,64 +22139,67 @@ Respuesta: [respuesta exacta, conversacional]
           </div>}
         </div>
       ); };
+      const notaCorrSolo=(showAse&&corrSoloPend.length)?<span onClick={e=>{ e.stopPropagation(); setModo("huecos"); }} title="Corretaje de asesores sin captación: se genera y manda en 🚩 Sin asesor" style={{marginLeft:6,background:"#fff",border:"1px solid "+B.red,color:B.red,borderRadius:999,padding:"1px 10px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>+{corrSoloPend.length} de corretaje en 🚩 Sin asesor →</span>:null;
       return (<div>
-        {seccion("g0","⏳ Sin convenio",B.red,B.redL,g0.length,"Nada por mandar — todos tienen al menos su liga enviada.",t0)}
-        {seccion("g1","📨 Enviado · por firmar","#b45309","#fff7ed",g1.length+(showAse?nLotesCorrEnv:0),"Nada enviado todavía.",t1)}
-        {seccion("g2","✅ Firmado",B.green,B.greenL,g2.length+nCorrFirm,fEsq?("Nadie ha firmado "+fEsq+" todavía."):"Aún no hay convenios firmados.",t2Full,
+        {seccion("g0","⏳ Sin convenio",B.red,B.redL,g0.length,"Nada por mandar — todos tienen al menos su liga enviada.",t0,notaCorrSolo)}
+        {seccion("g1","📨 Enviado · por firmar","#b45309","#fff7ed",g1.length,"Nada enviado todavía.",t1)}
+        {seccion("g2","✅ Firmado",B.green,B.greenL,g2.length,fEsq?("Nadie ha firmado "+fEsq+" todavía."):"Aún no hay convenios firmados.",t2,
           fEsq ? <span onClick={e=>{ e.stopPropagation(); setFEsq(""); }} title="Quitar filtro" style={{marginLeft:6,background:"#fff",border:"1px solid "+B.green,color:B.green,borderRadius:999,padding:"1px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Solo esquema {fEsq} ✕</span> : null)}
       </div>);
     };
 
     // 📊 Vista "Todos los asesores": recuadros por etapa + esquema elegido + gráfica por asesor.
-    const panelEtapas=(base)=>{
-      const k0=base.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG));
-      const k1=base.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG));
-      const k2=base.filter(c=>convenioOK(c));
-      const nAseEnv=new Set(k1.map(c=>norm(c.asesorResponsableGG))).size;
-      const pct=base.length?Math.round(k2.length/base.length*100):0;
+    // `et` es el MISMO objeto de etapas que usan el kanban y el menú → los números siempre cuadran.
+    const panelEtapas=(et)=>{
+      const k0=et.g0, k1=et.g1, k2=et.g2; const tot=k0.length+k1.length+k2.length;
+      const nCorr=(lst)=>lst.filter(c=>c.__lote).length;
+      const nAseEnv=new Set(k1.map(c=>asesorKey(c.asesorResponsableGG))).size;
+      const pct=tot?Math.round(k2.length/tot*100):0;
       // Llevar al kanban: abre las secciones indicadas y baja a la primera. esq = filtro de "Firmado".
       const irA=(keys,esq)=>{ setFEsq(esq||""); keys.slice(1).forEach(k=>{ if(col[k]) toggleCol(k); }); irSeccion(keys[0]); };
       const verMas=(colr)=>(<div style={{fontSize:12.5,fontWeight:700,color:colr||"#1d4ed8",marginTop:4}}>Ver en el kanban ▸</div>);
-      const kpi=(lbl,n,sub,colr,onClick)=>(<div onClick={onClick} title={onClick?"Ver en el kanban":undefined} style={{background:"#fff",border:"1px solid "+B.grey1,borderTop:"5px solid "+colr,borderRadius:14,padding:"12px 16px",minWidth:0,cursor:onClick?"pointer":"default"}}>
+      const kpi=(id,lbl,n,sub,colr,onClick)=>(<div data-kpi={id} onClick={onClick} title={onClick?"Ver en el kanban":undefined} style={{background:"#fff",border:"1px solid "+B.grey1,borderTop:"5px solid "+colr,borderRadius:14,padding:"12px 16px",minWidth:0,cursor:onClick?"pointer":"default"}}>
         <div style={{fontSize:12.5,fontWeight:700,color:B.navy}}>{lbl}</div>
-        <div style={{fontSize:30,fontWeight:800,color:colr,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{n}</div>
+        <div data-kpi-n={id} style={{fontSize:30,fontWeight:800,color:colr,lineHeight:1.1,fontVariantNumeric:"tabular-nums"}}>{n}</div>
         <div style={{fontSize:11.5,color:B.grey4}}>{sub}</div>{onClick&&verMas(colr)}</div>);
-      // Esquema elegido, por ASESOR y con sus TERRENOS (clic en el asesor = su ficha; clic en el terreno = ficha del terreno).
+      const deCorr=(lst)=>{ const n=nCorr(lst); return n?(" · "+n+" de corretaje"):""; };
+      // Esquema elegido, por ASESOR. El 60/40 por política cuenta en 60/40.
       const firm=new Map();
-      const addF=(nombre,esq,folio,terr,terrTxt)=>{ const k=norm(nombre)+"|"+esq; const e=firm.get(k)||{nombre,esquema:esq,folio:"",terrenos:[],terrTxt:""}; if(folio&&!e.folio) e.folio=folio; if(terr&&!e.terrenos.some(t=>t.id===terr.id)) e.terrenos.push(terr); if(terrTxt&&!e.terrTxt) e.terrTxt=terrTxt; firm.set(k,e); };
-      k2.forEach(c=>{ const a=acuerdoFirmadoDe(c); const esq=String((a&&a.esquema)||c.esquema_comision||"").replace("_","/"); if(!esq) return; addF(c.asesorResponsableGG||(a&&a.asesor_nombre)||"—",esq,(a&&a.folio)||"",c,""); });
-      // Convenios firmados cuyo terreno no está en la lista (otra ciudad, descartado, etc.): se muestran igual, sin liga.
-      (acuerdos||[]).forEach(a=>{ if(!a||!(a.estado==="firmado"||a.estado==="validado")) return; const esq=String(a.esquema||"").replace("_","/"); const nom=a.asesor_nombre||a.asesor_email||"—";
-        const ya=[...firm.values()].some(x=>x.esquema===esq&&(norm(x.nombre)===norm(nom)||(a.asesor_email&&norm(correoDe(x.nombre))===norm(a.asesor_email))));
-        if(!ya) addF(nom,esq,a.folio||"",null,a.terreno_nombre||""); });
+      const addF=(nombre,esq,a)=>{ const k=asesorKey(nombre)+"|"+esq; const e=firm.get(k)||{nombre,esquema:esq,folio:"",forzado:false}; if(a&&a.folio&&!e.folio) e.folio=a.folio; if(a&&a.estado==="forzado_6040") e.forzado=true; firm.set(k,e); };
+      k2.forEach(c=>{ const a=acuerdoFirmadoDe(c); const esq=esqTxt(a,c); if(!esq) return; addF(c.asesorResponsableGG||(a&&a.asesor_nombre)||"—",esq,a); });
+      // Convenios cerrados cuyo terreno no está en la lista (otra ciudad, descartado, etc.): cuentan igual.
+      (acuerdos||[]).forEach(a=>{ if(!mpAcCerrado(a)) return; const esq=esqTxt(a,null); if(!esq) return; const nom=a.asesor_nombre||a.asesor_email||"—";
+        const ya=[...firm.values()].some(x=>x.esquema===esq&&(asesorKey(x.nombre)===asesorKey(nom)||norm(x.nombre)===norm(nom)||(a.asesor_email&&norm(correoDe(x.nombre))===norm(a.asesor_email))||acuerdosAsesor(x.nombre).some(y=>y.id===a.id)));
+        if(!ya) addF(nom,esq,a); });
       const lst=[...firm.values()];
-      const e100=lst.filter(x=>x.esquema==="100/0"), e60=lst.filter(x=>x.esquema==="60/40");
+      const e100=lst.filter(x=>x.esquema==="100/0"), e60=lst.filter(x=>x.esquema==="60/40"); const e60pol=e60.filter(x=>x.forzado).length;
       const caja=(titulo,sub,n,colr,contenido,onClick)=>(<div onClick={onClick} style={{border:"1px solid "+B.grey1,borderLeft:"5px solid "+colr,borderRadius:12,padding:"12px 14px",background:"#fff",minWidth:0,cursor:onClick?"pointer":"default"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}><b style={{fontSize:14,color:B.navy}}>{titulo}</b><span style={{fontSize:26,fontWeight:800,color:colr}}>{n}</span></div>
         <div style={{fontSize:12,color:B.grey4,margin:"2px 0 8px"}}>{sub}</div>
         {contenido}
       </div>);
-      const sinElegir=[...k0,...k1].slice().sort((a,b)=>String(a.asesorResponsableGG||"").localeCompare(String(b.asesorResponsableGG||""))||String(nombreTerreno(a)).localeCompare(String(nombreTerreno(b))));
-      // Gráfica: terrenos por asesor, apilados por etapa (barras horizontales, nombres completos).
+      const sinElegir=k0.length+k1.length;
+      // Gráfica: terrenos por asesor, apilados por etapa (de las MISMAS listas).
       const pa=new Map();
-      base.forEach(c=>{ const nom=String(c.asesorResponsableGG||"Sin asesor").trim()||"Sin asesor"; const k=norm(nom); const e=pa.get(k)||{nombre:nom,s:0,e:0,f:0}; if(convenioOK(c)) e.f++; else if(acuerdoDeAsesor(c.asesorResponsableGG)) e.e++; else e.s++; pa.set(k,e); });
+      const addP=(c,campo)=>{ const nom=String(c.asesorResponsableGG||"Sin asesor").trim()||"Sin asesor"; const k=nom==="Sin asesor"?"#sin":asesorKey(nom); const e=pa.get(k)||{nombre:nom,s:0,e:0,f:0}; e[campo]++; pa.set(k,e); };
+      k0.forEach(c=>addP(c,"s")); k1.forEach(c=>addP(c,"e")); k2.forEach(c=>addP(c,"f"));
       const filas=[...pa.values()].sort((a,b)=>(b.s+b.e+b.f)-(a.s+a.e+a.f)||b.s-a.s||a.nombre.localeCompare(b.nombre));
       const max=Math.max(1,...filas.map(x=>x.s+x.e+x.f));
       const leg=(colr,t)=>(<span style={{display:"inline-flex",alignItems:"center",gap:5}}><i style={{display:"inline-block",width:10,height:10,borderRadius:3,background:colr}}/>{t}</span>);
       return (<div style={{marginBottom:24}}>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:16}}>
-          {kpi("⏳ Sin convenio",k0.length,"Falta mandar la liga",B.red,()=>irA(["g0"]))}
-          {kpi("📨 Enviado · por firmar",k1.length+nLotesCorrEnv,(nAseEnv+corretajeEnviado.length)+" asesor"+((nAseEnv+corretajeEnviado.length)===1?"":"es")+" · esperando firma"+(nLotesCorrEnv?(" · "+nLotesCorrEnv+" de corretaje"):""),"#b45309",()=>irA(["g1"]))}
-          {kpi("✅ Firmado",k2.length+nLotesCorrFirm,"Convenio con PDF"+(nLotesCorrFirm?(" · "+nLotesCorrFirm+" de corretaje"):""),B.green,()=>irA(["g2"]))}
-          {kpi("Total en opción",base.length,pct+"% firmado",B.navy)}
+          {kpi("g0","⏳ Sin convenio",k0.length,"Falta mandar la liga"+deCorr(k0)+(corrSoloPend.length?(" · +"+corrSoloPend.length+" de corretaje en 🚩 Sin asesor"):""),B.red,()=>irA(["g0"]))}
+          {kpi("g1","📨 Enviado · por firmar",k1.length,nAseEnv+" asesor"+(nAseEnv===1?"":"es")+" · esperando firma"+deCorr(k1),"#b45309",()=>irA(["g1"]))}
+          {kpi("g2","✅ Firmado",k2.length,"Convenio cerrado (con PDF)"+deCorr(k2),B.green,()=>irA(["g2"]))}
+          {kpi("tot","Total en opción",tot,pct+"% firmado",B.navy)}
         </div>
         <div style={{...s.resultCard(1),marginBottom:16}}>
           <div style={{fontSize:15,fontWeight:800,color:B.navy}}>Esquema elegido en los convenios firmados</div>
-          <div style={{fontSize:12.5,color:B.grey4,margin:"2px 0 12px"}}>Quien firmó <b>100/0</b> es quien <b>no aceptó el 60/40</b>. Los que siguen en “Sin convenio” o “Enviado” todavía no eligen.</div>
+          <div style={{fontSize:12.5,color:B.grey4,margin:"2px 0 12px"}}>Quien firmó <b>100/0</b> es quien <b>no aceptó el 60/40</b>. El <b>60/40 por política</b> se aplica tras 5 recordatorios sin firma. Los que siguen en “Sin convenio” o “Enviado” todavía no eligen.</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12}}>
             {caja("100/0 · lo trabaja el asesor","No aceptó 60/40 · "+e100.length+" asesor"+(e100.length===1?"":"es"),e100.length,B.navy, e100.length?verMas(B.navy):<div style={{fontSize:13,color:B.grey4}}>Nadie todavía</div>, e100.length?()=>irA(["g2"],"100/0"):undefined)}
-            {caja("60/40 · Macrolotes vende","Aceptó 60/40 · "+e60.length+" asesor"+(e60.length===1?"":"es"),e60.length,B.goldD||"#d4952a", e60.length?verMas(B.goldD||"#d4952a"):<div style={{fontSize:13,color:B.grey4}}>Nadie todavía</div>, e60.length?()=>irA(["g2"],"60/40"):undefined)}
-            {caja("Aún sin elegir",k0.length+" sin convenio · "+k1.length+" enviados",sinElegir.length,B.grey4, sinElegir.length?verMas(B.grey5):null, sinElegir.length?()=>irA(["g0","g1"]):undefined)}
+            {caja("60/40 · Macrolotes vende","Aceptó 60/40 · "+e60.length+" asesor"+(e60.length===1?"":"es")+(e60pol?(" · "+e60pol+" por política"):""),e60.length,B.goldD||"#d4952a", e60.length?verMas(B.goldD||"#d4952a"):<div style={{fontSize:13,color:B.grey4}}>Nadie todavía</div>, e60.length?()=>irA(["g2"],"60/40"):undefined)}
+            {caja("Aún sin elegir",k0.length+" sin convenio · "+k1.length+" enviados",sinElegir,B.grey4, sinElegir?verMas(B.grey5):null, sinElegir?()=>irA(["g0","g1"]):undefined)}
           </div>
         </div>
         <div style={{...s.resultCard(1),marginBottom:0}}>
@@ -22126,26 +22223,28 @@ Respuesta: [respuesta exacta, conversacional]
     };
 
     // Menú flotante del kanban (izquierda): lleva a cada sección y la abre si estaba cerrada.
+    // Mismos números que los encabezados de sección (incluido el filtro de esquema en Firmado).
     const irSeccion=(key)=>{ if(col[key]) toggleCol(key); setTimeout(()=>{ const el=document.getElementById("kb-"+key); if(!el) return; const off=((window.innerWidth>760)?(navH+hdrH):navH)+10; window.scrollTo({top:el.getBoundingClientRect().top+window.scrollY-off,behavior:"smooth"}); },40); };
-    const menuKanban=(lista)=>{ const n0=lista.filter(c=>!convenioOK(c)&&!acuerdoDeAsesor(c.asesorResponsableGG)).length, n1=lista.filter(c=>!convenioOK(c)&&acuerdoDeAsesor(c.asesorResponsableGG)).length+nLotesCorrEnv, n2=lista.filter(c=>convenioOK(c)).length+nLotesCorrFirm;
+    const menuKanban=(et)=>{ const n0=et.g0.length, n1=et.g1.length, n2=filtraEsq(et.g2).length;
       const fijo=typeof window!=="undefined"&&window.innerWidth>900;
       return (<nav style={{position:fijo?"sticky":"static",top:((typeof window!=="undefined"&&window.innerWidth>760)?(navH+hdrH):navH)+12,alignSelf:"start",background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:10,display:fijo?"block":"flex",gap:6,flexWrap:"wrap"}}>
         {fijo&&<div style={{fontSize:10.5,letterSpacing:"0.14em",fontWeight:800,color:B.grey4,padding:"4px 8px 8px"}}>KANBAN</div>}
         {[["g0","⏳ Sin convenio",B.red,n0],["g1","📨 Enviado","#b45309",n1],["g2","✅ Firmado",B.green,n2]].map(([k,t,c,n])=>(
-          <button key={k} onClick={()=>irSeccion(k)} style={{display:"flex",width:fijo?"100%":"auto",alignItems:"center",justifyContent:"space-between",gap:8,padding:"9px 10px",border:"none",borderLeft:"4px solid "+c,borderRadius:10,background:B.offW,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:13,color:B.navy,marginBottom:fijo?6:0}}>
-            {t}<span style={{background:c,color:"#fff",borderRadius:999,padding:"0 8px",fontSize:12}}>{n}</span></button>))}
+          <button key={k} data-menu={k} onClick={()=>irSeccion(k)} style={{display:"flex",width:fijo?"100%":"auto",alignItems:"center",justifyContent:"space-between",gap:8,padding:"9px 10px",border:"none",borderLeft:"4px solid "+c,borderRadius:10,background:B.offW,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:13,color:B.navy,marginBottom:fijo?6:0}}>
+            {t}<span data-menu-n={k} style={{background:c,color:"#fff",borderRadius:999,padding:"0 8px",fontSize:12}}>{n}</span></button>))}
         {fijo&&<div style={{fontSize:11,color:B.grey4,padding:"6px 8px 2px"}}>Un clic y te lleva a la sección.</div>}
       </nav>); };
 
     // GENERAL
     const gOps=allOps.filter(inCiuOp);
     const gReqs=allReqs.filter(inCiuReq);
-    // Terrenos REALES del equipo (fuente: captaciones) para alinear KPIs/gráficas/listas.
+    // Terrenos de captación (para las gráficas por ciudad / asesor).
     const gTerr=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf));
-    const gTerrFirm=gTerr.filter(convenioOK).length;
-    const gTerrPend=gTerr.length-gTerrFirm;
+    // CONVENIOS cerrados (acuerdos distintos, uno por asesor), NO terrenos.
+    const convCerrados=(acuerdos||[]).filter(mpAcCerrado); const nConvCerrados=new Set(convCerrados.map(a=>a.id||a.folio||a.token)).size;
+    const nConvPolitica=convCerrados.filter(a=>a.estado==="forzado_6040").length;
     // POR ASESOR
-    const acs=acDe(sa);
+    const acs=sa?acuerdosAsesor(sa.nombre):[];
     // Historial PERMANENTE de comunicados oficiales enviados a este asesor (por acuerdo).
     React.useEffect(()=>{ if(!window.sb||!Array.isArray(acs)||!acs.length){ setComsAcuerdo({}); return; }
       let vivo=true;
@@ -22158,12 +22257,10 @@ Respuesta: [respuesta exacta, conversacional]
     },[sa&&sa.nombre, acs.map(a=>a&&a.id).join(",")]); // eslint-disable-line
     const aOps=opcDe(sa).filter(inCiuOp);
     const aReqs=reqDe(sa).filter(inCiuReq);
-    const firmadosSa=acs.filter(a=>a.estado==="validado"||a.estado==="firmado").length;
-    // Terrenos REALES del asesor (fuente: captaciones) — para que los contadores del hero
-    // y las secciones cuadren con la tabla de "Terrenos opcionados".
-    const terrAsesor=sa?(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && norm(c.asesorResponsableGG)===norm(sa.nombre) && (!cf||norm(c.ciudad)===cf)):[];
-    const terrFirmados=terrAsesor.filter(convenioOK).length;
-    const terrPend=terrAsesor.length-terrFirmados;
+    // Terrenos del asesor (captaciones + su corretaje) y sus etapas: misma fuente para héroe, kanban y menú.
+    const itemsSa=sa?itemsGlobal.filter(c=>String(c.asesorResponsableGG||"").trim()&&asesorKey(c.asesorResponsableGG)===asesorKey(sa.nombre)).slice().sort((a,b)=>String(nombreTerreno(a)).localeCompare(String(nombreTerreno(b)))):[];
+    const etSa=etapas(itemsSa);
+    const ctSa=sa?contactoDe(sa.nombre):{email:"",telefono:""};
 
     // ── Gráficas (modo general) ──
     React.useEffect(()=>{
@@ -22245,9 +22342,9 @@ Respuesta: [respuesta exacta, conversacional]
                 <div style={{...s.heroTitle,fontSize:34,marginBottom:6}}>Asesores</div>
                 <div style={{...s.heroSub,fontSize:13.5}}>Todas las opciones y requerimientos del equipo, con estadísticas. Cambia a “Por asesor” para ver a cada uno.</div>
                 <div style={s.statsRow}>
-                  <div style={s.stat}><div style={s.statNum}>{gTerr.length}</div><div style={s.statLabel}>Opciones</div></div>
-                  <div style={s.stat}><div style={{...s.statNum,color:gTerrPend?B.gold:undefined}}>{gTerrPend}</div><div style={s.statLabel}>Pendientes de firma</div></div>
-                  <div style={s.stat}><div style={s.statNum}>{gTerrFirm}</div><div style={s.statLabel}>Convenios firmados</div></div>
+                  <div style={s.stat} title="Terrenos: captaciones + lotes de corretaje con asesor"><div style={s.statNum}>{itemsGlobal.length}</div><div style={s.statLabel}>Opciones</div></div>
+                  <div style={s.stat} title="Terrenos (captación + corretaje) sin convenio cerrado"><div style={{...s.statNum,color:pendientes.length?B.gold:undefined}}>{pendientes.length}</div><div style={s.statLabel}>Terrenos pendientes de firma</div></div>
+                  <div style={s.stat} title="Convenios distintos (uno por asesor) firmados, validados o con 60/40 por política. Cuenta CONVENIOS, no terrenos."><div style={s.statNum}>{nConvCerrados}</div><div style={s.statLabel}>Convenios firmados (asesores){nConvPolitica?(" · "+nConvPolitica+" 60/40 por política"):""}</div></div>
                   <div style={s.stat}><div style={s.statNum}>{gReqs.length}</div><div style={s.statLabel}>Requerimientos</div></div>
                   <div style={s.stat}><div style={s.statNum}>{asesoresConOpcion.length}</div><div style={s.statLabel}>Asesores</div></div>
                 </div>
@@ -22258,15 +22355,15 @@ Respuesta: [respuesta exacta, conversacional]
                 <div style={{minWidth:0}}>
                   <div style={s.heroEyebrow}>{verTodos?"Terrenos opcionados · Grupo Guía":"Ficha del Asesor · Grupo Guía"}</div>
                   <div style={{...s.heroTitle,fontSize:30,marginBottom:4}}>{verTodos?"Todos los asesores":(sa? sa.nombre : "Selecciona un asesor")}</div>
-                  <div style={{...s.heroSub,fontSize:13}}>{verTodos?"Todos los terrenos opcionados del equipo con su estatus de firma.":(sa? ((sa.email||"sin correo")+(sa.telefono?(" · "+sa.telefono):"")) : "Elige un asesor en el filtro.")}</div>
+                  <div style={{...s.heroSub,fontSize:13}}>{verTodos?"Todos los terrenos opcionados del equipo con su estatus de firma.":(sa? ((ctSa.email||"sin correo")+(ctSa.emailDelConvenio?" (del convenio)":"")+(ctSa.telefono?(" · "+ctSa.telefono):"")) : "Elige un asesor en el filtro.")}</div>
                 </div>
                 {verTodos && <div style={{...s.statsRow,marginTop:0,marginLeft:"auto"}}>
-                  <div style={s.stat}><div style={s.statNum}>{pendientes.length}</div><div style={s.statLabel}>Pendientes de firma</div></div>
+                  <div style={s.stat} title="Sin convenio + Enviado (mismos números que los recuadros y el kanban)"><div data-hero-pend="todos" style={s.statNum}>{etTodos.g0.length+etTodos.g1.length}</div><div style={s.statLabel}>Pendientes de firma</div></div>
                 </div>}
                 {sa && <div style={{...s.statsRow,marginTop:0,marginLeft:"auto"}}>
-                  <div style={s.stat}><div style={s.statNum}>{terrAsesor.length}</div><div style={s.statLabel}>Opciones</div></div>
-                  <div style={s.stat}><div style={{...s.statNum,color:terrPend?B.gold:undefined}}>{terrPend}</div><div style={s.statLabel}>Pendientes</div></div>
-                  <div style={s.stat}><div style={s.statNum}>{terrFirmados}</div><div style={s.statLabel}>Firmados</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{itemsSa.length}</div><div style={s.statLabel}>Opciones</div></div>
+                  <div style={s.stat}><div data-hero-pend="asesor" style={{...s.statNum,color:(etSa.g0.length+etSa.g1.length)?B.gold:undefined}}>{etSa.g0.length+etSa.g1.length}</div><div style={s.statLabel}>Pendientes</div></div>
+                  <div style={s.stat}><div style={s.statNum}>{etSa.g2.length}</div><div style={s.statLabel}>Firmados</div></div>
                 </div>}
               </div>
             )}
@@ -22326,7 +22423,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <div style={{fontSize:15,fontWeight:800,color:totalHuecos?"#b45309":"#15803d"}}>{totalHuecos? ("Detector de huecos · "+totalHuecos+" por resolver") : "Sin huecos · todos los terrenos tienen asesor y convenio"}</div>
                   <div style={{fontSize:12.5,color:B.grey4}}>{totalHuecos? ("Terrenos activos sin asesor asignado o sin convenio generado. Aquí no se escapa ninguno"+(cf?(" (filtrando "+ciudadF+")"):"")+".") : "Cada terreno opcionado tiene asesor y su convenio en marcha."}</div>
                 </div>
-                {asesoresSinConvenio.length>0 && <button disabled={bulkBusy} onClick={generarTodosHuecos} style={{...s.btn("sm"),background:bulkBusy?"#94a3b8":"#b45309",color:"#fff",boxShadow:"none",cursor:bulkBusy?"wait":"pointer",whiteSpace:"nowrap"}}>{bulkBusy?"Generando…":("⚡ Generar a todos ("+asesoresSinConvenio.length+")")}</button>}
+                {asesoresSinConvenio.length>0 && <button disabled={!!bulkBusy} onClick={generarTodosHuecos} title="Crea el convenio de cada asesor de corretaje sin convenio (no manda nada; quedan «Generada · sin enviar»)" style={{...s.btn("sm"),background:bulkBusy?"#94a3b8":"#b45309",color:"#fff",boxShadow:"none",cursor:bulkBusy?"wait":"pointer",whiteSpace:"nowrap"}}>{bulkBusy||("⚡ Generar a todos ("+asesoresSinConvenio.length+")")}</button>}
               </div>
 
               {/* (A) Terrenos SIN asesor — captaciones + lotes de corretaje (el caso Eliseo) */}
@@ -22378,7 +22475,7 @@ Respuesta: [respuesta exacta, conversacional]
               {/* (B) Asesores con terreno (captación o corretaje) SIN convenio generado */}
               {asesoresSinConvenio.length>0 && (
                 <div style={{background:"#fff",borderTop:"1px solid #fed7aa"}}>
-                  <div style={{padding:"10px 18px",background:"#fffbeb",fontSize:13,fontWeight:800,color:"#b45309"}}>🤝 {asesoresSinConvenio.length} asesor(es) con terreno de corretaje SIN convenio generado</div>
+                  <div style={{padding:"10px 18px",background:"#fffbeb",fontSize:13,fontWeight:800,color:"#b45309"}}>🤝 {asesoresSinConvenio.length} asesor(es) de corretaje (sin captación) SIN convenio generado</div>
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                       <thead><tr style={{textAlign:"left",color:B.navy,background:B.offW}}>
@@ -22388,11 +22485,11 @@ Respuesta: [respuesta exacta, conversacional]
                         <th style={{padding:"9px 14px",textAlign:"right"}}>Generar convenio</th>
                       </tr></thead>
                       <tbody>
-                        {asesoresSinConvenio.map((g,i)=>{ const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const abierto=capRow===norm(g.nombre); const abiertoDet=detRow===norm(g.nombre);
+                        {asesoresSinConvenio.map((g,i)=>{ const ctG=contactoDe(g.nombre); const em=ctG.email; const emOk=emailValido(em); const tel=ctG.telefono; const busy=ocupado(g.nombre); const abierto=capRow===norm(g.nombre); const abiertoDet=detRow===norm(g.nombre);
                           return (
                           <React.Fragment key={i}>
                           <tr style={{borderTop:"1px solid "+B.grey1}}>
-                            <td style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}} onClick={()=>setSel(g.nombre)} title="Ver su ficha de asesor">{g.nombre} <span style={{color:"#1d4ed8"}}>↗</span></td>
+                            <td style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}} onClick={()=>{ setSel(g.nombre); setModo("asesor"); }} title="Ver su ficha de asesor">{g.nombre} <span style={{color:"#1d4ed8"}}>↗</span></td>
                             <td style={{padding:"9px 14px",textAlign:"center"}}>
                               <button onClick={()=>setDetRow(abiertoDet?"":norm(g.nombre))} title="Ver cuáles terrenos son" style={{border:"none",background:"transparent",cursor:"pointer",fontFamily:"inherit",fontWeight:800,color:B.red,fontSize:13}}>
                                 {g.total} <span style={{color:"#1d4ed8",fontSize:11,fontWeight:700}}>{abiertoDet?"▾ ocultar":"▸ ver"}</span>
@@ -22405,8 +22502,8 @@ Respuesta: [respuesta exacta, conversacional]
                             </td>
                             <td style={{padding:"9px 14px",textAlign:"right"}}>
                               <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"nowrap"}}>
-                                <button disabled={busy} onClick={()=>genConvCorreo(g.nombre)} title="Generar y mandar la liga por correo" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:busy?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:busy?"wait":"pointer",whiteSpace:"nowrap"}}>{busy?"…":"📧 Correo"}</button>
-                                <button disabled={busy} onClick={()=>genConvWA(g.nombre)} title="Generar y mandar la liga por WhatsApp" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:busy?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:busy?"wait":"pointer",whiteSpace:"nowrap"}}>{busy?"…":"🟢 WhatsApp"}</button>
+                                <button disabled={!!busy} onClick={()=>genConvCorreo(g.nombre)} title="Generar y mandar la liga por correo" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:busy?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:busy?"wait":"pointer",whiteSpace:"nowrap"}}>{busy?"…":"📧 Correo"}</button>
+                                <button disabled={!!busy} onClick={()=>genConvWA(g.nombre)} title="Generar y mandar la liga por WhatsApp" style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:busy?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:busy?"wait":"pointer",whiteSpace:"nowrap"}}>{busy?"…":"🟢 WhatsApp"}</button>
                               </div>
                             </td>
                           </tr>
@@ -22453,14 +22550,14 @@ Respuesta: [respuesta exacta, conversacional]
                       </tbody>
                     </table>
                   </div>
-                  <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Corretaje (inventario de la Landing). “⚡ Generar a todos” crea los convenios de golpe (sin mandar nada) y los mete al flujo de recordatorios. Los botones 📧/🟢 generan y mandan la liga a ese asesor al instante.</div>
+                  <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Corretaje puro (asesores sin captación, inventario de la Landing). “⚡ Generar a todos” crea los convenios de golpe SIN mandar nada: quedan «Generada · sin enviar» en POR ENVIAR (abajo) hasta que se mande la liga. Los botones 📧/🟢 generan y mandan la liga a ese asesor al instante.</div>
                 </div>
               )}
 
               {/* Captación sin convenio → NO se duplica aquí; se genera en "Por asesor → Sin convenio". Solo acceso directo. */}
               {sinConvCaptacion>0 && (
                 <div style={{background:"#fff7ed",borderTop:"1px solid "+B.grey1,padding:"11px 18px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                  <span style={{fontSize:13,color:"#b45309",fontWeight:700,flex:"1 1 320px",minWidth:0}}>⏳ {sinConvCaptacion} terreno(s) de captación sin convenio — se generan en <b>Por asesor → Sin convenio</b> (no se repiten aquí).</span>
+                  <span style={{fontSize:13,color:"#b45309",fontWeight:700,flex:"1 1 320px",minWidth:0}}>⏳ {sinConvCaptacion} terreno(s) de asesores con captación sin convenio{sinConvMixtosLotes?(" (incluye "+sinConvMixtosLotes+" de corretaje)"):""} — se generan en <b>Por asesor → Sin convenio</b> (no se repiten aquí).</span>
                   <button onClick={()=>{ setModo("asesor"); setSel("__todos"); }} style={{...s.btn("sm"),background:"#b45309",color:"#fff",whiteSpace:"nowrap"}}>Ir a “Por asesor” →</button>
                 </div>
               )}
@@ -22471,14 +22568,14 @@ Respuesta: [respuesta exacta, conversacional]
               {(()=>{ const todos=asesoresEnviados.filter(g=>g.soloCorretaje); if(!todos.length) return null;
                 const yaEnviada=ligaYaEnviada;
                 const porEnviar=todos.filter(g=>!yaEnviada(g)), enviados=todos.filter(yaEnviada);
-                const fila=(g,i)=>{ const a=g.acuerdo||{}; const intentos=Number(a.recordatorio_intentos)||0; const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const liga=LANDING_URL+"/acuerdo/"+(a.token||""); const abierto=capRow===norm(g.nombre);
+                const fila=(g,i)=>{ const a=g.acuerdo||{}; const intentos=Number(a.recordatorio_intentos)||0; const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=!!ocupado(g.nombre); const liga=LANDING_URL+"/acuerdo/"+(a.token||""); const abierto=capRow===norm(g.nombre);
                           // Respaldo: si el catálogo no lo encuentra por nombre (p. ej. "Eliseo Gonzalez O"), se muestra el contacto que trae el propio convenio.
                           const emAc=emailValido(a.asesor_email)?a.asesor_email:""; const telAc=String(a.asesor_celular||"").trim();
                           const enviada=yaEnviada(g); const fEnv=a.liga_enviada_at||a.ultimo_recordatorio_at; const fechaEnv=fEnv?new Date(fEnv).toLocaleDateString("es-MX",{day:"numeric",month:"short"}):"";
                           return (
                           <React.Fragment key={i}>
                           <tr style={{borderTop:"1px solid "+B.grey1}}>
-                            <td style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}} onClick={()=>setSel(g.nombre)} title="Ver su ficha">{g.nombre} <span style={{color:"#1d4ed8"}}>↗</span></td>
+                            <td style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}} onClick={()=>{ setSel(g.nombre); setModo("asesor"); }} title="Ver su ficha">{g.nombre} <span style={{color:"#1d4ed8"}}>↗</span></td>
                             <td style={{padding:"9px 14px",textAlign:"center"}}>{enviada? pill("Enviada "+fechaEnv+(intentos>0?(" · recordatorio "+intentos+" de 5"):""),"#15803d","#ecfdf5") : pill("Generada · sin enviar","#b45309","#fff7ed")}</td>
                             <td style={{padding:"9px 14px",fontSize:12}}>
                               {(emOk||tel)? <span style={{color:B.grey5}}>{emOk?em:""}{emOk&&tel?" · ":""}{tel?("📱 "+tel):""}</span>
@@ -22542,7 +22639,7 @@ Respuesta: [respuesta exacta, conversacional]
               {/* Los de CAPTACIÓN ya generados viven en "Por asesor"; aquí sólo acceso directo, SIN duplicar la lista. */}
               {asesoresEnviados.filter(g=>!g.soloCorretaje).length>0 && (
                 <div style={{background:"#f8fafc",borderTop:"1px solid "+B.grey1,padding:"11px 18px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                  <span style={{fontSize:13,color:B.grey5,flex:"1 1 320px",minWidth:0}}>➕ {asesoresEnviados.filter(g=>!g.soloCorretaje).length} convenio(s) de captación ya generados, esperando firma — se gestionan en <b>Por asesor → Enviado</b> (no se repiten aquí).</span>
+                  <span style={{fontSize:13,color:B.grey5,flex:"1 1 320px",minWidth:0}}>➕ {asesoresEnviados.filter(g=>!g.soloCorretaje).length} convenio(s) de asesores con captación ya generados ({asesoresEnviados.filter(g=>!g.soloCorretaje&&ligaYaEnviada(g)).length} con liga enviada · el resto «Generada · sin enviar») — se gestionan en <b>Por asesor</b> (no se repiten aquí).</span>
                   <button onClick={()=>{ setModo("asesor"); setSel("__todos"); }} style={{...s.btn("sm"),background:B.navy,color:"#fff",whiteSpace:"nowrap"}}>Ir a “Por asesor” →</button>
                 </div>
               )}
@@ -22555,8 +22652,8 @@ Respuesta: [respuesta exacta, conversacional]
               <div onClick={()=>pendientes.length&&setVerPend(v=>!v)} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",background:pendientes.length?"#fef2f2":"#f0fdf4",cursor:pendientes.length?"pointer":"default"}}>
                 <span style={{fontSize:22}}>{pendientes.length?"⚠️":"✅"}</span>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:15,fontWeight:800,color:pendientes.length?"#b91c1c":"#15803d"}}>{pendientes.length? (pendientes.length+" convenio"+(pendientes.length===1?"":"s")+" pendiente"+(pendientes.length===1?"":"s")+" de firma") : "Sin convenios pendientes de firma"}</div>
-                  <div style={{fontSize:12.5,color:B.grey4}}>{pendientes.length? "Terrenos en inventario que NO se pueden publicar hasta firmar el convenio de comisiones." : "Todos los terrenos en inventario tienen su convenio firmado."}</div>
+                  <div style={{fontSize:15,fontWeight:800,color:pendientes.length?"#b91c1c":"#15803d"}}>{pendientes.length? (pendientes.length+" terreno"+(pendientes.length===1?"":"s")+" sin convenio firmado") : "Sin convenios pendientes de firma"}</div>
+                  <div style={{fontSize:12.5,color:B.grey4}}>{pendientes.length? ("Captaciones y lotes de corretaje que NO se pueden publicar hasta firmar el convenio de comisiones · "+etGlobal.g0.length+" sin convenio · "+etGlobal.g1.length+" enviados, por firmar.") : "Todos los terrenos en inventario tienen su convenio firmado."}</div>
                 </div>
                 {pendientes.length>0 && <span style={{...s.btn("sm"),background:"#b91c1c",color:"#fff",boxShadow:"none"}}>{verPend?"Ocultar":"Ver pendientes"}</span>}
               </div>
@@ -22572,9 +22669,9 @@ Respuesta: [respuesta exacta, conversacional]
                     <tbody>
                       {pendientes.map((c,i)=>(
                         <tr key={c.id||i} style={{borderTop:"1px solid "+B.grey1}}>
-                          <td style={{padding:"10px 14px",fontWeight:700,color:B.navy}}>{nombreTerreno(c)}{c.ciudad?<span style={{display:"block",fontSize:11,color:B.grey4,fontWeight:500}}>{c.ciudad}</span>:null}</td>
+                          <td style={{padding:"10px 14px",fontWeight:700,color:B.navy}}>{c.__lote?<span style={{fontSize:10,fontWeight:700,color:"#15803d",background:"#ecfdf5",borderRadius:6,padding:"2px 7px",marginRight:8}}>Corretaje</span>:null}{nombreTerreno(c)}{c.ciudad?<span style={{display:"block",fontSize:11,color:B.grey4,fontWeight:500}}>{c.ciudad}</span>:null}</td>
                           <td style={{padding:"10px 14px",color:B.grey5}}>{c.asesorResponsableGG||<span style={{color:"#b45309"}}>Sin asesor</span>}</td>
-                          <td style={{padding:"10px 14px"}}>{pill(estatusPend(c), estatusPend(c)==="Sin convenio"?"#b91c1c":"#b45309", estatusPend(c)==="Sin convenio"?"#fee2e2":"#fff7ed")}</td>
+                          <td style={{padding:"10px 14px"}}>{(()=>{ const ep=estatusPend(c); const rojo=ep==="Sin convenio"; return pill(ep, rojo?"#b91c1c":"#b45309", rojo?"#fee2e2":"#fff7ed"); })()}</td>
                           <td style={{padding:"10px 14px",textAlign:"right"}}>
                             {accionesFirma(c)}
                           </td>
@@ -22593,14 +22690,16 @@ Respuesta: [respuesta exacta, conversacional]
             <RqEstadisticas s={s} ciudad={cf?ciudadF:""}/>
           </>) : (verTodos ? (<>
             {/* 📊 RECUADROS POR ETAPA + ESQUEMA ELEGIDO + GRÁFICA POR ASESOR */}
-            {panelEtapas((captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf)))}
+            {panelEtapas(etTodos)}
 
             {/* 📊 RESUMEN POR ASESOR · cuántos terrenos, con convenio y pendientes */}
-            {(()=>{ const base=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf));
+            {(()=>{ // Mismas listas que el kanban (captaciones + corretaje): etTodos.
+              const firmSet=new Set(etTodos.g2);
+              const base=[...etTodos.g0,...etTodos.g1,...etTodos.g2];
               const map=new Map();
-              base.forEach(c=>{ const nomA=String(c.asesorResponsableGG||"Sin asesor").trim()||"Sin asesor"; const k=norm(nomA)||"__sin"; const e=map.get(k)||{nombre:nomA,total:0,firmados:0,pend:0}; e.total++; if(convenioOK(c)) e.firmados++; else e.pend++; map.set(k,e); });
+              base.forEach(c=>{ const nomA=String(c.asesorResponsableGG||"Sin asesor").trim()||"Sin asesor"; const k=nomA==="Sin asesor"?"__sin":asesorKey(nomA); const e=map.get(k)||{nombre:nomA,total:0,firmados:0,pend:0}; e.total++; if(firmSet.has(c)) e.firmados++; else e.pend++; map.set(k,e); });
               const rows=[...map.values()].sort((a,b)=> b.pend-a.pend || b.total-a.total || a.nombre.localeCompare(b.nombre));
-              const tot=base.length, totF=base.filter(convenioOK).length, totP=tot-totF;
+              const tot=base.length, totF=etTodos.g2.length, totP=tot-totF;
               return (
               <div style={{marginBottom:verResAse?40:24}}>
                 <div onClick={()=>setVerResAse(v=>{ const n=!v; FAset("resAse",n?"1":"0"); return n; })} title={verResAse?"Ocultar el resumen":"Mostrar el resumen"}
@@ -22609,7 +22708,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <span style={{fontSize:12,fontWeight:700,color:B.navy,background:"#fff",border:"1.5px solid #cbd5e1",borderRadius:999,padding:"4px 12px",fontFamily:"inherit"}}>{verResAse?"▾ Ocultar":"▸ Mostrar"}</span>
                 </div>
                 {verResAse && (<>
-                <div style={s.sectionSub}>{rows.length} asesor(es) con terrenos en opción{cf?(" en "+ciudadF):""} · {tot} terreno(s): <b style={{color:B.green}}>{totF} con convenio</b> · <b style={{color:B.red}}>{totP} pendiente(s) de firma</b>. {(()=>{ const sinC=rows.filter(r=>!emailValido(correoDe(r.nombre))).length; return sinC>0 ? <b style={{color:B.red}}>⚠ {sinC} sin correo válido — revísalos antes de enviar.</b> : <b style={{color:B.green}}>✅ Todos tienen correo válido.</b>; })()}</div>
+                <div style={s.sectionSub}>{rows.length} asesor(es) con terrenos en opción{cf?(" en "+ciudadF):""} · {tot} terreno(s): <b style={{color:B.green}}>{totF} con convenio</b> · <b style={{color:B.red}}>{totP} pendiente(s) de firma</b>. {(()=>{ const sinC=rows.filter(r=>!emailValido(contactoDe(r.nombre).email)).length; return sinC>0 ? <b style={{color:B.red}}>⚠ {sinC} sin correo válido — revísalos antes de enviar.</b> : <b style={{color:B.green}}>✅ Todos tienen correo válido.</b>; })()}</div>
                 <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden"}}>
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -22622,7 +22721,7 @@ Respuesta: [respuesta exacta, conversacional]
                         <th style={{padding:"11px 14px",width:"22%"}}>Avance de firma</th>
                       </tr></thead>
                       <tbody>
-                        {rows.map((r,i)=>{ const pct=r.total?Math.round(r.firmados/r.total*100):0; const em=correoDe(r.nombre); const emOk=emailValido(em); return (
+                        {rows.map((r,i)=>{ const pct=r.total?Math.round(r.firmados/r.total*100):0; const em=contactoDe(r.nombre).email; const emOk=emailValido(em); return (
                           <tr key={i} onClick={()=>setSel(r.nombre)} title="Ver la ficha de este asesor" style={{borderTop:"1px solid "+B.grey1,background:i%2?"#fff":B.offW,cursor:"pointer"}}>
                             <td style={{padding:"10px 14px",fontWeight:700,color:B.navy,whiteSpace:"nowrap"}}>{r.nombre} <span style={{color:"#1d4ed8"}}>↗</span></td>
                             <td style={{padding:"10px 14px",fontSize:12.5,whiteSpace:"nowrap"}}>{emOk? <span style={{color:B.grey5}}>{em}</span> : <span style={{color:B.red,fontWeight:700}}>⚠ {em?("revisar: "+em):"sin correo"}</span>}</td>
@@ -22642,7 +22741,7 @@ Respuesta: [respuesta exacta, conversacional]
                       </tbody>
                       <tfoot><tr style={{borderTop:"2px solid "+B.navy,background:B.navy+"0d",fontWeight:800}}>
                         <td style={{padding:"11px 14px",color:B.navy}}>TOTAL · {rows.length} asesor(es)</td>
-                        <td style={{padding:"11px 14px",color:B.grey4,fontSize:12}}>{(()=>{ const sinC=rows.filter(r=>!emailValido(correoDe(r.nombre))).length; return sinC>0?("⚠ "+sinC+" sin correo"):"✅ correos ok"; })()}</td>
+                        <td style={{padding:"11px 14px",color:B.grey4,fontSize:12}}>{(()=>{ const sinC=rows.filter(r=>!emailValido(contactoDe(r.nombre).email)).length; return sinC>0?("⚠ "+sinC+" sin correo"):"✅ correos ok"; })()}</td>
                         <td style={{padding:"11px 14px",textAlign:"center",color:B.navy}}>{tot}</td>
                         <td style={{padding:"11px 14px",textAlign:"center",color:B.green}}>{totF}</td>
                         <td style={{padding:"11px 14px",textAlign:"center",color:B.red}}>{totP}</td>
@@ -22658,26 +22757,26 @@ Respuesta: [respuesta exacta, conversacional]
 
 
             {/* 🗂️ TODOS LOS TERRENOS · kanban vertical (Sin convenio → Enviado → Firmado) */}
-            {(()=>{ const baseT=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && (!cf||norm(c.ciudad)===cf))
-                      .slice().sort((a,b)=>String(a.asesorResponsableGG||"").localeCompare(String(b.asesorResponsableGG||"")));
-              const nTram=baseT.filter(c=>!convenioOK(c)).length, nFirm=baseT.length-nTram;
+            {(()=>{ const ord=(lst)=>lst.slice().sort((a,b)=>String(a.asesorResponsableGG||"").localeCompare(String(b.asesorResponsableGG||""))||String(nombreTerreno(a)).localeCompare(String(nombreTerreno(b))));
+              const etK={g0:ord(etTodos.g0),g1:etTodos.g1,g2:ord(etTodos.g2)};
+              const nTram=etK.g0.length+etK.g1.length, nFirm=etK.g2.length, nT=nTram+nFirm, nCorrT=itemsTodos.filter(c=>c.__lote).length;
               return (
               <div style={{marginBottom:40}}>
                 <div style={s.sectionTitle}>🗂️ Todos los terrenos opcionados</div>
-                <div style={s.sectionSub}>{baseT.length} terreno(s){cf?(" en "+ciudadF):""} de todo el equipo · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Cada terreno baja de sección según avanza. Clic en el terreno para ver su ficha.</div>
+                <div style={s.sectionSub}>{nT} terreno(s){cf?(" en "+ciudadF):""} de todo el equipo{nCorrT?(" ("+nCorrT+" de corretaje)"):""} · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Cada terreno baja de sección según avanza. Clic en el terreno para ver su ficha.</div>
                 <div style={{display:"grid",gridTemplateColumns:(typeof window!=="undefined"&&window.innerWidth>900)?"200px minmax(0,1fr)":"1fr",gap:16,alignItems:"start"}}>
-                  {menuKanban(baseT)}
-                  <div style={{minWidth:0}}>{kanbanFirma(baseT,true)}</div>
+                  {menuKanban(etK)}
+                  <div style={{minWidth:0}}>{kanbanFirma(etK,true)}</div>
                 </div>
               </div>
               );
             })()}
           </>) : (sa && (<>
             {/* 📇 CAPTURA INLINE · correo/WhatsApp del asesor (para poder generar convenios) */}
-            {(!sa.email || !sa.telefono) && (
+            {(!ctSa.email || !ctSa.telefono) && (
               <div style={{...s.resultCard(1),marginBottom:20,borderLeft:"4px solid "+B.gold}}>
                 <div style={{fontSize:14,fontWeight:800,color:B.navy,marginBottom:3}}>📇 Datos del asesor</div>
-                <div style={{fontSize:12.5,color:B.grey4,marginBottom:10}}><b>{sa.nombre}</b> no tiene {!sa.email?"correo":""}{(!sa.email&&!sa.telefono)?" ni ":""}{!sa.telefono?"WhatsApp":""} en el catálogo. Captúralo aquí para generar y mandar sus convenios sin salir de esta pantalla.</div>
+                <div style={{fontSize:12.5,color:B.grey4,marginBottom:10}}><b>{sa.nombre}</b> no tiene {!ctSa.email?"correo":""}{(!ctSa.email&&!ctSa.telefono)?" ni ":""}{!ctSa.telefono?"WhatsApp":""} en el catálogo. Captúralo aquí para generar y mandar sus convenios sin salir de esta pantalla.</div>
                 <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
                   <input value={capEmail} onChange={e=>setCapEmail(e.target.value)} placeholder="correo@asesor.com" style={{...s.select,flex:"1 1 220px",cursor:"text",colorScheme:"light"}}/>
                   <input value={capTel} onChange={e=>setCapTel(e.target.value)} placeholder="WhatsApp (10 dígitos)" inputMode="numeric" style={{...s.select,flex:"1 1 170px",cursor:"text",colorScheme:"light"}}/>
@@ -22686,26 +22785,26 @@ Respuesta: [respuesta exacta, conversacional]
               </div>
             )}
             {/* 🗂️ FICHA DETALLADA · kanban vertical (Sin convenio → Enviado → Firmado) */}
-            {(()=>{ const baseT=(captaciones||[]).filter(c=> c && c.pipeline!=="Descartado" && norm(c.asesorResponsableGG)===norm(sa.nombre) && (!cf||norm(c.ciudad)===cf))
-                      .slice().sort((a,b)=>String(nombreTerreno(a)).localeCompare(String(nombreTerreno(b))));
-              const nTram=baseT.filter(c=>!convenioOK(c)).length, nFirm=baseT.length-nTram;
+            {(()=>{ // Sus captaciones + su corretaje, con la MISMA fuente de etapas que el héroe (etSa).
+              const baseT=itemsSa; const nCorrSa=baseT.filter(c=>c.__lote).length;
+              const nTram=etSa.g0.length+etSa.g1.length, nFirm=etSa.g2.length;
               return (
               <div style={{marginBottom:28}}>
                 <div style={s.sectionTitle}>🗂️ Terrenos opcionados · estatus de firma</div>
-                <div style={s.sectionSub}>{baseT.length} terreno(s) en opción de {sa.nombre}{cf?(" en "+ciudadF):""} · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Cada terreno baja de sección según avanza.</div>
+                <div style={s.sectionSub}>{baseT.length} terreno(s) en opción de {sa.nombre}{cf?(" en "+ciudadF):""}{nCorrSa?(" ("+nCorrSa+" de corretaje)"):""} · <b style={{color:nTram?B.red:B.green}}>{nTram} en trámite</b> · <b style={{color:B.green}}>{nFirm} firmado(s)</b>. Cada terreno baja de sección según avanza.</div>
                 {baseT.length>0 && (()=>{ const sh=compartirPipeline(baseT,sa); return (
                   <div style={{background:"#fff",border:"1px solid "+B.grey1,borderLeft:"4px solid #25D366",borderRadius:12,padding:"12px 16px",marginBottom:14}}>
-                    <ShareButtons url={sh.url} mensaje={sh.mensaje} asunto={sh.asunto} telefono={sa.telefono} email={sa.email} onToast={toast} mostrarMensaje etiqueta={"Compartir su pipeline con "+(n1(sa.nombre)||"el asesor")}/>
+                    <ShareButtons url={sh.url} mensaje={sh.mensaje} asunto={sh.asunto} telefono={ctSa.telefono} email={ctSa.email} onToast={toast} mostrarMensaje etiqueta={"Compartir su pipeline con "+(n1(sa.nombre)||"el asesor")}/>
                     <div style={{fontSize:11.5,color:B.grey4,marginTop:8}}>En cada terreno de abajo también puedes mandarle el estatus de ese cliente (botones 🟢 🔗 ✉).</div>
                   </div>); })()}
-                {nTram>0 && (()=>{ const p=baseT.find(c=>!convenioOK(c)); const busyP=genId===(p&&p.id); return (
+                {nTram>0 && (()=>{ const busyP=ocupado(sa.nombre); return (
                   <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",background:B.navy+"0a",border:"1px solid "+B.grey1,borderLeft:"4px solid "+B.gold,borderRadius:12,padding:"12px 14px",margin:"4px 0 16px"}}>
-                    <div style={{flex:"1 1 230px",minWidth:0,fontSize:13,color:B.grey5}}>📨 Manda a <b style={{color:B.navy}}>{sa.nombre}</b> sus <b style={{color:B.red}}>{nTram}</b> terreno(s) en trámite en <b>un solo mensaje</b> (todos juntos){sa.email?(" → "+sa.email):""}.</div>
-                    <button disabled={busyP} onClick={()=>enviarCorreoFirma(p)} style={{...s.btn("sm"),background:busyP?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:busyP?"wait":"pointer",whiteSpace:"nowrap"}}>{busyP?"Enviando…":("📧 Un solo correo con sus "+nTram)}</button>
-                    <button disabled={busyP} onClick={()=>enviarWhatsFirma(p)} style={{...s.btn("sm"),background:busyP?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:busyP?"wait":"pointer",whiteSpace:"nowrap"}}>🟢 WhatsApp con los {nTram}</button>
+                    <div style={{flex:"1 1 230px",minWidth:0,fontSize:13,color:B.grey5}}>📨 Manda a <b style={{color:B.navy}}>{sa.nombre}</b> sus <b style={{color:B.red}}>{nTram}</b> terreno(s) en trámite en <b>un solo mensaje</b> (todos juntos){ctSa.email?(" → "+ctSa.email):""}.</div>
+                    <button disabled={!!busyP} onClick={()=>mandarCorreoAsesor(sa.nombre)} style={{...s.btn("sm"),background:busyP?"#94a3b8":B.blue,color:"#fff",boxShadow:"none",cursor:busyP?"wait":"pointer",whiteSpace:"nowrap"}}>{busyP==="correo"?"Enviando…":("📧 Un solo correo con sus "+nTram)}</button>
+                    <button disabled={!!busyP} onClick={()=>mandarWAAsesor(sa.nombre)} style={{...s.btn("sm"),background:busyP?"#94a3b8":"#25D366",color:"#fff",boxShadow:"none",cursor:busyP?"wait":"pointer",whiteSpace:"nowrap"}}>🟢 WhatsApp con los {nTram}</button>
                   </div>
                 ); })()}
-                {baseT.length===0 ? <div style={{...s.resultCard(1),marginBottom:0,fontSize:13,color:B.grey3}}>Este asesor no tiene terrenos en opción.</div> : kanbanFirma(baseT,false)}
+                {baseT.length===0 ? <div style={{...s.resultCard(1),marginBottom:0,fontSize:13,color:B.grey3}}>Este asesor no tiene terrenos en opción.</div> : kanbanFirma(etSa,false)}
               </div>
               );
             })()}
@@ -22714,17 +22813,17 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={s.sectionTitle}>🤝 Convenio de comisión</div>
               <div style={s.sectionSub}>Esquema de comisión del asesor (se crea desde Cotización → “Enviar al asesor”).</div>
               {acs.length===0 ? vacio("Sin convenio registrado.") : acs.map(a=>{ const e=estAc(a.estado);
-                const intentos=Number(a.recordatorio_intentos)||0; const forzado=!!a.forzado_6040_at; const pendiente=a.estado==="pendiente"&&!forzado;
+                const intentos=Number(a.recordatorio_intentos)||0; const forzado=a.estado==="forzado_6040"||!!a.forzado_6040_at; const pendiente=a.estado==="pendiente"&&!forzado; const esPrincipal=((acuerdoDeAsesor(sa.nombre)||{}).id===a.id);
                 const liga=LANDING_URL+"/acuerdo/"+(a.token||""); const nomA=n1(sa.nombre)||"";
                 const msg="Hola "+nomA+", te saludamos del Equipo Macrolotes de Grupo Guía. Te pedimos de la manera más atenta que revises y firmes tu convenio de comisiones. Si en los próximos días no recibimos tu firma, daremos por entendido que eliges la opción 60/40. Fírmalo aquí:\n"+liga+"\n— Equipo Macrolotes de Grupo Guía";
                 return (
                 <div key={a.id||a.folio} style={{marginBottom:12}}>
                   <div style={{...s.resultCard(a.estado==="validado"?0:1),display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:0}}>
                     <div style={{flex:1,minWidth:200}}>
-                      <div style={{fontSize:15,fontWeight:800,color:B.navy}}>{a.esquema?("Esquema "+a.esquema):"Esquema —"} {a.folio?<span style={{fontSize:11,color:B.grey3,fontWeight:600}}>· {a.folio}</span>:null}{forzado?<span style={{fontSize:11,color:"#b45309",fontWeight:800,marginLeft:6}}>· opción 60/40 tomada</span>:null}</div>
-                      <div style={{fontSize:12.5,color:B.grey4,marginTop:3}}>{[a.terreno_nombre,a.propietario_nombre].filter(Boolean).join(" · ")||"—"}{a.firmado_at?(" · firmado "+fAMD(a.firmado_at)):(forzado?(" · se tomó la opción 60/40 el "+fAMD(a.forzado_6040_at)):"")}</div>
+                      <div style={{fontSize:15,fontWeight:800,color:B.navy}}>{a.esquema?("Esquema "+a.esquema):"Esquema —"} {a.folio?<span style={{fontSize:11,color:B.grey3,fontWeight:600}}>· {a.folio}</span>:null}{forzado?<span style={{fontSize:11,color:"#b45309",fontWeight:800,marginLeft:6}}>· 60/40 por política (sin firma del asesor)</span>:null}</div>
+                      <div style={{fontSize:12.5,color:B.grey4,marginTop:3}}>{[a.terreno_nombre,a.propietario_nombre].filter(Boolean).join(" · ")||"—"}{a.firmado_at?(" · firmado "+fAMD(a.firmado_at)):(forzado?(" · 60/40 aplicado por política el "+fAMD(a.forzado_6040_at)):"")}</div>
                     </div>
-                    {forzado?pill("Opción 60/40 tomada","#b45309","#fff7ed"):pill(e[0],e[1],e[2])}
+                    {forzado?pill("⚖️ 60/40 por política","#b45309","#fff7ed"):pill(e[0],e[1],e[2])}
                     <button onClick={()=>verPdf(a)} style={s.btn("sm")}>📄 PDF</button>
                   </div>
                   {pendiente && (
@@ -22737,9 +22836,11 @@ Respuesta: [respuesta exacta, conversacional]
                       </div>
                       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12,alignItems:"center"}}>
                         <span style={{fontSize:11.5,color:B.grey4}}>Reenviar la liga de firma:</span>
-                        <a href={rqWaUrl(sa.telefono,msg)} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",background:"#25D366",color:"#fff",fontWeight:800,fontSize:12.5,padding:"8px 13px",borderRadius:9}}>🟢 WhatsApp</a>
+                        {esPrincipal
+                          ? <button disabled={!!ocupado(sa.nombre)} onClick={()=>mandarWAAsesor(sa.nombre)} title="Manda la liga por WhatsApp y registra el envío" style={{border:"none",cursor:"pointer",fontFamily:"inherit",background:"#25D366",color:"#fff",fontWeight:800,fontSize:12.5,padding:"8px 13px",borderRadius:9}}>🟢 WhatsApp</button>
+                          : <a href={rqWaUrl(ctSa.telefono||a.asesor_celular,msg)} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",background:"#25D366",color:"#fff",fontWeight:800,fontSize:12.5,padding:"8px 13px",borderRadius:9}}>🟢 WhatsApp</a>}
                         <button onClick={async()=>{ try{ await navigator.clipboard.writeText(liga); toast("🔗 Liga copiada"); }catch(_){ try{ window.prompt("Copia la liga:",liga);}catch(e2){} } }} style={{...s.btn("sm"),background:B.navy,color:"#fff"}}>🔗 Copiar liga</button>
-                        <a href={"mailto:"+encodeURIComponent(a.asesor_email||sa.email||"")+"?subject="+encodeURIComponent("Firma tu convenio de comisiones")+"&body="+encodeURIComponent(msg)} style={{textDecoration:"none",...s.btn("sm")}}>✉️ Correo</a>
+                        <a href={"mailto:"+encodeURIComponent(ctSa.email||a.asesor_email||"")+"?subject="+encodeURIComponent("Firma tu convenio de comisiones")+"&body="+encodeURIComponent(msg)} style={{textDecoration:"none",...s.btn("sm")}}>✉️ Correo</a>
                       </div>
                       <div style={{fontSize:11,color:B.grey3,marginTop:8}}>El recordatorio automático sale solo cada 2 días; estos botones son para mandarlo a mano.</div>
                     </div>
