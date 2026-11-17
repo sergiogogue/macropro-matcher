@@ -21615,6 +21615,7 @@ Respuesta: [respuesta exacta, conversacional]
     // ── CONTROL DE RIESGO · Convenios pendientes de firma ──
     // Terrenos en inventario (captaciones activas) SIN convenio firmado/validado.
     const [verPend,setVerPend]=React.useState(false);
+    const [verResAse,setVerResAse]=React.useState(()=>FA("resAse","0")==="1"); // 📊 Resumen por asesor: oculto por defecto (se recuerda)
     const [genId,setGenId]=React.useState(""); // captación cuyo convenio se está generando
     // Captura inline de correo/WhatsApp del asesor (para generar convenios sin salir de la Ficha).
     const [capEmail,setCapEmail]=React.useState(""); const [capTel,setCapTel]=React.useState(""); const [capBusy,setCapBusy]=React.useState(false);
@@ -22429,8 +22430,13 @@ Respuesta: [respuesta exacta, conversacional]
               const rows=[...map.values()].sort((a,b)=> b.pend-a.pend || b.total-a.total || a.nombre.localeCompare(b.nombre));
               const tot=base.length, totF=base.filter(convenioOK).length, totP=tot-totF;
               return (
-              <div style={{marginBottom:40}}>
-                <div style={s.sectionTitle}>📊 Resumen por asesor</div>
+              <div style={{marginBottom:verResAse?40:24}}>
+                <div onClick={()=>setVerResAse(v=>{ const n=!v; FAset("resAse",n?"1":"0"); return n; })} title={verResAse?"Ocultar el resumen":"Mostrar el resumen"}
+                  style={{...s.sectionTitle,cursor:"pointer",userSelect:"none",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <span>📊 Resumen por asesor</span>
+                  <span style={{fontSize:12,fontWeight:700,color:B.navy,background:"#fff",border:"1.5px solid #cbd5e1",borderRadius:999,padding:"4px 12px",fontFamily:"inherit"}}>{verResAse?"▾ Ocultar":"▸ Mostrar"}</span>
+                </div>
+                {verResAse && (<>
                 <div style={s.sectionSub}>{rows.length} asesor(es) con terrenos en opción{cf?(" en "+ciudadF):""} · {tot} terreno(s): <b style={{color:B.green}}>{totF} con convenio</b> · <b style={{color:B.red}}>{totP} pendiente(s) de firma</b>. {(()=>{ const sinC=rows.filter(r=>!emailValido(correoDe(r.nombre))).length; return sinC>0 ? <b style={{color:B.red}}>⚠ {sinC} sin correo válido — revísalos antes de enviar.</b> : <b style={{color:B.green}}>✅ Todos tienen correo válido.</b>; })()}</div>
                 <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden"}}>
                   <div style={{overflowX:"auto"}}>
@@ -22473,6 +22479,7 @@ Respuesta: [respuesta exacta, conversacional]
                     </table>
                   </div>
                 </div>
+                </>)}
               </div>
               );
             })()}
