@@ -22346,12 +22346,20 @@ Respuesta: [respuesta exacta, conversacional]
                         <th style={{padding:"9px 14px",textAlign:"right"}}>Reenviar liga</th>
                       </tr></thead>
                       <tbody>
-                        {asesoresEnviados.filter(g=>g.soloCorretaje).map((g,i)=>{ const a=g.acuerdo||{}; const intentos=Number(a.recordatorio_intentos)||0; const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const liga=LANDING_URL+"/acuerdo/"+(a.token||"");
+                        {asesoresEnviados.filter(g=>g.soloCorretaje).map((g,i)=>{ const a=g.acuerdo||{}; const intentos=Number(a.recordatorio_intentos)||0; const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const liga=LANDING_URL+"/acuerdo/"+(a.token||""); const abierto=capRow===norm(g.nombre);
+                          // Respaldo: si el catálogo no lo encuentra por nombre (p. ej. "Eliseo Gonzalez O"), se muestra el contacto que trae el propio convenio.
+                          const emAc=emailValido(a.asesor_email)?a.asesor_email:""; const telAc=String(a.asesor_celular||"").trim();
                           return (
-                          <tr key={i} style={{borderTop:"1px solid "+B.grey1}}>
+                          <React.Fragment key={i}>
+                          <tr style={{borderTop:"1px solid "+B.grey1}}>
                             <td style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}} onClick={()=>setSel(g.nombre)} title="Ver su ficha">{g.nombre} <span style={{color:"#1d4ed8"}}>↗</span></td>
                             <td style={{padding:"9px 14px",textAlign:"center"}}>{pill("Generado · por firmar"+(intentos>0?(" · intento "+intentos+" de 5"):""),"#1d4ed8","#eff6ff")}</td>
-                            <td style={{padding:"9px 14px",fontSize:12}}>{(emOk||tel)? <span style={{color:B.grey5}}>{emOk?em:""}{emOk&&tel?" · ":""}{tel?("📱 "+tel):""}</span> : <span style={{color:B.red,fontWeight:700}}>⚠ sin contacto</span>}</td>
+                            <td style={{padding:"9px 14px",fontSize:12}}>
+                              {(emOk||tel)? <span style={{color:B.grey5}}>{emOk?em:""}{emOk&&tel?" · ":""}{tel?("📱 "+tel):""}</span>
+                                : (emAc||telAc)? <span style={{color:"#b45309"}} title="Viene del convenio; guárdalo en el catálogo con ✏️ Contacto para que Correo/WhatsApp funcionen">{emAc}{emAc&&telAc?" · ":""}{telAc?("📱 "+telAc):""} <b>(del convenio)</b></span>
+                                : <span style={{color:B.red,fontWeight:700}}>⚠ sin contacto</span>}
+                              <button onClick={()=>{ if(abierto){ setCapRow(""); return; } abrirCapRow(g.nombre); if(!(emOk||tel)){ if(emAc) setCapRowEmail(emAc); if(telAc) setCapRowTel(telAc); } }} title="Capturar o editar el correo/WhatsApp del asesor" style={{marginLeft:8,border:"1px solid "+B.grey1,background:"#fff",borderRadius:7,padding:"2px 8px",fontSize:11,fontWeight:700,color:abierto?B.red:B.navy,cursor:"pointer",whiteSpace:"nowrap"}}>{abierto?"✕ Cerrar":"✏️ Contacto"}</button>
+                            </td>
                             <td style={{padding:"9px 14px",textAlign:"right"}}>
                               <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"nowrap"}}>
                                 <button onClick={async()=>{ try{ await navigator.clipboard.writeText(liga); toast("🔗 Liga copiada"); }catch(_){ try{ window.prompt("Copia la liga:",liga);}catch(e2){} } }} style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:B.navy,color:"#fff",whiteSpace:"nowrap"}}>🔗 Liga</button>
@@ -22360,6 +22368,20 @@ Respuesta: [respuesta exacta, conversacional]
                               </div>
                             </td>
                           </tr>
+                          {abierto && (
+                            <tr style={{background:"#fbfdff"}}>
+                              <td colSpan={4} style={{padding:"10px 14px",borderTop:"1px dashed "+B.grey1}}>
+                                <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                                  <span style={{fontSize:12,fontWeight:700,color:B.navy}}>📇 Contacto de {g.nombre}:</span>
+                                  <input value={capRowEmail} onChange={e=>setCapRowEmail(e.target.value)} placeholder="correo@grupoguia.mx" style={{...s.select,flex:"1 1 220px",minWidth:180,cursor:"text",colorScheme:"light"}}/>
+                                  <input value={capRowTel} onChange={e=>setCapRowTel(e.target.value)} placeholder="WhatsApp (10 dígitos)" inputMode="numeric" style={{...s.select,flex:"1 1 170px",minWidth:140,cursor:"text",colorScheme:"light"}}/>
+                                  <button disabled={capRowBusy} onClick={()=>guardarContactoAsesor(g.nombre)} style={{...s.btn("sm"),background:capRowBusy?"#94a3b8":B.navy,color:"#fff",whiteSpace:"nowrap"}}>{capRowBusy?"Guardando…":"💾 Guardar"}</button>
+                                  <span style={{fontSize:11,color:B.grey4}}>Se guarda en el catálogo de asesores y los botones 📧/🟢 quedan listos.</span>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          </React.Fragment>
                         ); })}
                       </tbody>
                     </table>
