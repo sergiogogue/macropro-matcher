@@ -22212,7 +22212,7 @@ Respuesta: [respuesta exacta, conversacional]
               {acs.length===0 ? vacio("Sin convenio registrado.") : acs.map(a=>{ const e=estAc(a.estado);
                 const intentos=Number(a.recordatorio_intentos)||0; const forzado=!!a.forzado_6040_at; const pendiente=a.estado==="pendiente"&&!forzado;
                 const liga=LANDING_URL+"/acuerdo/"+(a.token||""); const nomA=n1(sa.nombre)||"";
-                const msg="Hola "+nomA+", te saludamos de Grupo Guía. Te pedimos de la manera más atenta que revises y firmes tu convenio de comisiones. Si en los próximos días no recibimos tu firma, daremos por entendido que eliges la opción 60/40. Fírmalo aquí:\n"+liga;
+                const msg="Hola "+nomA+", te saludamos del Equipo Macrolotes de Grupo Guía. Te pedimos de la manera más atenta que revises y firmes tu convenio de comisiones. Si en los próximos días no recibimos tu firma, daremos por entendido que eliges la opción 60/40. Fírmalo aquí:\n"+liga+"\n— Equipo Macrolotes de Grupo Guía";
                 return (
                 <div key={a.id||a.folio} style={{marginBottom:12}}>
                   <div style={{...s.resultCard(a.estado==="validado"?0:1),display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:0}}>
@@ -22523,7 +22523,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.02</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.03</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
