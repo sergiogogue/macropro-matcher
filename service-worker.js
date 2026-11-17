@@ -1,4 +1,4 @@
-// MacroPro Service Worker — v3 (v6.07)
+// MacroPro Service Worker — v3 (v6.08)
 // Estrategia por tipo de recurso:
 //   • La app (index.html y archivos propios): RED PRIMERO → siempre trae la versión nueva;
 //     sin internet usa la copia guardada.
@@ -11,7 +11,7 @@
 //     Antes se guardaba cada respuesta de Supabase en caché (megabytes cada 45 s).
 // El código traducido de la app vive en "mp-app-compilado" (lo maneja index.html).
 
-const CACHE_NAME = 'macropro-v109';
+const CACHE_NAME = 'macropro-v110';
 const CDN_CACHE = 'mp-cdn-v1';
 const CONSERVAR = [CACHE_NAME, CDN_CACHE, 'mp-app-compilado'];
 const APP_SHELL = ['./', './index.html', './manifest.json'];
