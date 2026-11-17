@@ -21722,14 +21722,17 @@ Respuesta: [respuesta exacta, conversacional]
       capActivas.forEach(c=>{ if(String(c.asesorResponsableGG||"").trim()) add(c.asesorResponsableGG,{cap:c}); });
       lotesCorretaje.forEach(l=>{ if(String(l.asesor||"").trim()) add(l.asesor,{lote:l}); });
       return [...m.values()]; })();
-    // Clasificación ÚNICA (un asesor, un bucket): firmado (fuera) · generado-esperando-firma (C) · sin convenio (B).
-    const asesoresSinConvenio=[]; const asesoresEnviados=[];
+    // Clasificación ÚNICA (un asesor, un bucket). Para NO duplicar con el tablero "Por asesor"
+    // (que es de CAPTACIONES), la pestaña "Sin asesor" se queda con el CORRETAJE y los huecos;
+    // lo de captación se cuenta y se manda con un acceso directo a "Por asesor".
+    const asesoresSinConvenio=[]; const asesoresEnviados=[]; let sinConvCaptacion=0;
     universoAse.forEach(e=>{
       if(asesorFirmo(e.nombre)) return;                                   // ya firmó → cubierto, fuera del detector
       const tok=acuerdoDeAsesor(e.nombre);
-      if(tok && tok.token){ asesoresEnviados.push({nombre:e.nombre,acuerdo:tok}); return; } // (C) ya tiene liga, esperando firma
+      if(tok && tok.token){ asesoresEnviados.push({nombre:e.nombre,acuerdo:tok,soloCorretaje:(e.caps.length===0 && e.lotes.length>0)}); return; } // (C) ya tiene liga, esperando firma
       const capsPend=e.caps.filter(c=>!convenioOK(c));
-      if(capsPend.length || e.lotes.length) asesoresSinConvenio.push({nombre:e.nombre,caps:capsPend,lotes:e.lotes,total:capsPend.length+e.lotes.length}); // (B) falta generar
+      if(e.lotes.length){ asesoresSinConvenio.push({nombre:e.nombre,caps:capsPend,lotes:e.lotes,total:capsPend.length+e.lotes.length}); } // (B) tiene corretaje → su hogar es esta pestaña
+      else if(capsPend.length){ sinConvCaptacion += capsPend.length; } // captación pura → se genera en "Por asesor → Sin convenio"
     });
     asesoresSinConvenio.sort((a,b)=> b.total-a.total || a.nombre.localeCompare(b.nombre));
     asesoresEnviados.sort((a,b)=> (Number(a.acuerdo&&a.acuerdo.recordatorio_intentos)||0)-(Number(b.acuerdo&&b.acuerdo.recordatorio_intentos)||0) || a.nombre.localeCompare(b.nombre));
@@ -22165,7 +22168,7 @@ Respuesta: [respuesta exacta, conversacional]
               </div>
               <button onClick={()=>{ setEditingCaptacion(nuevaCaptacion()); setShowCaptacionModal(true); }} title="Registrar un terreno que falta (p. ej. uno que un asesor opcionó y nunca se capturó)" style={{padding:"10px 16px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#15803d,#22c55e)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(21,128,61,0.35)"}}>➕ Registrar terreno</button>
             </div>
-            <div style={{marginBottom:14,fontSize:12,color:B.grey4}}>Cubre <b>toda la base</b>: terrenos opcionados (captaciones) <b>y</b> el inventario de corretaje (lotes de la Landing). El convenio es uno por asesor y cubre todos sus terrenos.</div>
+            <div style={{marginBottom:14,fontSize:12,color:B.grey4}}>Aquí viven los <b>huecos</b> (terrenos sin asesor) y el <b>corretaje</b> (lotes de la Landing). Los convenios de <b>captación</b> se gestionan en <b>Por asesor</b> — cada asesor aparece en un solo lugar, sin duplicados. El convenio es uno por asesor y cubre todos sus terrenos.</div>
             {sinAsesorTotal===0 && (
               <div style={{marginBottom:16,padding:"12px 16px",borderRadius:10,border:"1px dashed "+B.grey1,background:"#f8fafc",fontSize:12.5,color:B.grey5,lineHeight:1.55}}>
                 ✓ Por ahora <b>no hay terrenos sin asesor</b> (ni en captaciones ni en el corretaje de la Landing). ¿Te falta registrar uno? Dale a <b>➕ Registrar terreno</b> (arriba) y pon al asesor en <b>“Asesor responsable (Grupo Guía)”</b>.
@@ -22231,7 +22234,7 @@ Respuesta: [respuesta exacta, conversacional]
               {/* (B) Asesores con terreno (captación o corretaje) SIN convenio generado */}
               {asesoresSinConvenio.length>0 && (
                 <div style={{background:"#fff",borderTop:"1px solid #fed7aa"}}>
-                  <div style={{padding:"10px 18px",background:"#fffbeb",fontSize:13,fontWeight:800,color:"#b45309"}}>🤝 {asesoresSinConvenio.length} asesor(es) con terreno pero SIN convenio generado</div>
+                  <div style={{padding:"10px 18px",background:"#fffbeb",fontSize:13,fontWeight:800,color:"#b45309"}}>🤝 {asesoresSinConvenio.length} asesor(es) con terreno de corretaje SIN convenio generado</div>
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                       <thead><tr style={{textAlign:"left",color:B.navy,background:B.offW}}>
@@ -22306,14 +22309,22 @@ Respuesta: [respuesta exacta, conversacional]
                       </tbody>
                     </table>
                   </div>
-                  <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Incluye terrenos opcionados (captación) <b>y</b> de corretaje (inventario de la Landing). “⚡ Generar a todos” crea los convenios de golpe (sin mandar nada) y los mete al flujo de recordatorios. Los botones 📧/🟢 generan y mandan la liga a ese asesor al instante.</div>
+                  <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Corretaje (inventario de la Landing). “⚡ Generar a todos” crea los convenios de golpe (sin mandar nada) y los mete al flujo de recordatorios. Los botones 📧/🟢 generan y mandan la liga a ese asesor al instante.</div>
                 </div>
               )}
 
-              {/* (C) Convenios YA generados, esperando firma — a dónde van al darles "Generar" */}
-              {asesoresEnviados.length>0 && (
+              {/* Captación sin convenio → NO se duplica aquí; se genera en "Por asesor → Sin convenio". Solo acceso directo. */}
+              {sinConvCaptacion>0 && (
+                <div style={{background:"#fff7ed",borderTop:"1px solid "+B.grey1,padding:"11px 18px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                  <span style={{fontSize:13,color:"#b45309",fontWeight:700,flex:"1 1 320px",minWidth:0}}>⏳ {sinConvCaptacion} terreno(s) de captación sin convenio — se generan en <b>Por asesor → Sin convenio</b> (no se repiten aquí).</span>
+                  <button onClick={()=>{ setModo("asesor"); setSel("__todos"); }} style={{...s.btn("sm"),background:"#b45309",color:"#fff",whiteSpace:"nowrap"}}>Ir a “Por asesor” →</button>
+                </div>
+              )}
+
+              {/* (C) CORRETAJE ya generado, esperando firma — su ÚNICO hogar (el corretaje no vive en "Por asesor"). */}
+              {asesoresEnviados.filter(g=>g.soloCorretaje).length>0 && (
                 <div style={{background:"#fff",borderTop:"1px solid "+B.grey1}}>
-                  <div style={{padding:"10px 18px",background:"#f0f9ff",fontSize:13,fontWeight:800,color:"#1d4ed8"}}>✅ {asesoresEnviados.length} convenio(s) generado(s) · esperando firma — aquí llegaron al darles “Generar”. Reenvíales la liga cuando quieras.</div>
+                  <div style={{padding:"10px 18px",background:"#f0f9ff",fontSize:13,fontWeight:800,color:"#1d4ed8"}}>✅ {asesoresEnviados.filter(g=>g.soloCorretaje).length} convenio(s) de corretaje · esperando firma — reenvíales la liga cuando quieras.</div>
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                       <thead><tr style={{textAlign:"left",color:B.navy,background:B.offW}}>
@@ -22323,12 +22334,12 @@ Respuesta: [respuesta exacta, conversacional]
                         <th style={{padding:"9px 14px",textAlign:"right"}}>Reenviar liga</th>
                       </tr></thead>
                       <tbody>
-                        {asesoresEnviados.map((g,i)=>{ const a=g.acuerdo||{}; const intentos=Number(a.recordatorio_intentos)||0; const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const liga=LANDING_URL+"/acuerdo/"+(a.token||"");
+                        {asesoresEnviados.filter(g=>g.soloCorretaje).map((g,i)=>{ const a=g.acuerdo||{}; const intentos=Number(a.recordatorio_intentos)||0; const em=correoDe(g.nombre); const emOk=emailValido(em); const info=asesorInfo(g.nombre); const tel=info&&info.telefono; const busy=genNom===norm(g.nombre); const liga=LANDING_URL+"/acuerdo/"+(a.token||"");
                           return (
                           <tr key={i} style={{borderTop:"1px solid "+B.grey1}}>
                             <td style={{padding:"9px 14px",fontWeight:700,color:B.navy,cursor:"pointer"}} onClick={()=>setSel(g.nombre)} title="Ver su ficha">{g.nombre} <span style={{color:"#1d4ed8"}}>↗</span></td>
                             <td style={{padding:"9px 14px",textAlign:"center"}}>{pill("Generado · por firmar"+(intentos>0?(" · intento "+intentos+" de 5"):""),"#1d4ed8","#eff6ff")}</td>
-                            <td style={{padding:"9px 14px",fontSize:12}}>{(emOk||tel)? <span style={{color:B.grey5}}>{emOk?em:""}{emOk&&tel?" · ":""}{tel?("📱 "+tel):""}</span> : <span style={{color:B.red,fontWeight:700}}>⚠ sin contacto — ✏️ captúralo arriba</span>}</td>
+                            <td style={{padding:"9px 14px",fontSize:12}}>{(emOk||tel)? <span style={{color:B.grey5}}>{emOk?em:""}{emOk&&tel?" · ":""}{tel?("📱 "+tel):""}</span> : <span style={{color:B.red,fontWeight:700}}>⚠ sin contacto</span>}</td>
                             <td style={{padding:"9px 14px",textAlign:"right"}}>
                               <div style={{display:"flex",gap:6,justifyContent:"flex-end",alignItems:"center",flexWrap:"nowrap"}}>
                                 <button onClick={async()=>{ try{ await navigator.clipboard.writeText(liga); toast("🔗 Liga copiada"); }catch(_){ try{ window.prompt("Copia la liga:",liga);}catch(e2){} } }} style={{...s.btn("sm"),padding:"4px 10px",fontSize:12,background:B.navy,color:"#fff",whiteSpace:"nowrap"}}>🔗 Liga</button>
@@ -22341,7 +22352,14 @@ Respuesta: [respuesta exacta, conversacional]
                       </tbody>
                     </table>
                   </div>
-                  <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Estos ya tienen su convenio creado; además el recordatorio automático les llega solo cada 2 días hasta que firmen.</div>
+                  <div style={{padding:"9px 18px",fontSize:11.5,color:B.grey4,background:B.offW}}>Son de corretaje (no están en “Por asesor”). El recordatorio automático les llega solo cada 2 días hasta que firmen.</div>
+                </div>
+              )}
+              {/* Los de CAPTACIÓN ya generados viven en "Por asesor"; aquí sólo acceso directo, SIN duplicar la lista. */}
+              {asesoresEnviados.filter(g=>!g.soloCorretaje).length>0 && (
+                <div style={{background:"#f8fafc",borderTop:"1px solid "+B.grey1,padding:"11px 18px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                  <span style={{fontSize:13,color:B.grey5,flex:"1 1 320px",minWidth:0}}>➕ {asesoresEnviados.filter(g=>!g.soloCorretaje).length} convenio(s) de captación ya generados, esperando firma — se gestionan en <b>Por asesor → Enviado</b> (no se repiten aquí).</span>
+                  <button onClick={()=>{ setModo("asesor"); setSel("__todos"); }} style={{...s.btn("sm"),background:B.navy,color:"#fff",whiteSpace:"nowrap"}}>Ir a “Por asesor” →</button>
                 </div>
               )}
             </div>
@@ -22819,7 +22837,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.12</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.13</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
