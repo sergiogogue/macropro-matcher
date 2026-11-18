@@ -3247,6 +3247,7 @@ ${cuerpo}
 const CO_UI={}; // estado de UI por ficha (sobrevive si la ficha se re-monta)
 // Reporte de captación plegable: recuerda si quedó abierto (por equipo). Cerrado por defecto.
 // 🔎 Filtros del tablero de captación (asesor · cliente · ciudad). Se recuerdan por equipo.
+const MP_NAV_H={h:0}; // alto del menú superior fijo (para pegar barras debajo de él)
 const CAP_FILTRO=(()=>{ try{ const o=JSON.parse(localStorage.getItem("mp_cap_filtro")||"{}"); return {asesor:o.asesor||"",cliente:o.cliente||"",ciudad:o.ciudad||""}; }catch(e){ return {asesor:"",cliente:"",ciudad:""}; } })();
 const CAP_REP_UI={ abierto:(()=>{ try{ return localStorage.getItem("mp_cap_reporte_abierto")==="1"; }catch(e){ return false; } })() };
 // 👔 Liga INFORMATIVA del asesor (solo lectura: no puede firmar ni responder) · sql v4.
@@ -19358,6 +19359,11 @@ Respuesta: [respuesta exacta, conversacional]
     const viabInfo = (v)=> VIABILIDAD_CAPTACION.find(x=>x.v===v) || null;
     // ── 🔎 FILTROS: asesor · cliente · ciudad. Las listas solo traen valores que SÍ tienen terreno en el tablero.
     const [fCap,setFCapRaw]=React.useState(()=>({...CAP_FILTRO}));
+    // La barra de filtros se queda pegada debajo del menú superior al bajar con el scroll (pantallas anchas).
+    const [capNavH,setCapNavH]=React.useState(()=>MP_NAV_H.h||64);
+    const [capAncho,setCapAncho]=React.useState(()=>typeof window!=="undefined"&&window.innerWidth>760);
+    React.useEffect(()=>{ const m=()=>{ try{ setCapAncho(window.innerWidth>760); const n=document.querySelector("nav"); if(n){ const h=Math.ceil(n.getBoundingClientRect().height); if(h>0){ MP_NAV_H.h=h; setCapNavH(h); } } }catch(e){} };
+      m(); const t=setTimeout(m,500); window.addEventListener("resize",m); return ()=>{ clearTimeout(t); window.removeEventListener("resize",m); }; },[]);
     const setFCap=(k,v)=>{ CAP_FILTRO[k]=v; try{ localStorage.setItem("mp_cap_filtro",JSON.stringify(CAP_FILTRO)); }catch(e){} setFCapRaw({...CAP_FILTRO}); };
     const limpiarFCap=()=>{ ["asesor","cliente","ciudad"].forEach(k=>{ CAP_FILTRO[k]=""; }); try{ localStorage.setItem("mp_cap_filtro",JSON.stringify(CAP_FILTRO)); }catch(e){} setFCapRaw({...CAP_FILTRO}); };
     const fcN=(x)=>String(x||"").trim().replace(/\s+/g," ");
@@ -19417,7 +19423,7 @@ Respuesta: [respuesta exacta, conversacional]
         </div>
 
         {/* 🔎 Filtros: solo asesores, clientes y ciudades que tienen terreno en el tablero */}
-        <div data-cap-filtros style={{display:"flex", gap:10, alignItems:"flex-end", flexWrap:"wrap", background:hayFiltro?"#fffbeb":B.white, border:"1.5px solid "+(hayFiltro?"#f59e0b":B.grey1), borderRadius:12, padding:"12px 14px", marginBottom:16}}>
+        <div data-cap-filtros style={{display:"flex", gap:10, alignItems:"flex-end", flexWrap:"wrap", background:hayFiltro?"#fffbeb":B.white, border:"1.5px solid "+(hayFiltro?"#f59e0b":B.grey1), borderRadius:12, padding:"12px 14px", marginBottom:16, ...(capAncho?{position:"sticky", top:capNavH+8, zIndex:60, boxShadow:"0 6px 18px rgba(0,43,73,0.10)"}:{})}}>
           <div style={{fontSize:12, fontWeight:800, color:B.navy, alignSelf:"center", marginRight:4}}>🔎 Filtrar</div>
           {[["asesor","👔 Asesor","Todos los asesores"],["cliente","👤 Cliente","Todos los clientes"],["ciudad","📍 Ciudad","Todas las ciudades"]].map(([k,t,todos])=>{ const ops=opcionesDe(k); const on=!!fCap[k]; return (
             <div key={k} style={{display:"flex", flexDirection:"column", gap:4, flex:"1 1 200px", minWidth:180}}>
