@@ -88,7 +88,7 @@ create or replace function public.sla_docs_faltantes(p_docs jsonb, p_liga_maps t
 returns text[] language sql immutable as $$
   with req(nombre, patron, orden) as (values
     ('Escrituras',            'escritura',                                         1),
-    ('Uso de suelo',          'uso de suelo|usos y destinos|trazos',               2),
+    ('Uso de suelo',          'uso de suelo|usos y destinos|trazos|dictamen de autorizacion', 2),
     ('Libertad de gravamen',  'gravamen',                                          3),
     ('INE',                   '(^|[^a-z])ine([^a-z]|$)|identificacion|instituto nacional electoral', 4),
     ('Plano',                 'plano|levantamiento|medicion',                      5),
