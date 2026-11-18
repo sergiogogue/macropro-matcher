@@ -2940,6 +2940,8 @@ const coFH=(iso)=>{ if(!iso) return ""; try{ return new Date(iso).toLocaleString
 const coRondas=(c)=>((c&&c.cartas_oferta_rondas)||[]).slice().sort((a,b)=>a.ronda-b.ronda);
 const coActual=(c)=>{ const rs=coRondas(c); return rs.find(r=>r.ronda===c.ronda_actual)||rs[rs.length-1]||{}; };
 const coEspera=(c)=> c.estado==="enviada_comprador"?{rol:"comprador",exp:c.token_comprador_exp}:(c.estado==="enviada_vendedor"?{rol:"vendedor",exp:c.token_vendedor_exp}:null);
+// Quién propone cada ronda. Ronda >1 con propone=grupo_guia = contraoferta capturada por Grupo Guía (v6).
+const coQuien=(x)=>{ if(x&&x.propone==="grupo_guia"&&Number(x.ronda)>1) return "Contraoferta GG"+(x.solicita==="vendedor"?" · la pidió el vendedor":(x.solicita==="comprador"?" · la pidió el comprador":" · reenvío a firma")); return x&&x.propone==="vendedor"?"Vendedor":(x&&x.propone==="comprador"?"Comprador":"Comprador (oferta original)"); };
 const coVencida=(c)=>{ const e=coEspera(c); return !!(e&&e.exp&&new Date(e.exp)<new Date()); };
 
 // Número → letras (es-MX) para montos y superficies: 13800000 → "trece millones ochocientos mil".
@@ -2974,7 +2976,7 @@ function coImprimir(c, modo){
   const fLarga=(iso)=>new Date(iso||Date.now()).toLocaleDateString("es-MX",{day:"numeric",month:"long",year:"numeric"});
   const sup=Number(c.superficie_m2)||0, total=Number(r.total)||sup*(Number(r.precio_m2)||0), apt=Number(c.apartado)||0;
   const vence=(c.estado==="enviada_vendedor"&&c.token_vendedor_exp)||(c.estado==="enviada_comprador"&&c.token_comprador_exp)||new Date(new Date(c.created_at||Date.now()).getTime()+10*864e5).toISOString();
-  const contra=r.propone&&r.propone!=="grupo_guia";
+  const contraGG=r.propone==="grupo_guia"&&Number(r.ronda)>1; const contra=(r.propone&&r.propone!=="grupo_guia")||contraGG;
   const empresa=String(c.comprador_empresa||"").trim(), persona=String(c.comprador_nombre||"").trim();
   const comprador=conf?`<span class="cf">INVERSIONISTA CONFIDENCIAL</span>`:(empresa?`<b>${esc(empresa)}</b>${persona?`, representada en este acto por <b>${esc(persona)}</b>`:""}`:`<b>${esc(persona||"—")}</b>`);
   const sello=(ok,lines,tit)=> ok?`<div class="se"><b>✓ ${tit||"Firmado electrónicamente"}</b>${lines.filter(Boolean).map(esc).join("<br>")}</div>`:`<div class="pe">⏳ Pendiente</div>`;
@@ -2982,7 +2984,7 @@ function coImprimir(c, modo){
   // Grupo Guía RECIBE (no acepta ni autoriza la oferta); quien ACEPTA es el vendedor.
   const fG=sello(!!c.gg_firma_at,[coFH(c.gg_firma_at)+(c.gg_firma_ip?(" · IP "+c.gg_firma_ip):""), c.gg_firma_email],"Recibida");
   const fV=sello(!!r.vendedor_firma_at,[coFH(r.vendedor_firma_at)+(r.vendedor_firma_ip?(" · IP "+r.vendedor_firma_ip):""), r.vendedor_firma_email],r.propone==="vendedor"?"Contrapropuesta firmada":"Aceptada electrónicamente");
-  const hist=rs.length>1?`<div class="cl"><span class="n">ANEXO. Historial de la negociación.</span></div><table class="hi"><tr><th>Ronda</th><th>Propuesta de</th><th>Precio por m²</th><th>Total</th><th>Forma de pago</th></tr>${rs.map(x=>`<tr${x.ronda===r.ronda?' class="ac"':''}><td>${x.ronda}</td><td>${x.propone==="grupo_guia"?"Comprador (oferta original)":(x.propone==="vendedor"?"Vendedor":"Comprador")}</td><td>${coMx(x.precio_m2)}</td><td>${coMx(x.total)}</td><td>${esc(x.forma_pago)}</td></tr>`).join("")}</table>`:"";
+  const hist=rs.length>1?`<div class="cl"><span class="n">ANEXO. Historial de la negociación.</span></div><table class="hi"><tr><th>Ronda</th><th>Propuesta de</th><th>Precio por m²</th><th>Total</th><th>Forma de pago</th></tr>${rs.map(x=>`<tr${x.ronda===r.ronda?' class="ac"':''}><td>${x.ronda}</td><td>${esc(coQuien(x))}</td><td>${coMx(x.precio_m2)}</td><td>${coMx(x.total)}</td><td>${esc(x.forma_pago)}</td></tr>`).join("")}</table>`:"";
   const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(c.folio)} · Carta oferta${conf?" (confidencial)":""}</title>
 <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@400;700;800&display=swap" rel="stylesheet">
 <style>@page{size:letter;margin:11mm 14mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{margin:0;font-family:'EB Garamond',Georgia,serif;color:#1f2937;font-size:10.6pt;line-height:1.36}
@@ -3000,7 +3002,7 @@ table.hi{margin:1px 0 5px;border-collapse:collapse;width:100%;font:8px 'DM Sans'
 .ac2{margin:8px 0 0;font-size:9.8pt}.cc{font-size:8.8pt;color:#6b7280;margin-top:6px}
 .lg2{margin-top:7px;padding-top:5px;border-top:1px solid #d6dbe3;font:7.2px/1.45 'DM Sans',sans-serif;color:#6b7280;text-align:justify}.pie{margin-top:4px;font:7px 'DM Sans',sans-serif;color:#9ca3af;text-align:center;letter-spacing:.5px}</style></head><body><div class="hoja">
 ${conf?'<div class="mk">CONFIDENCIAL</div>':''}
-<div class="cab"><span class="lg"><img src="${logo}"></span><div class="fo">Folio <b>${esc(c.folio)}</b><br>Ronda ${r.ronda||1} · ${contra?("Contrapropuesta del "+(r.propone==="vendedor"?"vendedor":"comprador")):"Oferta original"}<br>Vigente al ${fLarga(vence)}</div></div><div class="oro"></div>
+<div class="cab"><span class="lg"><img src="${logo}"></span><div class="fo">Folio <b>${esc(c.folio)}</b><br>Ronda ${r.ronda||1} · ${contraGG?"Contraoferta acordada":(contra?("Contrapropuesta del "+(r.propone==="vendedor"?"vendedor":"comprador")):"Oferta original")}<br>Vigente al ${fLarga(vence)}</div></div><div class="oro"></div>
 <div class="lu">Guadalajara, Jalisco, a ${fLarga(c.created_at)}.</div>
 <div><div class="k">Dirigida a</div><div class="rs">${CO_RAZON_SOCIAL}</div><div>Grupo Guía · Macrolotes · <span class="pr">P r e s e n t e.</span></div></div>
 <div class="as"><span class="k" style="margin-right:8px">Asunto</span><b>${contra?("Contrapropuesta · Ronda "+r.ronda+" — "):"Carta oferta de compra — "}Terreno ${esc(c.terreno_nombre)}${c.terreno_ubicacion?(", "+esc(c.terreno_ubicacion)):""} (${sup.toLocaleString("es-MX")} m²).</b></div>
@@ -3071,6 +3073,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   const [form,setFormRaw]=useState(()=>(CO_UI[uiKey]&&CO_UI[uiKey].form)||null);
   const setForm=(fn)=>setFormRaw(prev=>{ const v=typeof fn==="function"?fn(prev):fn; CO_UI[uiKey]={...(CO_UI[uiKey]||{}),form:v}; return v; });
   const [vend,setVend]=useState({});            // {[cartaId]: {nombre,email,tel}}
+  const [cof,setCof]=useState(null);            // 🔄 contraoferta / reenvío a firma (una carta a la vez)
   const supCap=coNum(cap&&cap.superficie);
   const nombreTerr=String((cap&&(cap.zona||cap.ubicacion))||"").trim()||(cap&&cap.propietario?("Terreno de "+cap.propietario):"Terreno");
   const ubic=[cap&&cap.ubicacion&&cap.ubicacion!==cap.zona?cap.ubicacion:"", cap&&cap.ciudad].filter(Boolean).join(", ");
@@ -3151,6 +3154,28 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
     const msg="Hola "+(String(nom).trim().split(/\s+/)[0]||"")+", te compartimos la carta oferta "+(c.folio||"")+" del terreno "+c.terreno_nombre+" para tu revisión y firma electrónica:\n"+url+"\n\nLa liga es válida por 10 días. — Equipo Macrolotes de Grupo Guía";
     const wa=rqWaUrl(tel,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener");
     if(rol==="comprador") coAvisarAsesor(c,toast); };
+  // 🔄 CONTRAOFERTA / REENVÍO A FIRMA (sql/cartas_oferta_v6_contraoferta_gg.sql): Grupo Guía captura
+  // una NUEVA RONDA (no pisa las anteriores) y la carta vuelve a firma: comprador → vendedor.
+  const abrirContra=(c)=>{ const r=coActual(c); setForm(null); setCof({ id:c.id, solicita:"vendedor", precio_m2:String(Math.round(Number(r.precio_m2)||0)), forma_pago:r.forma_pago||"Contado", clausula3:coClausula3(r), comentarios:"", nota:"" }); };
+  const enviarContra=async(c,modo)=>{ const f=cof; if(!f) return; const pm2=coNum(f.precio_m2);
+    if(!(pm2>0)){ toast("Escribe el precio por m²."); return; }
+    if((String(f.comentarios||"").trim()+String(f.nota||"").trim()).length<5){ toast("Escribe el motivo de la contraoferta (comentario o nota interna)."); return; }
+    const w=modo==="whatsapp"?window.open("","_blank"):null;
+    setBusy(c.id+"cof");
+    try{
+      const { data, error } = await window.sb.rpc("carta_oferta_contraoferta",{ p_id:c.id, p_solicita:f.solicita, p_precio_m2:pm2, p_forma_pago:f.forma_pago, p_condiciones:coCond3(f.forma_pago,f.clausula3), p_comentarios:String(f.comentarios||"").trim()||null, p_nota:String(f.nota||"").trim()||null });
+      if(error) throw error;
+      const n=(data&&data.ronda)||((c.ronda_actual||1)+1), url=CO_URL+(data&&data.token_comprador);
+      setCof(null); await cargar();
+      if(modo==="whatsapp"){ const nom=String(c.comprador_nombre||"").trim().split(/\s+/)[0]||"";
+        const msg="Hola "+nom+", te compartimos la nueva versión de la carta oferta "+(c.folio||"")+" (ronda "+n+") del terreno "+c.terreno_nombre+" para tu revisión y firma electrónica:\n"+url+"\n\nLa liga es válida por 10 días. — Equipo Macrolotes de Grupo Guía";
+        const wa=rqWaUrl(c.comprador_telefono,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener"); }
+      else { try{ await navigator.clipboard.writeText(url); }catch(e){ try{ window.prompt("Copia la liga del comprador:",url); }catch(_){} } }
+      toast("🔄 Ronda "+n+" creada · "+(modo==="whatsapp"?"WhatsApp al comprador listo":"liga del comprador copiada")+" · al firmar pasa sola al vendedor");
+      coAvisarAsesor({ ...c, ronda_actual:n }, toast, true);
+    }catch(e){ try{ w&&w.close(); }catch(_){} const m=String((e&&e.message)||e);
+      toast(/carta_oferta_contraoferta|does not exist|schema cache|PGRST202/i.test(m)?"Falta correr sql/cartas_oferta_v6_contraoferta_gg.sql en Supabase.":("No se pudo crear la contraoferta: "+m)); }
+    finally{ setBusy(""); } };
   // 👔 WhatsApp al asesor con su liga de SOLO LECTURA
   const whatsAsesor=async(c)=>{ const w=window.open("","_blank");
     try{ const token=await coLigaAsesor(c.id); let tel="";
@@ -3217,9 +3242,9 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       {c.asesor_nombre && <div style={{fontSize:11.5,color:B.grey4,marginTop:2}}>👔 Asesor: <b style={{color:B.navy}}>{c.asesor_nombre}</b>{c.asesor_email?(" · "+c.asesor_email):""}</div>}
       {timeline(c)}
       {rs.length>1 && (
-        <div style={{overflowX:"auto",marginTop:8}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-          <thead><tr style={{background:B.navy,color:"#fff",textAlign:"left"}}>{["Ronda","Propone","$/m²","Total","Pago","Diferencia"].map(h=><th key={h} style={{padding:"5px 8px",fontSize:10,textTransform:"uppercase"}}>{h}</th>)}</tr></thead>
-          <tbody>{rs.map((x,i)=>{ const d=i?(Number(x.total)-Number(rs[0].total)):0; return (<tr key={x.ronda} style={{borderTop:"1px solid "+B.grey1,fontWeight:x.ronda===c.ronda_actual?800:500}}><td style={{padding:"4px 8px"}}>{x.ronda}</td><td style={{padding:"4px 8px"}}>{x.propone==="grupo_guia"?"Comprador":(x.propone==="vendedor"?"Vendedor":"Comprador")}</td><td style={{padding:"4px 8px"}}>{coMx(x.precio_m2)}</td><td style={{padding:"4px 8px"}}>{coMx(x.total)}</td><td style={{padding:"4px 8px"}}>{x.forma_pago}</td><td style={{padding:"4px 8px",color:d?"#b45309":B.grey3}}>{i?((d>=0?"+":"−")+coMx(Math.abs(d))+" ("+(d>=0?"+":"−")+Math.abs(d/(Number(rs[0].total)||1)*100).toFixed(1)+"%)"):"—"}</td></tr>); })}</tbody>
+        <div style={{overflowX:"auto",marginTop:8}}><div style={{fontSize:10.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6,margin:"2px 0 4px"}}>📜 Historial de la negociación · {rs.length} rondas</div><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead><tr style={{background:B.navy,color:"#fff",textAlign:"left"}}>{["Ronda","Propone","$/m²","Total","Pago","Diferencia","Firmas","Nota"].map(h=><th key={h} style={{padding:"5px 8px",fontSize:10,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+          <tbody>{rs.map((x,i)=>{ const d=i?(Number(x.total)-Number(rs[0].total)):0; const fd=(at)=>at?new Date(at).toLocaleDateString("es-MX",{day:"2-digit",month:"short"}):""; return (<tr key={x.ronda} style={{borderTop:"1px solid "+B.grey1,fontWeight:x.ronda===c.ronda_actual?800:500,background:x.ronda===c.ronda_actual?"#fffaf0":"transparent",verticalAlign:"top"}}><td style={{padding:"4px 8px"}}>{x.ronda}</td><td style={{padding:"4px 8px"}}>{coQuien(x)}</td><td style={{padding:"4px 8px"}}>{coMx(x.precio_m2)}</td><td style={{padding:"4px 8px"}}>{coMx(x.total)}</td><td style={{padding:"4px 8px"}}>{x.forma_pago}</td><td style={{padding:"4px 8px",color:d?"#b45309":B.grey3,whiteSpace:"nowrap"}}>{i?((d>=0?"+":"−")+coMx(Math.abs(d))+" ("+(d>=0?"+":"−")+Math.abs(d/(Number(rs[0].total)||1)*100).toFixed(1)+"%)"):"—"}</td><td style={{padding:"4px 8px",fontSize:11,whiteSpace:"nowrap",fontWeight:500}}><div style={{color:x.comprador_firma_at?B.green:B.grey3}}>{x.comprador_firma_at?("✓ Comprador "+fd(x.comprador_firma_at)):"⏳ Comprador"}</div><div style={{color:x.vendedor_firma_at?B.green:B.grey3}}>{x.vendedor_firma_at?("✓ Vendedor "+fd(x.vendedor_firma_at)):"⏳ Vendedor"}</div></td><td style={{padding:"4px 8px",fontSize:11,fontWeight:500,minWidth:160}}>{x.comentarios&&<div>💬 {x.comentarios}</div>}{x.nota_interna&&<div style={{color:"#b45309"}}>🔒 {x.nota_interna}</div>}{x.capturada_por&&<div style={{color:B.grey3}}>Capturó: {x.capturada_por} · {coFH(x.created_at)}</div>}</td></tr>); })}</tbody>
         </table></div>)}
       {(r.condiciones||r.comentarios) && <div style={{fontSize:12,color:"#334155",background:"#fffaf0",borderLeft:"3px solid "+B.gold,padding:"6px 9px",borderRadius:"0 7px 7px 0",marginTop:8}}>{r.condiciones&&<div><b>Forma de pago ({r.forma_pago}):</b> {coClausula3(r)}</div>}{r.comentarios&&<div>💬 <b>{r.propone==="vendedor"?"Vendedor":(r.propone==="comprador"?"Comprador":"Nota")}:</b> {r.comentarios}</div>}</div>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:6,marginTop:8}}>
@@ -3238,6 +3263,27 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
             telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast} etiqueta="📲 Compartir el avance con el comprador" mostrarMensaje/>
         </div>); })()}
       {form && form.id===c.id && <div style={{marginTop:10}}>{formUI}</div>}
+      {cof && cof.id===c.id && (()=>{ const f=cof; const set=(k,v)=>setCof(p=>({...p,[k]:v})); const tot=coNum(c.superficie_m2)*coNum(f.precio_m2); const dif=tot-(Number(r.total)||0); const n=(c.ronda_actual||1)+1; return (
+        <div style={{border:"1.5px solid #f59e0b",background:"#fffbeb",borderRadius:12,padding:"10px 12px",marginTop:10}}>
+          <div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:4}}>🔄 Contraoferta · ronda {n}</div>
+          <div style={{fontSize:12,color:"#92400e",marginBottom:8}}>Se crea una NUEVA ronda (la ronda {c.ronda_actual||1} queda en el historial) y la carta vuelve a firma: primero el comprador y, al firmar, pasa sola al vendedor. Superficie ({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m²) y apartado ({coMx(c.apartado)}) no cambian.{c.estado==="aceptada"?" ⚠️ La carta estaba ACEPTADA: vuelve a negociación hasta que ambas partes firmen la nueva ronda.":""}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:8}}>
+            <div><label style={lbS}>¿Quién la pide?</label><select style={inS} value={f.solicita} onChange={e=>set("solicita",e.target.value)}><option value="vendedor">Vendedor (contraoferta)</option><option value="comprador">Comprador</option><option value="grupo_guia">Grupo Guía · reenvío a firma</option></select></div>
+            <div><label style={lbS}>Precio por m² *</label><input style={inS} inputMode="decimal" value={f.precio_m2} onChange={e=>set("precio_m2",e.target.value)}/></div>
+            <div><label style={lbS}>Forma de pago</label><select style={inS} value={f.forma_pago} onChange={e=>{ const fp=e.target.value; setCof(p=>({...p,forma_pago:fp,clausula3:(String(p.clausula3||"").trim()===coFormaTxt(p.forma_pago))?coFormaTxt(fp):p.clausula3})); }}>{CO_FORMAS.map(x=><option key={x}>{x}</option>)}</select></div>
+            <div style={{alignSelf:"end",fontSize:12.5,color:B.navy}}>Total: <b>{coMx(tot)}</b>{Number(r.total)>0&&<span style={{marginLeft:6,fontWeight:800,color:dif<0?"#b45309":B.green}}>{dif>=0?"+":"−"}{coMx(Math.abs(dif))} vs ronda {c.ronda_actual||1}</span>}</div>
+          </div>
+          <div style={{marginTop:8}}><label style={lbS}>Cláusula tercera · forma de pago y condiciones (va en la carta)</label><textarea style={{...inS,minHeight:64,resize:"vertical"}} value={f.clausula3} onChange={e=>set("clausula3",e.target.value)}/></div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:8,marginTop:8}}>
+            <div><label style={lbS}>Comentario para las partes (lo verán en su liga)</label><textarea style={{...inS,minHeight:52,resize:"vertical"}} value={f.comentarios} placeholder="Ej. El propietario acepta a $3,800/m² con pago de contado." onChange={e=>set("comentarios",e.target.value)}/></div>
+            <div><label style={lbS}>🔒 Nota interna (solo equipo)</label><textarea style={{...inS,minHeight:52,resize:"vertical"}} value={f.nota} placeholder="Ej. Negociado por teléfono con el propietario el 18 nov." onChange={e=>set("nota",e.target.value)}/></div>
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
+            <button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"copiar")} style={btn(B.gold,B.navy)}>{busy===c.id+"cof"?"Creando…":"🔄 Crear ronda "+n+" y copiar liga del comprador"}</button>
+            <button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"whatsapp")} style={btn("#25D366","#fff")}>🟢 Crear ronda {n} y mandar por WhatsApp</button>
+            <button onClick={()=>setCof(null)} style={btn("#fff",B.navy,B.grey2)}>Cancelar</button>
+          </div>
+        </div>); })()}
       {c.estado==="rechazada" && <div style={{fontSize:12,color:B.red,marginTop:8}}>✕ Rechazada por el <b>{c.rechazo_por}</b> el {coFH(c.rechazo_at)}{c.rechazo_motivo?(" · "+c.rechazo_motivo):""}</div>}
       {c.estado==="firmada_comprador" && (
         <div style={{border:"1.5px solid "+B.navy,borderRadius:10,padding:"9px 10px",marginTop:8,background:"#f6f8fb"}}>
@@ -3280,7 +3326,8 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
         {esperaVendedor && <button disabled={!!busy} onClick={()=>whats(c,"vendedor")} style={btn("#25D366","#fff")}>🟢 WhatsApp vendedor</button>}
         {c.asesor_nombre && <button onClick={()=>whatsAsesor(c)} title="Liga de solo lectura para el asesor (no puede firmar)" style={btn("#fff","#1d4ed8","#bfdbfe")}>👔 WhatsApp asesor (solo lectura)</button>}
         {c.asesor_email && <button onClick={()=>coAvisarAsesor(c,toast,true)} title={"Reenviar el correo informativo a "+c.asesor_email} style={btn("#fff","#1d4ed8","#bfdbfe")}>📧 Correo al asesor</button>}
-        <button onClick={()=>{ if(!coImprimir(c,"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF interno</button>
+        <button onClick={()=>{ if(!coImprimir(c,"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} title="Abre la carta oferta vigente (ronda actual) con todos los datos y el historial; desde ahí la imprimes o guardas en PDF" style={btn("#fff",B.navy,B.grey2)}>📄 Ver carta oferta (PDF)</button>
+        {c.estado!=="borrador" && <button onClick={()=>abrirContra(c)} title="Nueva ronda de negociación: cambia precio/forma de pago o vuelve a mandar la carta a firma (comprador → vendedor). El historial se conserva." style={btn("#fff7ed","#b45309","#fdba74")}>🔄 Contraoferta / reenviar a firma</button>}
         {todas&&onAbrirTerreno&&<button onClick={()=>onAbrirTerreno(c)} style={btn("#fff",B.navy,B.grey2)}>🗂 Abrir ficha del terreno</button>}
         {c.vendedor_nombre && <button onClick={()=>{ if(!coImprimir(c,"vendedor")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF vendedor (confidencial)</button>}
         <button onClick={()=>borrar(c)} title="Eliminar carta" style={btn("#fff","#b91c1c","#fecaca")}>🗑</button>
@@ -23204,7 +23251,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.14</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.15</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
