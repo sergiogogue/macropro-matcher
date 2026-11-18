@@ -61,11 +61,13 @@ begin
          nullif(btrim(coalesce(p_condiciones, '')), ''), nullif(btrim(coalesce(p_comentarios, '')), ''),
          nullif(em, ''), nullif(btrim(coalesce(p_nota, '')), ''));
 
-  t := public._co_token();
+  -- Se CONSERVA la liga del comprador (la misma que ya tiene y que usa su portal /mi-oferta/ para
+  -- el expediente): solo se renueva su vigencia (10 días) y ahora muestra la ronda nueva para firmar.
+  -- La liga del vendedor se regenera sola cuando firme el comprador (v5).
+  t := coalesce(c.token_comprador, public._co_token());
   update public.cartas_oferta
      set ronda_actual = n, estado = 'enviada_comprador',
-         token_comprador = t, token_comprador_exp = now() + interval '10 days',
-         token_vendedor = null, token_vendedor_exp = null
+         token_comprador = t, token_comprador_exp = now() + interval '10 days'
    where id = c.id;
 
   return jsonb_build_object('ok', true, 'ronda', n, 'token_comprador', t, 'estado_anterior', c.estado);
