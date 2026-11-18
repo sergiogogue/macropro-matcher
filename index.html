@@ -3167,6 +3167,9 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   // para que el panel y lo escrito NO se pierdan si la vista se re-monta (pasaba con cada aviso).
   const [cof,setCofRaw]=useState(()=>(CO_UI[uiKey]&&CO_UI[uiKey].cof)||null);
   const setCof=(fn)=>setCofRaw(prev=>{ const v=typeof fn==="function"?fn(prev):fn; CO_UI[uiKey]={...(CO_UI[uiKey]||{}),cof:v}; return v; });
+  // ✅ Confirmación visible de la última ronda enviada (se recuerda igual que cof).
+  const [envioOk,setEnvioOkRaw]=useState(()=>(CO_UI[uiKey]&&CO_UI[uiKey].envioOk)||null);
+  const setEnvioOk=(v)=>{ CO_UI[uiKey]={...(CO_UI[uiKey]||{}),envioOk:v}; setEnvioOkRaw(v); };
   const supCap=coNum(cap&&cap.superficie);
   const nombreTerr=String((cap&&(cap.zona||cap.ubicacion))||"").trim()||(cap&&cap.propietario?("Terreno de "+cap.propietario):"Terreno");
   const ubic=[cap&&cap.ubicacion&&cap.ubicacion!==cap.zona?cap.ubicacion:"", cap&&cap.ciudad].filter(Boolean).join(", ");
@@ -3262,8 +3265,20 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       credito:{ eng:String(pp.forma==="Financiamiento"&&pp.eng_pct!=null?pp.eng_pct:20), eng_cuando:pp.eng_cuando||"contrato", banco:pp.banco||"", aprob:String(pp.aprob||45), dias:String(pp.forma==="Financiamiento"&&pp.dias?pp.dias:90) },
       diferido:{ eng:String(pp.forma==="Diferido"&&pp.eng_pct!=null?pp.eng_pct:30), eng_cuando:pp.eng_cuando||"contrato", n:String(pp.n||6), per:pp.per||"mensual", inicio:pp.inicio||ini, escr:pp.escr||"ultimo" },
       conds:{ posesion:true, gastos:true, dictamen:false, gravamenes:false, ...(pp.conds||{}) }, otra:pp.otra||"", comentarios:"", nota:"" }); };
+  // Revisa la contrapropuesta antes de guardarla o enviarla. Devuelve el texto del problema o "".
+  const validarContra=(c,f)=>{ const pm2=coNum(f.precio_m2); if(!(pm2>0)) return "Escribe el precio por m².";
+    const plan=cofPlanDe(f); const tot=Math.round((Number(c.superficie_m2)||0)*pm2*100)/100;
+    if(plan.forma!=="Contado"){ const k=coPlanCalc(plan,tot,c.apartado); if(k.saldo<0) return "El enganche más el apartado no pueden superar el total."; }
+    if(plan.forma==="Diferido"&&!plan.inicio) return "Pon la fecha del primer pago.";
+    return ""; };
+  // PASO 1 · GUARDAR la contrapropuesta (todavía NO se crea la liga ni se envía nada; el comprador no ve nada).
+  const guardarContra=(c)=>{ const f=cof; if(!f) return; const e=validarContra(c,f); if(e){ toast(e); return; }
+    setCof(p=>({...p, guardada:true, guardada_at:new Date().toISOString()}));
+    toast("💾 Contrapropuesta guardada. Revísala y elige cómo enviarla a firma."); };
+  // PASO 2 · ENVIAR a firma: aquí se crea la ronda en la base y se genera/manda la liga.
   const enviarContra=async(c,modo)=>{ const f=cof; if(!f) return; const pm2=coNum(f.precio_m2);
-    if(!(pm2>0)){ toast("Escribe el precio por m²."); return; }
+    if(!f.guardada){ toast("Primero guarda la contrapropuesta (botón 💾 Guardar)."); return; }
+    { const e=validarContra(c,f); if(e){ toast(e); return; } }
     // Motivo: la base lo exige (≥5 letras). Si no se capturó, NO se bloquea (caso real 2026-11-18: el campo
     // está arriba y el botón no hacía nada): se registra una nota interna con quién la propone.
     if((String(f.comentarios||"").trim()+String(f.nota||"").trim()).length<5){
@@ -3282,7 +3297,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       const n=(data&&data.ronda)||((c.ronda_actual||1)+1), url=CO_URL+(data&&data.token_comprador);
       const nom=String(c.comprador_nombre||"").trim().split(/\s+/)[0]||"";
       const msg="Hola "+nom+", te compartimos la nueva versión de la carta oferta "+(c.folio||"")+" (ronda "+n+") del terreno "+c.terreno_nombre+" para tu revisión y firma electrónica:\n"+url+"\n\nLa liga es válida por 10 días. — Equipo Macrolotes de Grupo Guía";
-      setCof(null); await cargar();
+      setCof(null); setEnvioOk({ id:c.id, ronda:n, modo, at:new Date().toISOString() }); await cargar();
       if(modo==="whatsapp"){ const wa=rqWaUrl(c.comprador_telefono,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener"); }
       else if(modo==="correo"){ window.location.href="mailto:"+encodeURIComponent(c.comprador_email||"")+"?subject="+encodeURIComponent("Carta oferta "+(c.folio||"")+" · ronda "+n+" · "+c.terreno_nombre)+"&body="+encodeURIComponent(msg); }
       else { try{ await navigator.clipboard.writeText(url); }catch(e){ try{ window.prompt("Copia la liga del comprador:",url); }catch(_){} } }
@@ -3430,6 +3445,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
         return (
         <div style={{border:"2px solid "+B.gold,background:"#fffdf5",borderRadius:12,padding:12,marginTop:10,display:"flex",flexDirection:"column",gap:10}}>
           <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}><div><div style={{fontSize:14.5,fontWeight:800,color:B.navy}}>🔄 Ronda {n} · Contrapropuesta</div><div style={{fontSize:11.5,color:"#92400e"}}>La ronda {c.ronda_actual||1} queda en el historial. Superficie ({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m²) y apartado ({coMx(c.apartado)}) no cambian.{c.estado==="aceptada"?" ⚠️ La carta estaba ACEPTADA: vuelve a negociación hasta que ambas partes firmen.":""}</div></div><button onClick={()=>setCof(null)} style={btn("#fff",B.navy,B.grey2)}>Cancelar</button></div>
+          {!f.guardada && (<>
           <div style={box}>{head(1,"¿Quién la propone y por qué?")}
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{opt(f.solicita==="vendedor",()=>set("solicita","vendedor"),"Vendedor","El propietario pide otras condiciones")}{opt(f.solicita==="comprador",()=>set("solicita","comprador"),"Comprador","El comprador ajusta su oferta")}{opt(f.solicita==="grupo_guia",()=>set("solicita","grupo_guia"),"Grupo Guía · reenvío","Mismas condiciones, volver a firmar")}</div>
             <div style={{...g2,gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",marginTop:8}}><div><label style={lbS}>Comentario para las partes (lo verán en su carta) · opcional</label><textarea style={{...inS,minHeight:50,resize:"vertical"}} value={f.comentarios} placeholder="Ej. El propietario acepta $3,900/m² si el saldo se paga en 6 meses." onChange={e=>set("comentarios",e.target.value)}/></div><div><label style={lbS}>🔒 Nota interna (solo equipo) · opcional</label><textarea style={{...inS,minHeight:50,resize:"vertical"}} value={f.nota} placeholder="Ej. Negociado por teléfono con el propietario." onChange={e=>set("nota",e.target.value)}/></div></div>
@@ -3457,24 +3473,47 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:7}}>{CO_CONDS.map(x=><label key={x.k} style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,border:"1px solid "+B.grey1,borderRadius:9,padding:"7px 9px",cursor:"pointer",color:B.navy}}><input type="checkbox" checked={!!f.conds[x.k]} onChange={e=>{ const v=e.target.checked; setCof(p=>({...p,conds:{...p.conds,[x.k]:v}})); }} style={{marginTop:2}}/>{x.t}</label>)}</div>
             <div style={{marginTop:8}}><label style={lbS}>Otra condición (texto libre)</label><input style={inS} value={f.otra} placeholder="Ej. La notaría la elige el Comprador." onChange={e=>set("otra",e.target.value)}/></div>
           </div>
-          <div style={box}>{head(5,"Así quedará en la carta · revisa antes de enviar")}
+          </>)}
+          <div style={box}>{head(5,f.guardada?("Ronda "+n+" guardada · así quedará en la carta"):"Así quedará en la carta · revisa antes de guardar")}
             <div style={{fontFamily:"'EB Garamond',Georgia,serif",fontSize:15,lineHeight:1.5,background:"#fffdf7",border:"1px solid #eadfbf",borderRadius:10,padding:"11px 13px",textAlign:"justify",color:"#1f2937"}}><b style={{color:B.navy}}>TERCERA. Forma de pago.</b> <b>{plan.forma==="Financiamiento"?"Crédito bancario":(plan.forma==="Diferido"?"Pagos diferidos":"Contado")}</b>: {clausula}</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:9,marginTop:9}}>
               <div style={{border:"1px solid "+B.grey1,borderRadius:10,padding:"8px 11px"}}><div style={lbS}>Ronda {c.ronda_actual||1} · vigente</div>{cmp("Precio / m²",coMx(r.precio_m2))}{cmp("Total",coMx(r.total))}{cmp("Forma de pago",ant.forma)}{cmp("Enganche",ant.eng)}{cmp("Saldo",ant.saldo)}{cmp("Escrituración",ant.escr)}</div>
               <div style={{border:"1.5px solid "+B.gold,background:"#fffdf5",borderRadius:10,padding:"8px 11px"}}><div style={{...lbS,color:"#9a6a12"}}>Ronda {n} · nueva propuesta</div>{cmp("Precio / m²",coMx(r.precio_m2),coMx(pm2))}{cmp("Total",coMx(r.total),coMx(tot))}{cmp("Forma de pago",ant.forma,nue.forma)}{cmp("Enganche",ant.eng,nue.eng)}{cmp("Saldo",ant.saldo,nue.saldo)}{cmp("Escrituración",ant.escr,nue.escr)}{cmp("La propone",{vendedor:"Vendedor",comprador:"Comprador",grupo_guia:"Grupo Guía · reenvío"}[f.solicita])}</div>
             </div>
           </div>
-          <div style={box}>{head(6,"Envío a firma")}
+          {!f.guardada ? (
+          <div style={box}>{head(6,"Guardar la contrapropuesta")}
+            <div style={{fontSize:12.5,color:B.grey5,marginBottom:9}}>Primero <b>guarda</b> la ronda {n}. Después eliges cómo enviarla a firma (liga, WhatsApp o correo). Mientras no la envíes, el comprador <b>no ve nada</b>.</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button onClick={()=>previewContra(c)} style={btn("#fff",B.navy,B.grey2)}>👁 Vista previa de la carta</button>
+              <button onClick={()=>guardarContra(c)} style={{...btn(B.navy,"#fff"),fontWeight:800}}>💾 Guardar contrapropuesta · ronda {n}</button>
+              <button onClick={()=>setCof(null)} style={btn("#fff",B.red,"#fecaca")}>✕ Cancelar</button>
+            </div>
+          </div>
+          ) : (
+          <div style={{...box,border:"2px solid #86efac",background:"#f0fdf4"}}>{head(6,"Envío a firma")}
+            <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:9}}>
+              <div style={{fontSize:13,color:"#15803d",fontWeight:800}}>✅ Ronda {n} guardada{f.guardada_at?(" · "+new Date(f.guardada_at).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})):""} · lista para enviar a firma</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <button onClick={()=>setCof(p=>({...p,guardada:false}))} style={btn("#fff",B.navy,B.grey2)}>✏️ Editar contrapropuesta</button>
+                <button onClick={()=>previewContra(c)} style={btn("#fff",B.navy,B.grey2)}>👁 Vista previa</button>
+              </div>
+            </div>
             <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",fontSize:12.5}}>{["✍️ Comprador firma","📥 Grupo Guía recibe (automático)","✍️ Vendedor firma","🎉 Aceptada"].map((t,i)=><React.Fragment key={t}>{i>0&&<span style={{color:B.grey3,fontWeight:800}}>→</span>}<span style={{border:"1.5px solid "+(i===3?B.green:B.grey1),color:i===3?B.green:B.navy,borderRadius:999,padding:"4px 10px",fontWeight:700,background:"#fff"}}>{t}</span></React.Fragment>)}</div>
             <div style={{fontSize:11.5,color:"#92400e",background:"#fff8e8",border:"1px solid #f3d38b",borderRadius:9,padding:"7px 10px",marginTop:8}}>El comprador usa la <b>misma liga</b> que ya tiene (también la de su portal de documentos); vale 10 días. El vendedor recibe la suya en automático cuando firme el comprador.</div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:9}}>
-              <button onClick={()=>previewContra(c)} style={btn("#fff",B.navy,B.grey2)}>👁 Vista previa de la carta</button>
-              <button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"copiar")} style={btn(B.gold,B.navy)}>{busy===c.id+"cof"?"Creando…":"🔄 Crear ronda "+n+" y copiar liga"}</button>
-              <button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"whatsapp")} style={btn("#25D366","#fff")}>🟢 Crear ronda {n} y mandar por WhatsApp</button>
-              {c.comprador_email&&<button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"correo")} style={btn(B.navy,"#fff")}>✉️ Crear ronda {n} y mandar por correo</button>}
+              <button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"copiar")} style={btn(B.gold,B.navy)}>{busy===c.id+"cof"?"Enviando…":"🔗 Generar liga y copiarla"}</button>
+              <button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"whatsapp")} style={btn("#25D366","#fff")}>🟢 Enviar por WhatsApp</button>
+              {c.comprador_email&&<button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"correo")} style={btn(B.navy,"#fff")}>✉️ Enviar por correo</button>}
             </div>
           </div>
+          )}
         </div>); })()}
+      {envioOk && envioOk.id===c.id && (
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",border:"2px solid #86efac",background:"#f0fdf4",borderRadius:11,padding:"10px 13px",marginTop:10}}>
+          <div style={{fontSize:13,color:"#15803d",lineHeight:1.45}}><b>✅ Ronda {envioOk.ronda} creada y enviada a firma</b> · {envioOk.modo==="whatsapp"?"por WhatsApp al comprador":(envioOk.modo==="correo"?"por correo al comprador":"liga del comprador copiada")} · {new Date(envioOk.at).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}<br/><span style={{color:"#166534",fontWeight:600}}>El comprador firma con su misma liga; al firmar, pasa sola al vendedor.</span></div>
+          <button onClick={()=>setEnvioOk(null)} style={btn("#fff","#15803d","#86efac")}>Entendido ✕</button>
+        </div>)}
       {c.estado==="rechazada" && <div style={{fontSize:12,color:B.red,marginTop:8}}>✕ Rechazada por el <b>{c.rechazo_por}</b> el {coFH(c.rechazo_at)}{c.rechazo_motivo?(" · "+c.rechazo_motivo):""}</div>}
       {c.estado==="firmada_comprador" && (
         <div style={{border:"1.5px solid "+B.navy,borderRadius:10,padding:"9px 10px",marginTop:8,background:"#f6f8fb"}}>
