@@ -81,7 +81,10 @@ create index if not exists ix_sla_captacion on public.sla_controles (captacion_i
 -- ── 3) Expediente del opcionador: los 8 documentos ──────────────────────────
 -- Misma regla que los recordatorios (netlify/lib/recordatorios-amarillos.mjs, DOCS_PROPIETARIO):
 -- un documento cuenta si su "tipo" coincide y su estatus NO es 'rechazado'.
-create or replace function public.sla_docs_faltantes(p_docs jsonb)
+-- p_liga_maps: la UBICACIÓN también cuenta con la liga de Google Maps de la captación (como en el
+-- convenio: "liga de Google Maps / Earth o KMZ").
+drop function if exists public.sla_docs_faltantes(jsonb);
+create or replace function public.sla_docs_faltantes(p_docs jsonb, p_liga_maps text default null)
 returns text[] language sql immutable as $$
   with req(nombre, patron, orden) as (values
     ('Escrituras',            'escritura',                                         1),
@@ -101,7 +104,8 @@ returns text[] language sql immutable as $$
       from jsonb_array_elements(case when jsonb_typeof(p_docs) = 'array' then p_docs else '[]'::jsonb end) d)
   select coalesce(array_agg(r.nombre order by r.orden), '{}')
     from req r
-   where not exists (select 1 from docs where docs.tipo ~ r.patron and docs.estatus <> 'rechazado');
+   where not exists (select 1 from docs where docs.tipo ~ r.patron and docs.estatus <> 'rechazado')
+     and not (r.orden = 7 and coalesce(p_liga_maps, '') ~* '^https?://\S*(google\.[a-z.]+/maps|maps\.app\.goo\.gl|goo\.gl/maps|maps\.google|earth\.google)');
 $$;
 
 -- ── 4) Motor: arrancar · pausar · reanudar · cerrar · calcular estado ────────
@@ -113,12 +117,12 @@ declare
   v_pausa_seg numeric;
 begin
   for c in
-    select x.id, x.pipeline, x.documentos_urls, coalesce(x.eliminado, false) as eliminado,
+    select x.id, x.pipeline, x.documentos_urls, x.liga_maps, coalesce(x.eliminado, false) as eliminado,
            (nullif(btrim(coalesce(x.firma_nombre, '')), '') is not null) as firma_local
       from public.captaciones x
      where p_captacion_id is null or x.id = p_captacion_id
   loop
-    v_falt := public.sla_docs_faltantes(c.documentos_urls);
+    v_falt := public.sla_docs_faltantes(c.documentos_urls, c.liga_maps);
     -- ¿Convenio firmado? (en la captación o en su acuerdo de comisión)
     v_firmado := c.firma_local;
     if not v_firmado then
@@ -207,6 +211,7 @@ begin
   if tg_op = 'INSERT'
      or new.pipeline is distinct from old.pipeline
      or new.documentos_urls is distinct from old.documentos_urls
+     or new.liga_maps is distinct from old.liga_maps
      or new.firma_nombre is distinct from old.firma_nombre
      or new.eliminado is distinct from old.eliminado then
     begin
