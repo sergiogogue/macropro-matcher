@@ -2990,7 +2990,8 @@ const CO_CONDS=[
   {k:"gravamenes",t:"Libre de gravámenes y al corriente en predial", c:"El inmueble se entregará libre de gravámenes y al corriente en el pago del impuesto predial y servicios."}
 ];
 const CO_MESES=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-const coMxC=(n)=>{ const x=Math.round((Number(n)||0)*100)/100; return "$"+x.toLocaleString("es-MX",{minimumFractionDigits:(x%1)?2:0,maximumFractionDigits:2}); };
+// Montos de la carta oferta SIEMPRE con separadores y 2 decimales: $3,000,000.00 (petición de Dirección).
+const coMxC=(n)=>{ const x=Math.round((Number(n)||0)*100)/100; return "$"+x.toLocaleString("es-MX",{minimumFractionDigits:2,maximumFractionDigits:2}); };
 const coFechaLarga=(iso)=>{ if(!iso) return ""; const d=new Date(String(iso).slice(0,10)+"T12:00:00"); if(isNaN(d)) return ""; return d.getDate()+" de "+CO_MESES[d.getMonth()]+" de "+d.getFullYear(); };
 const CO_PER={ mensual:{n:1,pl:"mensuales"}, bimestral:{n:2,pl:"bimestrales"}, trimestral:{n:3,pl:"trimestrales"} };
 // Montos del plan: total, enganche, saldo y (diferido) calendario. El último pago absorbe el redondeo.
@@ -3389,7 +3390,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       contado:{ dias:String(pp.forma==="Contado"&&pp.dias?pp.dias:60) },
       credito:{ eng:String(pp.forma==="Financiamiento"&&pp.eng_pct!=null?pp.eng_pct:20), eng_cuando:pp.eng_cuando||"contrato", banco:pp.banco||"", aprob:String(pp.aprob||45), dias:String(pp.forma==="Financiamiento"&&pp.dias?pp.dias:90) },
       diferido:{ eng:String(pp.forma==="Diferido"&&pp.eng_pct!=null?pp.eng_pct:30), eng_cuando:pp.eng_cuando||"contrato", n:String(pp.n||6), per:pp.per||"mensual", inicio:pp.inicio||ini, escr:pp.escr||"ultimo" },
-      lineas:((pp.lineas&&pp.lineas.length&&pp.lineas[0].t)?pp.lineas.map(x=>({...x,m:x.resto?"":String(x.m)})):coLineasPreset(r.forma_pago||"Contado",c.apartado)), condTxt:condIni, comentarios:"", nota:"" });
+      lineas:((pp.lineas&&pp.lineas.length&&pp.lineas[0].t)?pp.lineas.map(x=>({...x,m:x.resto?"":coMxC(x.m)})):coLineasPreset(r.forma_pago||"Contado",c.apartado)), condTxt:condIni, comentarios:"", nota:"" });
     setTimeout(()=>{ try{ const el=document.querySelector('[data-co-modal="'+c.id+'"]'); if(el) el.scrollTop=0; }catch(e){} },60); };
   // Revisa la contraoferta antes de guardarla o enviarla. Devuelve el texto del problema o "".
   const validarContra=(c,f)=>{ const pm2=coNum(f.precio_m2); if(!(pm2>0)) return "Escribe el precio por m² de la ronda nueva.";
@@ -3609,8 +3610,8 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
                   </td>
                   <td style={{padding:"5px 6px"}}>{x.t==="apartado"?<input readOnly style={{...cIn,textAlign:"right",background:"#eef1f5",color:"#475569"}} value={coMxC(x.m)} title="El apartado es fijo"/>
                     :(raw.resto?<div style={{textAlign:"right"}}><b style={{color:B.navy}}>{coMxC(x.m)}</b><div style={{fontSize:10.5,color:B.grey4}}>lo que falta</div></div>
-                    :<input data-co-monto style={{...cIn,textAlign:"right"}} inputMode="decimal" value={raw.m==null?"":raw.m} placeholder="$ o 30%" onChange={e=>upd(i,"m",e.target.value)}/>)}
-                    {(x.t==="escritura"||x.t==="credito"||x.t==="otro")&&<label style={{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end",fontSize:10.5,color:B.grey4,marginTop:3,cursor:"pointer"}}><input type="checkbox" data-co-resto checked={!!raw.resto} onChange={e=>{ const v=e.target.checked; setCof(p=>({...p,lineas:(p.lineas||[]).map((y,j)=>j===i?{...y,resto:v,m:v?"":String(x.m||"")}:(v?{...y,resto:false,m:y.resto?String(coLineasCalc(p.lineas,cofTotal(c,p))[j].m):y.m}:y))})); }}/>por lo que falte</label>}
+                    :<input data-co-monto style={{...cIn,textAlign:"right"}} inputMode="decimal" value={raw.m==null?"":raw.m} placeholder="$0.00 o 30%" onChange={e=>upd(i,"m",e.target.value)} onBlur={e=>{ const v=String(e.target.value||"").trim(); if(v&&!/%$/.test(v)) upd(i,"m",coMxC(coNum(v))); }}/>)}
+                    {(x.t==="escritura"||x.t==="credito"||x.t==="otro")&&<label style={{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end",fontSize:10.5,color:B.grey4,marginTop:3,cursor:"pointer"}}><input type="checkbox" data-co-resto checked={!!raw.resto} onChange={e=>{ const v=e.target.checked; setCof(p=>({...p,lineas:(p.lineas||[]).map((y,j)=>j===i?{...y,resto:v,m:v?"":coMxC(x.m||0)}:(v?{...y,resto:false,m:y.resto?coMxC(coLineasCalc(p.lineas,cofTotal(c,p))[j].m):y.m}:y))})); }}/>por lo que falte</label>}
                     {raw.m&&/%$/.test(String(raw.m).trim())&&<div style={{fontSize:10.5,color:B.grey4,textAlign:"right"}}>= {coMxC(x.m)}</div>}</td>
                   <td style={{padding:"5px 6px",textAlign:"right",fontSize:11.5,color:B.grey4}}>{tot?((x.m/tot*100).toFixed(1)+"%"):"—"}</td>
                   <td style={{padding:"5px 6px",textAlign:"center"}}><button type="button" title="Quitar" onClick={()=>rmv(i)} style={{border:"none",background:"none",color:"#b91c1c",fontWeight:800,cursor:"pointer",fontSize:14}}>✕</button></td></tr>); })}
@@ -3619,7 +3620,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
                 <span data-co-cuadra={cuadra?"si":"no"} style={{fontSize:12.5,fontWeight:800,color:cuadra?"#15803d":B.red}}>{cuadra?("✓ La suma cuadra con el total de la ronda "+n):((suma<tot?"Faltan ":"Sobran ")+coMxC(Math.abs(tot-suma))+" para cuadrar con el total ("+coMxC(tot)+")")}</span>
                 {!cuadra&&<button type="button" data-co-diferencia onClick={()=>setCof(p=>{ const ls=[...(p.lineas||[])]; const calc=coLineasCalc(ls,cofTotal(c,p)); const dif=Math.round((cofTotal(c,p)-calc.reduce((a,y)=>a+y.m,0))*100)/100; let i=ls.findIndex(y=>y.t==="escritura");
                     if(i<0){ ls.push({t:"escritura",c:"Pago contra escritura",m:"",resto:true}); return {...p,lineas:ls}; }
-                    ls[i]={...ls[i],resto:false,m:String(Math.round((calc[i].m+dif)*100)/100)}; return {...p,lineas:ls}; })} style={{border:"1.5px solid #f59e0b",background:"#fff",color:"#b45309",borderRadius:8,padding:"6px 11px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Poner la diferencia en el pago contra escritura</button>}
+                    ls[i]={...ls[i],resto:false,m:coMxC(calc[i].m+dif)}; return {...p,lineas:ls}; })} style={{border:"1.5px solid #f59e0b",background:"#fff",color:"#b45309",borderRadius:8,padding:"6px 11px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Poner la diferencia en el pago contra escritura</button>}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:10,marginTop:12}}>
                 <div><label style={lbS}>Condiciones / observaciones (salen en la carta) · opcional</label><textarea style={{...inS,minHeight:58,resize:"vertical"}} value={f.condTxt} placeholder="Ej. La notaría la elige el Comprador." onChange={e=>set("condTxt",e.target.value)}/>
