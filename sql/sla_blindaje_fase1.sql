@@ -84,16 +84,19 @@ create index if not exists ix_sla_captacion on public.sla_controles (captacion_i
 create or replace function public.sla_docs_faltantes(p_docs jsonb)
 returns text[] language sql immutable as $$
   with req(nombre, patron, orden) as (values
-    ('Escrituras',            'escritura',              1),
-    ('Uso de suelo',          'uso de suelo',           2),
-    ('Libertad de gravamen',  'gravamen',               3),
-    ('INE',                   '(^|[^a-z])ine([^a-z]|$)|identificacion', 4),
-    ('Plano',                 'plano|levantamiento',    5),
-    ('Predial',               'predial',                6),
-    ('Ubicación (KMZ)',       'kmz|kml|ubicacion',      7),
-    ('Fotos',                 'foto',                   8)),
+    ('Escrituras',            'escritura',                                         1),
+    ('Uso de suelo',          'uso de suelo|usos y destinos|trazos',               2),
+    ('Libertad de gravamen',  'gravamen',                                          3),
+    ('INE',                   '(^|[^a-z])ine([^a-z]|$)|identificacion|instituto nacional electoral', 4),
+    ('Plano',                 'plano|levantamiento|medicion',                      5),
+    ('Predial',               'predial',                                           6),
+    ('Ubicación (KMZ)',       'kmz|kml|ubicacion',                                 7),
+    ('Fotos',                 'foto|photo|fachada|interior|whatsapp image|\.(jpe?g|png|jfif|heic|webp)$', 8)),
   docs as (
-    select lower(translate(coalesce(d->>'tipo', ''), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')) as tipo,
+    -- Si el documento no trae "tipo", se clasifica por su nombre o por el nombre del archivo.
+    select lower(translate(coalesce(nullif(btrim(d->>'tipo'), ''), nullif(btrim(d->>'nombre'), ''),
+                                    regexp_replace(coalesce(d->>'url', ''), '^.*/', '')),
+                           'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')) as tipo,
            lower(coalesce(d->>'estatus', '')) as estatus
       from jsonb_array_elements(case when jsonb_typeof(p_docs) = 'array' then p_docs else '[]'::jsonb end) d)
   select coalesce(array_agg(r.nombre order by r.orden), '{}')
