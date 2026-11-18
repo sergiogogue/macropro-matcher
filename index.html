@@ -3029,6 +3029,31 @@ function coPlanClausula(plan, total, apartado){
   if(conds.length) t+=" Condiciones: "+conds.join(" ");
   return t;
 }
+// ── LÍNEAS DE PAGO CON TIPO (mockup "forma de pago" 2026-11-18): apartado · enganche · pago con fecha ·
+// pago contra escritura · crédito · otro. Cada línea: {t, c:concepto, f:fecha ISO, d:días, cu:cuándo del
+// enganche, m:monto ("30%" = % del total), resto:true = se lleva lo que falte}. Al guardar se agrega w (cuándo).
+const CO_LT={ apartado:{t:"Apartado",fg:"#15803d",bg:"#ecfdf3"}, enganche:{t:"Enganche",fg:"#1d4ed8",bg:"#eff6ff"}, pago:{t:"Pago con fecha",fg:"#6d28d9",bg:"#f5f3ff"},
+  escritura:{t:"Contra escritura",fg:"#b45309",bg:"#fff7ed"}, credito:{t:"Crédito bancario",fg:"#0e7490",bg:"#ecfeff"}, otro:{t:"Otro",fg:"#475569",bg:"#f1f5f9"} };
+function coLineaCuando(x){ x=x||{}; const dd=Number(x.d)>0?(" (dentro de "+Number(x.d)+" días)"):"";
+  switch(x.t){ case "apartado": return "A la aceptación de la carta";
+    case "enganche": return x.cu==="aceptacion"?"A la aceptación de la carta":(x.cu==="fecha"?(coFechaLarga(x.f)||"Fecha por definir"):"A la firma del contrato");
+    case "pago": return coFechaLarga(x.f)||"Fecha por definir";
+    case "escritura": return "A la firma de la escritura"+dd;
+    case "credito": return "Al autorizarse el crédito"+dd;
+    default: return String(x.w||"").trim(); } }
+// Montos: "30%" = % del total; la(s) línea(s) "resto" se llevan lo que falte para cuadrar.
+function coLineasCalc(L, total){ const tot=Math.round((Number(total)||0)*100)/100; const r2=(n)=>Math.round(n*100)/100;
+  const base=(L||[]).map(x=>{ const raw=String(x.m==null?"":x.m).trim(); const m=x.resto?0:(/%$/.test(raw)?r2(tot*(parseFloat(raw.replace(/[^\d.]/g,""))||0)/100):coNum(raw)); return {...x,m}; });
+  const fijo=r2(base.filter(x=>!x.resto).reduce((a,x)=>a+x.m,0)); let dado=false;
+  return base.map(x=>{ if(!x.resto) return {...x,w:coLineaCuando(x)}; const m=dado?0:r2(tot-fijo); dado=true; return {...x,m,w:coLineaCuando(x)}; }); }
+// Líneas iniciales según la forma elegida (todo se puede cambiar después).
+function coLineasPreset(forma, apartado){ const apt=Number(apartado)||0; const hoy=new Date();
+  const mes=(k)=>new Date(hoy.getFullYear(),hoy.getMonth()+k,15).toISOString().slice(0,10); const L=[];
+  if(apt>0) L.push({t:"apartado",c:"Apartado",m:String(apt)});
+  if(forma==="Financiamiento"){ L.push({t:"enganche",c:"Enganche",cu:"contrato",m:"20%"}); L.push({t:"credito",c:"Saldo mediante crédito bancario",d:45,m:"",resto:true}); }
+  else if(forma==="Diferido"){ L.push({t:"enganche",c:"Enganche",cu:"contrato",m:"30%"}); L.push({t:"pago",c:"Pago 1",f:mes(1),m:"20%"}); L.push({t:"pago",c:"Pago 2",f:mes(2),m:"20%"}); L.push({t:"escritura",c:"Pago contra escritura",d:90,m:"",resto:true}); }
+  else L.push({t:"escritura",c:"Pago contra escritura",d:60,m:"",resto:true});
+  return L; }
 // ── FORMA DE PAGO EN LÍNEAS (contraoferta v8, mockup aprobado 2026-11-18) ──────────────────────
 // Cada ronda guarda sus líneas en plan_pago.lineas = [{c:concepto, w:cuándo, m:monto}]; la carta las
 // imprime como tabla abajo de las firmas de la oferta original. Las líneas se proponen solas según
@@ -3066,7 +3091,8 @@ function coLineasClausula(L, total, cond){
 function coPlanResumen(r, apartado){
   const p=r&&r.plan_pago; if(!p||!p.forma) return null;
   const fl={Contado:"Contado",Financiamiento:"Crédito bancario",Diferido:"Pagos diferidos"}[p.forma]||p.forma;
-  if(p.lineas_editadas&&Array.isArray(p.lineas)) return { forma:fl, eng:"Ver líneas", saldo:p.lineas.length+" líneas de pago (ver carta)", escr:"Ver líneas" };
+  if(Array.isArray(p.lineas)&&p.lineas.length&&(p.lineas_editadas||p.lineas[0].t)){ const L=p.lineas, en=L.find(x=>x.t==="enganche"), es=L.find(x=>x.t==="escritura"), np=L.filter(x=>x.t==="pago").length;
+    return { forma:fl, eng:en?coMxC(en.m):"—", saldo:[np?(np+" pago"+(np>1?"s":"")+" con fecha"):"", es?("contra escritura "+coMxC(es.m)):"", L.some(x=>x.t==="credito")?"crédito bancario":""].filter(Boolean).join(" + ")||(L.length+" líneas de pago"), escr:es?String(es.w||coLineaCuando(es)).replace(/^A la firma de la escritura ?/,"").replace(/[()]/g,"").trim()||"A la escritura":"—" }; }
   const k=coPlanCalc(p,r.total,apartado);
   if(p.forma==="Contado") return { forma:"Contado", eng:"—", saldo:"1 exhibición a la escritura", escr:(Number(p.dias)||0)+" días" };
   if(p.forma==="Financiamiento") return { forma:"Crédito bancario", eng:k.engPct+"% · "+coMxC(k.eng), saldo:"Crédito "+(p.banco?("· "+p.banco):"")+" "+coMxC(k.saldo), escr:(Number(p.dias)||0)+" días" };
@@ -3260,6 +3286,8 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   // ✅ Confirmación visible de la última ronda enviada (se recuerda igual que cof).
   const [envioOk,setEnvioOkRaw]=useState(()=>(CO_UI[uiKey]&&CO_UI[uiKey].envioOk)||null);
   const setEnvioOk=(v)=>{ CO_UI[uiKey]={...(CO_UI[uiKey]||{}),envioOk:v}; setEnvioOkRaw(v); };
+  const [masId,setMasId]=useState(null);     // carta con el menú "⋯ Más opciones" abierto
+  const [shareId,setShareId]=useState(null); // carta mostrando "Compartir avance con el comprador"
   const supCap=coNum(cap&&cap.superficie);
   const nombreTerr=String((cap&&(cap.zona||cap.ubicacion))||"").trim()||(cap&&cap.propietario?("Terreno de "+cap.propietario):"Terreno");
   const ubic=[cap&&cap.ubicacion&&cap.ubicacion!==cap.zona?cap.ubicacion:"", cap&&cap.ciudad].filter(Boolean).join(", ");
@@ -3350,10 +3378,10 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
     else { Object.assign(p,{ eng_pct:coNum(f.diferido.eng), eng_cuando:f.diferido.eng_cuando, n:Math.max(1,Math.floor(coNum(f.diferido.n)||1)), per:f.diferido.per, inicio:f.diferido.inicio, escr:f.diferido.escr }); }
     return p; };
   const cofTotal=(c,f)=>Math.round((Number(c.superficie_m2)||0)*coNum(f.precio_m2)*100)/100;
-  // Líneas vigentes del formulario: automáticas (del plan) o las que editó el equipo.
-  const cofLineas=(c,f)=> f.lineasAuto ? coLineasPlan(cofPlanDe(f),cofTotal(c,f),c.apartado) : (f.lineas||[]).map(x=>({c:x.c,w:x.w,m:coNum(x.m)}));
-  // Plan final que se guarda en la ronda (plan_pago): datos del plan + líneas + condiciones.
-  const cofPlanFinal=(c,f)=>({ ...cofPlanDe(f), lineas:cofLineas(c,f).map(x=>({c:String(x.c||"").trim(),w:String(x.w||"").trim(),m:Math.round((Number(x.m)||0)*100)/100})), lineas_editadas:!f.lineasAuto, cond:String(f.condTxt||"").trim() });
+  // Líneas con sus montos ya calculados ("30%" y "resto") y su "cuándo" en texto.
+  const cofLineas=(c,f)=> coLineasCalc(f.lineas||[], cofTotal(c,f));
+  // Plan final que se guarda en la ronda (plan_pago): forma + líneas (con tipo y fechas) + condiciones.
+  const cofPlanFinal=(c,f)=>({ forma:f.forma, lineas:cofLineas(c,f).map(x=>({t:x.t||"otro",c:String(x.c||"").trim(),w:String(x.w||"").trim(),f:x.f||null,d:Number(x.d)||null,cu:x.cu||null,resto:!!x.resto,m:Math.round((Number(x.m)||0)*100)/100})), lineas_editadas:true, cond:String(f.condTxt||"").trim() });
   const abrirContra=(c,solicita)=>{ const r=coActual(c); setForm(null); setEnvioOk(null);
     const pp=r.plan_pago||{}; const hoy=new Date(); const ini=new Date(hoy.getFullYear(),hoy.getMonth()+1,15).toISOString().slice(0,10);
     const condIni=coCondDe(r)||CO_CONDS.filter(x=>x.k==="posesion"||x.k==="gastos").map(x=>x.c).join(" ");
@@ -3361,15 +3389,14 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       contado:{ dias:String(pp.forma==="Contado"&&pp.dias?pp.dias:60) },
       credito:{ eng:String(pp.forma==="Financiamiento"&&pp.eng_pct!=null?pp.eng_pct:20), eng_cuando:pp.eng_cuando||"contrato", banco:pp.banco||"", aprob:String(pp.aprob||45), dias:String(pp.forma==="Financiamiento"&&pp.dias?pp.dias:90) },
       diferido:{ eng:String(pp.forma==="Diferido"&&pp.eng_pct!=null?pp.eng_pct:30), eng_cuando:pp.eng_cuando||"contrato", n:String(pp.n||6), per:pp.per||"mensual", inicio:pp.inicio||ini, escr:pp.escr||"ultimo" },
-      lineasAuto:true, lineas:[], condTxt:condIni, comentarios:"", nota:"" });
+      lineas:((pp.lineas&&pp.lineas.length&&pp.lineas[0].t)?pp.lineas.map(x=>({...x,m:x.resto?"":String(x.m)})):coLineasPreset(r.forma_pago||"Contado",c.apartado)), condTxt:condIni, comentarios:"", nota:"" });
     setTimeout(()=>{ try{ const el=document.querySelector('[data-co-modal="'+c.id+'"]'); if(el) el.scrollTop=0; }catch(e){} },60); };
   // Revisa la contraoferta antes de guardarla o enviarla. Devuelve el texto del problema o "".
   const validarContra=(c,f)=>{ const pm2=coNum(f.precio_m2); if(!(pm2>0)) return "Escribe el precio por m² de la ronda nueva.";
-    const plan=cofPlanDe(f), tot=cofTotal(c,f);
-    if(f.lineasAuto){ if(plan.forma!=="Contado"){ const k=coPlanCalc(plan,tot,c.apartado); if(k.saldo<0) return "El enganche más el apartado no pueden superar el total."; }
-      if(plan.forma==="Diferido"&&!plan.inicio) return "Pon la fecha del primer pago."; }
-    const L=cofLineas(c,f); if(!L.length) return "Agrega al menos una línea de pago.";
-    const mala=L.findIndex(x=>!String(x.c||"").trim()||!(Number(x.m)>0)); if(mala>=0) return "La línea "+(mala+1)+" necesita concepto y un monto mayor a cero.";
+    const tot=cofTotal(c,f);
+    const L=cofLineas(c,f); if(!L.length) return "Agrega al menos un pago.";
+    const sinFecha=L.findIndex(x=>(x.t==="pago"||(x.t==="enganche"&&x.cu==="fecha"))&&!x.f); if(sinFecha>=0) return "Pon la fecha del pago "+(sinFecha+1)+" ("+(L[sinFecha].c||"pago")+").";
+    const mala=L.findIndex(x=>!String(x.c||"").trim()||!(Number(x.m)>0)); if(mala>=0) return "El pago "+(mala+1)+(L[mala].c?(" ("+L[mala].c+")"):"")+" necesita concepto y un monto mayor a cero.";
     const suma=Math.round(L.reduce((a,x)=>a+(Number(x.m)||0),0)*100)/100;
     if(Math.abs(suma-tot)>0.05) return "Las líneas suman "+coMxC(suma)+" y el total de la ronda es "+coMxC(tot)+": ajusta los montos (diferencia "+coMxC(Math.abs(suma-tot))+").";
     return ""; };
@@ -3485,10 +3512,8 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   // abajo la RONDA N: quién la propone · precio · forma de pago en líneas · condiciones. Guardar → Enviar.
   const cofModal=(c)=>{ const f=cof; const r=coActual(c), rs=coRondas(c), r1=rs[0]||r, n=(c.ronda_actual||1)+1;
     const set=(k,v)=>setCof(p=>({...p,[k]:v}));
-    const setG=(g,k,v)=>setCof(p=>({...p,lineasAuto:true,[g]:{...p[g],[k]:v}})); // cambiar el plan recalcula las líneas
     const sup=Number(c.superficie_m2)||0, pm2=coNum(f.precio_m2), tot=cofTotal(c,f), dif=tot-(Number(r.total)||0);
     const L=cofLineas(c,f), suma=Math.round(L.reduce((a,x)=>a+(Number(x.m)||0),0)*100)/100, cuadra=Math.abs(suma-tot)<=0.05;
-    const editL=(fn)=>setCof(p=>{ const base=p.lineasAuto?coLineasPlan(cofPlanDe(p),cofTotal(c,p),c.apartado).map(x=>({c:x.c,w:x.w,m:String(x.m)})):(p.lineas||[]).map(x=>({...x})); return {...p,lineasAuto:false,lineas:fn(base)}; });
     const fl=(x)=>x==="Financiamiento"?"Crédito bancario":(x==="Diferido"?"Pagos diferidos":(x||"—"));
     const r1res=coPlanResumen(r1,c.apartado);
     const problema=validarContra(c,f);
@@ -3556,27 +3581,45 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
                 <div><label style={lbS}>Precio por m² · ronda {n} *</label><input data-co-pm2 inputMode="decimal" value={f.precio_m2} onChange={e=>set("precio_m2",e.target.value)} style={{...inS,textAlign:"right",border:"2px solid "+B.gold,fontWeight:800,fontSize:14.5}}/></div>{op("=")}
                 {totBox("Total ronda "+n,coMx(tot),<div style={{fontSize:11,fontWeight:800,color:dif<0?"#fcd34d":"#86efac"}}>{(dif>=0?"+":"−")+coMx(Math.abs(dif))}{Number(r.total)?(" ("+(dif>=0?"+":"−")+Math.abs(dif/Number(r.total)*100).toFixed(1)+"%)"):""} vs ronda {c.ronda_actual||1}</div>)}
               </div>
-              <label style={{...lbS,marginTop:14}}>Forma de pago · líneas (puedes agregar las que necesites)</label>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>{opt(f.forma==="Contado",()=>setCof(p=>({...p,forma:"Contado",lineasAuto:true})),"💵 Contado","1 pago a la escritura")}{opt(f.forma==="Financiamiento",()=>setCof(p=>({...p,forma:"Financiamiento",lineasAuto:true})),"🏦 Crédito","Enganche + crédito")}{opt(f.forma==="Diferido",()=>setCof(p=>({...p,forma:"Diferido",lineasAuto:true})),"📅 Pagos diferidos","Enganche + parcialidades")}</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,background:"#fff",border:"1px solid "+B.grey1,borderRadius:9,padding:"8px 10px",marginBottom:8}}>
-                {f.forma==="Contado"&&<div><label style={lbS}>Escritura dentro de (días)</label><input style={inS} inputMode="numeric" value={f.contado.dias} onChange={e=>setG("contado","dias",e.target.value)}/></div>}
-                {f.forma!=="Contado"&&(()=>{ const g=f.forma==="Financiamiento"?"credito":"diferido"; return (<React.Fragment>
-                  <div><label style={lbS}>Enganche (%)</label><input style={inS} inputMode="decimal" value={f[g].eng} onChange={e=>setG(g,"eng",e.target.value)}/></div>
-                  <div><label style={lbS}>El enganche se paga</label><select style={inS} value={f[g].eng_cuando} onChange={e=>setG(g,"eng_cuando",e.target.value)}><option value="contrato">A la firma del contrato</option><option value="aceptacion">A la aceptación de la carta</option></select></div></React.Fragment>); })()}
-                {f.forma==="Financiamiento"&&<React.Fragment><div><label style={lbS}>Institución</label><input style={inS} value={f.credito.banco} placeholder="La que elija el comprador" onChange={e=>setG("credito","banco",e.target.value)}/></div><div><label style={lbS}>Autorización (días)</label><input style={inS} inputMode="numeric" value={f.credito.aprob} onChange={e=>setG("credito","aprob",e.target.value)}/></div><div><label style={lbS}>Escritura (días)</label><input style={inS} inputMode="numeric" value={f.credito.dias} onChange={e=>setG("credito","dias",e.target.value)}/></div></React.Fragment>}
-                {f.forma==="Diferido"&&<React.Fragment><div><label style={lbS}>Número de pagos</label><input style={inS} inputMode="numeric" value={f.diferido.n} onChange={e=>setG("diferido","n",e.target.value)}/></div><div><label style={lbS}>Periodicidad</label><select style={inS} value={f.diferido.per} onChange={e=>setG("diferido","per",e.target.value)}><option value="mensual">Mensual</option><option value="bimestral">Bimestral</option><option value="trimestral">Trimestral</option></select></div><div><label style={lbS}>Primer pago</label><input type="date" style={inS} value={f.diferido.inicio} onChange={e=>setG("diferido","inicio",e.target.value)}/></div><div><label style={lbS}>Escrituración</label><select style={inS} value={f.diferido.escr} onChange={e=>setG("diferido","escr",e.target.value)}><option value="ultimo">Al último pago</option><option value="contrato">A la firma del contrato</option></select></div></React.Fragment>}
+              <label style={{...lbS,marginTop:14}}>Forma de pago · arma los pagos como quieras</label>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>{[["Contado","💵 Contado","Apartado + pago contra escritura"],["Financiamiento","🏦 Crédito","Apartado + enganche + crédito"],["Diferido","📅 Pagos","Apartado + enganche + pagos con fecha + contra escritura"]].map(([k,t,sub])=><React.Fragment key={k}>{opt(f.forma===k,()=>{ if(f.forma===k) return; const cambio=(f.lineas||[]).length>0; if(cambio&&!window.confirm("¿Cambiar a "+t.replace(/^\S+ /,"")+"? Se arman los pagos de nuevo.")) return; setCof(p=>({...p,forma:k,lineas:coLineasPreset(k,c.apartado)})); },t,sub)}</React.Fragment>)}</div>
+              <div style={{display:"flex",gap:7,flexWrap:"wrap",margin:"2px 0 8px"}}>
+                {[["apartado","＋ Apartado"],["enganche","＋ Enganche"],["pago","＋ Pago con fecha"],["escritura","＋ Pago contra escritura"],["credito","＋ Crédito bancario"],["otro","＋ Otro concepto"]].map(([t,lb])=>{ const ya=t==="apartado"&&(f.lineas||[]).some(x=>x.t==="apartado"); return (
+                  <button key={t} type="button" data-co-add={t} disabled={ya} onClick={()=>setCof(p=>{ const ls=[...(p.lineas||[])]; const np=ls.filter(x=>x.t==="pago").length+1; const hoy=new Date();
+                    const nueva=t==="apartado"?{t,c:"Apartado",m:String(Number(c.apartado)||0)}:(t==="enganche"?{t,c:"Enganche",cu:"contrato",m:""}:(t==="pago"?{t,c:"Pago "+np,f:new Date(hoy.getFullYear(),hoy.getMonth()+np,15).toISOString().slice(0,10),m:""}:(t==="escritura"?{t,c:"Pago contra escritura",d:90,m:"",resto:!ls.some(x=>x.resto)}:(t==="credito"?{t,c:"Saldo mediante crédito bancario",d:45,m:"",resto:!ls.some(x=>x.resto)}:{t,c:"",w:"",m:""}))));
+                    const iEs=ls.findIndex(x=>x.t==="escritura"); if(t!=="escritura"&&t!=="otro"&&iEs>=0) ls.splice(iEs,0,nueva); else if(t==="apartado") ls.unshift(nueva); else ls.push(nueva); return {...p,lineas:ls}; })}
+                    style={{border:"1.5px dashed "+B.navy,color:B.navy,background:"#fff",borderRadius:8,padding:"6px 11px",fontSize:12.5,fontWeight:800,cursor:ya?"default":"pointer",opacity:ya?0.4:1,fontFamily:"inherit"}}>{lb}</button>); })}
               </div>
-              <div style={{fontSize:11,color:B.grey4,margin:"-2px 0 6px"}}>{f.lineasAuto?"Las líneas se calculan solas con estos datos. Si cambias un concepto o un monto abajo, quedan como tú las escribas.":<span>✏️ Líneas editadas a mano. <a href="#" data-co-recalc onClick={e=>{ e.preventDefault(); set("lineasAuto",true); }} style={{color:"#1d4ed8",fontWeight:700}}>↻ Volver a calcularlas con los datos de arriba</a></span>}</div>
-              <table data-co-lineas style={{width:"100%",borderCollapse:"collapse",fontSize:13,background:"#fff"}}><thead><tr><th style={{...th,width:"44%"}}>Concepto</th><th style={{...th,width:"30%"}}>Cuándo</th><th style={{...th,width:"21%",textAlign:"right"}}>Monto</th><th style={th}></th></tr></thead>
-                <tbody>{L.map((x,i)=><tr key={i} style={{borderBottom:"1px solid "+B.grey1}}>
-                  <td style={{padding:"5px 6px"}}><input style={cIn} value={x.c} onChange={e=>{ const v=e.target.value; editL(ls=>{ ls[i].c=v; return ls; }); }}/></td>
-                  <td style={{padding:"5px 6px"}}><input style={cIn} value={x.w} onChange={e=>{ const v=e.target.value; editL(ls=>{ ls[i].w=v; return ls; }); }}/></td>
-                  <td style={{padding:"5px 6px"}}><input style={{...cIn,textAlign:"right"}} inputMode="decimal" value={f.lineasAuto?coMxC(x.m):(f.lineas[i]?f.lineas[i].m:"")} onChange={e=>{ const v=e.target.value; editL(ls=>{ ls[i].m=v; return ls; }); }}/></td>
-                  <td style={{padding:"5px 6px",textAlign:"center"}}><button type="button" title="Quitar línea" onClick={()=>editL(ls=>ls.filter((_,j)=>j!==i))} style={{border:"none",background:"none",color:"#b91c1c",fontWeight:800,cursor:"pointer",fontSize:14}}>✕</button></td></tr>)}
-                  <tr style={{borderTop:"2px solid "+B.navy}}><td style={{padding:"8px 9px",fontWeight:800,color:B.navy}}>Suma de las líneas</td><td/><td style={{padding:"8px 9px",textAlign:"right",fontWeight:800,color:cuadra?B.navy:B.red}}>{coMxC(suma)}</td><td style={{textAlign:"center",fontWeight:800,color:cuadra?"#15803d":B.red}}>{cuadra?"✓":"✗"}</td></tr></tbody></table>
+              {(()=>{ const upd=(i,k,val)=>setCof(p=>({...p,lineas:(p.lineas||[]).map((x,j)=>j===i?{...x,[k]:val}:x)}));
+                const rmv=(i)=>setCof(p=>({...p,lineas:(p.lineas||[]).filter((_,j)=>j!==i)}));
+                const dIn={...cIn,width:62,display:"inline-block",textAlign:"center",padding:"5px 6px"};
+                return (
+              <table data-co-lineas style={{width:"100%",borderCollapse:"collapse",fontSize:13,background:"#fff"}}><thead><tr><th style={{...th,width:"3%"}}>#</th><th style={{...th,width:"15%"}}>Tipo</th><th style={{...th,width:"24%"}}>Concepto</th><th style={{...th,width:"30%"}}>Fecha / cuándo</th><th style={{...th,width:"18%",textAlign:"right"}}>Monto</th><th style={{...th,width:"6%",textAlign:"right"}}>%</th><th style={th}></th></tr></thead>
+                <tbody>{L.map((x,i)=>{ const lt=CO_LT[x.t]||CO_LT.otro; const raw=(f.lineas[i]||{}); return (<tr key={i} data-co-linea={x.t} style={{borderBottom:"1px solid "+B.grey1}}>
+                  <td style={{padding:"5px 6px",color:B.grey4}}>{i+1}</td>
+                  <td style={{padding:"5px 6px"}}><span style={{display:"inline-block",borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:800,whiteSpace:"nowrap",color:lt.fg,background:lt.bg}}>{lt.t}</span></td>
+                  <td style={{padding:"5px 6px"}}><input style={cIn} value={raw.c||""} placeholder="Concepto" onChange={e=>upd(i,"c",e.target.value)}/></td>
+                  <td style={{padding:"5px 6px",fontSize:12.5,color:B.grey5}}>
+                    {x.t==="apartado"&&<span style={{color:B.grey4}}>A la aceptación de la carta</span>}
+                    {x.t==="enganche"&&<div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}><select style={{...cIn,width:raw.cu==="fecha"?"auto":"100%"}} value={raw.cu||"contrato"} onChange={e=>upd(i,"cu",e.target.value)}><option value="contrato">A la firma del contrato</option><option value="aceptacion">A la aceptación de la carta</option><option value="fecha">En una fecha…</option></select>{raw.cu==="fecha"&&<input type="date" style={{...cIn,width:"auto"}} value={raw.f||""} onChange={e=>upd(i,"f",e.target.value)}/>}</div>}
+                    {x.t==="pago"&&<input type="date" data-co-fecha style={{...cIn,borderColor:raw.f?B.grey1:B.red}} value={raw.f||""} onChange={e=>upd(i,"f",e.target.value)}/>}
+                    {(x.t==="escritura"||x.t==="credito")&&<span>{x.t==="escritura"?"A la firma de la escritura":"Al autorizarse el crédito"} · dentro de <input style={dIn} inputMode="numeric" value={raw.d==null?"":raw.d} onChange={e=>upd(i,"d",e.target.value.replace(/[^\d]/g,""))}/> días</span>}
+                    {x.t==="otro"&&<input style={cIn} value={raw.w||""} placeholder="Ej. A la entrega de la posesión" onChange={e=>upd(i,"w",e.target.value)}/>}
+                  </td>
+                  <td style={{padding:"5px 6px"}}>{x.t==="apartado"?<input readOnly style={{...cIn,textAlign:"right",background:"#eef1f5",color:"#475569"}} value={coMxC(x.m)} title="El apartado es fijo"/>
+                    :(raw.resto?<div style={{textAlign:"right"}}><b style={{color:B.navy}}>{coMxC(x.m)}</b><div style={{fontSize:10.5,color:B.grey4}}>lo que falta</div></div>
+                    :<input data-co-monto style={{...cIn,textAlign:"right"}} inputMode="decimal" value={raw.m==null?"":raw.m} placeholder="$ o 30%" onChange={e=>upd(i,"m",e.target.value)}/>)}
+                    {(x.t==="escritura"||x.t==="credito"||x.t==="otro")&&<label style={{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end",fontSize:10.5,color:B.grey4,marginTop:3,cursor:"pointer"}}><input type="checkbox" data-co-resto checked={!!raw.resto} onChange={e=>{ const v=e.target.checked; setCof(p=>({...p,lineas:(p.lineas||[]).map((y,j)=>j===i?{...y,resto:v,m:v?"":String(x.m||"")}:(v?{...y,resto:false,m:y.resto?String(coLineasCalc(p.lineas,cofTotal(c,p))[j].m):y.m}:y))})); }}/>por lo que falte</label>}
+                    {raw.m&&/%$/.test(String(raw.m).trim())&&<div style={{fontSize:10.5,color:B.grey4,textAlign:"right"}}>= {coMxC(x.m)}</div>}</td>
+                  <td style={{padding:"5px 6px",textAlign:"right",fontSize:11.5,color:B.grey4}}>{tot?((x.m/tot*100).toFixed(1)+"%"):"—"}</td>
+                  <td style={{padding:"5px 6px",textAlign:"center"}}><button type="button" title="Quitar" onClick={()=>rmv(i)} style={{border:"none",background:"none",color:"#b91c1c",fontWeight:800,cursor:"pointer",fontSize:14}}>✕</button></td></tr>); })}
+                  <tr style={{borderTop:"2px solid "+B.navy}}><td/><td colSpan={3} style={{padding:"8px 9px",fontWeight:800,color:B.navy}}>Suma de los pagos</td><td style={{padding:"8px 9px",textAlign:"right",fontWeight:800,color:cuadra?B.navy:B.red}}>{coMxC(suma)}</td><td style={{textAlign:"right",fontWeight:800,fontSize:11.5,color:cuadra?"#15803d":B.red}}>{tot?((suma/tot*100).toFixed(1)+"%"):""}</td><td style={{textAlign:"center",fontWeight:800,color:cuadra?"#15803d":B.red}}>{cuadra?"✓":"✗"}</td></tr></tbody></table>); })()}
               <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:8}}>
-                <button type="button" data-co-addlinea onClick={()=>editL(ls=>[...ls,{c:"",w:"",m:""}])} style={{border:"1.5px dashed "+B.navy,color:B.navy,background:"#fff",borderRadius:8,padding:"6px 12px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>＋ Agregar línea</button>
-                <span style={{fontSize:12,fontWeight:700,color:cuadra?"#15803d":B.red}}>{cuadra?("✓ La suma cuadra con el total de la ronda "+n):((suma<tot?"Faltan ":"Sobran ")+coMxC(Math.abs(tot-suma))+" para cuadrar con el total ("+coMxC(tot)+")")}</span></div>
+                <span data-co-cuadra={cuadra?"si":"no"} style={{fontSize:12.5,fontWeight:800,color:cuadra?"#15803d":B.red}}>{cuadra?("✓ La suma cuadra con el total de la ronda "+n):((suma<tot?"Faltan ":"Sobran ")+coMxC(Math.abs(tot-suma))+" para cuadrar con el total ("+coMxC(tot)+")")}</span>
+                {!cuadra&&<button type="button" data-co-diferencia onClick={()=>setCof(p=>{ const ls=[...(p.lineas||[])]; const calc=coLineasCalc(ls,cofTotal(c,p)); const dif=Math.round((cofTotal(c,p)-calc.reduce((a,y)=>a+y.m,0))*100)/100; let i=ls.findIndex(y=>y.t==="escritura");
+                    if(i<0){ ls.push({t:"escritura",c:"Pago contra escritura",d:90,m:"",resto:true}); return {...p,lineas:ls}; }
+                    ls[i]={...ls[i],resto:false,m:String(Math.round((calc[i].m+dif)*100)/100)}; return {...p,lineas:ls}; })} style={{border:"1.5px solid #f59e0b",background:"#fff",color:"#b45309",borderRadius:8,padding:"6px 11px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Poner la diferencia en el pago contra escritura</button>}
+              </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:10,marginTop:12}}>
                 <div><label style={lbS}>Condiciones / observaciones (salen en la carta) · opcional</label><textarea style={{...inS,minHeight:58,resize:"vertical"}} value={f.condTxt} placeholder="Ej. La notaría la elige el Comprador." onChange={e=>set("condTxt",e.target.value)}/>
                   {condFalta.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:4}}>{condFalta.map(x=><button key={x.k} type="button" onClick={()=>set("condTxt",(String(f.condTxt||"").trim()+" "+x.c).trim())} style={{fontSize:10.5,fontWeight:700,border:"1px solid "+B.grey2,background:"#fff",color:B.navy,borderRadius:999,padding:"2px 8px",cursor:"pointer",fontFamily:"inherit"}}>＋ {x.t}</button>)}</div>}</div>
@@ -3615,194 +3658,153 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       </div>
     </div>); };
 
+  // ── TARJETA LIMPIA (mockup aprobado 2026-11-18): encabezado · ronda vigente · 👉 SIGUIENTE PASO (uno solo,
+  // según el estado) · la negociación (una ronda por renglón) · 3 botones + "⋯ Más opciones".
   const tarjeta=(c)=>{ const r=coActual(c); const rs=coRondas(c); const venc=coVencida(c); const v=vend[c.id]||{}; const setV=(k,val)=>setVend(p=>({...p,[c.id]:{...(p[c.id]||{}),[k]:val}}));
-    // Las contrapropuestas que llegan (contrapropuesta_vendedor/comprador) se mandan desde su recuadro 📩.
-    const esperaComprador=["borrador","enviada_comprador"].includes(c.estado);
-    const esperaVendedor=["autorizada","enviada_vendedor"].includes(c.estado);
+    const nA=Number(c.ronda_actual||r.ronda||1), nSig=nA+1;
+    const fl=(x)=>x==="Financiamiento"?"Crédito bancario":(x==="Diferido"?"Pagos diferidos":(x||"—"));
+    const pdf=(o)=>{ if(!coImprimir(c,o&&o.modo||"interno",o&&o.opts)) toast("Permite ventanas emergentes para ver el PDF."); };
+    const bB=(bg,fg,brd)=>({...btn(bg,fg,brd),padding:"9px 14px",fontSize:13,borderRadius:9});
+    const fH=(iso)=>{ try{ return new Date(iso).toLocaleDateString("es-MX",{day:"numeric",month:"short"}); }catch(e){ return ""; } };
+    const chip=(t,tipo,key)=><span key={key} style={{borderRadius:7,padding:"2px 8px",fontSize:11.5,whiteSpace:"nowrap",...(tipo==="ok"?{color:"#0f6b38",background:"#ecfdf3",border:"1px solid #86efac"}:(tipo==="cp"?{color:"#b45309",background:"#fff7ed",border:"1px solid #fdba74"}:{color:B.grey3,border:"1px dashed "+B.grey2}))}}>{t}</span>;
+    const opcion=(num,titulo,cuerpo,extra)=>(<div style={{background:"#fff",border:"1.5px solid #fcd34d",borderRadius:10,padding:"9px 11px",flex:"1 1 300px",display:"flex",flexDirection:"column",gap:6}}>
+      <b style={{color:B.navy,fontSize:13}}>{num} · {titulo}</b>{extra}<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{cuerpo}</div></div>);
+    // 👉 Siguiente paso según el estado
+    const paso=(()=>{
+      const az={border:"2px solid #93c5fd",background:"#eff6ff",k:"#1d4ed8"}, gg={border:"2px solid #fcd34d",background:"#fffbeb",k:"#b45309"}, ok={border:"2px solid #86efac",background:"#f0fdf4",k:"#15803d"}, no={border:"2px solid #fecaca",background:"#fef2f2",k:"#b91c1c"};
+      const caja=(tono,etq,titulo,sub,der,abajo)=>(<div data-co-paso={c.estado} style={{marginTop:12,border:tono.border,background:tono.background,borderRadius:12,padding:"12px 14px"}}>
+        <div style={{display:"flex",gap:14,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 300px"}}><div style={{fontSize:10.5,fontWeight:800,letterSpacing:0.8,textTransform:"uppercase",color:tono.k}}>👉 {etq}</div><div style={{fontSize:15.5,fontWeight:800,color:B.navy,marginTop:2}}>{titulo}</div>{sub&&<div style={{fontSize:12.5,color:B.grey4,marginTop:2}}>{sub}</div>}</div>
+          {der&&<div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>{der}</div>}
+        </div>{abajo}</div>);
+      if(c.estado==="borrador") return caja(gg,"Siguiente paso · te toca a ti","Mandar la carta al comprador para que la firme","Copia su liga o mándasela por WhatsApp. Mientras no firme, todavía puedes ✏️ editarla.",
+        <React.Fragment><button disabled={!!busy} onClick={()=>copiar(c,"comprador",false)} style={bB(B.gold,B.navy)}>🔗 Copiar liga del comprador</button><button disabled={!!busy} onClick={()=>whats(c,"comprador")} style={bB("#25D366","#fff")}>🟢 WhatsApp</button><button onClick={()=>editar(c)} style={bB("#fff",B.navy,B.grey2)}>✏️ Editar</button></React.Fragment>);
+      if(c.estado==="enviada_comprador") return caja(az,"Siguiente paso",venc?("La liga del comprador venció · ronda "+nA):("Que el comprador firme la ronda "+nA),venc?"Genera una liga nueva y mándasela.":"Usa su misma liga. Al firmar, pasa sola al vendedor.",
+        <React.Fragment><button disabled={!!busy} onClick={()=>copiar(c,"comprador",venc)} style={bB(B.gold,B.navy)}>🔗 {venc?"Liga nueva":"Copiar liga"} del comprador</button><button disabled={!!busy} onClick={()=>whats(c,"comprador")} style={bB("#25D366","#fff")}>🟢 WhatsApp</button></React.Fragment>);
+      if(c.estado==="firmada_comprador"||c.estado==="autorizada"){ const aut=c.estado==="autorizada";
+        return caja(gg,"Siguiente paso · te toca a ti","El comprador ya firmó. ¿Qué hacemos con el vendedor?","Elige UNA opción. El comprador va confidencial para el vendedor.",null,
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:10}}>
+            {opcion(1,"Mandarla al vendedor para que la acepte",aut?<React.Fragment><button disabled={!!busy} onClick={()=>copiar(c,"vendedor",false)} style={bB(B.navy,"#fff")}>🔗 Copiar liga</button><button disabled={!!busy} onClick={()=>whats(c,"vendedor")} style={bB("#25D366","#fff")}>🟢 WhatsApp</button></React.Fragment>
+              :<React.Fragment><button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"enviar")} style={bB(B.navy,"#fff")}>{busy===c.id+"aut"?"Enviando…":"📤 Correo"}</button><button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"whatsapp")} style={bB("#25D366","#fff")}>🟢 WhatsApp</button><button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"copiar")} style={bB("#fff",B.navy,B.grey2)}>🔗 Copiar liga</button></React.Fragment>,
+              !aut&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:6}}>
+                <div><label style={lbS}>Vendedor</label><input style={inS} value={v.nombre!=null?v.nombre:(c.vendedor_nombre||(cap&&cap.propietario)||"")} onChange={e=>setV("nombre",e.target.value)}/></div>
+                <div><label style={lbS}>Correo</label><input style={inS} value={v.email!=null?v.email:(c.vendedor_email||(cap&&cap.email)||"")} onChange={e=>setV("email",e.target.value)}/></div>
+                <div><label style={lbS}>WhatsApp</label><input style={inS} value={v.tel!=null?v.tel:(c.vendedor_telefono||(cap&&cap.telefono)||"")} onChange={e=>setV("tel",e.target.value)}/></div></div>)}
+            {opcion(2,"El vendedor pidió otras condiciones",<button onClick={()=>abrirContra(c,"vendedor")} style={bB("#fff7ed","#b45309","#fdba74")}>🔄 Hacer contraoferta · ronda {nSig}</button>)}
+          </div>); }
+      if(c.estado==="enviada_vendedor") return caja(az,"Siguiente paso",venc?"La liga del vendedor venció":("Que el vendedor acepte la ronda "+nA),venc?"Genera una liga nueva y mándasela.":"Si acepta, queda ACEPTADA. Si pide cambios desde su liga, te llega aviso y aquí te aparece.",
+        <React.Fragment><button disabled={!!busy} onClick={()=>copiar(c,"vendedor",venc)} style={bB(B.navy,"#fff")}>🔗 {venc?"Liga nueva":"Copiar liga"} del vendedor</button><button disabled={!!busy} onClick={()=>whats(c,"vendedor")} style={bB("#25D366","#fff")}>🟢 WhatsApp</button></React.Fragment>);
+      if(c.estado==="contrapropuesta_vendedor"||c.estado==="contrapropuesta_comprador"){ if(cof&&cof.id===c.id) return null;
+        const deV=c.estado==="contrapropuesta_vendedor", prev=rs.find(x=>x.ronda===nA-1)||{}, dest=deV?"comprador":"vendedor";
+        const dPct=Number(prev.total)?((Number(r.total)-Number(prev.total))/Number(prev.total)*100):null;
+        const cel={padding:"6px 10px",borderBottom:"1px solid #fde68a",background:"#fff",fontSize:13};
+        return caja(gg,"Siguiente paso · te toca a ti",<span data-co-llego={nA}>📩 El {deV?"VENDEDOR":"COMPRADOR"} no aceptó la ronda {nA-1} y pide {coMx(r.precio_m2)}/m²{dPct!=null&&dPct!==0?(" ("+(dPct>0?"+":"−")+Math.abs(dPct).toFixed(1)+"%)"):""}</span>,"Ya viene firmada por el "+(deV?"vendedor":"comprador")+(deV&&r.vendedor_firma_at?(" · "+coFH(r.vendedor_firma_at)):"")+". Nadie más la ha visto.",null,
+          <div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",border:"1px solid #fde68a",borderRadius:9,overflow:"hidden",marginTop:10}}>
+              <div style={{...cel,background:"#fef3c7",fontSize:10.5,fontWeight:800,textTransform:"uppercase",color:"#92400e"}}>Ronda {nA-1} · anterior</div><div style={{...cel,background:"#fef3c7",fontSize:10.5,fontWeight:800,textTransform:"uppercase",color:"#92400e"}}>Ronda {nA} · lo que pide el {deV?"vendedor":"comprador"}</div>
+              <div style={cel}>{coMx(prev.precio_m2)}/m² · {coMx(prev.total)}</div><div style={{...cel,fontWeight:800,color:"#b45309"}}>{coMx(r.precio_m2)}/m² · {coMx(r.total)}</div>
+              <div style={cel}>{fl(prev.forma_pago)}</div><div style={{...cel,fontWeight:800,color:"#b45309"}}>{fl(r.forma_pago)}{r.condiciones&&!String(r.condiciones).startsWith("§")?(" · "+r.condiciones):""}</div>
+            </div>
+            {r.comentarios&&<div style={{fontSize:12.5,color:B.navy,background:"#fff",borderLeft:"3px solid #f59e0b",borderRadius:"0 8px 8px 0",padding:"6px 10px",marginTop:8}}>💬 <b>Comentario del {deV?"vendedor":"comprador"}:</b> {r.comentarios}</div>}
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:10}}>
+              {opcion(1,"Mandarla al "+dest+" tal cual",<React.Fragment><button disabled={!!busy} onClick={()=>reenviar(c,dest,"copiar")} style={bB(B.gold,B.navy)}>🔗 Copiar liga del {dest}</button><button disabled={!!busy} onClick={()=>reenviar(c,dest,"whatsapp")} style={bB("#25D366","#fff")}>🟢 WhatsApp</button>{(deV?c.comprador_email:c.vendedor_email)&&<button disabled={!!busy} onClick={()=>reenviar(c,dest,"correo")} style={bB(B.navy,"#fff")}>✉️ Correo</button>}</React.Fragment>,
+                <div style={{fontSize:12,color:B.grey5}}>Abre su misma liga. Si la firma, la carta queda <b style={{color:B.green}}>ACEPTADA</b>.</div>)}
+              {deV&&opcion(2,"El comprador quiere otra cosa",<button onClick={()=>abrirContra(c,"comprador")} style={bB("#fff7ed","#b45309","#fdba74")}>🔄 Hacer contraoferta · ronda {nSig}</button>,
+                <div style={{fontSize:12,color:B.grey5}}>Capturas lo que pide el comprador como ronda {nSig}.</div>)}
+            </div></div>); }
+      if(c.estado==="aceptada"){ const seg=Array.isArray(c.ofertas_seguimiento)?c.ofertas_seguimiento[0]:c.ofertas_seguimiento;
+        const reqN=(seg&&seg.tipo_operacion==="credito")?8:4, docsN=(seg&&seg.documentos&&typeof seg.documentos==="object")?Object.keys(seg.documentos).length:0;
+        const listo=seg&&seg.etapa==="listo_contrato", enviado=(seg&&seg.etapa==="revision_legal")||(seg&&seg.enviado_legal_at), verde=listo||enviado;
+        const docUrl=c.token_comprador?(LANDING_URL+"/mi-oferta/"+c.token_comprador):""; const nom=shNombre(c.comprador_nombre||c.comprador_empresa);
+        const msg="Hola"+(nom?" "+nom:"")+" 👋 Para preparar tu contrato de compraventa"+(c.folio?(" ("+c.folio+")"):"")+" sube aquí tus documentos y confirma tus datos de contacto:\n"+docUrl+"\n\n— Equipo Macrolotes de Grupo Guía";
+        return caja(ok,"🎉 Aceptada · siguiente paso",enviado?"El expediente ya está en Revisión Legal":(listo?"Expediente completo: mándalo a Legal":"Que el comprador suba su expediente para el contrato"),"Expediente "+(seg?(seg.tipo_operacion==="credito"?"crédito":"contado"):"")+" · "+docsN+"/"+reqN+" documentos.",
+          <button disabled={(!verde)||busy===c.id+"leg"} onClick={()=>{ const mail=window.prompt("Correo de Legal (puedes cambiarlo por un abogado externo):",(seg&&seg.legal_email)||"legal@grupoguia.mx"); if(mail===null) return; enviarLegal(c,(mail||"").trim()); }} style={{...bB(verde?B.gold:B.grey1,verde?B.navy:B.grey4),opacity:verde?1:0.6}}>{busy===c.id+"leg"?"Enviando…":(enviado?"📤 Reenviar a Legal":"📤 Enviar a Legal")}</button>,
+          docUrl&&<div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}><ShareButtons url={docUrl} mensaje={msg} asunto={"Tu expediente para el contrato · "+(c.terreno_nombre||"terreno")+(c.folio?(" · "+c.folio):"")+" · Grupo Guía"} telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast}/><button onClick={()=>window.open(docUrl,"_blank","noopener")} style={bB("#fff",B.navy,B.grey2)}>📍 Ver portal del comprador</button></div>); }
+      if(c.estado==="rechazada") return caja(no,"Carta rechazada","Rechazada por el "+(c.rechazo_por||"—")+" · "+coFH(c.rechazo_at),c.rechazo_motivo||null,
+        <button onClick={()=>abrirContra(c,c.rechazo_por==="comprador"?"comprador":"vendedor")} style={bB("#fff7ed","#b45309","#fdba74")}>🔄 Retomar con contraoferta · ronda {nSig}</button>);
+      return null; })();
+    // La negociación: una ronda por renglón (abajo la más reciente)
+    const sigDe=(x)=>rs.find(y=>y.ronda===x.ronda+1);
+    const renglon=(x)=>{ const s=sigDe(x), act=x.ronda===nA;
+      const est=s?{t:"Superada",fg:B.grey4}:(c.estado==="aceptada"?{t:"🎉 Aceptada",fg:B.green}:(c.estado==="rechazada"?{t:"✕ Rechazada",fg:B.red}:{t:"Vigente",fg:"#b45309"}));
+      const quien=x.ronda===1&&x.propone!=="vendedor"?"Oferta original":(x.propone==="vendedor"?"Contrapropuesta del vendedor":(x.propone==="comprador"?"Contrapropuesta del comprador":("Contraoferta"+(x.solicita==="vendedor"?" · la pidió el vendedor":(x.solicita==="comprador"?" · la pidió el comprador":" acordada")))));
+      const L=coLineasDe(x,c.apartado);
+      const pago=L?(L.map((y,i)=>"("+(i+1)+") "+y.c+", "+String(y.w||"").replace(/^./,m=>m.toLowerCase())+": "+coMxC(y.m)).join(" · ")):(()=>{ const t0=coClausula3(x); return t0.length>200?t0.slice(0,200)+"…":t0; })();
+      const fC=x.comprador_firma_at?chip("✓ Comprador firmó "+fH(x.comprador_firma_at),"ok","c"):(s?chip("↪ Comprador no firmó","cp","c"):chip("⏳ Comprador","pe","c"));
+      const fG=(c.gg_firma_at&&x.comprador_firma_at)?chip("✓ Grupo Guía recibió","ok","g"):chip("⏳ Grupo Guía","pe","g");
+      const fV=x.vendedor_firma_at?chip(x.propone==="vendedor"?"✓ Vendedor la firmó":"✓ Vendedor aceptó","ok","v"):(s?chip(s.propone==="vendedor"?"↪ Vendedor pidió cambios":"↪ Vendedor","cp","v"):chip("⏳ Vendedor","pe","v"));
+      return (<div key={x.ronda} data-co-ronda={x.ronda} style={{border:act?"1.5px solid "+B.gold:"1px solid "+B.grey1,background:act?"#fffdf5":"#fff",borderRadius:10,padding:"9px 12px",display:"grid",gridTemplateColumns:"auto 1fr auto",gap:"5px 12px",alignItems:"center",marginBottom:7}}>
+        <span style={{background:act?B.navy:B.grey4,color:"#fff",borderRadius:7,padding:"3px 9px",fontSize:12,fontWeight:900,letterSpacing:0.5,whiteSpace:"nowrap"}}>RONDA {x.ronda}</span>
+        <div style={{fontSize:13.5,color:B.navy}}>{quien} · {fH(x.created_at||c.created_at)} · <b>{coMx(x.precio_m2)}/m² · {coMx(x.total)}</b> <span style={{color:B.grey4}}>· {fl(x.forma_pago)}</span></div>
+        <span style={{fontSize:11.5,fontWeight:800,borderRadius:999,padding:"2px 9px",border:"1.5px solid "+est.fg,color:est.fg,whiteSpace:"nowrap"}}>{est.t}</span>
+        {act&&<div style={{gridColumn:"2 / 4",fontSize:12.5,color:B.grey5,background:"#fbfaf6",borderLeft:"3px solid "+B.gold,borderRadius:"0 7px 7px 0",padding:"5px 9px"}}><b>Forma de pago:</b> {pago}</div>}
+        <div style={{gridColumn:"2 / 4",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>{fC}{fG}{fV}
+          {x.nota_interna&&<span title="Nota interna (solo equipo)" style={{fontSize:11,color:"#b45309"}}>🔒 {x.nota_interna}</span>}
+          <button onClick={()=>pdf({opts:{ronda:x.ronda}})} style={{marginLeft:"auto",border:"none",background:"none",color:"#1d4ed8",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📄 Ver carta</button></div>
+      </div>); };
+    const masAbierto=masId===c.id;
+    const item=(t,fn,rojo)=><button onClick={()=>{ setMasId(null); fn(); }} style={{display:"block",width:"100%",textAlign:"left",border:"none",background:"none",padding:"8px 10px",borderRadius:8,fontSize:13,color:rojo?"#b91c1c":B.navy,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}} onMouseEnter={e=>e.currentTarget.style.background=B.offW} onMouseLeave={e=>e.currentTarget.style.background="none"}>{t}</button>;
+    const grupo=(t)=><div style={{fontSize:10,fontWeight:800,color:B.grey3,textTransform:"uppercase",letterSpacing:0.7,padding:"7px 10px 3px"}}>{t}</div>;
+    const puedeContra=["enviada_comprador","enviada_vendedor","aceptada"].includes(c.estado);
     return (
-    <div key={c.id} style={{border:"1.5px solid "+((CO_EST[c.estado]||{}).paso===5?"#f59e0b":B.grey1),borderRadius:12,padding:"10px 12px",marginBottom:10,background:"#fff"}}>
-      <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-        <div style={{fontSize:13,color:B.grey5}}><b style={{color:B.navy}}>{c.folio}</b>{todas&&<span> · <b style={{color:B.navy}}>{c.terreno_nombre}</b>{c.terreno_ubicacion?(" · "+c.terreno_ubicacion):""} <span style={{fontSize:10.5,fontWeight:800,borderRadius:999,padding:"1px 7px",marginLeft:4,color:c.captacion_id?"#b45309":B.green,background:c.captacion_id?"#fff7ed":B.greenL}}>{c.captacion_id?"Captación":"Inventario"}</span></span>} · {[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")}{c.vendedor_nombre?(" ⇄ "+c.vendedor_nombre):""}<span style={{color:B.grey3,fontSize:11.5}}> · {coFH(c.created_at)}</span></div>
+    <div key={c.id} data-co-carta={c.folio} style={{border:"1.5px solid "+B.grey1,borderRadius:14,padding:"14px 16px",marginBottom:12,background:"#fff",position:"relative"}}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"flex-start",flexWrap:"wrap"}}>
+        <div style={{fontSize:14,color:B.grey4}}><b style={{color:B.navy,fontSize:15}}>{c.folio}</b>{todas&&<span> · {c.terreno_nombre}{c.terreno_ubicacion?(" · "+c.terreno_ubicacion):""}</span>}
+          <div style={{fontSize:12.5,marginTop:3}}>{[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")}{c.vendedor_nombre?(" ⇄ "+c.vendedor_nombre):""}{c.asesor_nombre?(" · Asesor: "+c.asesor_nombre):""}</div></div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>{venc&&<span style={{fontSize:11,fontWeight:800,color:B.grey4,background:B.offW,border:"1px solid "+B.grey2,borderRadius:999,padding:"2px 8px"}}>⌛ Liga vencida</span>}{pill(c.estado)}</div>
       </div>
-      {/* 🏷 RONDA VIGENTE: siempre a la vista, sin margen de confusión (número, quién la propone, montos y a quién le toca). */}
-      {(()=>{ const nA=Number(c.ronda_actual||r.ronda||1), nT=Math.max(nA,rs.length||1); const tt=coTurno(c);
-        const dl=(Number(c.precio_lista_m2)>0&&Number(r.precio_m2)>0)?((Number(r.precio_m2)-Number(c.precio_lista_m2))/Number(c.precio_lista_m2)*100):null;
-        return (
-        <div data-co-vigente={nA} style={{display:"flex",alignItems:"stretch",gap:0,marginTop:8,border:"1.5px solid "+B.navy,borderRadius:11,overflow:"hidden",flexWrap:"wrap"}}>
-          <div style={{background:B.navy,color:"#fff",padding:"7px 14px",display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",minWidth:92}}>
-            <span style={{fontSize:9.5,fontWeight:800,letterSpacing:1.2,color:B.gold}}>RONDA</span>
-            <span style={{fontSize:26,fontWeight:900,lineHeight:1}}>{nA}</span>
-            <span style={{fontSize:9,fontWeight:800,letterSpacing:0.8,opacity:0.85}}>{nT>1?("DE "+nT+" · "):""}VIGENTE</span>
-          </div>
-          <div style={{flex:"1 1 260px",padding:"7px 12px",background:"#fff"}}>
-            <div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>{coQuien(r)}</div>
-            <div style={{fontSize:13.5,color:B.navy,marginTop:1}}><b style={{fontSize:15}}>{coMx(r.total)}</b> <span style={{color:B.grey4}}>({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m² × {coMx(r.precio_m2)}) · {r.forma_pago==="Financiamiento"?"Crédito bancario":(r.forma_pago==="Diferido"?"Pagos diferidos":r.forma_pago)} · apartado {coMx(c.apartado)}</span>
-              {dl!=null&&<span style={{marginLeft:8,fontSize:11.5,fontWeight:800,color:dl<0?"#b45309":B.green}}>{dl>=0?"+":""}{dl.toFixed(1)}% vs lista</span>}</div>
-          </div>
-          <div style={{flex:"0 1 240px",padding:"7px 12px",background:tt.bg,borderLeft:"1px solid "+B.grey1,display:"flex",flexDirection:"column",justifyContent:"center"}}>
-            <span style={{fontSize:9.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6}}>{tt.fin?"Resultado":"Le toca a"}</span>
-            <b style={{fontSize:13,color:tt.fg}}>{tt.t}</b>
-          </div>
-        </div>); })()}
-      {c.asesor_nombre && <div style={{fontSize:11.5,color:B.grey4,marginTop:4}}>👔 Asesor: <b style={{color:B.navy}}>{c.asesor_nombre}</b>{c.asesor_email?(" · "+c.asesor_email):""}</div>}
-      {timeline(c)}
-      {["contrapropuesta_vendedor","contrapropuesta_comprador"].includes(c.estado) && !(cof&&cof.id===c.id) && (()=>{
-        const deV=c.estado==="contrapropuesta_vendedor", n=Number(c.ronda_actual||1), prev=rs.find(x=>x.ronda===n-1)||{}, dest=deV?"comprador":"vendedor";
-        const fp=(x)=>x.forma_pago==="Financiamiento"?"Crédito bancario":(x.forma_pago==="Diferido"?"Pagos diferidos":(x.forma_pago||"—"));
-        const dPct=Number(prev.total)?((Number(r.total)-Number(prev.total))/Number(prev.total)*100):null;
-        const th={padding:"6px 10px",fontSize:10,textTransform:"uppercase",letterSpacing:0.5,textAlign:"left"};
-        const fila=(t,a,b)=>(<tr key={t} style={{borderTop:"1px solid #fde68a"}}><td style={{padding:"6px 10px",color:B.grey4,fontWeight:700,whiteSpace:"nowrap"}}>{t}</td><td style={{padding:"6px 10px",color:B.grey4}}>{a}</td><td style={{padding:"6px 10px",fontWeight:800,color:a!==b?"#b45309":B.navy}}>{b}</td></tr>);
-        const firmo=deV?r.vendedor_firma_at:r.comprador_firma_at;
-        const opc={flex:"1 1 280px",background:"#fff",border:"1.5px solid #fcd34d",borderRadius:11,padding:"10px 12px",display:"flex",flexDirection:"column",gap:7};
-        const num=(k)=><span style={{width:22,height:22,borderRadius:"50%",background:B.navy,color:"#fff",fontWeight:800,fontSize:12,display:"inline-grid",placeItems:"center",marginRight:7,flexShrink:0}}>{k}</span>;
-        return (
-        <div data-co-llego={n} style={{border:"2px solid #f59e0b",background:"#fffbeb",borderRadius:12,padding:"12px 13px",marginTop:10,display:"flex",flexDirection:"column",gap:10}}>
-          <div>
-            <div style={{fontSize:15.5,fontWeight:800,color:"#92400e"}}>📩 {deV?("El VENDEDOR no aceptó la ronda "+(n-1)+" y respondió con una contrapropuesta"):"El COMPRADOR respondió con una contrapropuesta"}: <span style={{background:B.navy,color:"#fff",borderRadius:7,padding:"1px 9px",whiteSpace:"nowrap"}}>RONDA {n}</span></div>
-            <div style={{fontSize:12,color:"#92400e",marginTop:3}}>Ya viene firmada por el {deV?"vendedor":"comprador"}{firmo?(" · "+coFH(firmo)):""}. Nadie más la ha visto: tú decides qué sigue.</div>
-          </div>
-          <div style={{overflowX:"auto",border:"1px solid #fde68a",borderRadius:9,background:"#fff"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5}}>
-            <thead><tr style={{background:"#fef3c7",color:"#92400e"}}><th style={th}>Concepto</th><th style={th}>Ronda {n-1} · anterior</th><th style={{...th,color:B.navy}}>Ronda {n} · {deV?"lo que pide el vendedor":"lo que pide el comprador"}</th></tr></thead>
-            <tbody>
-              {fila("Precio por m²",coMx(prev.precio_m2),coMx(r.precio_m2))}
-              {fila("Total",coMx(prev.total),coMx(r.total)+(dPct!=null&&dPct!==0?("  ("+(dPct>0?"+":"−")+Math.abs(dPct).toFixed(1)+"%)"):""))}
-              {fila("Forma de pago",fp(prev),fp(r))}
-              {(prev.condiciones||r.condiciones)&&fila("Condiciones",coClausula3(prev).slice(0,90)+(coClausula3(prev).length>90?"…":""),coClausula3(r).slice(0,90)+(coClausula3(r).length>90?"…":""))}
-            </tbody></table></div>
-          {r.comentarios&&<div style={{fontSize:12.5,color:B.navy,background:"#fff",borderLeft:"3px solid #f59e0b",borderRadius:"0 8px 8px 0",padding:"6px 10px"}}>💬 <b>Comentario del {deV?"vendedor":"comprador"}:</b> {r.comentarios}</div>}
-          <div style={{fontSize:11,fontWeight:800,color:"#92400e",textTransform:"uppercase",letterSpacing:0.6}}>¿Qué sigue? Elige una opción</div>
-          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-            <div style={opc}>
-              <div style={{display:"flex",alignItems:"center"}}>{num(1)}<b style={{fontSize:13.5,color:B.navy}}>Mandarla al {dest} tal cual</b></div>
-              <div style={{fontSize:12,color:B.grey5,lineHeight:1.45}}>El {dest} abre su <b>misma liga</b> y ve la ronda {n}. Si la firma, la carta queda <b style={{color:B.green}}>ACEPTADA</b> ({deV?"el vendedor":"el comprador"} ya la firmó).</div>
-              <div style={{display:"flex",gap:7,flexWrap:"wrap",marginTop:"auto"}}>
-                <button disabled={!!busy} onClick={()=>reenviar(c,dest,"copiar")} style={btn(B.gold,B.navy)}>🔗 Copiar liga del {dest}</button>
-                <button disabled={!!busy} onClick={()=>reenviar(c,dest,"whatsapp")} style={btn("#25D366","#fff")}>🟢 WhatsApp</button>
-                {(deV?c.comprador_email:c.vendedor_email)&&<button disabled={!!busy} onClick={()=>reenviar(c,dest,"correo")} style={btn(B.navy,"#fff")}>✉️ Correo</button>}
-              </div>
-            </div>
-            {deV&&<div style={opc}>
-              <div style={{display:"flex",alignItems:"center"}}>{num(2)}<b style={{fontSize:13.5,color:B.navy}}>El comprador quiere otra cosa</b></div>
-              <div style={{fontSize:12,color:B.grey5,lineHeight:1.45}}>Captura lo que propone el comprador como <b>ronda {n+1}</b>. La guardas, la revisas y la envías: firma el comprador y después pasa sola al vendedor.</div>
-              <div style={{display:"flex",gap:7,flexWrap:"wrap",marginTop:"auto"}}>
-                <button onClick={()=>abrirContra(c,"comprador")} style={btn("#fff7ed","#b45309","#fdba74")}>🔄 Hacer contraoferta · ronda {n+1}</button>
-              </div>
-            </div>}
-          </div>
-        </div>); })()}
-      {rs.length>1 && (()=>{ const prevR=(x)=>rs.find(y=>y.ronda===x.ronda-1); const sigDe=(x)=>rs.find(y=>y.ronda===x.ronda+1);
-        const estadoRonda=(x)=>{ const s=sigDe(x); if(s) return {t:"Superada · ronda "+s.ronda, fg:B.grey4, bg:B.offW}; if(c.estado==="aceptada") return {t:"🎉 Aceptada", fg:B.green, bg:B.greenL}; if(c.estado==="rechazada") return {t:"✕ Rechazada", fg:B.red, bg:"#fef2f2"}; return {t:"✍️ En firma", fg:"#2563AC", bg:"#EEF4FF"}; };
-        const sl=(t,sub,tipo,key)=>(<div key={key} style={{fontSize:10.5,borderRadius:7,padding:"4px 7px",lineHeight:1.35,...(tipo==="ok"?{color:"#0f6b38",background:B.greenL,border:"1px solid #86efac"}:(tipo==="cp"?{color:"#b45309",background:"#fff7ed",border:"1px solid #fdba74"}:{color:B.grey3,border:"1px dashed "+B.grey2}))}}><b style={{display:"block",textTransform:"uppercase",letterSpacing:0.3,fontSize:9.5}}>{t}</b>{sub}</div>);
-        const firmasDe=(x)=>{ const s=sigDe(x); return [
-          x.comprador_firma_at?sl("✓ Comprador · firmó",coFH(x.comprador_firma_at)+(x.comprador_firma_email?" · "+x.comprador_firma_email:""),"ok","c"):(s?sl("↪ Comprador","No firmó · ronda "+s.ronda,"cp","c"):sl("⏳ Comprador","Pendiente","pe","c")),
-          (c.gg_firma_at&&x.comprador_firma_at)?sl("✓ Grupo Guía · recibida",coFH(c.gg_firma_at),"ok","g"):(s?sl("Grupo Guía","— no aplica (ronda superada)","pe","g"):sl("⏳ Grupo Guía","Al firmar el comprador","pe","g")),
-          x.vendedor_firma_at?sl(x.propone==="vendedor"?"✓ Vendedor · firmó su contrapropuesta":"✓ Vendedor · aceptó",coFH(x.vendedor_firma_at)+(x.vendedor_firma_email?" · "+x.vendedor_firma_email:""),"ok","v"):(s?sl(s.propone==="vendedor"?"↪ Vendedor · contrapropuso":"↪ Vendedor","Ronda "+s.ronda,"cp","v"):sl("⏳ Vendedor","Pendiente","pe","v")) ]; };
-        const pagoTxt=(x)=>{ const p=coPlanResumen(x,c.apartado); if(p) return <span><b>{p.forma}.</b> Enganche {p.eng} · {p.saldo} · escrituración {String(p.escr).toLowerCase()}.</span>; const t0=coClausula3(x), t=t0.charAt(0).toUpperCase()+t0.slice(1); return <span><b>{x.forma_pago}.</b> {t.length>170?t.slice(0,170)+"…":t}</span>; };
-        const res=(x)=>coPlanResumen(x,c.apartado);
-        const filasComp=[["Precio / m²",x=>coMx(x.precio_m2)],["Total",x=>coMx(x.total)],["vs. precio de lista",x=>Number(c.precio_lista_m2)>0?((((Number(x.precio_m2)/Number(c.precio_lista_m2))-1)*100).toFixed(1)+"%"):"—"],["Forma de pago",x=>(res(x)||{}).forma||x.forma_pago||"—"],["Enganche",x=>(res(x)||{}).eng||"—"],["Saldo",x=>(res(x)||{}).saldo||"Ver cláusula tercera"],["Escrituración",x=>(res(x)||{}).escr||"—"],["Firmas",x=>[(x.comprador_firma_at?"✓":"—")+" Comprador",(x.vendedor_firma_at?"✓":"—")+" Vendedor"].join(" · ")]];
-        return (
-        <div style={{marginTop:10,border:"1px solid "+B.grey1,borderRadius:12,padding:"10px 12px",background:"#fcfcfd"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}><div style={{fontSize:13,fontWeight:800,color:B.navy}}>📜 Historial de la negociación · {rs.length} rondas <span style={{fontSize:11,fontWeight:600,color:B.grey4}}>· cada ronda es una carta propia con sus firmas</span></div>
-            <button onClick={()=>{ if(!coImprimir(c,"interno",{todas:true})) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn(B.navy,"#fff")}>📦 Expediente completo (PDF)</button></div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))",gap:10,marginTop:10}}>
-            {rs.map(x=>{ const e=estadoRonda(x), act=x.ronda===c.ronda_actual, p=prevR(x); const d=p?((Number(x.total)-Number(rs[0].total))/(Number(rs[0].total)||1)*100):0; return (
-              <div key={x.ronda} style={{border:"1.5px solid "+(act?B.gold:B.grey1),borderRadius:11,background:"#fff",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:act?"0 0 0 3px rgba(245,179,53,.18)":"none"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6,padding:"7px 10px",background:act?B.navy:B.offW,borderBottom:"1px solid "+B.grey1}}><b style={{fontSize:12,color:act?"#fff":B.navy}}>{act&&<span style={{background:B.gold,color:B.navy,borderRadius:5,padding:"1px 6px",marginRight:6,fontSize:10,letterSpacing:0.5}}>VIGENTE</span>}Ronda {x.ronda} · {coQuien(x)}</b><span style={{fontSize:10.5,fontWeight:800,color:e.fg,background:e.bg,border:"1.5px solid "+e.fg,borderRadius:999,padding:"1px 8px",whiteSpace:"nowrap"}}>{e.t}</span></div>
-                <div style={{padding:"9px 10px",display:"flex",flexDirection:"column",gap:7,flex:1}}>
-                  <div style={{fontSize:18,fontWeight:800,color:B.navy}}>{coMx(x.precio_m2)} <span style={{fontSize:11.5,color:B.grey4,fontWeight:600}}>/m² · {coMx(x.total)}</span>{p&&<span style={{fontSize:11,fontWeight:800,marginLeft:6,color:d<0?"#b45309":B.green}}>{d>=0?"+":"−"}{Math.abs(d).toFixed(1)}% vs R1</span>}</div>
-                  <div style={{fontSize:11.5,background:"#fbfaf6",borderLeft:"3px solid "+B.gold,borderRadius:"0 7px 7px 0",padding:"5px 8px",lineHeight:1.4}}>{pagoTxt(x)}</div>
-                  <div style={{display:"grid",gap:4}}>{firmasDe(x)}</div>
-                  {(x.comentarios||x.nota_interna||x.capturada_por)&&<div style={{fontSize:11,color:B.grey4,lineHeight:1.4}}>{x.comentarios&&<div>💬 {x.comentarios}</div>}{x.nota_interna&&<div style={{color:"#b45309"}}>🔒 {x.nota_interna}</div>}{x.capturada_por&&<div>Capturó: {x.capturada_por} · {coFH(x.created_at)}</div>}</div>}
-                </div>
-                <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"7px 10px",borderTop:"1px solid "+B.grey1}}>
-                  <button onClick={()=>{ if(!coImprimir(c,"interno",{ronda:x.ronda})) toast("Permite ventanas emergentes para ver el PDF."); }} style={{...btn("#fff",B.navy,B.grey2),fontSize:11}}>📄 {(x.comprador_firma_at||x.vendedor_firma_at)?"Ver carta firmada":"Ver carta"}</button>
-                  <button onClick={()=>{ if(!coImprimir(c,"interno",{ronda:x.ronda,constancia:true})) toast("Permite ventanas emergentes para ver el PDF."); }} style={{...btn("#fff",B.navy,B.grey2),fontSize:11}}>🧾 Constancia</button>
-                </div>
-              </div>); })}
-          </div>
-          <div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6,margin:"12px 0 5px"}}>Comparativo de rondas</div>
-          <div style={{overflowX:"auto",border:"1px solid "+B.grey1,borderRadius:9}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-            <thead><tr style={{background:B.navy,color:"#fff",textAlign:"left"}}><th style={{padding:"6px 9px",fontSize:10,textTransform:"uppercase"}}>Concepto</th>{rs.map(x=><th key={x.ronda} style={{padding:"6px 9px",fontSize:10,textTransform:"uppercase",whiteSpace:"nowrap"}}>Ronda {x.ronda}</th>)}</tr></thead>
-            <tbody>{filasComp.map(([k,fn])=>{ const vals=rs.map(fn); const cambia=vals.some(v=>v!==vals[0]); return (<tr key={k} style={{borderTop:"1px solid "+B.grey1,background:cambia?"#fffbeb":"transparent"}}><td style={{padding:"5px 9px",fontWeight:700,color:B.grey4,whiteSpace:"nowrap"}}>{k}</td>{vals.map((v,i)=><td key={i} style={{padding:"5px 9px",fontWeight:rs[i].ronda===c.ronda_actual?800:500}}>{v}</td>)}</tr>); })}</tbody>
-          </table></div>
-          <div style={{fontSize:10.5,color:B.grey3,marginTop:4}}>En amarillo: lo que cambió entre rondas.</div>
-        </div>); })()}
-      {(r.condiciones||r.comentarios) && <div style={{fontSize:12,color:"#334155",background:"#fffaf0",borderLeft:"3px solid "+B.gold,padding:"6px 9px",borderRadius:"0 7px 7px 0",marginTop:8}}>{r.condiciones&&<div><b>Forma de pago ({r.forma_pago}):</b> {coClausula3(r)}</div>}{r.comentarios&&<div>💬 <b>{r.propone==="vendedor"?"Vendedor":(r.propone==="comprador"?"Comprador":"Nota")}:</b> {r.comentarios}</div>}</div>}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:6,marginTop:8}}>
-        {firma("Comprador",r.comprador_firma_at,[r.comprador_firma_email,r.comprador_firma_ip?("IP "+r.comprador_firma_ip):""].filter(Boolean).join(" · "))}
-        {firma("Grupo Guía",c.gg_firma_at,c.gg_firma_email)}
-        {firma("Vendedor",r.vendedor_firma_at,[r.vendedor_firma_email,r.vendedor_firma_ip?("IP "+r.vendedor_firma_ip):""].filter(Boolean).join(" · "))}
-      </div>
-      {c.token_comprador && !["borrador","enviada_comprador","rechazada","aceptada"].includes(c.estado) && (()=>{
-        // Portal del comprador (/mi-oferta/) — SOLO aquí, en Cartas oferta (decisión de Dirección).
-        const url=LANDING_URL+"/mi-oferta/"+c.token_comprador; const nom=shNombre(c.comprador_nombre||c.comprador_empresa);
-        const terr=(c.terreno_nombre||"tu terreno")+(c.terreno_ubicacion?(" ("+c.terreno_ubicacion+")"):"");
-        return (
-        <div style={{border:"1px solid "+B.grey1,borderLeft:"4px solid #25D366",borderRadius:10,padding:"9px 10px",marginTop:8,background:"#fbfefc"}}>
-          <ShareButtons url={url} mensaje={"Hola"+(nom?" "+nom:"")+", aquí puedes ver el avance de tu oferta para el terreno "+terr+": "+url}
-            asunto={"Avance de tu oferta · "+(c.terreno_nombre||"terreno")+(c.folio?(" · "+c.folio):"")+" · Grupo Guía"}
-            telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast} etiqueta="📲 Compartir el avance con el comprador" mostrarMensaje/>
-        </div>); })()}
-      {form && form.id===c.id && <div style={{marginTop:10}}>{formUI}</div>}
-      {cof && cof.id===c.id && cofModal(c)}
+      {(()=>{ const dl=(Number(c.precio_lista_m2)>0&&Number(r.precio_m2)>0)?((Number(r.precio_m2)-Number(c.precio_lista_m2))/Number(c.precio_lista_m2)*100):null; return (
+      <div data-co-vigente={nA} style={{display:"flex",marginTop:10,border:"1.5px solid "+B.navy,borderRadius:11,overflow:"hidden"}}>
+        <div style={{background:B.navy,color:"#fff",padding:"7px 14px",display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",minWidth:92}}>
+          <span style={{fontSize:9.5,fontWeight:800,letterSpacing:1.2,color:B.gold}}>RONDA</span><span style={{fontSize:26,fontWeight:900,lineHeight:1}}>{nA}</span><span style={{fontSize:9,fontWeight:800,letterSpacing:0.8,opacity:0.85}}>VIGENTE</span></div>
+        <div style={{flex:1,padding:"8px 14px"}}><div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>{nA===1&&r.propone!=="vendedor"?"Oferta original":coQuien(r)}</div>
+          <div style={{fontSize:14,color:B.navy,marginTop:1}}><b style={{fontSize:16}}>{coMx(r.total)}</b> <span style={{color:B.grey4}}>({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m² × {coMx(r.precio_m2)}) · {fl(r.forma_pago)} · apartado {coMx(c.apartado)}</span>{dl!=null&&<span style={{marginLeft:8,fontSize:11.5,fontWeight:800,color:dl<0?"#b45309":B.green}}>{dl>=0?"+":""}{dl.toFixed(1)}% vs lista</span>}</div></div>
+      </div>); })()}
       {envioOk && envioOk.id===c.id && (
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",border:"2px solid #86efac",background:"#f0fdf4",borderRadius:11,padding:"10px 13px",marginTop:10}}>
           {(()=>{ const rol=envioOk.rol||"comprador"; return (
-          <div style={{fontSize:13,color:"#15803d",lineHeight:1.45}}><b>✅ Ronda {envioOk.ronda} {envioOk.reenvio?("enviada al "+rol):"creada y enviada a firma"}</b> · {envioOk.modo==="whatsapp"?("por WhatsApp al "+rol):(envioOk.modo==="correo"?("por correo al "+rol):("liga del "+rol+" copiada"))} · {new Date(envioOk.at).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}<br/><span style={{color:"#166534",fontWeight:600}}>{envioOk.reenvio?("Si el "+rol+" la firma, la carta queda ACEPTADA."+(rol==="comprador"?" Si pide otra cosa, captúralo con 🔄 Contrapropuesta.":"")):"El comprador firma con su misma liga; al firmar, pasa sola al vendedor. Si el vendedor no acepta y contrapropone, te llega un correo y aquí te aparece para decidir qué sigue."}</span></div>); })()}
+          <div style={{fontSize:13,color:"#15803d",lineHeight:1.45}}><b>✅ Ronda {envioOk.ronda} {envioOk.reenvio?("enviada al "+rol):"creada y enviada a firma"}</b> · {envioOk.modo==="whatsapp"?("por WhatsApp al "+rol):(envioOk.modo==="correo"?("por correo al "+rol):("liga del "+rol+" copiada"))} · {new Date(envioOk.at).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</div>); })()}
           <button onClick={()=>setEnvioOk(null)} style={btn("#fff","#15803d","#86efac")}>Entendido ✕</button>
         </div>)}
-      {c.estado==="rechazada" && <div style={{fontSize:12,color:B.red,marginTop:8}}>✕ Rechazada por el <b>{c.rechazo_por}</b> el {coFH(c.rechazo_at)}{c.rechazo_motivo?(" · "+c.rechazo_motivo):""}</div>}
-      {c.estado==="firmada_comprador" && (
-        <div style={{border:"1.5px solid "+B.navy,borderRadius:10,padding:"9px 10px",marginTop:8,background:"#f6f8fb"}}>
-          <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>✓ El comprador firmó · confirma al vendedor y envíale la carta (el comprador va confidencial)</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
-            <div><label style={lbS}>Vendedor (propietario)</label><input style={inS} value={v.nombre!=null?v.nombre:(c.vendedor_nombre||(cap&&cap.propietario)||"")} onChange={e=>setV("nombre",e.target.value)}/></div>
-            <div><label style={lbS}>Correo</label><input style={inS} value={v.email!=null?v.email:(c.vendedor_email||(cap&&cap.email)||"")} onChange={e=>setV("email",e.target.value)}/></div>
-            <div><label style={lbS}>WhatsApp</label><input style={inS} value={v.tel!=null?v.tel:(c.vendedor_telefono||(cap&&cap.telefono)||"")} onChange={e=>setV("tel",e.target.value)}/></div>
-          </div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
-            <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"enviar")} title="Le llega por correo su liga (10 días)" style={btn(B.gold,B.navy)}>{busy===c.id+"aut"?"Enviando…":"📤 Enviar al vendedor"}</button>
-            <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"whatsapp")} title="Abre WhatsApp al vendedor con su liga y el mensaje listo" style={btn("#25D366","#fff")}>🟢 WhatsApp al vendedor</button>
-            <button disabled={busy===c.id+"aut"} onClick={()=>autorizar(c,"copiar")} title="Copias la liga y se la mandas tú (sin correo al vendedor)" style={btn(B.navy,"#fff")}>🔗 Copiar liga para el vendedor</button>
-          </div>
-        </div>)}
-      {c.estado==="aceptada" && (()=>{
-        const seg=Array.isArray(c.ofertas_seguimiento)?c.ofertas_seguimiento[0]:c.ofertas_seguimiento;
-        const reqN=(seg&&seg.tipo_operacion==="credito")?8:4;
-        const docsN=(seg&&seg.documentos&&typeof seg.documentos==="object")?Object.keys(seg.documentos).length:0;
-        const listo=seg&&seg.etapa==="listo_contrato";
-        const enviado=(seg&&seg.etapa==="revision_legal")||(seg&&seg.enviado_legal_at);
-        const verde=listo||enviado;
-        return (
-          <div style={{border:"1.5px solid "+(verde?"#15803d":B.gold),borderRadius:10,padding:"9px 10px",marginTop:8,background:verde?"#f0fdf4":"#fffaf0"}}>
-            <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:6}}>🗂 Expediente para contrato · {seg?(seg.tipo_operacion==="credito"?"Crédito":"Contado"):"—"} · {docsN}/{reqN} documentos{enviado?" · ✅ en Revisión Legal":(listo?" · ✅ listo para contrato":" · ⏳ esperando al comprador")}</div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-              <button disabled={(!listo&&!enviado)||busy===c.id+"leg"} onClick={()=>{ const mail=window.prompt("Correo de Legal (puedes cambiarlo por un abogado externo):",(seg&&seg.legal_email)||"legal@grupoguia.mx"); if(mail===null) return; enviarLegal(c,(mail||"").trim()); }} title={verde?"Manda el expediente a Legal: correo con las ligas a los documentos + datos de la carta":"El comprador aún no completa su expediente"} style={{...btn(verde?B.gold:B.grey1,verde?B.navy:B.grey4),opacity:verde?1:0.6}}>{busy===c.id+"leg"?"Enviando…":(enviado?"📤 Reenviar a Legal":"📤 Enviar Expediente a Legal")}</button>
-              {c.token_comprador&&(()=>{ const docUrl=LANDING_URL+"/mi-oferta/"+c.token_comprador; const nom=shNombre(c.comprador_nombre||c.comprador_empresa); const msg="Hola"+(nom?" "+nom:"")+" 👋 Para preparar tu contrato de compraventa"+(c.folio?(" ("+c.folio+")"):"")+" sube aquí tus documentos y confirma tus datos de contacto:\n"+docUrl+"\n\n— Equipo Macrolotes de Grupo Guía"; return (<React.Fragment>
-                <ShareButtons url={docUrl} mensaje={msg} asunto={"Tu expediente para el contrato · "+(c.terreno_nombre||"terreno")+(c.folio?(" · "+c.folio):"")+" · Grupo Guía"} telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast}/>
-                <button onClick={()=>window.open(docUrl,"_blank","noopener")} title="Abres el portal del comprador para ver su avance" style={btn("#fff",B.navy,B.grey2)}>📍 Ver portal del comprador</button>
-              </React.Fragment>); })()}
-            </div>
-          </div>);
-      })()}
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
-        {coEditable(c) && <button onClick={()=>editar(c)} title={coCondLibres(c)?"Editar la carta (el comprador aún no firma)":"El comprador ya firmó: solo se editan los datos del vendedor"} style={btn("#fff",B.navy,B.grey2)}>✏️ {coCondLibres(c)?"Editar":"Editar vendedor"}</button>}
-        {esperaComprador && <button disabled={!!busy} onClick={()=>copiar(c,"comprador",venc)} style={btn(B.gold,B.navy)}>🔗 {venc?"Liga nueva":"Copiar liga"} comprador{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</button>}
-        {esperaComprador && <button disabled={!!busy} onClick={()=>whats(c,"comprador")} style={btn("#25D366","#fff")}>🟢 WhatsApp comprador</button>}
-        {esperaVendedor && <button disabled={!!busy} onClick={()=>copiar(c,"vendedor",venc)} style={btn(B.navy,"#fff")}>🔗 {venc?"Liga nueva":"Copiar liga"} vendedor{c.ronda_actual>1?(" · ronda "+c.ronda_actual):""}</button>}
-        {esperaVendedor && <button disabled={!!busy} onClick={()=>whats(c,"vendedor")} style={btn("#25D366","#fff")}>🟢 WhatsApp vendedor</button>}
-        {c.asesor_nombre && <button onClick={()=>whatsAsesor(c)} title="Liga de solo lectura para el asesor (no puede firmar)" style={btn("#fff","#1d4ed8","#bfdbfe")}>👔 WhatsApp asesor (solo lectura)</button>}
-        {c.asesor_email && <button onClick={()=>coAvisarAsesor(c,toast,true)} title={"Reenviar el correo informativo a "+c.asesor_email} style={btn("#fff","#1d4ed8","#bfdbfe")}>📧 Correo al asesor</button>}
-        <button onClick={()=>{ if(!coImprimir(c,"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} title="Abre la carta oferta vigente (ronda actual) con todos los datos y el historial; desde ahí la imprimes o guardas en PDF" style={btn("#fff",B.navy,B.grey2)}>📄 Ver carta oferta (PDF)</button>
-        <button onClick={()=>{ if(!coImprimir(c,"interno",{constancia:true})) toast("Permite ventanas emergentes para ver el PDF."); }} title="Quién firmó cada ronda: nombre, correo, fecha y hora, IP y navegador" style={btn("#fff",B.navy,B.grey2)}>🧾 Constancia de firmas</button>
-        {c.estado!=="borrador" && <button onClick={()=>abrirContra(c)} title="Nueva ronda de negociación: cambia precio/forma de pago o vuelve a mandar la carta a firma (comprador → vendedor). El historial se conserva." style={btn("#fff7ed","#b45309","#fdba74")}>🔄 Contrapropuesta / reenviar a firma</button>}
-        {todas&&onAbrirTerreno&&<button onClick={()=>onAbrirTerreno(c)} style={btn("#fff",B.navy,B.grey2)}>🗂 Abrir ficha del terreno</button>}
-        {c.vendedor_nombre && <button onClick={()=>{ if(!coImprimir(c,"vendedor")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF vendedor (confidencial)</button>}
-        <button onClick={()=>borrar(c)} title="Eliminar carta" style={btn("#fff","#b91c1c","#fecaca")}>🗑</button>
+      {paso}
+      <div style={{marginTop:14}}>
+        <div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.7,marginBottom:7}}>La negociación</div>
+        {(rs.length?rs:[r]).map(renglon)}
+      </div>
+      {shareId===c.id && c.token_comprador && (()=>{ const url=LANDING_URL+"/mi-oferta/"+c.token_comprador; const nom=shNombre(c.comprador_nombre||c.comprador_empresa); const terr=(c.terreno_nombre||"tu terreno")+(c.terreno_ubicacion?(" ("+c.terreno_ubicacion+")"):"");
+        return (<div style={{border:"1px solid "+B.grey1,borderLeft:"4px solid #25D366",borderRadius:10,padding:"9px 10px",marginTop:8,background:"#fbfefc"}}>
+          <ShareButtons url={url} mensaje={"Hola"+(nom?" "+nom:"")+", aquí puedes ver el avance de tu oferta para el terreno "+terr+": "+url} asunto={"Avance de tu oferta · "+(c.terreno_nombre||"terreno")+(c.folio?(" · "+c.folio):"")+" · Grupo Guía"} telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast} etiqueta="📲 Compartir el avance con el comprador" mostrarMensaje/>
+        </div>); })()}
+      {form && form.id===c.id && <div style={{marginTop:10}}>{formUI}</div>}
+      {cof && cof.id===c.id && cofModal(c)}
+      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:12,paddingTop:12,borderTop:"1px solid "+B.grey1,flexWrap:"wrap"}}>
+        <button onClick={()=>pdf()} style={bB("#fff",B.navy,B.grey2)}>📄 Ver carta completa (PDF)</button>
+        {puedeContra && <button onClick={()=>abrirContra(c)} style={bB("#fff7ed","#b45309","#fdba74")}>🔄 Nueva contraoferta · ronda {nSig}</button>}
+        <span style={{flex:1}}/>
+        <div style={{position:"relative"}}>
+          <button data-co-mas={c.folio} onClick={()=>setMasId(masAbierto?null:c.id)} style={bB(masAbierto?B.offW:"#fff",B.navy,B.grey2)}>⋯ Más opciones</button>
+          {masAbierto && <React.Fragment>
+            <div onClick={()=>setMasId(null)} style={{position:"fixed",inset:0,zIndex:3000}}/>
+            <div data-co-menu style={{position:"absolute",right:0,bottom:"calc(100% + 6px)",width:300,background:"#fff",border:"1px solid "+B.grey2,borderRadius:12,boxShadow:"0 14px 40px rgba(0,27,46,.22)",padding:6,zIndex:3001}}>
+              {grupo("Documentos")}
+              {item("🧾 Constancia de firmas",()=>pdf({opts:{constancia:true}}))}
+              {rs.length>1&&item("📦 Expediente completo (todas las rondas)",()=>pdf({opts:{todas:true}}))}
+              {c.vendedor_nombre&&item("📄 PDF para el vendedor (confidencial)",()=>pdf({modo:"vendedor"}))}
+              {(c.token_comprador||c.asesor_nombre||c.asesor_email)&&<div style={{borderTop:"1px solid "+B.grey1,margin:"4px 0"}}/>}
+              {(c.token_comprador||c.asesor_nombre||c.asesor_email)&&grupo("Avisos")}
+              {c.token_comprador&&item(shareId===c.id?"📲 Ocultar compartir avance":"📲 Compartir avance con el comprador",()=>setShareId(shareId===c.id?null:c.id))}
+              {c.asesor_nombre&&item("👔 WhatsApp al asesor (solo lectura)",()=>whatsAsesor(c))}
+              {c.asesor_email&&item("📧 Correo al asesor",()=>coAvisarAsesor(c,toast,true))}
+              <div style={{borderTop:"1px solid "+B.grey1,margin:"4px 0"}}/>
+              {grupo("Datos")}
+              {coEditable(c)&&item(coCondLibres(c)?"✏️ Editar carta":"✏️ Editar datos del vendedor",()=>editar(c))}
+              {todas&&onAbrirTerreno&&item("🗂 Abrir ficha del terreno",()=>onAbrirTerreno(c))}
+              <div style={{borderTop:"1px solid "+B.grey1,margin:"4px 0"}}/>
+              {item("🗑 Eliminar carta",()=>borrar(c),true)}
+            </div></React.Fragment>}
+        </div>
       </div>
     </div>); };
-
   const formUI = form && (()=>{ const f=form; const set=(k,v)=>setForm(p=>({...p,[k]:v})); const tot=coNum(f.superficie_m2)*coNum(f.precio_m2); const apt=coNum(f.apartado); return (
             <div style={{border:"1.5px solid "+B.gold,background:"#fffdf5",borderRadius:12,padding:"10px 12px",marginBottom:10}}>
               <div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:8}}>{f.id?"✏️ Editar carta oferta":"＋ Nueva carta oferta"}{!f.id?(" · "+nombreTerr+(ubic?(" · "+ubic):"")):""}</div>
