@@ -15,6 +15,9 @@
 --  3. Cuando el comprador acepta y la carta pasa sola al vendedor, el vendedor conserva su misma liga
 --     (si ya tenía una), con 10 días nuevos.
 --
+--  4. La liga pública recibe, por ronda, quién la pidió, el plan de pago (con sus LÍNEAS) y la fecha:
+--     la carta muestra la oferta original y, abajo de sus firmas, cada contraoferta con su forma de pago.
+--
 -- No cambia nada más: mismos estados, mismas firmas, mismo historial. Se puede correr varias veces.
 -- ═══════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -51,6 +54,8 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object(
            'ronda', x.ronda, 'propone', x.propone, 'precio_m2', x.precio_m2, 'total', x.total,
            'forma_pago', x.forma_pago, 'condiciones', x.condiciones, 'comentarios', x.comentarios,
+           -- v8: la carta pública dibuja cada contraoferta abajo de la original (líneas de pago + fecha).
+           'solicita', x.solicita, 'plan_pago', x.plan_pago, 'created_at', x.created_at,
            'comprador_firmado_at', x.comprador_firma_at,
            'comprador_firma_nombre', case when rol in ('comprador','asesor') then x.comprador_firma_nombre end,
            'comprador_firma_email',  case when rol in ('comprador','asesor') then x.comprador_firma_email end,
@@ -204,7 +209,8 @@ end $$;
 revoke execute on function public.carta_oferta_liga(uuid, text, boolean) from public, anon;
 grant  execute on function public.carta_oferta_liga(uuid, text, boolean) to authenticated;
 
--- ── Verificación (debe salir: t | t | t) ──
+-- ── Verificación (debe salir: t | t | t | t) ──
 select position('contra := false' in (select prosrc from pg_proc where proname = 'carta_oferta_ver')) > 0                       as solo_vendedor_contrapropone,
        position('coalesce(token_vendedor, public._co_token())' in (select prosrc from pg_proc where proname = 'carta_oferta_responder')) > 0 as vendedor_conserva_liga,
-       position('coalesce(c.token_comprador, public._co_token())' in (select prosrc from pg_proc where proname = 'carta_oferta_liga')) > 0  as ligas_se_conservan;
+       position('coalesce(c.token_comprador, public._co_token())' in (select prosrc from pg_proc where proname = 'carta_oferta_liga')) > 0  as ligas_se_conservan,
+       position('''plan_pago'', x.plan_pago' in (select prosrc from pg_proc where proname = 'carta_oferta_ver')) > 0                as carta_muestra_lineas;
