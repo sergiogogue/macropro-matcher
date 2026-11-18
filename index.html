@@ -3038,7 +3038,7 @@ function coLineaCuando(x){ x=x||{}; const dd=Number(x.d)>0?(" (dentro de "+Numbe
   switch(x.t){ case "apartado": return "A la aceptación de la carta";
     case "enganche": return x.cu==="aceptacion"?"A la aceptación de la carta":(x.cu==="fecha"?(coFechaLarga(x.f)||"Fecha por definir"):"A la firma del contrato");
     case "pago": return coFechaLarga(x.f)||"Fecha por definir";
-    case "escritura": return "A la firma de la escritura"+dd;
+    case "escritura": return "Contra escritura";
     case "credito": return "Al autorizarse el crédito"+dd;
     default: return String(x.w||"").trim(); } }
 // Montos: "30%" = % del total; la(s) línea(s) "resto" se llevan lo que falte para cuadrar.
@@ -3051,8 +3051,8 @@ function coLineasPreset(forma, apartado){ const apt=Number(apartado)||0; const h
   const mes=(k)=>new Date(hoy.getFullYear(),hoy.getMonth()+k,15).toISOString().slice(0,10); const L=[];
   if(apt>0) L.push({t:"apartado",c:"Apartado",m:String(apt)});
   if(forma==="Financiamiento"){ L.push({t:"enganche",c:"Enganche",cu:"contrato",m:"20%"}); L.push({t:"credito",c:"Saldo mediante crédito bancario",d:45,m:"",resto:true}); }
-  else if(forma==="Diferido"){ L.push({t:"enganche",c:"Enganche",cu:"contrato",m:"30%"}); L.push({t:"pago",c:"Pago 1",f:mes(1),m:"20%"}); L.push({t:"pago",c:"Pago 2",f:mes(2),m:"20%"}); L.push({t:"escritura",c:"Pago contra escritura",d:90,m:"",resto:true}); }
-  else L.push({t:"escritura",c:"Pago contra escritura",d:60,m:"",resto:true});
+  else if(forma==="Diferido"){ L.push({t:"enganche",c:"Enganche",cu:"contrato",m:"30%"}); L.push({t:"pago",c:"Pago 1",f:mes(1),m:"20%"}); L.push({t:"pago",c:"Pago 2",f:mes(2),m:"20%"}); L.push({t:"escritura",c:"Pago contra escritura",m:"",resto:true}); }
+  else L.push({t:"escritura",c:"Pago contra escritura",m:"",resto:true});
   return L; }
 // ── FORMA DE PAGO EN LÍNEAS (contraoferta v8, mockup aprobado 2026-11-18) ──────────────────────
 // Cada ronda guarda sus líneas en plan_pago.lineas = [{c:concepto, w:cuándo, m:monto}]; la carta las
@@ -3092,7 +3092,7 @@ function coPlanResumen(r, apartado){
   const p=r&&r.plan_pago; if(!p||!p.forma) return null;
   const fl={Contado:"Contado",Financiamiento:"Crédito bancario",Diferido:"Pagos diferidos"}[p.forma]||p.forma;
   if(Array.isArray(p.lineas)&&p.lineas.length&&(p.lineas_editadas||p.lineas[0].t)){ const L=p.lineas, en=L.find(x=>x.t==="enganche"), es=L.find(x=>x.t==="escritura"), np=L.filter(x=>x.t==="pago").length;
-    return { forma:fl, eng:en?coMxC(en.m):"—", saldo:[np?(np+" pago"+(np>1?"s":"")+" con fecha"):"", es?("contra escritura "+coMxC(es.m)):"", L.some(x=>x.t==="credito")?"crédito bancario":""].filter(Boolean).join(" + ")||(L.length+" líneas de pago"), escr:es?String(es.w||coLineaCuando(es)).replace(/^A la firma de la escritura ?/,"").replace(/[()]/g,"").trim()||"A la escritura":"—" }; }
+    return { forma:fl, eng:en?coMxC(en.m):"—", saldo:[np?(np+" pago"+(np>1?"s":"")+" con fecha"):"", es?("contra escritura "+coMxC(es.m)):"", L.some(x=>x.t==="credito")?"crédito bancario":""].filter(Boolean).join(" + ")||(L.length+" líneas de pago"), escr:es?"Contra escritura":"—" }; }
   const k=coPlanCalc(p,r.total,apartado);
   if(p.forma==="Contado") return { forma:"Contado", eng:"—", saldo:"1 exhibición a la escritura", escr:(Number(p.dias)||0)+" días" };
   if(p.forma==="Financiamiento") return { forma:"Crédito bancario", eng:k.engPct+"% · "+coMxC(k.eng), saldo:"Crédito "+(p.banco?("· "+p.banco):"")+" "+coMxC(k.saldo), escr:(Number(p.dias)||0)+" días" };
@@ -3586,7 +3586,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
               <div style={{display:"flex",gap:7,flexWrap:"wrap",margin:"2px 0 8px"}}>
                 {[["apartado","＋ Apartado"],["enganche","＋ Enganche"],["pago","＋ Pago con fecha"],["escritura","＋ Pago contra escritura"],["credito","＋ Crédito bancario"],["otro","＋ Otro concepto"]].map(([t,lb])=>{ const ya=t==="apartado"&&(f.lineas||[]).some(x=>x.t==="apartado"); return (
                   <button key={t} type="button" data-co-add={t} disabled={ya} onClick={()=>setCof(p=>{ const ls=[...(p.lineas||[])]; const np=ls.filter(x=>x.t==="pago").length+1; const hoy=new Date();
-                    const nueva=t==="apartado"?{t,c:"Apartado",m:String(Number(c.apartado)||0)}:(t==="enganche"?{t,c:"Enganche",cu:"contrato",m:""}:(t==="pago"?{t,c:"Pago "+np,f:new Date(hoy.getFullYear(),hoy.getMonth()+np,15).toISOString().slice(0,10),m:""}:(t==="escritura"?{t,c:"Pago contra escritura",d:90,m:"",resto:!ls.some(x=>x.resto)}:(t==="credito"?{t,c:"Saldo mediante crédito bancario",d:45,m:"",resto:!ls.some(x=>x.resto)}:{t,c:"",w:"",m:""}))));
+                    const nueva=t==="apartado"?{t,c:"Apartado",m:String(Number(c.apartado)||0)}:(t==="enganche"?{t,c:"Enganche",cu:"contrato",m:""}:(t==="pago"?{t,c:"Pago "+np,f:new Date(hoy.getFullYear(),hoy.getMonth()+np,15).toISOString().slice(0,10),m:""}:(t==="escritura"?{t,c:"Pago contra escritura",m:"",resto:!ls.some(x=>x.resto)}:(t==="credito"?{t,c:"Saldo mediante crédito bancario",d:45,m:"",resto:!ls.some(x=>x.resto)}:{t,c:"",w:"",m:""}))));
                     const iEs=ls.findIndex(x=>x.t==="escritura"); if(t!=="escritura"&&t!=="otro"&&iEs>=0) ls.splice(iEs,0,nueva); else if(t==="apartado") ls.unshift(nueva); else ls.push(nueva); return {...p,lineas:ls}; })}
                     style={{border:"1.5px dashed "+B.navy,color:B.navy,background:"#fff",borderRadius:8,padding:"6px 11px",fontSize:12.5,fontWeight:800,cursor:ya?"default":"pointer",opacity:ya?0.4:1,fontFamily:"inherit"}}>{lb}</button>); })}
               </div>
@@ -3603,7 +3603,8 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
                     {x.t==="apartado"&&<span style={{color:B.grey4}}>A la aceptación de la carta</span>}
                     {x.t==="enganche"&&<div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}><select style={{...cIn,width:raw.cu==="fecha"?"auto":"100%"}} value={raw.cu||"contrato"} onChange={e=>upd(i,"cu",e.target.value)}><option value="contrato">A la firma del contrato</option><option value="aceptacion">A la aceptación de la carta</option><option value="fecha">En una fecha…</option></select>{raw.cu==="fecha"&&<input type="date" style={{...cIn,width:"auto"}} value={raw.f||""} onChange={e=>upd(i,"f",e.target.value)}/>}</div>}
                     {x.t==="pago"&&<input type="date" data-co-fecha style={{...cIn,borderColor:raw.f?B.grey1:B.red}} value={raw.f||""} onChange={e=>upd(i,"f",e.target.value)}/>}
-                    {(x.t==="escritura"||x.t==="credito")&&<span>{x.t==="escritura"?"A la firma de la escritura":"Al autorizarse el crédito"} · dentro de <input style={dIn} inputMode="numeric" value={raw.d==null?"":raw.d} onChange={e=>upd(i,"d",e.target.value.replace(/[^\d]/g,""))}/> días</span>}
+                    {x.t==="escritura"&&<span style={{fontWeight:700,color:B.navy}}>Contra escritura</span>}
+                    {x.t==="credito"&&<span>Al autorizarse el crédito · dentro de <input style={dIn} inputMode="numeric" value={raw.d==null?"":raw.d} onChange={e=>upd(i,"d",e.target.value.replace(/[^\d]/g,""))}/> días</span>}
                     {x.t==="otro"&&<input style={cIn} value={raw.w||""} placeholder="Ej. A la entrega de la posesión" onChange={e=>upd(i,"w",e.target.value)}/>}
                   </td>
                   <td style={{padding:"5px 6px"}}>{x.t==="apartado"?<input readOnly style={{...cIn,textAlign:"right",background:"#eef1f5",color:"#475569"}} value={coMxC(x.m)} title="El apartado es fijo"/>
@@ -3617,7 +3618,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
               <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:8}}>
                 <span data-co-cuadra={cuadra?"si":"no"} style={{fontSize:12.5,fontWeight:800,color:cuadra?"#15803d":B.red}}>{cuadra?("✓ La suma cuadra con el total de la ronda "+n):((suma<tot?"Faltan ":"Sobran ")+coMxC(Math.abs(tot-suma))+" para cuadrar con el total ("+coMxC(tot)+")")}</span>
                 {!cuadra&&<button type="button" data-co-diferencia onClick={()=>setCof(p=>{ const ls=[...(p.lineas||[])]; const calc=coLineasCalc(ls,cofTotal(c,p)); const dif=Math.round((cofTotal(c,p)-calc.reduce((a,y)=>a+y.m,0))*100)/100; let i=ls.findIndex(y=>y.t==="escritura");
-                    if(i<0){ ls.push({t:"escritura",c:"Pago contra escritura",d:90,m:"",resto:true}); return {...p,lineas:ls}; }
+                    if(i<0){ ls.push({t:"escritura",c:"Pago contra escritura",m:"",resto:true}); return {...p,lineas:ls}; }
                     ls[i]={...ls[i],resto:false,m:String(Math.round((calc[i].m+dif)*100)/100)}; return {...p,lineas:ls}; })} style={{border:"1.5px solid #f59e0b",background:"#fff",color:"#b45309",borderRadius:8,padding:"6px 11px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Poner la diferencia en el pago contra escritura</button>}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:10,marginTop:12}}>
