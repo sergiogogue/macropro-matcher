@@ -2158,6 +2158,58 @@ function shTel(t){ const d=String(t||"").replace(/\D/g,""); if(d.length===10) re
 // diferencia de ViewFichaAsesores). Se abre con window.dispatchEvent(new Event("mp-estado-correos")).
 // Consulta /.netlify/functions/correo-diagnostico (solo admin) → estatus REAL en Resend de los
 // últimos 50 correos: entregado · rebotó · spam · retrasado · bloqueado.
+// ⏱️ SLA + BLINDAJE (Fase 3): relojes por tarjeta desde Supabase (RPC sla_tablero). Caché de
+// MÓDULO: ViewCaptacion se re-monta con cada aviso y no debe volver a pedir todo cada vez.
+const MP_SLA = { t:0, map:{}, prom:null };
+async function mpCargarSla(forzar){
+  if(!window.sb) return MP_SLA.map;
+  if(!forzar && Date.now()-MP_SLA.t < 60000) return MP_SLA.map;
+  if(MP_SLA.prom) return MP_SLA.prom;
+  MP_SLA.prom=(async()=>{ try{
+      const { data, error }=await window.sb.rpc("sla_tablero",{ p_captacion_id:null });
+      if(!error && Array.isArray(data)){ const m={}; data.forEach(r=>{ (m[r.captacion_id]=m[r.captacion_id]||[]).push(r); }); MP_SLA.map=m; MP_SLA.t=Date.now(); }
+    }catch(e){} finally{ MP_SLA.prom=null; } return MP_SLA.map; })();
+  return MP_SLA.prom;
+}
+const SLA_COL={ en_tiempo:{fg:"#15803d",bg:"#f0fdf4",bd:"#86efac",bar:"#22c55e",ic:"🟢"}, advertencia:{fg:"#b45309",bg:"#fffbeb",bd:"#fcd34d",bar:"#f59e0b",ic:"🟡"},
+  vencido:{fg:"#b91c1c",bg:"#fef2f2",bd:"#fca5a5",bar:"#ef4444",ic:"🔴"}, pausado:{fg:"#475569",bg:"#f1f5f9",bd:"#cbd5e1",bar:"#94a3b8",ic:"⏸️"},
+  cumplido:{fg:"#15803d",bg:"#ecfdf5",bd:"#bbf7d0",bar:"#22c55e",ic:"✅"}, cumplido_tarde:{fg:"#64748b",bg:"#f8fafc",bd:"#e2e8f0",bar:"#94a3b8",ic:"☑️"} };
+function slaTiempo(h){ if(h==null) return ""; const a=Math.abs(h); const t=a>=48?(Math.floor(a/24)+" d"+(Math.round(a%24)?" "+Math.round(a%24)+" h":"")):(Math.max(0,Math.round(a))+" h"); return t; }
+function slaFecha(iso){ try{ return new Date(iso).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; } }
+// Franja de un reloj abierto en la tarjeta (Viabilidad · Documentación · Contrato).
+function SlaFranja({ r }){
+  const k=SLA_COL[r.estado]||SLA_COL.en_tiempo; const pausa=r.estado==="pausado"; const venc=r.estado==="vencido";
+  const falt=Array.isArray(r.docs_faltantes)?r.docs_faltantes:[];
+  const der= pausa ? ("faltan "+falt.length+" doc"+(falt.length===1?"":"s")) : venc ? ("venció hace "+slaTiempo(r.horas_restantes)) : ("quedan "+slaTiempo(r.horas_restantes));
+  const titulo=(r.nombre||"")+" · prometido "+r.horas+" h\nInicio: "+slaFecha(r.fecha_inicio)+"\nLímite: "+slaFecha(r.fecha_limite)+(pausa?"\nEn pausa: el reloj no avanza hasta completar el expediente.":"")+(falt.length?"\nFaltan: "+falt.join(", "):"");
+  const pct=Math.max(0,Math.min(100,Number(r.pct)||0));
+  return (
+    <div title={titulo} onClick={e=>e.stopPropagation()} style={{borderRadius:8, overflow:"hidden", border:"1.5px solid "+k.bd, marginBottom:8, cursor:"help"}}>
+      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, padding:"5px 9px", background:k.bg, color:k.fg}}>
+        <span style={{fontSize:10.5, fontWeight:800}}>{k.ic} {r.nombre}{pausa?" · en pausa":(" · "+r.horas+" h")}</span>
+        <span style={{fontSize:11, fontWeight:800, whiteSpace:"nowrap"}}>{der}</span>
+      </div>
+      <div style={{height:5, background:"#e5e7eb"}}><i style={{display:"block", height:"100%", width:(pausa?Math.max(pct,8):pct)+"%", background:pausa?"repeating-linear-gradient(45deg,#94a3b8 0 6px,#cbd5e1 6px 12px)":k.bar}}/></div>
+      {pausa && falt.length>0 && <div style={{fontSize:10.5, padding:"5px 9px 6px", lineHeight:1.35, color:"#475569", background:"#f8fafc"}}>{falt.join(" · ")}<br/><b>El reloj arranca solo</b> al subir el último.</div>}
+      {venc && <div style={{fontSize:10.5, padding:"5px 9px 6px", color:"#b91c1c", background:"#fff5f5"}}>Avisado a Dirección y al asesor por WhatsApp.</div>}
+    </div>
+  );
+}
+// Fichitas de entregables del Equipo (tarjetas firmadas: Estudios, Fotografía…); clic = marcar cumplido.
+function SlaFichas({ filas, onCumplir }){
+  return (
+    <div onClick={e=>e.stopPropagation()} style={{marginBottom:8}}>
+      <div style={{fontSize:10, fontWeight:800, color:"#64748b", marginBottom:4}}>⏱️ Entregables del Equipo</div>
+      <div style={{display:"flex", gap:5, flexWrap:"wrap"}}>
+        {filas.map((r,i)=>{ const k=SLA_COL[r.estado]||SLA_COL.en_tiempo; const abierto=!r.fecha_fin; const pausa=r.estado==="pausado";
+          const txt=r.nombre.split(" /")[0]+" · "+(abierto?(pausa?"en pausa":(r.estado==="vencido"?("venció hace "+slaTiempo(r.horas_restantes)):("quedan "+slaTiempo(r.horas_restantes)))):(r.estado==="cumplido"?"a tiempo":"cumplido tarde"));
+          const tip=(r.nombre||"")+" · prometido "+r.horas+" h\nLímite: "+slaFecha(r.fecha_limite)+((Array.isArray(r.docs_faltantes)&&r.docs_faltantes.length&&abierto)?"\nFaltan: "+r.docs_faltantes.join(", "):"")+(abierto?"\nClic para marcarlo como CUMPLIDO.":"");
+          return <span key={i} title={tip} onClick={abierto?()=>onCumplir(r):undefined} style={{fontSize:10, fontWeight:800, borderRadius:999, padding:"2px 8px", border:"1px solid "+k.bd, color:k.fg, background:k.bg, cursor:abierto?"pointer":"default"}}>{k.ic} {txt}</span>; })}
+      </div>
+    </div>
+  );
+}
+
 function EstadoCorreosModal(){
   const [d,setD]=React.useState(null);
   const cargar=React.useCallback(async()=>{
@@ -18632,6 +18684,20 @@ Respuesta: [respuesta exacta, conversacional]
     const [opcLista,setOpcLista]=React.useState([]);
     const [opcDocs,setOpcDocs]=React.useState({});
     const [opcSel,setOpcSel]=React.useState(null);
+    // ⏱️ SLA (Fase 3): relojes de cada tarjeta (caché de módulo MP_SLA; refresco cada 5 min y al cambiar tarjetas).
+    const [slaMap,setSlaMap]=React.useState(()=>MP_SLA.map);
+    React.useEffect(()=>{ let vivo=true; const go=(f)=>mpCargarSla(f).then(m=>{ if(vivo) setSlaMap({...m}); });
+      go(false); const iv=setInterval(()=>{ if(document.visibilityState==="visible") go(true); }, 5*60000);
+      return ()=>{ vivo=false; clearInterval(iv); }; },[]);
+    // Si cambió alguna tarjeta (etapa, documentos, Maps), refresca los relojes (una vez por cambio, no por re-montaje).
+    const slaFirma=(captaciones||[]).map(c=>c&&(c.id+"|"+c.pipeline+"|"+((c.documentosUrls||[]).length)+"|"+(c.ligaMaps?1:0))).join(",");
+    React.useEffect(()=>{ if(MP_SLA.sig===slaFirma) return; const primera=MP_SLA.sig==null; MP_SLA.sig=slaFirma; if(primera) return;
+      const t=setTimeout(()=>{ mpCargarSla(true).then(m=>setSlaMap({...m})); },1500); return ()=>clearTimeout(t); },[slaFirma]);
+    const slaCumplir=async(r)=>{
+      if(!window.confirm("¿Marcar «"+r.nombre+"» como CUMPLIDO?\n\nQueda registrado con la fecha de hoy ("+(r.estado==="vencido"?"fuera de tiempo":"a tiempo")+").")) return;
+      try{ const { error }=await window.sb.rpc("sla_cumplir",{ p_captacion_id:r.captacion_id, p_etapa:r.etapa }); if(error) throw error;
+        const m=await mpCargarSla(true); setSlaMap({...m}); toast("✅ "+r.nombre+" marcado como cumplido.");
+      }catch(e){ toast("No se pudo marcar: "+((e&&e.message)||e)); } };
     const cargarOpc=React.useCallback(async()=>{
       if(!window.sb) return;
       try{
@@ -18954,6 +19020,11 @@ Respuesta: [respuesta exacta, conversacional]
                           <div style={{fontSize:13, fontWeight:800, color:B.navy, marginBottom:2}}>{c.propietario||"Propietario sin nombre"}</div>
                           <div style={{fontSize:10, color:B.grey4, marginBottom:6}}>{c.contacto?c.contacto:""}{c.telefono?(c.contacto?" · ":"")+c.telefono:""}</div>
                           <div style={{display:"inline-flex", alignItems:"center", gap:4, fontSize:10, fontWeight:800, color:c.asesorResponsableGG?"#0f6b3f":"#b45309", background:c.asesorResponsableGG?"#dcfce7":"#fef3c7", border:"1px solid "+(c.asesorResponsableGG?"#86efac":"#fde68a"), borderRadius:6, padding:"3px 8px", marginBottom:7}}>👤 {c.asesorResponsableGG||"Sin asesor asignado"}</div>
+                          {(()=>{ const rows=slaMap[c.id]||[]; if(!rows.length) return null;
+                            const ENTREGABLES=["estudios","fotografia"];
+                            const franjas=rows.filter(r=>!r.fecha_fin && !ENTREGABLES.includes(r.etapa));
+                            const fichas=rows.filter(r=>ENTREGABLES.includes(r.etapa) || (r.fecha_fin && stage==="Firmado"));
+                            return (<>{franjas.map(r=><SlaFranja key={r.etapa} r={r}/>)}{fichas.length>0 && <SlaFichas filas={fichas} onCumplir={slaCumplir}/>}</>); })()}
                           {(()=>{
                             const dcre = c.fechaCreacion ? Math.floor((ahoraC-new Date(c.fechaCreacion))/(1000*60*60*24)) : null;
                             const recib = c.fechaCreacion ? new Date(c.fechaCreacion).toLocaleDateString("es-MX",{day:"2-digit",month:"short"}) : "—";
