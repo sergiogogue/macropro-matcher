@@ -11,7 +11,7 @@
 //     Antes se guardaba cada respuesta de Supabase en caché (megabytes cada 45 s).
 // El código traducido de la app vive en "mp-app-compilado" (lo maneja index.html).
 
-const CACHE_NAME = 'macropro-v132';
+const CACHE_NAME = 'macropro-v133';
 const CDN_CACHE = 'mp-cdn-v1';
 const CONSERVAR = [CACHE_NAME, CDN_CACHE, 'mp-app-compilado'];
 const APP_SHELL = ['./', './index.html', './manifest.json'];
