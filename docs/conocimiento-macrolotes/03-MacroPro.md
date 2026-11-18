@@ -219,7 +219,7 @@ Todas las pruebas corrieron **sin red** (fetch rechazado o simulado; cliente Sup
 | `firmado-test.js` | Convenio de corretaje firmado aparece en Por asesor → Firmado con folio y esquema 100/0, y sale de "Sin asesor" y "Enviado" | ✅ 0 errores React |
 | `envios-test2.js` | 🚩 Sin asesor → corretaje "por enviar": tras enviar la liga, el asesor sale de Sin asesor y aparece en Por asesor → 📨 Enviado con su lote etiquetado "Corretaje" y botones Correo/WhatsApp | ✅ 0 errores React |
 | `sla-card-test.js` | Reloj SLA en las tarjetas: pide `sla_tablero`; Viabilidad 🟡 "48 h · quedan 9 h"; Documentación ⏸️ "Envío a Legal en pausa · faltan 3 docs" con lista; Firmado con fichas de entregables (🟢/🔴 vencido) y semáforo ✅; clic en ficha → `sla_cumplir` | ✅ 0 errores React |
-| `diag-test.js` | 📬 Estado de correos con respuesta simulada de `correo-diagnostico` | RESULTADO_DIAG |
+| `diag-test.js` | 📬 Estado de correos con respuesta simulada de `correo-diagnostico`: botón visible; la ventana muestra el remitente y "Resend ✅ configurado" (simulado); un correo entregado en verde y uno rebotado marcado | ✅ 0 errores React |
 
 > **Aviso sobre los datos de prueba:** los datos de las pruebas son simulados (folios, tokens y estados inventados), pero varias filas usan **nombres y correos con apariencia de colaboradores reales**. Este documento no los reproduce. Se recomienda cambiarlos por datos ficticios evidentes (§9).
 
