@@ -2967,56 +2967,109 @@ const coClausula3=(r)=>{ const c=String((r&&r.condiciones)||""); if(c.startsWith
 const coCond3=(forma,texto)=>{ const x=String(texto||"").trim(); if(!x||x===coFormaTxt(forma)) return null; return CO_MARCA3+x; };
 const CO_RAZON_SOCIAL="Guía Excelencia Inmobiliaria S.A. de C.V.";
 
+// ── Plan de pago ESTRUCTURADO (contrapropuesta v7) ──────────────────────────────────────────
+// La cláusula TERCERA se redacta sola con estos datos y se guarda (con la marca §) en la ronda;
+// el plan también se guarda como datos (rondas.plan_pago) para el historial y el comparativo.
+const CO_CONDS=[
+  {k:"posesion",  t:"Entrega de posesión a la firma de la escritura", c:"La posesión física del inmueble se entregará a la firma de la escritura pública."},
+  {k:"gastos",    t:"Gastos de escrituración por cuenta del comprador (ISR del vendedor)", c:"Los gastos, impuestos y honorarios notariales de la escrituración serán a cargo del Comprador, salvo el Impuesto Sobre la Renta que corresponda al Vendedor."},
+  {k:"dictamen",  t:"Sujeto a dictamen de uso de suelo", c:"La operación queda sujeta a que el dictamen de uso de suelo permita el proyecto del Comprador."},
+  {k:"gravamenes",t:"Libre de gravámenes y al corriente en predial", c:"El inmueble se entregará libre de gravámenes y al corriente en el pago del impuesto predial y servicios."}
+];
+const CO_MESES=["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+const coMxC=(n)=>{ const x=Math.round((Number(n)||0)*100)/100; return "$"+x.toLocaleString("es-MX",{minimumFractionDigits:(x%1)?2:0,maximumFractionDigits:2}); };
+const coFechaLarga=(iso)=>{ if(!iso) return ""; const d=new Date(String(iso).slice(0,10)+"T12:00:00"); if(isNaN(d)) return ""; return d.getDate()+" de "+CO_MESES[d.getMonth()]+" de "+d.getFullYear(); };
+const CO_PER={ mensual:{n:1,pl:"mensuales"}, bimestral:{n:2,pl:"bimestrales"}, trimestral:{n:3,pl:"trimestrales"} };
+// Montos del plan: total, enganche, saldo y (diferido) calendario. El último pago absorbe el redondeo.
+function coPlanCalc(plan, total, apartado){
+  const p=plan||{}, tot=Math.round((Number(total)||0)*100)/100, apt=Number(apartado)||0;
+  const engPct=(p.forma==="Contado")?0:(Number(p.eng_pct)||0);
+  const eng=Math.round(tot*engPct)/100;
+  const saldo=Math.round((tot-apt-eng)*100)/100;
+  const out={ tot, apt, engPct, eng, saldo, pagos:[] };
+  if(p.forma==="Diferido"){
+    const n=Math.max(1,Math.floor(Number(p.n)||1)), per=CO_PER[p.per]||CO_PER.mensual;
+    const base=Math.floor(saldo/n*100)/100; let acum=0;
+    const d0=new Date(String(p.inicio||"").slice(0,10)+"T12:00:00");
+    for(let i=0;i<n;i++){ const m=(i===n-1)?Math.round((saldo-acum)*100)/100:base; acum=Math.round((acum+m)*100)/100;
+      let f=""; if(!isNaN(d0)){ const d=new Date(d0); d.setMonth(d.getMonth()+i*per.n); f=d.toISOString().slice(0,10); }
+      out.pagos.push({ n:i+1, fecha:f, monto:m }); }
+  }
+  return out;
+}
+// Texto de la cláusula TERCERA (sin "TERCERA."; la carta lo antepone).
+function coPlanClausula(plan, total, apartado){
+  const p=plan||{}, k=coPlanCalc(p,total,apartado);
+  const engCuando=p.eng_cuando==="aceptacion"?"a la aceptación de esta carta":"a la firma del contrato de compraventa";
+  let t="El precio total de "+coMxC(k.tot)+" se cubrirá de la siguiente forma: (i) "+coMxC(k.apt)+" por concepto de apartado, conforme a la cláusula cuarta; ";
+  if(p.forma==="Contado"){
+    t+="y (ii) el saldo de "+coMxC(k.saldo)+" en una sola exhibición a la firma de la escritura pública de compraventa, que deberá otorgarse dentro de los "+(Number(p.dias)||0)+" días naturales siguientes a la aceptación de esta carta.";
+  } else if(p.forma==="Financiamiento"){
+    t+="(ii) un enganche del "+k.engPct+"%, equivalente a "+coMxC(k.eng)+", "+engCuando+"; y (iii) el saldo de "+coMxC(k.saldo)+" mediante crédito otorgado por "+(String(p.banco||"").trim()||"la institución financiera que elija el Comprador")+", cuya autorización deberá obtenerse dentro de los "+(Number(p.aprob)||0)+" días naturales siguientes a la aceptación de esta carta. La escritura pública se firmará dentro de los "+(Number(p.dias)||0)+" días naturales siguientes a la aceptación.";
+  } else {
+    const per=CO_PER[p.per]||CO_PER.mensual, n=k.pagos.length;
+    const iguales=n<2||k.pagos.every(x=>x.monto===k.pagos[0].monto);
+    t+="(ii) un enganche del "+k.engPct+"%, equivalente a "+coMxC(k.eng)+", "+engCuando+"; y (iii) el saldo de "+coMxC(k.saldo)+" en "+n+" pagos "+per.pl+(iguales?(" de "+coMxC(n?k.pagos[0].monto:0)+" cada uno"):"")+(p.inicio?(", a partir del "+coFechaLarga(p.inicio)):"")+", conforme al siguiente calendario: "+k.pagos.map(x=>"pago "+x.n+", "+(coFechaLarga(x.fecha)||"fecha por definir")+", "+coMxC(x.monto)).join("; ")+". La escritura pública se firmará "+(p.escr==="contrato"?"a la firma del contrato de compraventa":"al cubrirse el último pago")+". Los pagos no generan intereses.";
+  }
+  const conds=CO_CONDS.filter(x=>p.conds&&p.conds[x.k]).map(x=>x.c);
+  const otra=String(p.otra||"").trim(); if(otra) conds.push(/[.]$/.test(otra)?otra:otra+".");
+  if(conds.length) t+=" Condiciones: "+conds.join(" ");
+  return t;
+}
+// Resumen corto para tarjetas y comparativo.
+function coPlanResumen(r, apartado){
+  const p=r&&r.plan_pago; if(!p||!p.forma) return null;
+  const k=coPlanCalc(p,r.total,apartado);
+  if(p.forma==="Contado") return { forma:"Contado", eng:"—", saldo:"1 exhibición a la escritura", escr:(Number(p.dias)||0)+" días" };
+  if(p.forma==="Financiamiento") return { forma:"Crédito bancario", eng:k.engPct+"% · "+coMxC(k.eng), saldo:"Crédito "+(p.banco?("· "+p.banco):"")+" "+coMxC(k.saldo), escr:(Number(p.dias)||0)+" días" };
+  const per=CO_PER[p.per]||CO_PER.mensual;
+  return { forma:"Pagos diferidos", eng:k.engPct+"% · "+coMxC(k.eng), saldo:k.pagos.length+" pagos "+per.pl+" de "+coMxC(k.pagos.length?k.pagos[0].monto:0), escr:p.escr==="contrato"?"A la firma del contrato":"Al último pago" };
+}
+
 // PDF (ventana de impresión) con formato de CARTA DE INTENCIÓN FORMAL, dirigida a
 // Guía Excelencia Inmobiliaria S.A. de C.V. modo: "interno" (todo) · "vendedor" (comprador confidencial).
-function coImprimir(c, modo){
-  const r=coActual(c); const rs=coRondas(c); const conf=modo==="vendedor";
+// opts: { ronda:n } → la carta de ESA ronda (con sus firmas) · { todas:true } → expediente completo
+// (todas las rondas + constancia de firmas) · { constancia:true } → solo la constancia de firmas.
+function coImprimir(c, modo, opts){
+  opts=opts||{};
+  const rs=coRondas(c); const conf=modo==="vendedor";
   const esc=(s)=>String(s==null?"":s).replace(/[&<>"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
   const logo=new URL("public/logo_grupoguia.png", location.href).href;
   const fLarga=(iso)=>new Date(iso||Date.now()).toLocaleDateString("es-MX",{day:"numeric",month:"long",year:"numeric"});
-  const sup=Number(c.superficie_m2)||0, total=Number(r.total)||sup*(Number(r.precio_m2)||0), apt=Number(c.apartado)||0;
-  const vence=(c.estado==="enviada_vendedor"&&c.token_vendedor_exp)||(c.estado==="enviada_comprador"&&c.token_comprador_exp)||new Date(new Date(c.created_at||Date.now()).getTime()+10*864e5).toISOString();
-  const contraGG=r.propone==="grupo_guia"&&Number(r.ronda)>1; const contra=(r.propone&&r.propone!=="grupo_guia")||contraGG;
+  const sup=Number(c.superficie_m2)||0, apt=Number(c.apartado)||0;
   const empresa=String(c.comprador_empresa||"").trim(), persona=String(c.comprador_nombre||"").trim();
   const comprador=conf?`<span class="cf">INVERSIONISTA CONFIDENCIAL</span>`:(empresa?`<b>${esc(empresa)}</b>${persona?`, representada en este acto por <b>${esc(persona)}</b>`:""}`:`<b>${esc(persona||"—")}</b>`);
   const sello=(ok,lines,tit)=> ok?`<div class="se"><b>✓ ${tit||"Firmado electrónicamente"}</b>${lines.filter(Boolean).map(esc).join("<br>")}</div>`:`<div class="pe">⏳ Pendiente</div>`;
-  const fC=sello(!!r.comprador_firma_at,[coFH(r.comprador_firma_at)+(conf?"":(r.comprador_firma_ip?(" · IP "+r.comprador_firma_ip):"")), conf?"Comprador confidencial":r.comprador_firma_email]);
-  // Grupo Guía RECIBE (no acepta ni autoriza la oferta); quien ACEPTA es el vendedor.
-  const fG=sello(!!c.gg_firma_at,[coFH(c.gg_firma_at)+(c.gg_firma_ip?(" · IP "+c.gg_firma_ip):""), c.gg_firma_email],"Recibida");
-  const fV=sello(!!r.vendedor_firma_at,[coFH(r.vendedor_firma_at)+(r.vendedor_firma_ip?(" · IP "+r.vendedor_firma_ip):""), r.vendedor_firma_email],r.propone==="vendedor"?"Contrapropuesta firmada":"Aceptada electrónicamente");
-  const hist=rs.length>1?`<div class="cl"><span class="n">ANEXO. Historial de la negociación.</span></div><table class="hi"><tr><th>Ronda</th><th>Propuesta de</th><th>Precio por m²</th><th>Total</th><th>Forma de pago</th></tr>${rs.map(x=>`<tr${x.ronda===r.ronda?' class="ac"':''}><td>${x.ronda}</td><td>${esc(coQuien(x))}</td><td>${coMx(x.precio_m2)}</td><td>${coMx(x.total)}</td><td>${esc(x.forma_pago)}</td></tr>`).join("")}</table>`:"";
-  const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(c.folio)} · Carta oferta${conf?" (confidencial)":""}</title>
-<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@400;700;800&display=swap" rel="stylesheet">
-<style>@page{size:letter;margin:11mm 14mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{margin:0;font-family:'EB Garamond',Georgia,serif;color:#1f2937;font-size:10.6pt;line-height:1.36}
-.hoja{width:710px;margin:0 auto;position:relative}.mk{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font:700 60pt 'EB Garamond';color:rgba(0,43,73,.05);transform:rotate(-30deg);letter-spacing:8px;pointer-events:none}
-.cab{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:7px;border-bottom:2px solid #002B49}.lg{background:#002B49;padding:6px 9px;border-radius:4px}.lg img{height:19px;display:block}
-.fo{text-align:right;font:8.5px/1.55 'DM Sans',sans-serif;color:#6b7280}.fo b{color:#002B49;font-size:10px}.oro{height:3px;background:#F5B335;width:80px;margin-top:-2px}
-.lu{text-align:right;margin:8px 0 6px}.k{font:800 8px 'DM Sans',sans-serif;letter-spacing:1.8px;color:#b9861f;text-transform:uppercase}.rs{font-weight:700;color:#002B49;font-size:12pt}.pr{font-style:italic}
-.as{margin:6px 0 8px;padding:4px 9px;border-left:3px solid #F5B335;background:#fbf8f0}.as b{color:#002B49}p,.cl{margin:0 0 4.5px;text-align:justify}.n{font-weight:700;color:#002B49;letter-spacing:.3px}
-.cf{font:800 8.5px 'DM Sans',sans-serif;background:#001a2e;color:#F5B335;border-radius:3px;padding:1px 5px;letter-spacing:.5px}
-table.t{margin:1px 0 3px 18px;border-collapse:collapse;width:calc(100% - 18px);font-size:10.2pt}table.t td{padding:1.5px 7px;border-bottom:1px dotted #d6dbe3}table.t td:first-child{color:#6b7280;width:44%}table.t td:last-child{font-weight:600;color:#002B49}table.t tr.to td{border-top:1.5px solid #002B49;border-bottom:none;font-weight:700}
-.le{font-style:italic;color:#6b7280;font-size:9.8pt;margin:0 0 5px 18px}
-table.hi{margin:1px 0 5px;border-collapse:collapse;width:100%;font:8px 'DM Sans',sans-serif}table.hi th{background:#002B49;color:#fff;text-align:left;padding:2px 6px}table.hi td{padding:2px 6px;border-bottom:1px solid #e5e9ef}table.hi tr.ac td{font-weight:800}
-.fi{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:8px;page-break-inside:avoid}.f{font-size:9.6pt;line-height:1.3}.es{min-height:40px;display:flex;align-items:flex-end}.li{border-top:1px solid #1f2937;padding-top:3px;text-align:center}.q{font:800 7.3px 'DM Sans',sans-serif;letter-spacing:1.2px;text-transform:uppercase;color:#b9861f;text-align:center;margin-top:2px}
-.se{font:7.6px/1.4 'DM Sans',sans-serif;border:1.3px solid #1a8a4a;background:#ecfdf3;color:#0f6b38;border-radius:4px;padding:3px 6px;width:100%}.se b{display:block;text-transform:uppercase;letter-spacing:.3px}.pe{font:7.6px 'DM Sans',sans-serif;color:#9ca3af;border:1.3px dashed #d1d5db;border-radius:4px;padding:6px;width:100%;text-align:center}
-.ac2{margin:8px 0 0;font-size:9.8pt}.cc{font-size:8.8pt;color:#6b7280;margin-top:6px}
-.lg2{margin-top:7px;padding-top:5px;border-top:1px solid #d6dbe3;font:7.2px/1.45 'DM Sans',sans-serif;color:#6b7280;text-align:justify}.pie{margin-top:4px;font:7px 'DM Sans',sans-serif;color:#9ca3af;text-align:center;letter-spacing:.5px}</style></head><body><div class="hoja">
-${conf?'<div class="mk">CONFIDENCIAL</div>':''}
-<div class="cab"><span class="lg"><img src="${logo}"></span><div class="fo">Folio <b>${esc(c.folio)}</b><br>Ronda ${r.ronda||1} · ${contraGG?"Contraoferta acordada":(contra?("Contrapropuesta del "+(r.propone==="vendedor"?"vendedor":"comprador")):"Oferta original")}<br>Vigente al ${fLarga(vence)}</div></div><div class="oro"></div>
-<div class="lu">Guadalajara, Jalisco, a ${fLarga(c.created_at)}.</div>
+  const nota=(t)=>`<div class="pe" style="color:#b45309;border-color:#fdba74;background:#fff7ed">↪ ${esc(t)}</div>`;
+  const hoja=(r)=>{
+    const actual=r.ronda===c.ronda_actual, sig=rs.find(x=>x.ronda===r.ronda+1);
+    const total=Number(r.total)||sup*(Number(r.precio_m2)||0);
+    const vence=(c.estado==="enviada_vendedor"&&c.token_vendedor_exp)||(c.estado==="enviada_comprador"&&c.token_comprador_exp)||new Date(new Date(c.created_at||Date.now()).getTime()+10*864e5).toISOString();
+    const contraGG=r.propone==="grupo_guia"&&Number(r.ronda)>1; const contra=(r.propone&&r.propone!=="grupo_guia")||contraGG;
+    let fC=sello(!!r.comprador_firma_at,[coFH(r.comprador_firma_at)+(conf?"":(r.comprador_firma_ip?(" · IP "+r.comprador_firma_ip):"")), conf?"Comprador confidencial":r.comprador_firma_email]);
+    if(!r.comprador_firma_at&&sig) fC=nota("Superada por la ronda "+sig.ronda);
+    // Grupo Guía RECIBE (no acepta ni autoriza la oferta); quien ACEPTA es el vendedor.
+    const fG=sello(!!c.gg_firma_at&&!!r.comprador_firma_at,[coFH(c.gg_firma_at)+(c.gg_firma_ip?(" · IP "+c.gg_firma_ip):""), c.gg_firma_email],"Recibida");
+    let fV=sello(!!r.vendedor_firma_at,[coFH(r.vendedor_firma_at)+(r.vendedor_firma_ip?(" · IP "+r.vendedor_firma_ip):""), r.vendedor_firma_email],r.propone==="vendedor"?"Contrapropuesta firmada":"Aceptada electrónicamente");
+    if(!r.vendedor_firma_at&&sig) fV=nota(sig.propone==="vendedor"?("Contrapropuso · ronda "+sig.ronda):("Superada por la ronda "+sig.ronda));
+    const hist=rs.length>1?`<div class="cl"><span class="n">ANEXO. Historial de la negociación.</span></div><table class="hi"><tr><th>Ronda</th><th>Propuesta de</th><th>Precio por m²</th><th>Total</th><th>Forma de pago</th></tr>${rs.map(x=>`<tr${x.ronda===r.ronda?' class="ac"':''}><td>${x.ronda}</td><td>${esc(x.propone==="grupo_guia"&&Number(x.ronda)>1?"Contraoferta acordada":coQuien(x))}</td><td>${coMx(x.precio_m2)}</td><td>${coMx(x.total)}</td><td>${esc(x.forma_pago)}</td></tr>`).join("")}</table>`:"";
+    return `<div class="hoja">
+${conf?'<div class="mk">CONFIDENCIAL</div>':''}${!actual?'<div class="mk" style="font-size:44pt">RONDA SUPERADA</div>':''}
+<div class="cab"><span class="lg"><img src="${logo}"></span><div class="fo">Folio <b>${esc(c.folio)}</b><br>Ronda ${r.ronda||1} · ${contraGG?"Contraoferta acordada":(contra?("Contrapropuesta del "+(r.propone==="vendedor"?"vendedor":"comprador")):"Oferta original")}<br>${actual?("Vigente al "+fLarga(vence)):("Emitida el "+fLarga(r.created_at||c.created_at))}</div></div><div class="oro"></div>
+<div class="lu">Guadalajara, Jalisco, a ${fLarga(r.created_at||c.created_at)}.</div>
 <div><div class="k">Dirigida a</div><div class="rs">${CO_RAZON_SOCIAL}</div><div>Grupo Guía · Macrolotes · <span class="pr">P r e s e n t e.</span></div></div>
 <div class="as"><span class="k" style="margin-right:8px">Asunto</span><b>${contra?("Contrapropuesta · Ronda "+r.ronda+" — "):"Carta oferta de compra — "}Terreno ${esc(c.terreno_nombre)}${c.terreno_ubicacion?(", "+esc(c.terreno_ubicacion)):""} (${sup.toLocaleString("es-MX")} m²).</b></div>
-<p>Por medio de la presente, ${comprador} (en lo sucesivo, <i>“el Comprador”</i>), manifiesta a <b>${CO_RAZON_SOCIAL}</b> (en lo sucesivo, <i>“Grupo Guía”</i>) su intención formal de adquirir el inmueble que se describe a continuación, conforme a los siguientes términos y condiciones${contra?`, que incorporan la contrapropuesta presentada por el ${r.propone==="vendedor"?"Vendedor":"Comprador"} en la ronda ${r.ronda} de la negociación`:""}:</p>
+<p>Por medio de la presente, ${comprador} (en lo sucesivo, <i>“el Comprador”</i>), manifiesta a <b>${CO_RAZON_SOCIAL}</b> (en lo sucesivo, <i>“Grupo Guía”</i>) su intención formal de adquirir el inmueble que se describe a continuación, conforme a los siguientes términos y condiciones${contra?(contraGG?`, que incorporan la contraoferta acordada en la ronda ${r.ronda} de la negociación`:`, que incorporan la contrapropuesta presentada por el ${r.propone==="vendedor"?"Vendedor":"Comprador"} en la ronda ${r.ronda} de la negociación`):""}:</p>
 <div class="cl"><span class="n">PRIMERA. Inmueble.</span> El terreno identificado como <b>${esc(c.terreno_nombre)}</b>${c.terreno_ubicacion?`, ubicado en <b>${esc(c.terreno_ubicacion)}</b>`:""}, con una superficie de <b>${sup.toLocaleString("es-MX")} m²</b> (${coM2Letra(sup)}).</div>
 <div class="cl"><span class="n">SEGUNDA. Precio ${contra?"propuesto":"ofertado"}.</span> ${contra?("En esta ronda se propone el siguiente precio por el inmueble:"):"El Comprador ofrece el siguiente precio por el inmueble:"}</div>
 <table class="t"><tr><td>Superficie</td><td>${sup.toLocaleString("es-MX")} m²</td></tr><tr><td>Precio por metro cuadrado</td><td>${coMx(r.precio_m2)}.00 M.N.</td></tr><tr class="to"><td>Precio total de la oferta</td><td>${coMx(total)}.00 M.N.</td></tr></table>
 <div class="le">(${coPesosLetra(total)})</div>
-<div class="cl"><span class="n">TERCERA. Forma de pago.</span> <b>${esc(r.forma_pago||"—")}</b>: ${esc(coClausula3(r))}</div>
+<div class="cl"><span class="n">TERCERA. Forma de pago.</span> <b>${esc(r.forma_pago==="Financiamiento"?"Crédito bancario":(r.forma_pago==="Diferido"?"Pagos diferidos":(r.forma_pago||"—")))}</b>: ${esc(coClausula3(r))}</div>
 <div class="cl"><span class="n">CUARTA. Apartado y exclusividad.</span> Al ser aceptada la presente, el Comprador entregará un apartado de <b>${coMx(apt)}.00 M.N.</b> (${coPesosLetra(apt)})${total?`, equivalente al ${(apt/total*100).toFixed(1)}% del precio total,`:""} que asegura la exclusividad del inmueble a su favor por <b>30 (treinta) días naturales</b>.</div>
 <div class="cl"><span class="n">QUINTA. Vigencia de la oferta.</span> Esta oferta tiene una vigencia de <b>10 (diez) días naturales</b> contados a partir de su fecha. Transcurrido dicho plazo sin aceptación, quedará sin efecto.</div>
 <div class="cl"><span class="n">SEXTA. Naturaleza del documento.</span> La presente es una carta de intención y oferta de compra; <b>no constituye un contrato de compraventa definitivo</b> y queda sujeta a la revisión legal y documental del inmueble, así como a la firma del contrato correspondiente.</div>
 <div class="cl"><span class="n">SÉPTIMA. Confidencialidad.</span> Las partes se obligan a mantener en reserva los términos de esta oferta y la identidad de las partes, salvo autorización expresa o requerimiento de autoridad competente.</div>
-${r.comentarios?`<p><i>Comentarios de la ${r.propone==="vendedor"?"parte vendedora":"parte compradora"}:</i> ${esc(r.comentarios)}</p>`:""}
+${r.comentarios?`<p><i>Comentarios ${contraGG?"de Grupo Guía":("de la "+(r.propone==="vendedor"?"parte vendedora":"parte compradora"))}:</i> ${esc(r.comentarios)}</p>`:""}
 ${hist}
 <p style="margin-top:6px">Sin otro particular, quedamos atentos a su amable respuesta. <b>A t e n t a m e n t e,</b></p>
 <p class="ac2"><b>ACEPTACIÓN DEL PROPIETARIO.</b> Enterado del contenido de la presente, el propietario del inmueble manifiesta su aceptación de los términos aquí establecidos con su firma en el recuadro “El Vendedor · Acepta”.</p>
@@ -3028,17 +3081,54 @@ ${hist}
 ${!conf&&c.asesor_nombre?`<div class="cc">c.c.p. ${esc(c.asesor_nombre)} · Asesor Grupo Guía${c.asesor_email?(" · "+esc(c.asesor_email)):""}</div>`:""}
 <div class="lg2"><b>Aviso legal.</b> Esta carta es una oferta de compra, no un contrato de compraventa definitivo. Sujeta a revisión legal. El monto de apartado asegura la exclusividad del inmueble por 30 días. Aviso de privacidad conforme a la Ley Federal de Protección al Consumidor (PROFECO). Las firmas electrónicas registran fecha, hora, dirección IP y correo de cada firmante como respaldo.</div>
 <div class="pie">${CO_RAZON_SOCIAL.toUpperCase()} · GRUPO GUÍA · MACROLOTES · grupoguia.mx</div>
-</div><script>
-// SIEMPRE UNA SOLA HOJA: carta (279.4 mm) − márgenes (2 × 11 mm) = 257.4 mm útiles ≈ 972 px.
-// Si el contenido (muchas rondas o comentarios largos) no cabe, se escala lo justo; si cabe, no se toca.
-(function(){ var hecho=false; function ajustar(){ var h=document.querySelector(".hoja"); if(!h) return; h.style.zoom=""; var alto=h.scrollHeight, disp=960; h.style.zoom=alto>disp?String(Math.floor(disp/alto*1000)/1000):""; }
+</div>`; };
+  // Constancia de firmas: quién, cuándo, correo, IP y navegador de cada firma (solo uso interno).
+  const constancia=(lista)=>{
+    const fila=(rol,nom,mail,at,ip,ua)=>`<tr><td><b>${rol}</b></td><td>${esc(nom||"—")}</td><td>${esc(mail||"—")}</td><td>${at?esc(coFH(at)):"—"}</td><td>${esc(ip||"—")}</td><td class="ua">${esc(ua||"—")}</td></tr>`;
+    return `<div class="hoja"><div class="cab"><span class="lg"><img src="${logo}"></span><div class="fo">Folio <b>${esc(c.folio)}</b><br>Constancia de firmas electrónicas<br>Emitida el ${fLarga()}</div></div><div class="oro"></div>
+<div class="as" style="margin-top:10px"><span class="k" style="margin-right:8px">Asunto</span><b>Constancia de firmas · Terreno ${esc(c.terreno_nombre)}${c.terreno_ubicacion?(", "+esc(c.terreno_ubicacion)):""}</b></div>
+<p>Registro de cada firma electrónica de la carta oferta, capturado por el servidor de Grupo Guía al momento de firmar (fecha y hora, correo declarado, dirección IP y navegador).</p>
+${lista.map(r=>`<div class="cl" style="margin-top:8px"><span class="n">Ronda ${r.ronda} · ${esc(coQuien(r))}</span> · ${coMx(r.precio_m2)} /m² · ${coMx(r.total)} · ${esc(r.forma_pago||"")}${r.capturada_por?(" · capturó "+esc(r.capturada_por)):""}</div>
+<table class="hi cs"><tr><th>Firmante</th><th>Nombre</th><th>Correo</th><th>Fecha y hora</th><th>IP</th><th>Navegador</th></tr>
+${fila("Comprador",r.comprador_firma_nombre,r.comprador_firma_email,r.comprador_firma_at,r.comprador_firma_ip,r.comprador_firma_ua)}
+${fila("Grupo Guía · recibe",c.gg_firma_email,c.gg_firma_email,r.comprador_firma_at?c.gg_firma_at:null,c.gg_firma_ip,"")}
+${fila("Vendedor",r.vendedor_firma_nombre,r.vendedor_firma_email,r.vendedor_firma_at,r.vendedor_firma_ip,r.vendedor_firma_ua)}</table>`).join("")}
+<div class="lg2">Estado de la carta al emitir esta constancia: <b>${esc(((CO_EST[c.estado]||{}).t)||c.estado)}</b>. Las firmas pendientes aparecen con “—”.</div>
+<div class="pie">${CO_RAZON_SOCIAL.toUpperCase()} · GRUPO GUÍA · MACROLOTES · grupoguia.mx</div></div>`; };
+  const rSel=opts.ronda?(rs.find(x=>x.ronda===opts.ronda)||coActual(c)):coActual(c);
+  let cuerpo, titulo;
+  if(opts.constancia){ cuerpo=constancia(opts.ronda?[rSel]:rs); titulo="Constancia de firmas"; }
+  else if(opts.todas&&!conf){ cuerpo=rs.map(hoja).join("")+constancia(rs); titulo="Expediente de la carta oferta"; }
+  else { cuerpo=hoja(rSel); titulo="Carta oferta"+(opts.ronda?(" · ronda "+rSel.ronda):""); }
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(c.folio)} · ${titulo}${conf?" (confidencial)":""}</title>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@400;700;800&display=swap" rel="stylesheet">
+<style>@page{size:letter;margin:11mm 14mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{margin:0;font-family:'EB Garamond',Georgia,serif;color:#1f2937;font-size:10.6pt;line-height:1.36}
+.hoja{width:710px;margin:0 auto;position:relative;break-after:page;page-break-after:always}.hoja:last-child{break-after:auto;page-break-after:auto}.mk{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:700 60pt 'EB Garamond';color:rgba(0,43,73,.05);transform:rotate(-30deg);letter-spacing:8px;pointer-events:none}
+.cab{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:7px;border-bottom:2px solid #002B49}.lg{background:#002B49;padding:6px 9px;border-radius:4px}.lg img{height:19px;display:block}
+.fo{text-align:right;font:8.5px/1.55 'DM Sans',sans-serif;color:#6b7280}.fo b{color:#002B49;font-size:10px}.oro{height:3px;background:#F5B335;width:80px;margin-top:-2px}
+.lu{text-align:right;margin:8px 0 6px}.k{font:800 8px 'DM Sans',sans-serif;letter-spacing:1.8px;color:#b9861f;text-transform:uppercase}.rs{font-weight:700;color:#002B49;font-size:12pt}.pr{font-style:italic}
+.as{margin:6px 0 8px;padding:4px 9px;border-left:3px solid #F5B335;background:#fbf8f0}.as b{color:#002B49}p,.cl{margin:0 0 4.5px;text-align:justify}.n{font-weight:700;color:#002B49;letter-spacing:.3px}
+.cf{font:800 8.5px 'DM Sans',sans-serif;background:#001a2e;color:#F5B335;border-radius:3px;padding:1px 5px;letter-spacing:.5px}
+table.t{margin:1px 0 3px 18px;border-collapse:collapse;width:calc(100% - 18px);font-size:10.2pt}table.t td{padding:1.5px 7px;border-bottom:1px dotted #d6dbe3}table.t td:first-child{color:#6b7280;width:44%}table.t td:last-child{font-weight:600;color:#002B49}table.t tr.to td{border-top:1.5px solid #002B49;border-bottom:none;font-weight:700}
+.le{font-style:italic;color:#6b7280;font-size:9.8pt;margin:0 0 5px 18px}
+table.hi{margin:1px 0 5px;border-collapse:collapse;width:100%;font:8px 'DM Sans',sans-serif}table.hi th{background:#002B49;color:#fff;text-align:left;padding:2px 6px}table.hi td{padding:2px 6px;border-bottom:1px solid #e5e9ef}table.hi tr.ac td{font-weight:800}
+table.cs{font-size:8.6px}table.cs td{padding:4px 6px;vertical-align:top}table.cs td.ua{font-size:7px;color:#6b7280;max-width:180px;word-break:break-word}
+.fi{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:8px;page-break-inside:avoid}.f{font-size:9.6pt;line-height:1.3}.es{min-height:40px;display:flex;align-items:flex-end}.li{border-top:1px solid #1f2937;padding-top:3px;text-align:center}.q{font:800 7.3px 'DM Sans',sans-serif;letter-spacing:1.2px;text-transform:uppercase;color:#b9861f;text-align:center;margin-top:2px}
+.se{font:7.6px/1.4 'DM Sans',sans-serif;border:1.3px solid #1a8a4a;background:#ecfdf3;color:#0f6b38;border-radius:4px;padding:3px 6px;width:100%}.se b{display:block;text-transform:uppercase;letter-spacing:.3px}.pe{font:7.6px 'DM Sans',sans-serif;color:#9ca3af;border:1.3px dashed #d1d5db;border-radius:4px;padding:6px;width:100%;text-align:center}
+.ac2{margin:8px 0 0;font-size:9.8pt}.cc{font-size:8.8pt;color:#6b7280;margin-top:6px}
+.lg2{margin-top:7px;padding-top:5px;border-top:1px solid #d6dbe3;font:7.2px/1.45 'DM Sans',sans-serif;color:#6b7280;text-align:justify}.pie{margin-top:4px;font:7px 'DM Sans',sans-serif;color:#9ca3af;text-align:center;letter-spacing:.5px}</style></head><body>
+${cuerpo}
+<script>
+// CADA CARTA EN UNA SOLA HOJA: carta (279.4 mm) − márgenes (2 × 11 mm) = 257.4 mm útiles ≈ 972 px.
+// Si el contenido (muchas rondas, calendario o comentarios largos) no cabe, se escala lo justo.
+(function(){ var hecho=false; function ajustar(){ document.querySelectorAll(".hoja").forEach(function(h){ h.style.zoom=""; var alto=h.scrollHeight, disp=960; h.style.zoom=alto>disp?String(Math.floor(disp/alto*1000)/1000):""; }); }
   function listo(){ if(hecho) return; hecho=true; ajustar(); setTimeout(function(){ try{ window.focus(); window.print(); }catch(e){} },150); }
   window.addEventListener("beforeprint",ajustar);
   window.addEventListener("load",function(){ var f=(document.fonts&&document.fonts.ready)?document.fonts.ready:Promise.resolve(); Promise.race([f,new Promise(function(r){setTimeout(r,1500);})]).then(listo); });
   setTimeout(listo,2500); })();
 <\/script></body></html>`;
   const w=window.open("","_blank"); if(!w) return false;
-  w.document.open(); w.document.write(html); w.document.close(); // la propia hoja se ajusta a 1 página y se imprime
+  w.document.open(); w.document.write(html); w.document.close(); // cada hoja se ajusta a 1 página y se imprime
   return true;
 }
 
@@ -3154,28 +3244,49 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
     const msg="Hola "+(String(nom).trim().split(/\s+/)[0]||"")+", te compartimos la carta oferta "+(c.folio||"")+" del terreno "+c.terreno_nombre+" para tu revisión y firma electrónica:\n"+url+"\n\nLa liga es válida por 10 días. — Equipo Macrolotes de Grupo Guía";
     const wa=rqWaUrl(tel,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener");
     if(rol==="comprador") coAvisarAsesor(c,toast); };
-  // 🔄 CONTRAOFERTA / REENVÍO A FIRMA (sql/cartas_oferta_v6_contraoferta_gg.sql): Grupo Guía captura
-  // una NUEVA RONDA (no pisa las anteriores) y la carta vuelve a firma: comprador → vendedor.
-  const abrirContra=(c)=>{ const r=coActual(c); setForm(null); setCof({ id:c.id, solicita:"vendedor", precio_m2:String(Math.round(Number(r.precio_m2)||0)), forma_pago:r.forma_pago||"Contado", clausula3:coClausula3(r), comentarios:"", nota:"" }); };
+  // 🔄 CONTRAPROPUESTA ESTRUCTURADA (sql/cartas_oferta_v7_plan_pago.sql): Grupo Guía captura una NUEVA
+  // RONDA por pasos (quién · precio · forma de pago con sus campos · condiciones). La cláusula TERCERA
+  // se redacta sola; el plan se guarda como datos. La carta vuelve a firma: comprador → vendedor.
+  const cofPlanDe=(f)=>{ const forma=f.forma; const p={ forma, conds:{...f.conds}, otra:String(f.otra||"").trim() };
+    if(forma==="Contado"){ p.dias=coNum(f.contado.dias); }
+    else if(forma==="Financiamiento"){ Object.assign(p,{ eng_pct:coNum(f.credito.eng), eng_cuando:f.credito.eng_cuando, banco:String(f.credito.banco||"").trim(), aprob:coNum(f.credito.aprob), dias:coNum(f.credito.dias) }); }
+    else { Object.assign(p,{ eng_pct:coNum(f.diferido.eng), eng_cuando:f.diferido.eng_cuando, n:Math.max(1,Math.floor(coNum(f.diferido.n)||1)), per:f.diferido.per, inicio:f.diferido.inicio, escr:f.diferido.escr }); }
+    return p; };
+  const abrirContra=(c)=>{ const r=coActual(c); setForm(null);
+    const pp=r.plan_pago||{}; const hoy=new Date(); const ini=new Date(hoy.getFullYear(),hoy.getMonth()+1,15).toISOString().slice(0,10);
+    setCof({ id:c.id, paso:1, solicita:"vendedor", precio_m2:String(Math.round(Number(r.precio_m2)||0)), forma:r.forma_pago||"Contado",
+      contado:{ dias:String(pp.forma==="Contado"&&pp.dias?pp.dias:60) },
+      credito:{ eng:String(pp.forma==="Financiamiento"&&pp.eng_pct!=null?pp.eng_pct:20), eng_cuando:pp.eng_cuando||"contrato", banco:pp.banco||"", aprob:String(pp.aprob||45), dias:String(pp.forma==="Financiamiento"&&pp.dias?pp.dias:90) },
+      diferido:{ eng:String(pp.forma==="Diferido"&&pp.eng_pct!=null?pp.eng_pct:30), eng_cuando:pp.eng_cuando||"contrato", n:String(pp.n||6), per:pp.per||"mensual", inicio:pp.inicio||ini, escr:pp.escr||"ultimo" },
+      conds:{ posesion:true, gastos:true, dictamen:false, gravamenes:false, ...(pp.conds||{}) }, otra:pp.otra||"", comentarios:"", nota:"" }); };
   const enviarContra=async(c,modo)=>{ const f=cof; if(!f) return; const pm2=coNum(f.precio_m2);
     if(!(pm2>0)){ toast("Escribe el precio por m²."); return; }
-    if((String(f.comentarios||"").trim()+String(f.nota||"").trim()).length<5){ toast("Escribe el motivo de la contraoferta (comentario o nota interna)."); return; }
+    if((String(f.comentarios||"").trim()+String(f.nota||"").trim()).length<5){ toast("Escribe el motivo de la contrapropuesta (comentario o nota interna)."); return; }
+    const plan=cofPlanDe(f); const tot=Math.round((Number(c.superficie_m2)||0)*pm2*100)/100;
+    if(plan.forma!=="Contado"){ const k=coPlanCalc(plan,tot,c.apartado); if(k.saldo<0){ toast("El enganche más el apartado no pueden superar el total."); return; } }
+    if(plan.forma==="Diferido"&&!plan.inicio){ toast("Pon la fecha del primer pago."); return; }
     const w=modo==="whatsapp"?window.open("","_blank"):null;
     setBusy(c.id+"cof");
     try{
-      const { data, error } = await window.sb.rpc("carta_oferta_contraoferta",{ p_id:c.id, p_solicita:f.solicita, p_precio_m2:pm2, p_forma_pago:f.forma_pago, p_condiciones:coCond3(f.forma_pago,f.clausula3), p_comentarios:String(f.comentarios||"").trim()||null, p_nota:String(f.nota||"").trim()||null });
+      const { data, error } = await window.sb.rpc("carta_oferta_contraoferta",{ p_id:c.id, p_solicita:f.solicita, p_precio_m2:pm2, p_forma_pago:plan.forma,
+        p_condiciones:CO_MARCA3+coPlanClausula(plan,tot,c.apartado), p_comentarios:String(f.comentarios||"").trim()||null, p_nota:String(f.nota||"").trim()||null, p_plan:plan });
       if(error) throw error;
       const n=(data&&data.ronda)||((c.ronda_actual||1)+1), url=CO_URL+(data&&data.token_comprador);
+      const nom=String(c.comprador_nombre||"").trim().split(/\s+/)[0]||"";
+      const msg="Hola "+nom+", te compartimos la nueva versión de la carta oferta "+(c.folio||"")+" (ronda "+n+") del terreno "+c.terreno_nombre+" para tu revisión y firma electrónica:\n"+url+"\n\nLa liga es válida por 10 días. — Equipo Macrolotes de Grupo Guía";
       setCof(null); await cargar();
-      if(modo==="whatsapp"){ const nom=String(c.comprador_nombre||"").trim().split(/\s+/)[0]||"";
-        const msg="Hola "+nom+", te compartimos la nueva versión de la carta oferta "+(c.folio||"")+" (ronda "+n+") del terreno "+c.terreno_nombre+" para tu revisión y firma electrónica:\n"+url+"\n\nLa liga es válida por 10 días. — Equipo Macrolotes de Grupo Guía";
-        const wa=rqWaUrl(c.comprador_telefono,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener"); }
+      if(modo==="whatsapp"){ const wa=rqWaUrl(c.comprador_telefono,msg); if(w) w.location.href=wa; else window.open(wa,"_blank","noopener"); }
+      else if(modo==="correo"){ window.location.href="mailto:"+encodeURIComponent(c.comprador_email||"")+"?subject="+encodeURIComponent("Carta oferta "+(c.folio||"")+" · ronda "+n+" · "+c.terreno_nombre)+"&body="+encodeURIComponent(msg); }
       else { try{ await navigator.clipboard.writeText(url); }catch(e){ try{ window.prompt("Copia la liga del comprador:",url); }catch(_){} } }
-      toast("🔄 Ronda "+n+" creada · "+(modo==="whatsapp"?"WhatsApp al comprador listo":"liga del comprador copiada")+" · al firmar pasa sola al vendedor");
+      toast("🔄 Ronda "+n+" creada · "+(modo==="whatsapp"?"WhatsApp al comprador listo":(modo==="correo"?"correo al comprador listo":"liga del comprador copiada"))+" · al firmar pasa sola al vendedor");
       coAvisarAsesor({ ...c, ronda_actual:n }, toast, true);
     }catch(e){ try{ w&&w.close(); }catch(_){} const m=String((e&&e.message)||e);
-      toast(/carta_oferta_contraoferta|does not exist|schema cache|PGRST202/i.test(m)?"Falta correr sql/cartas_oferta_v6_contraoferta_gg.sql en Supabase.":("No se pudo crear la contraoferta: "+m)); }
+      toast(/p_plan|carta_oferta_contraoferta|does not exist|schema cache|PGRST202/i.test(m)?"Falta correr sql/cartas_oferta_v7_plan_pago.sql en Supabase.":("No se pudo crear la contrapropuesta: "+m)); }
     finally{ setBusy(""); } };
+  // Vista previa de la carta de la nueva ronda (sin guardar nada).
+  const previewContra=(c)=>{ const f=cof; if(!f) return; const pm2=coNum(f.precio_m2); const plan=cofPlanDe(f); const tot=Math.round((Number(c.superficie_m2)||0)*pm2*100)/100; const n=(c.ronda_actual||1)+1;
+    const nueva={ ronda:n, propone:"grupo_guia", solicita:f.solicita, precio_m2:pm2, total:tot, forma_pago:plan.forma, condiciones:CO_MARCA3+coPlanClausula(plan,tot,c.apartado), comentarios:String(f.comentarios||"").trim()||null, plan_pago:plan, created_at:new Date().toISOString() };
+    if(!coImprimir({ ...c, ronda_actual:n, estado:"enviada_comprador", cartas_oferta_rondas:[...coRondas(c),nueva] },"interno",{ronda:n})) toast("Permite ventanas emergentes para ver la vista previa."); };
   // 👔 WhatsApp al asesor con su liga de SOLO LECTURA
   const whatsAsesor=async(c)=>{ const w=window.open("","_blank");
     try{ const token=await coLigaAsesor(c.id); let tel="";
@@ -3241,11 +3352,43 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
         {Number(c.precio_lista_m2)>0&&Number(r.precio_m2)>0&&(()=>{ const d=(Number(r.precio_m2)-Number(c.precio_lista_m2))/Number(c.precio_lista_m2)*100; return <span style={{marginLeft:8,fontSize:11.5,fontWeight:800,color:d<0?"#b45309":B.green}}>{d>=0?"+":""}{d.toFixed(1)}% vs lista</span>; })()}</div>
       {c.asesor_nombre && <div style={{fontSize:11.5,color:B.grey4,marginTop:2}}>👔 Asesor: <b style={{color:B.navy}}>{c.asesor_nombre}</b>{c.asesor_email?(" · "+c.asesor_email):""}</div>}
       {timeline(c)}
-      {rs.length>1 && (
-        <div style={{overflowX:"auto",marginTop:8}}><div style={{fontSize:10.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6,margin:"2px 0 4px"}}>📜 Historial de la negociación · {rs.length} rondas</div><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-          <thead><tr style={{background:B.navy,color:"#fff",textAlign:"left"}}>{["Ronda","Propone","$/m²","Total","Pago","Diferencia","Firmas","Nota"].map(h=><th key={h} style={{padding:"5px 8px",fontSize:10,textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
-          <tbody>{rs.map((x,i)=>{ const d=i?(Number(x.total)-Number(rs[0].total)):0; const fd=(at)=>at?new Date(at).toLocaleDateString("es-MX",{day:"2-digit",month:"short"}):""; return (<tr key={x.ronda} style={{borderTop:"1px solid "+B.grey1,fontWeight:x.ronda===c.ronda_actual?800:500,background:x.ronda===c.ronda_actual?"#fffaf0":"transparent",verticalAlign:"top"}}><td style={{padding:"4px 8px"}}>{x.ronda}</td><td style={{padding:"4px 8px"}}>{coQuien(x)}</td><td style={{padding:"4px 8px"}}>{coMx(x.precio_m2)}</td><td style={{padding:"4px 8px"}}>{coMx(x.total)}</td><td style={{padding:"4px 8px"}}>{x.forma_pago}</td><td style={{padding:"4px 8px",color:d?"#b45309":B.grey3,whiteSpace:"nowrap"}}>{i?((d>=0?"+":"−")+coMx(Math.abs(d))+" ("+(d>=0?"+":"−")+Math.abs(d/(Number(rs[0].total)||1)*100).toFixed(1)+"%)"):"—"}</td><td style={{padding:"4px 8px",fontSize:11,whiteSpace:"nowrap",fontWeight:500}}><div style={{color:x.comprador_firma_at?B.green:B.grey3}}>{x.comprador_firma_at?("✓ Comprador "+fd(x.comprador_firma_at)):"⏳ Comprador"}</div><div style={{color:x.vendedor_firma_at?B.green:B.grey3}}>{x.vendedor_firma_at?("✓ Vendedor "+fd(x.vendedor_firma_at)):"⏳ Vendedor"}</div></td><td style={{padding:"4px 8px",fontSize:11,fontWeight:500,minWidth:160}}>{x.comentarios&&<div>💬 {x.comentarios}</div>}{x.nota_interna&&<div style={{color:"#b45309"}}>🔒 {x.nota_interna}</div>}{x.capturada_por&&<div style={{color:B.grey3}}>Capturó: {x.capturada_por} · {coFH(x.created_at)}</div>}</td></tr>); })}</tbody>
-        </table></div>)}
+      {rs.length>1 && (()=>{ const prevR=(x)=>rs.find(y=>y.ronda===x.ronda-1); const sigDe=(x)=>rs.find(y=>y.ronda===x.ronda+1);
+        const estadoRonda=(x)=>{ const s=sigDe(x); if(s) return {t:"Superada · ronda "+s.ronda, fg:B.grey4, bg:B.offW}; if(c.estado==="aceptada") return {t:"🎉 Aceptada", fg:B.green, bg:B.greenL}; if(c.estado==="rechazada") return {t:"✕ Rechazada", fg:B.red, bg:"#fef2f2"}; return {t:"✍️ En firma", fg:"#2563AC", bg:"#EEF4FF"}; };
+        const sl=(t,sub,tipo,key)=>(<div key={key} style={{fontSize:10.5,borderRadius:7,padding:"4px 7px",lineHeight:1.35,...(tipo==="ok"?{color:"#0f6b38",background:B.greenL,border:"1px solid #86efac"}:(tipo==="cp"?{color:"#b45309",background:"#fff7ed",border:"1px solid #fdba74"}:{color:B.grey3,border:"1px dashed "+B.grey2}))}}><b style={{display:"block",textTransform:"uppercase",letterSpacing:0.3,fontSize:9.5}}>{t}</b>{sub}</div>);
+        const firmasDe=(x)=>{ const s=sigDe(x); return [
+          x.comprador_firma_at?sl("✓ Comprador · firmó",coFH(x.comprador_firma_at)+(x.comprador_firma_email?" · "+x.comprador_firma_email:""),"ok","c"):(s?sl("↪ Comprador","No firmó · ronda "+s.ronda,"cp","c"):sl("⏳ Comprador","Pendiente","pe","c")),
+          (c.gg_firma_at&&x.comprador_firma_at)?sl("✓ Grupo Guía · recibida",coFH(c.gg_firma_at),"ok","g"):(s?sl("Grupo Guía","— no aplica (ronda superada)","pe","g"):sl("⏳ Grupo Guía","Al firmar el comprador","pe","g")),
+          x.vendedor_firma_at?sl(x.propone==="vendedor"?"✓ Vendedor · firmó su contrapropuesta":"✓ Vendedor · aceptó",coFH(x.vendedor_firma_at)+(x.vendedor_firma_email?" · "+x.vendedor_firma_email:""),"ok","v"):(s?sl(s.propone==="vendedor"?"↪ Vendedor · contrapropuso":"↪ Vendedor","Ronda "+s.ronda,"cp","v"):sl("⏳ Vendedor","Pendiente","pe","v")) ]; };
+        const pagoTxt=(x)=>{ const p=coPlanResumen(x,c.apartado); if(p) return <span><b>{p.forma}.</b> Enganche {p.eng} · {p.saldo} · escrituración {String(p.escr).toLowerCase()}.</span>; const t0=coClausula3(x), t=t0.charAt(0).toUpperCase()+t0.slice(1); return <span><b>{x.forma_pago}.</b> {t.length>170?t.slice(0,170)+"…":t}</span>; };
+        const res=(x)=>coPlanResumen(x,c.apartado);
+        const filasComp=[["Precio / m²",x=>coMx(x.precio_m2)],["Total",x=>coMx(x.total)],["vs. precio de lista",x=>Number(c.precio_lista_m2)>0?((((Number(x.precio_m2)/Number(c.precio_lista_m2))-1)*100).toFixed(1)+"%"):"—"],["Forma de pago",x=>(res(x)||{}).forma||x.forma_pago||"—"],["Enganche",x=>(res(x)||{}).eng||"—"],["Saldo",x=>(res(x)||{}).saldo||"Ver cláusula tercera"],["Escrituración",x=>(res(x)||{}).escr||"—"],["Firmas",x=>[(x.comprador_firma_at?"✓":"—")+" Comprador",(x.vendedor_firma_at?"✓":"—")+" Vendedor"].join(" · ")]];
+        return (
+        <div style={{marginTop:10,border:"1px solid "+B.grey1,borderRadius:12,padding:"10px 12px",background:"#fcfcfd"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}><div style={{fontSize:13,fontWeight:800,color:B.navy}}>📜 Historial de la negociación · {rs.length} rondas <span style={{fontSize:11,fontWeight:600,color:B.grey4}}>· cada ronda es una carta propia con sus firmas</span></div>
+            <button onClick={()=>{ if(!coImprimir(c,"interno",{todas:true})) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn(B.navy,"#fff")}>📦 Expediente completo (PDF)</button></div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))",gap:10,marginTop:10}}>
+            {rs.map(x=>{ const e=estadoRonda(x), act=x.ronda===c.ronda_actual, p=prevR(x); const d=p?((Number(x.total)-Number(rs[0].total))/(Number(rs[0].total)||1)*100):0; return (
+              <div key={x.ronda} style={{border:"1.5px solid "+(act?B.gold:B.grey1),borderRadius:11,background:"#fff",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:act?"0 0 0 3px rgba(245,179,53,.18)":"none"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6,padding:"7px 10px",background:B.offW,borderBottom:"1px solid "+B.grey1}}><b style={{fontSize:12,color:B.navy}}>Ronda {x.ronda} · {coQuien(x)}</b><span style={{fontSize:10.5,fontWeight:800,color:e.fg,background:e.bg,border:"1.5px solid "+e.fg,borderRadius:999,padding:"1px 8px",whiteSpace:"nowrap"}}>{e.t}</span></div>
+                <div style={{padding:"9px 10px",display:"flex",flexDirection:"column",gap:7,flex:1}}>
+                  <div style={{fontSize:18,fontWeight:800,color:B.navy}}>{coMx(x.precio_m2)} <span style={{fontSize:11.5,color:B.grey4,fontWeight:600}}>/m² · {coMx(x.total)}</span>{p&&<span style={{fontSize:11,fontWeight:800,marginLeft:6,color:d<0?"#b45309":B.green}}>{d>=0?"+":"−"}{Math.abs(d).toFixed(1)}% vs R1</span>}</div>
+                  <div style={{fontSize:11.5,background:"#fbfaf6",borderLeft:"3px solid "+B.gold,borderRadius:"0 7px 7px 0",padding:"5px 8px",lineHeight:1.4}}>{pagoTxt(x)}</div>
+                  <div style={{display:"grid",gap:4}}>{firmasDe(x)}</div>
+                  {(x.comentarios||x.nota_interna||x.capturada_por)&&<div style={{fontSize:11,color:B.grey4,lineHeight:1.4}}>{x.comentarios&&<div>💬 {x.comentarios}</div>}{x.nota_interna&&<div style={{color:"#b45309"}}>🔒 {x.nota_interna}</div>}{x.capturada_por&&<div>Capturó: {x.capturada_por} · {coFH(x.created_at)}</div>}</div>}
+                </div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"7px 10px",borderTop:"1px solid "+B.grey1}}>
+                  <button onClick={()=>{ if(!coImprimir(c,"interno",{ronda:x.ronda})) toast("Permite ventanas emergentes para ver el PDF."); }} style={{...btn("#fff",B.navy,B.grey2),fontSize:11}}>📄 {(x.comprador_firma_at||x.vendedor_firma_at)?"Ver carta firmada":"Ver carta"}</button>
+                  <button onClick={()=>{ if(!coImprimir(c,"interno",{ronda:x.ronda,constancia:true})) toast("Permite ventanas emergentes para ver el PDF."); }} style={{...btn("#fff",B.navy,B.grey2),fontSize:11}}>🧾 Constancia</button>
+                </div>
+              </div>); })}
+          </div>
+          <div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6,margin:"12px 0 5px"}}>Comparativo de rondas</div>
+          <div style={{overflowX:"auto",border:"1px solid "+B.grey1,borderRadius:9}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            <thead><tr style={{background:B.navy,color:"#fff",textAlign:"left"}}><th style={{padding:"6px 9px",fontSize:10,textTransform:"uppercase"}}>Concepto</th>{rs.map(x=><th key={x.ronda} style={{padding:"6px 9px",fontSize:10,textTransform:"uppercase",whiteSpace:"nowrap"}}>Ronda {x.ronda}</th>)}</tr></thead>
+            <tbody>{filasComp.map(([k,fn])=>{ const vals=rs.map(fn); const cambia=vals.some(v=>v!==vals[0]); return (<tr key={k} style={{borderTop:"1px solid "+B.grey1,background:cambia?"#fffbeb":"transparent"}}><td style={{padding:"5px 9px",fontWeight:700,color:B.grey4,whiteSpace:"nowrap"}}>{k}</td>{vals.map((v,i)=><td key={i} style={{padding:"5px 9px",fontWeight:rs[i].ronda===c.ronda_actual?800:500}}>{v}</td>)}</tr>); })}</tbody>
+          </table></div>
+          <div style={{fontSize:10.5,color:B.grey3,marginTop:4}}>En amarillo: lo que cambió entre rondas.</div>
+        </div>); })()}
       {(r.condiciones||r.comentarios) && <div style={{fontSize:12,color:"#334155",background:"#fffaf0",borderLeft:"3px solid "+B.gold,padding:"6px 9px",borderRadius:"0 7px 7px 0",marginTop:8}}>{r.condiciones&&<div><b>Forma de pago ({r.forma_pago}):</b> {coClausula3(r)}</div>}{r.comentarios&&<div>💬 <b>{r.propone==="vendedor"?"Vendedor":(r.propone==="comprador"?"Comprador":"Nota")}:</b> {r.comentarios}</div>}</div>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:6,marginTop:8}}>
         {firma("Comprador",r.comprador_firma_at,[r.comprador_firma_email,r.comprador_firma_ip?("IP "+r.comprador_firma_ip):""].filter(Boolean).join(" · "))}
@@ -3263,25 +3406,65 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
             telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast} etiqueta="📲 Compartir el avance con el comprador" mostrarMensaje/>
         </div>); })()}
       {form && form.id===c.id && <div style={{marginTop:10}}>{formUI}</div>}
-      {cof && cof.id===c.id && (()=>{ const f=cof; const set=(k,v)=>setCof(p=>({...p,[k]:v})); const tot=coNum(c.superficie_m2)*coNum(f.precio_m2); const dif=tot-(Number(r.total)||0); const n=(c.ronda_actual||1)+1; return (
-        <div style={{border:"1.5px solid #f59e0b",background:"#fffbeb",borderRadius:12,padding:"10px 12px",marginTop:10}}>
-          <div style={{fontSize:13,fontWeight:800,color:B.navy,marginBottom:4}}>🔄 Contraoferta · ronda {n}</div>
-          <div style={{fontSize:12,color:"#92400e",marginBottom:8}}>Se crea una NUEVA ronda (la ronda {c.ronda_actual||1} queda en el historial) y la carta vuelve a firma: primero el comprador y, al firmar, pasa sola al vendedor. Superficie ({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m²) y apartado ({coMx(c.apartado)}) no cambian.{c.estado==="aceptada"?" ⚠️ La carta estaba ACEPTADA: vuelve a negociación hasta que ambas partes firmen la nueva ronda.":""}</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:8}}>
-            <div><label style={lbS}>¿Quién la pide?</label><select style={inS} value={f.solicita} onChange={e=>set("solicita",e.target.value)}><option value="vendedor">Vendedor (contraoferta)</option><option value="comprador">Comprador</option><option value="grupo_guia">Grupo Guía · reenvío a firma</option></select></div>
-            <div><label style={lbS}>Precio por m² *</label><input style={inS} inputMode="decimal" value={f.precio_m2} onChange={e=>set("precio_m2",e.target.value)}/></div>
-            <div><label style={lbS}>Forma de pago</label><select style={inS} value={f.forma_pago} onChange={e=>{ const fp=e.target.value; setCof(p=>({...p,forma_pago:fp,clausula3:(String(p.clausula3||"").trim()===coFormaTxt(p.forma_pago))?coFormaTxt(fp):p.clausula3})); }}>{CO_FORMAS.map(x=><option key={x}>{x}</option>)}</select></div>
-            <div style={{alignSelf:"end",fontSize:12.5,color:B.navy}}>Total: <b>{coMx(tot)}</b>{Number(r.total)>0&&<span style={{marginLeft:6,fontWeight:800,color:dif<0?"#b45309":B.green}}>{dif>=0?"+":"−"}{coMx(Math.abs(dif))} vs ronda {c.ronda_actual||1}</span>}</div>
+      {cof && cof.id===c.id && (()=>{ const f=cof; const set=(k,v)=>setCof(p=>({...p,[k]:v})); const setS=(g,k,v)=>setCof(p=>({...p,[g]:{...p[g],[k]:v}}));
+        const pm2=coNum(f.precio_m2), tot=Math.round((Number(c.superficie_m2)||0)*pm2*100)/100, dif=tot-(Number(r.total)||0), n=(c.ronda_actual||1)+1;
+        const plan=cofPlanDe(f), k=coPlanCalc(plan,tot,c.apartado), clausula=coPlanClausula(plan,tot,c.apartado);
+        const lista=Number(c.precio_lista_m2)>0?((pm2/Number(c.precio_lista_m2)-1)*100):null;
+        const ant=coPlanResumen(r,c.apartado)||{forma:r.forma_pago||"—",eng:"—",saldo:"Ver cláusula tercera",escr:"—"}; const nue=coPlanResumen({plan_pago:plan,total:tot},c.apartado)||{};
+        const box={border:"1px solid "+B.grey1,borderRadius:11,padding:"11px 12px",background:"#fff"};
+        const head=(num,t)=><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:9}}><span style={{width:22,height:22,borderRadius:"50%",background:B.navy,color:"#fff",fontWeight:800,fontSize:12,display:"grid",placeItems:"center",flexShrink:0}}>{num}</span><b style={{fontSize:13.5,color:B.navy}}>{t}</b></div>;
+        const opt=(on,click,t,s)=><button type="button" onClick={click} style={{flex:"1 1 170px",textAlign:"left",border:"1.5px solid "+(on?B.navy:B.grey1),background:on?"#f3f7fb":"#fff",boxShadow:on?"inset 0 0 0 1px "+B.navy:"none",borderRadius:10,padding:"8px 10px",cursor:"pointer",fontFamily:"inherit"}}><b style={{display:"block",fontSize:12.5,color:B.navy}}>{t}</b><span style={{fontSize:11,color:B.grey4}}>{s}</span></button>;
+        const g2={display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8};
+        const kp=(t,v,col)=><div style={{background:B.offW,border:"1px solid "+B.grey1,borderRadius:9,padding:"6px 10px"}}><div style={lbS}>{t}</div><b style={{fontSize:14.5,color:col||B.navy}}>{v}</b></div>;
+        const engSel=(g)=><div><label style={lbS}>El enganche se paga</label><select style={inS} value={f[g].eng_cuando} onChange={e=>setS(g,"eng_cuando",e.target.value)}><option value="contrato">A la firma del contrato</option><option value="aceptacion">A la aceptación de la carta</option></select></div>;
+        const cmp=(t,a,b)=><div key={t} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"4px 0",borderBottom:"1px dashed "+B.grey1}}><span style={{color:B.grey4}}>{t}</span><b style={{color:(b!==undefined&&a!==b)?"#b45309":B.navy,textAlign:"right"}}>{b!==undefined?b:a}</b></div>;
+        const td={padding:"4px 9px"};
+        return (
+        <div style={{border:"2px solid "+B.gold,background:"#fffdf5",borderRadius:12,padding:12,marginTop:10,display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}><div><div style={{fontSize:14.5,fontWeight:800,color:B.navy}}>🔄 Ronda {n} · Contrapropuesta</div><div style={{fontSize:11.5,color:"#92400e"}}>La ronda {c.ronda_actual||1} queda en el historial. Superficie ({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m²) y apartado ({coMx(c.apartado)}) no cambian.{c.estado==="aceptada"?" ⚠️ La carta estaba ACEPTADA: vuelve a negociación hasta que ambas partes firmen.":""}</div></div><button onClick={()=>setCof(null)} style={btn("#fff",B.navy,B.grey2)}>Cancelar</button></div>
+          <div style={box}>{head(1,"¿Quién la propone y por qué?")}
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{opt(f.solicita==="vendedor",()=>set("solicita","vendedor"),"Vendedor","El propietario pide otras condiciones")}{opt(f.solicita==="comprador",()=>set("solicita","comprador"),"Comprador","El comprador ajusta su oferta")}{opt(f.solicita==="grupo_guia",()=>set("solicita","grupo_guia"),"Grupo Guía · reenvío","Mismas condiciones, volver a firmar")}</div>
+            <div style={{...g2,gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",marginTop:8}}><div><label style={lbS}>Comentario para las partes (lo verán en su carta)</label><textarea style={{...inS,minHeight:50,resize:"vertical"}} value={f.comentarios} placeholder="Ej. El propietario acepta $3,900/m² si el saldo se paga en 6 meses." onChange={e=>set("comentarios",e.target.value)}/></div><div><label style={lbS}>🔒 Nota interna (solo equipo)</label><textarea style={{...inS,minHeight:50,resize:"vertical"}} value={f.nota} placeholder="Ej. Negociado por teléfono con el propietario." onChange={e=>set("nota",e.target.value)}/></div></div>
           </div>
-          <div style={{marginTop:8}}><label style={lbS}>Cláusula tercera · forma de pago y condiciones (va en la carta)</label><textarea style={{...inS,minHeight:64,resize:"vertical"}} value={f.clausula3} onChange={e=>set("clausula3",e.target.value)}/></div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:8,marginTop:8}}>
-            <div><label style={lbS}>Comentario para las partes (lo verán en su liga)</label><textarea style={{...inS,minHeight:52,resize:"vertical"}} value={f.comentarios} placeholder="Ej. El propietario acepta a $3,800/m² con pago de contado." onChange={e=>set("comentarios",e.target.value)}/></div>
-            <div><label style={lbS}>🔒 Nota interna (solo equipo)</label><textarea style={{...inS,minHeight:52,resize:"vertical"}} value={f.nota} placeholder="Ej. Negociado por teléfono con el propietario el 18 nov." onChange={e=>set("nota",e.target.value)}/></div>
+          <div style={box}>{head(2,"Precio")}
+            <div style={g2}><div><label style={lbS}>Precio por m² *</label><input style={inS} inputMode="decimal" value={f.precio_m2} onChange={e=>set("precio_m2",e.target.value)}/></div><div><label style={lbS}>Superficie (fija)</label><input style={{...inS,background:B.offW}} readOnly value={(Number(c.superficie_m2)||0).toLocaleString("es-MX")+" m²"}/></div><div><label style={lbS}>Apartado (fijo)</label><input style={{...inS,background:B.offW}} readOnly value={coMx(c.apartado)}/></div></div>
+            <div style={{...g2,marginTop:8}}>{kp("Total",coMxC(tot))}{kp("vs. ronda "+(c.ronda_actual||1),(dif>=0?"+":"−")+coMxC(Math.abs(dif))+(Number(r.total)?(" ("+(dif>=0?"+":"−")+Math.abs(dif/Number(r.total)*100).toFixed(1)+"%)"):""),dif<0?"#b45309":B.green)}{kp("vs. precio de lista",lista==null?"—":((lista>=0?"+":"−")+Math.abs(lista).toFixed(1)+"%"))}</div>
           </div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
-            <button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"copiar")} style={btn(B.gold,B.navy)}>{busy===c.id+"cof"?"Creando…":"🔄 Crear ronda "+n+" y copiar liga del comprador"}</button>
-            <button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"whatsapp")} style={btn("#25D366","#fff")}>🟢 Crear ronda {n} y mandar por WhatsApp</button>
-            <button onClick={()=>setCof(null)} style={btn("#fff",B.navy,B.grey2)}>Cancelar</button>
+          <div style={box}>{head(3,"Forma de pago")}
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{opt(f.forma==="Contado",()=>set("forma","Contado"),"💵 Contado","Saldo en una exhibición a la escritura")}{opt(f.forma==="Financiamiento",()=>set("forma","Financiamiento"),"🏦 Crédito bancario","Enganche + crédito de una institución")}{opt(f.forma==="Diferido",()=>set("forma","Diferido"),"📅 Pagos diferidos","Enganche + parcialidades con calendario")}</div>
+            <div style={{...g2,marginTop:9}}>
+              {f.forma==="Contado"&&<React.Fragment><div><label style={lbS}>Saldo</label><input style={{...inS,background:B.offW}} readOnly value={"1 exhibición · "+coMxC(k.saldo)}/></div><div><label style={lbS}>Escrituración dentro de (días)</label><input style={inS} inputMode="numeric" value={f.contado.dias} onChange={e=>setS("contado","dias",e.target.value)}/></div></React.Fragment>}
+              {f.forma==="Financiamiento"&&<React.Fragment><div><label style={lbS}>Enganche (%)</label><input style={inS} inputMode="decimal" value={f.credito.eng} onChange={e=>setS("credito","eng",e.target.value)}/></div>{engSel("credito")}<div><label style={lbS}>Institución financiera</label><input style={inS} value={f.credito.banco} placeholder="La que elija el comprador" onChange={e=>setS("credito","banco",e.target.value)}/></div><div><label style={lbS}>Autorización del crédito (días)</label><input style={inS} inputMode="numeric" value={f.credito.aprob} onChange={e=>setS("credito","aprob",e.target.value)}/></div><div><label style={lbS}>Escrituración dentro de (días)</label><input style={inS} inputMode="numeric" value={f.credito.dias} onChange={e=>setS("credito","dias",e.target.value)}/></div></React.Fragment>}
+              {f.forma==="Diferido"&&<React.Fragment><div><label style={lbS}>Enganche (%)</label><input style={inS} inputMode="decimal" value={f.diferido.eng} onChange={e=>setS("diferido","eng",e.target.value)}/></div>{engSel("diferido")}<div><label style={lbS}>Número de pagos</label><input style={inS} inputMode="numeric" value={f.diferido.n} onChange={e=>setS("diferido","n",e.target.value)}/></div><div><label style={lbS}>Periodicidad</label><select style={inS} value={f.diferido.per} onChange={e=>setS("diferido","per",e.target.value)}><option value="mensual">Mensual</option><option value="bimestral">Bimestral</option><option value="trimestral">Trimestral</option></select></div><div><label style={lbS}>Fecha del primer pago</label><input type="date" style={inS} value={f.diferido.inicio} onChange={e=>setS("diferido","inicio",e.target.value)}/></div><div><label style={lbS}>Escrituración</label><select style={inS} value={f.diferido.escr} onChange={e=>setS("diferido","escr",e.target.value)}><option value="ultimo">Al cubrirse el último pago</option><option value="contrato">A la firma del contrato</option></select></div></React.Fragment>}
+            </div>
+            {f.forma!=="Contado"&&<div style={{...g2,marginTop:8}}>{kp("Enganche",coMxC(k.eng))}{kp(f.forma==="Financiamiento"?"Monto a financiar":"Saldo en pagos",coMxC(k.saldo),k.saldo<0?B.red:undefined)}</div>}
+            {f.forma==="Diferido"&&k.pagos.length>0&&<div style={{marginTop:9}}><div style={lbS}>Calendario de pagos (va dentro de la cláusula tercera)</div><div style={{overflow:"auto",border:"1px solid "+B.grey1,borderRadius:9,maxHeight:260}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}><thead><tr style={{background:B.navy,color:"#fff",textAlign:"left"}}><th style={{...td,fontSize:10}}>CONCEPTO</th><th style={{...td,fontSize:10}}>FECHA</th><th style={{...td,fontSize:10,textAlign:"right"}}>MONTO</th></tr></thead><tbody>
+              <tr style={{borderTop:"1px solid "+B.grey1}}><td style={td}>Apartado</td><td style={td}>A la aceptación</td><td style={{...td,textAlign:"right"}}>{coMxC(k.apt)}</td></tr>
+              <tr style={{borderTop:"1px solid "+B.grey1}}><td style={td}>Enganche ({k.engPct}%)</td><td style={td}>{f.diferido.eng_cuando==="aceptacion"?"A la aceptación de la carta":"A la firma del contrato"}</td><td style={{...td,textAlign:"right"}}>{coMxC(k.eng)}</td></tr>
+              {k.pagos.map(x=><tr key={x.n} style={{borderTop:"1px solid "+B.grey1}}><td style={td}>Pago {x.n} de {k.pagos.length}</td><td style={td}>{coFechaLarga(x.fecha)||"—"}</td><td style={{...td,textAlign:"right"}}>{coMxC(x.monto)}</td></tr>)}
+              <tr style={{borderTop:"2px solid "+B.navy,fontWeight:800,background:B.offW}}><td style={td}>Total</td><td style={td}></td><td style={{...td,textAlign:"right"}}>{coMxC(k.apt+k.eng+k.pagos.reduce((s,x)=>s+x.monto,0))}</td></tr>
+            </tbody></table></div></div>}
+          </div>
+          <div style={box}>{head(4,"Condiciones adicionales")}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:7}}>{CO_CONDS.map(x=><label key={x.k} style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12.5,border:"1px solid "+B.grey1,borderRadius:9,padding:"7px 9px",cursor:"pointer",color:B.navy}}><input type="checkbox" checked={!!f.conds[x.k]} onChange={e=>{ const v=e.target.checked; setCof(p=>({...p,conds:{...p.conds,[x.k]:v}})); }} style={{marginTop:2}}/>{x.t}</label>)}</div>
+            <div style={{marginTop:8}}><label style={lbS}>Otra condición (texto libre)</label><input style={inS} value={f.otra} placeholder="Ej. La notaría la elige el Comprador." onChange={e=>set("otra",e.target.value)}/></div>
+          </div>
+          <div style={box}>{head(5,"Así quedará en la carta · revisa antes de enviar")}
+            <div style={{fontFamily:"'EB Garamond',Georgia,serif",fontSize:15,lineHeight:1.5,background:"#fffdf7",border:"1px solid #eadfbf",borderRadius:10,padding:"11px 13px",textAlign:"justify",color:"#1f2937"}}><b style={{color:B.navy}}>TERCERA. Forma de pago.</b> <b>{plan.forma==="Financiamiento"?"Crédito bancario":(plan.forma==="Diferido"?"Pagos diferidos":"Contado")}</b>: {clausula}</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:9,marginTop:9}}>
+              <div style={{border:"1px solid "+B.grey1,borderRadius:10,padding:"8px 11px"}}><div style={lbS}>Ronda {c.ronda_actual||1} · vigente</div>{cmp("Precio / m²",coMx(r.precio_m2))}{cmp("Total",coMx(r.total))}{cmp("Forma de pago",ant.forma)}{cmp("Enganche",ant.eng)}{cmp("Saldo",ant.saldo)}{cmp("Escrituración",ant.escr)}</div>
+              <div style={{border:"1.5px solid "+B.gold,background:"#fffdf5",borderRadius:10,padding:"8px 11px"}}><div style={{...lbS,color:"#9a6a12"}}>Ronda {n} · nueva propuesta</div>{cmp("Precio / m²",coMx(r.precio_m2),coMx(pm2))}{cmp("Total",coMx(r.total),coMx(tot))}{cmp("Forma de pago",ant.forma,nue.forma)}{cmp("Enganche",ant.eng,nue.eng)}{cmp("Saldo",ant.saldo,nue.saldo)}{cmp("Escrituración",ant.escr,nue.escr)}{cmp("La propone",{vendedor:"Vendedor",comprador:"Comprador",grupo_guia:"Grupo Guía · reenvío"}[f.solicita])}</div>
+            </div>
+          </div>
+          <div style={box}>{head(6,"Envío a firma")}
+            <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",fontSize:12.5}}>{["✍️ Comprador firma","📥 Grupo Guía recibe (automático)","✍️ Vendedor firma","🎉 Aceptada"].map((t,i)=><React.Fragment key={t}>{i>0&&<span style={{color:B.grey3,fontWeight:800}}>→</span>}<span style={{border:"1.5px solid "+(i===3?B.green:B.grey1),color:i===3?B.green:B.navy,borderRadius:999,padding:"4px 10px",fontWeight:700,background:"#fff"}}>{t}</span></React.Fragment>)}</div>
+            <div style={{fontSize:11.5,color:"#92400e",background:"#fff8e8",border:"1px solid #f3d38b",borderRadius:9,padding:"7px 10px",marginTop:8}}>El comprador usa la <b>misma liga</b> que ya tiene (también la de su portal de documentos); vale 10 días. El vendedor recibe la suya en automático cuando firme el comprador.</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:9}}>
+              <button onClick={()=>previewContra(c)} style={btn("#fff",B.navy,B.grey2)}>👁 Vista previa de la carta</button>
+              <button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"copiar")} style={btn(B.gold,B.navy)}>{busy===c.id+"cof"?"Creando…":"🔄 Crear ronda "+n+" y copiar liga"}</button>
+              <button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"whatsapp")} style={btn("#25D366","#fff")}>🟢 Crear ronda {n} y mandar por WhatsApp</button>
+              {c.comprador_email&&<button disabled={busy===c.id+"cof"} onClick={()=>enviarContra(c,"correo")} style={btn(B.navy,"#fff")}>✉️ Crear ronda {n} y mandar por correo</button>}
+            </div>
           </div>
         </div>); })()}
       {c.estado==="rechazada" && <div style={{fontSize:12,color:B.red,marginTop:8}}>✕ Rechazada por el <b>{c.rechazo_por}</b> el {coFH(c.rechazo_at)}{c.rechazo_motivo?(" · "+c.rechazo_motivo):""}</div>}
@@ -3327,7 +3510,8 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
         {c.asesor_nombre && <button onClick={()=>whatsAsesor(c)} title="Liga de solo lectura para el asesor (no puede firmar)" style={btn("#fff","#1d4ed8","#bfdbfe")}>👔 WhatsApp asesor (solo lectura)</button>}
         {c.asesor_email && <button onClick={()=>coAvisarAsesor(c,toast,true)} title={"Reenviar el correo informativo a "+c.asesor_email} style={btn("#fff","#1d4ed8","#bfdbfe")}>📧 Correo al asesor</button>}
         <button onClick={()=>{ if(!coImprimir(c,"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} title="Abre la carta oferta vigente (ronda actual) con todos los datos y el historial; desde ahí la imprimes o guardas en PDF" style={btn("#fff",B.navy,B.grey2)}>📄 Ver carta oferta (PDF)</button>
-        {c.estado!=="borrador" && <button onClick={()=>abrirContra(c)} title="Nueva ronda de negociación: cambia precio/forma de pago o vuelve a mandar la carta a firma (comprador → vendedor). El historial se conserva." style={btn("#fff7ed","#b45309","#fdba74")}>🔄 Contraoferta / reenviar a firma</button>}
+        <button onClick={()=>{ if(!coImprimir(c,"interno",{constancia:true})) toast("Permite ventanas emergentes para ver el PDF."); }} title="Quién firmó cada ronda: nombre, correo, fecha y hora, IP y navegador" style={btn("#fff",B.navy,B.grey2)}>🧾 Constancia de firmas</button>
+        {c.estado!=="borrador" && <button onClick={()=>abrirContra(c)} title="Nueva ronda de negociación: cambia precio/forma de pago o vuelve a mandar la carta a firma (comprador → vendedor). El historial se conserva." style={btn("#fff7ed","#b45309","#fdba74")}>🔄 Contrapropuesta / reenviar a firma</button>}
         {todas&&onAbrirTerreno&&<button onClick={()=>onAbrirTerreno(c)} style={btn("#fff",B.navy,B.grey2)}>🗂 Abrir ficha del terreno</button>}
         {c.vendedor_nombre && <button onClick={()=>{ if(!coImprimir(c,"vendedor")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF vendedor (confidencial)</button>}
         <button onClick={()=>borrar(c)} title="Eliminar carta" style={btn("#fff","#b91c1c","#fecaca")}>🗑</button>
@@ -23251,7 +23435,7 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{width:30,height:30,background:B.gold,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:B.navy}}>M</div>
           <span style={s.navLogoText}>Macro<span style={s.navGold}>Pro</span></span>
           <span style={{fontSize:11,color:B.grey3,fontWeight:500,marginLeft:2}}>by Grupo Guía</span>
-          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.15</span>
+          <span style={{fontSize:9,color:"#16a34a",fontWeight:800,marginLeft:6,background:"#dcfce7",padding:"1px 5px",borderRadius:4}}>v6.16</span>
         </div>
         <div style={s.navLinks}>
           {/* Back-Office "Option Engine" (2026-11-05): menú reducido a Inicio, Opción/Captación, Documentos, Admin.
