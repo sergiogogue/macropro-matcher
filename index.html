@@ -3219,6 +3219,8 @@ ${cuerpo}
 
 const CO_UI={}; // estado de UI por ficha (sobrevive si la ficha se re-monta)
 // Reporte de captación plegable: recuerda si quedó abierto (por equipo). Cerrado por defecto.
+// 🔎 Filtros del tablero de captación (asesor · cliente · ciudad). Se recuerdan por equipo.
+const CAP_FILTRO=(()=>{ try{ const o=JSON.parse(localStorage.getItem("mp_cap_filtro")||"{}"); return {asesor:o.asesor||"",cliente:o.cliente||"",ciudad:o.ciudad||""}; }catch(e){ return {asesor:"",cliente:"",ciudad:""}; } })();
 const CAP_REP_UI={ abierto:(()=>{ try{ return localStorage.getItem("mp_cap_reporte_abierto")==="1"; }catch(e){ return false; } })() };
 // 👔 Liga INFORMATIVA del asesor (solo lectura: no puede firmar ni responder) · sql v4.
 const CO_AVISADOS=new Set(); // carta+ronda ya avisadas por correo en esta sesión (sin duplicados)
@@ -19350,15 +19352,35 @@ Respuesta: [respuesta exacta, conversacional]
     const fechaRelC = (iso)=>{ if(!iso) return "—"; const d=new Date(iso); const dias=Math.floor((ahoraC-d)/(1000*60*60*24)); if(dias===0) return "Hoy"; if(dias===1) return "Ayer"; if(dias<7) return `Hace ${dias}d`; if(dias<30) return `Hace ${Math.floor(dias/7)}sem`; return `Hace ${Math.floor(dias/30)}m`; };
     const isStaleC = (c)=>{ if(c.pipeline==="Firmado"||c.pipeline==="Descartado") return false; const ult=new Date(c.fechaUltimaActividad||c.fechaCreacion||0); return (ahoraC-ult)/(1000*60*60*24)>7; };
     const viabInfo = (v)=> VIABILIDAD_CAPTACION.find(x=>x.v===v) || null;
-    const activosC = captaciones.filter(c=>c.pipeline!=="Firmado"&&c.pipeline!=="Descartado");
+    // ── 🔎 FILTROS: asesor · cliente · ciudad. Las listas solo traen valores que SÍ tienen terreno en el tablero.
+    const [fCap,setFCapRaw]=React.useState(()=>({...CAP_FILTRO}));
+    const setFCap=(k,v)=>{ CAP_FILTRO[k]=v; try{ localStorage.setItem("mp_cap_filtro",JSON.stringify(CAP_FILTRO)); }catch(e){} setFCapRaw({...CAP_FILTRO}); };
+    const limpiarFCap=()=>{ ["asesor","cliente","ciudad"].forEach(k=>{ CAP_FILTRO[k]=""; }); try{ localStorage.setItem("mp_cap_filtro",JSON.stringify(CAP_FILTRO)); }catch(e){} setFCapRaw({...CAP_FILTRO}); };
+    const fcN=(x)=>String(x||"").trim().replace(/\s+/g," ");
+    const fcK=(x)=>fcN(x).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+    const SIN="__sin__";
+    const capVal={ asesor:(c)=>c.asesorResponsableGG, cliente:(c)=>c.propietario, ciudad:(c)=>c.ciudad };
+    const opcVal={ asesor:(o)=>o.asesor_nombre||o.asesor, cliente:(o)=>o.cliente_nombre, ciudad:(o)=>o.terreno_ciudad };
+    const opcTodos=[...opcEnCot,...opcNueva];
+    const opcionesDe=(k)=>{ const m=new Map(); let sin=0;
+      const add=(v)=>{ const n=fcN(v); if(!n){ sin++; return; } const key=fcK(n); const e=m.get(key); if(e) e.n++; else m.set(key,{key,t:n,n:1}); };
+      (captaciones||[]).forEach(c=>add(capVal[k](c))); opcTodos.forEach(o=>add(opcVal[k](o)));
+      const arr=[...m.values()].sort((a,b)=>a.t.localeCompare(b.t,"es")); if(sin) arr.push({key:SIN,t:k==="asesor"?"— Sin asesor —":(k==="ciudad"?"— Sin ciudad —":"— Sin nombre —"),n:sin}); return arr; };
+    const pasa=(get)=>(x)=>["asesor","cliente","ciudad"].every(k=>{ const f=fCap[k]; if(!f) return true; const v=fcK(get[k](x)); return f===SIN?!v:v===f; });
+    const hayFiltro=!!(fCap.asesor||fCap.cliente||fCap.ciudad);
+    const totalSinFiltro=(captaciones||[]).length+opcTodos.length;
+    const capsF=(captaciones||[]).filter(pasa(capVal));
+    const opcEnCotF=opcEnCot.filter(pasa(opcVal)), opcNuevaF=opcNueva.filter(pasa(opcVal));
+    const totalConFiltro=capsF.length+opcEnCotF.length+opcNuevaF.length;
+    const activosC = capsF.filter(c=>c.pipeline!=="Firmado"&&c.pipeline!=="Descartado");
     const totalActivosC = activosC.length;
-    const totalNegoc = captaciones.filter(c=>c.pipeline==="En negociación").length;
-    const totalFirm = captaciones.filter(c=>c.pipeline==="Firmado").length;
-    const totalDesc = captaciones.filter(c=>c.pipeline==="Descartado").length;
-    const totalStaleC = captaciones.filter(isStaleC).length;
+    const totalNegoc = capsF.filter(c=>c.pipeline==="En negociación").length;
+    const totalFirm = capsF.filter(c=>c.pipeline==="Firmado").length;
+    const totalDesc = capsF.filter(c=>c.pipeline==="Descartado").length;
+    const totalStaleC = capsF.filter(isStaleC).length;
     const valorCaptacion = activosC.reduce((s,c)=>s+(parseFloat(c.precioDueno)||0),0);
     const porEtapaC = {}; CAPTACION_PIPELINE.forEach(p=>{ porEtapaC[p]=[]; });
-    captaciones.forEach(c=>{ if(porEtapaC[c.pipeline]) porEtapaC[c.pipeline].push(c); else porEtapaC["Nueva opción"].push(c); });
+    capsF.forEach(c=>{ if(porEtapaC[c.pipeline]) porEtapaC[c.pipeline].push(c); else porEtapaC["Nueva opción"].push(c); });
     const fmtMon=(v)=>{ const n=parseFloat(v)||0; return n>0?("$"+n.toLocaleString("es-MX")):""; };
     return (
       <div style={{padding:"24px 28px", maxWidth:1600, margin:"0 auto"}}>
@@ -19388,6 +19410,21 @@ Respuesta: [respuesta exacta, conversacional]
               ➕ Registrar terreno
             </button>
           </div>
+        </div>
+
+        {/* 🔎 Filtros: solo asesores, clientes y ciudades que tienen terreno en el tablero */}
+        <div data-cap-filtros style={{display:"flex", gap:10, alignItems:"flex-end", flexWrap:"wrap", background:hayFiltro?"#fffbeb":B.white, border:"1.5px solid "+(hayFiltro?"#f59e0b":B.grey1), borderRadius:12, padding:"12px 14px", marginBottom:16}}>
+          <div style={{fontSize:12, fontWeight:800, color:B.navy, alignSelf:"center", marginRight:4}}>🔎 Filtrar</div>
+          {[["asesor","👔 Asesor","Todos los asesores"],["cliente","👤 Cliente","Todos los clientes"],["ciudad","📍 Ciudad","Todas las ciudades"]].map(([k,t,todos])=>{ const ops=opcionesDe(k); const on=!!fCap[k]; return (
+            <div key={k} style={{display:"flex", flexDirection:"column", gap:4, flex:"1 1 200px", minWidth:180}}>
+              <label style={{fontSize:10, fontWeight:800, color:B.grey4, textTransform:"uppercase", letterSpacing:0.6}}>{t}</label>
+              <select data-cap-filtro={k} value={fCap[k]} onChange={e=>setFCap(k,e.target.value)} style={{padding:"9px 10px", borderRadius:9, border:"1.5px solid "+(on?B.navy:B.grey1), background:on?"#f3f7fb":"#fff", color:B.navy, fontSize:13, fontWeight:on?800:600, fontFamily:"'DM Sans',sans-serif"}}>
+                <option value="">{todos} ({ops.reduce((a,o)=>a+o.n,0)})</option>
+                {ops.map(o=><option key={o.key} value={o.key}>{o.t} ({o.n})</option>)}
+              </select>
+            </div>); })}
+          {hayFiltro && <button data-cap-limpiar onClick={limpiarFCap} style={{padding:"9px 14px", borderRadius:9, border:"1.5px solid #f59e0b", background:"#fff", color:"#b45309", fontSize:12.5, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", whiteSpace:"nowrap"}}>✕ Quitar filtros</button>}
+          <div style={{flexBasis:"100%", fontSize:11.5, color:hayFiltro?"#92400e":B.grey4}}>{hayFiltro?<span>Mostrando <b>{totalConFiltro}</b> de {totalSinFiltro} terrenos · los números y el tablero de abajo ya están filtrados.</span>:<span>{totalSinFiltro} terrenos en el tablero · elige un asesor, cliente o ciudad para ver solo los suyos.</span>}</div>
         </div>
 
         {/* KPIs */}
@@ -19497,12 +19534,12 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{padding:"10px 12px", borderRadius:8, background:"#fffaf0", borderTop:"3px solid "+B.gold, marginBottom:10}}>
                 <div style={{fontSize:10, fontWeight:800, color:"#9a6a00", textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
                   <span>📝 En Cotización</span>
-                  <span style={{background:"#9a6a00", color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{opcEnCot.length}</span>
+                  <span style={{background:"#9a6a00", color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{opcEnCotF.length}</span>
                 </div>
               </div>
               <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:620, overflowY:"auto"}}>
-                {opcEnCot.map(renderOpcCard)}
-                {opcEnCot.length===0&&(<div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>)}
+                {opcEnCotF.map(renderOpcCard)}
+                {opcEnCotF.length===0&&(<div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>)}
               </div>
             </div>
             {CAPTACION_PIPELINE.map(stage=>{
@@ -19517,11 +19554,11 @@ Respuesta: [respuesta exacta, conversacional]
                   <div style={{padding:"10px 12px", borderRadius:8, background:colors.bg, borderTop:"3px solid "+colors.border, marginBottom:10}}>
                     <div style={{fontSize:10, fontWeight:800, color:colors.color, textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
                       <span>{icon} {stage}</span>
-                      <span style={{background:colors.color, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{items.length+(stage==="Nueva opción"?opcNueva.length:0)}</span>
+                      <span style={{background:colors.color, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{items.length+(stage==="Nueva opción"?opcNuevaF.length:0)}</span>
                     </div>
                   </div>
                   <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:620, overflowY:"auto"}}>
-                    {stage==="Nueva opción" && opcNueva.map(renderOpcCard)}
+                    {stage==="Nueva opción" && opcNuevaF.map(renderOpcCard)}
                     {items.map(c=>{
                       const stale = isStaleC(c);
                       const vb = viabInfo(c.viabilidad);
@@ -19602,7 +19639,7 @@ Respuesta: [respuesta exacta, conversacional]
                         </div>
                       );
                     })}
-                    {items.length===0 && !(stage==="Nueva opción" && opcNueva.length>0) && (
+                    {items.length===0 && !(stage==="Nueva opción" && opcNuevaF.length>0) && (
                       <div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>
                     )}
                   </div>
