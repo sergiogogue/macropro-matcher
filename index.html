@@ -3163,7 +3163,10 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   const [form,setFormRaw]=useState(()=>(CO_UI[uiKey]&&CO_UI[uiKey].form)||null);
   const setForm=(fn)=>setFormRaw(prev=>{ const v=typeof fn==="function"?fn(prev):fn; CO_UI[uiKey]={...(CO_UI[uiKey]||{}),form:v}; return v; });
   const [vend,setVend]=useState({});            // {[cartaId]: {nombre,email,tel}}
-  const [cof,setCof]=useState(null);            // 🔄 contraoferta / reenvío a firma (una carta a la vez)
+  // 🔄 contraoferta / reenvío a firma (una carta a la vez). Igual que el formulario: se recuerda en CO_UI
+  // para que el panel y lo escrito NO se pierdan si la vista se re-monta (pasaba con cada aviso).
+  const [cof,setCofRaw]=useState(()=>(CO_UI[uiKey]&&CO_UI[uiKey].cof)||null);
+  const setCof=(fn)=>setCofRaw(prev=>{ const v=typeof fn==="function"?fn(prev):fn; CO_UI[uiKey]={...(CO_UI[uiKey]||{}),cof:v}; return v; });
   const supCap=coNum(cap&&cap.superficie);
   const nombreTerr=String((cap&&(cap.zona||cap.ubicacion))||"").trim()||(cap&&cap.propietario?("Terreno de "+cap.propietario):"Terreno");
   const ubic=[cap&&cap.ubicacion&&cap.ubicacion!==cap.zona?cap.ubicacion:"", cap&&cap.ciudad].filter(Boolean).join(", ");
@@ -3261,7 +3264,12 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       conds:{ posesion:true, gastos:true, dictamen:false, gravamenes:false, ...(pp.conds||{}) }, otra:pp.otra||"", comentarios:"", nota:"" }); };
   const enviarContra=async(c,modo)=>{ const f=cof; if(!f) return; const pm2=coNum(f.precio_m2);
     if(!(pm2>0)){ toast("Escribe el precio por m²."); return; }
-    if((String(f.comentarios||"").trim()+String(f.nota||"").trim()).length<5){ toast("Escribe el motivo de la contrapropuesta (comentario o nota interna)."); return; }
+    // Motivo: la base lo exige (≥5 letras). Si no se capturó, NO se bloquea (caso real 2026-11-18: el campo
+    // está arriba y el botón no hacía nada): se registra una nota interna con quién la propone.
+    if((String(f.comentarios||"").trim()+String(f.nota||"").trim()).length<5){
+      const quien={vendedor:"el vendedor",comprador:"el comprador",grupo_guia:"Grupo Guía (reenvío)"}[f.solicita]||"una de las partes";
+      f.nota=("Ronda "+((c.ronda_actual||1)+1)+" propuesta por "+quien+" · sin motivo capturado"+(String(f.nota||"").trim()?(" · "+String(f.nota).trim()):"")).trim();
+    }
     const plan=cofPlanDe(f); const tot=Math.round((Number(c.superficie_m2)||0)*pm2*100)/100;
     if(plan.forma!=="Contado"){ const k=coPlanCalc(plan,tot,c.apartado); if(k.saldo<0){ toast("El enganche más el apartado no pueden superar el total."); return; } }
     if(plan.forma==="Diferido"&&!plan.inicio){ toast("Pon la fecha del primer pago."); return; }
@@ -3424,7 +3432,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
           <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}><div><div style={{fontSize:14.5,fontWeight:800,color:B.navy}}>🔄 Ronda {n} · Contrapropuesta</div><div style={{fontSize:11.5,color:"#92400e"}}>La ronda {c.ronda_actual||1} queda en el historial. Superficie ({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m²) y apartado ({coMx(c.apartado)}) no cambian.{c.estado==="aceptada"?" ⚠️ La carta estaba ACEPTADA: vuelve a negociación hasta que ambas partes firmen.":""}</div></div><button onClick={()=>setCof(null)} style={btn("#fff",B.navy,B.grey2)}>Cancelar</button></div>
           <div style={box}>{head(1,"¿Quién la propone y por qué?")}
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{opt(f.solicita==="vendedor",()=>set("solicita","vendedor"),"Vendedor","El propietario pide otras condiciones")}{opt(f.solicita==="comprador",()=>set("solicita","comprador"),"Comprador","El comprador ajusta su oferta")}{opt(f.solicita==="grupo_guia",()=>set("solicita","grupo_guia"),"Grupo Guía · reenvío","Mismas condiciones, volver a firmar")}</div>
-            <div style={{...g2,gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",marginTop:8}}><div><label style={lbS}>Comentario para las partes (lo verán en su carta)</label><textarea style={{...inS,minHeight:50,resize:"vertical"}} value={f.comentarios} placeholder="Ej. El propietario acepta $3,900/m² si el saldo se paga en 6 meses." onChange={e=>set("comentarios",e.target.value)}/></div><div><label style={lbS}>🔒 Nota interna (solo equipo)</label><textarea style={{...inS,minHeight:50,resize:"vertical"}} value={f.nota} placeholder="Ej. Negociado por teléfono con el propietario." onChange={e=>set("nota",e.target.value)}/></div></div>
+            <div style={{...g2,gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",marginTop:8}}><div><label style={lbS}>Comentario para las partes (lo verán en su carta) · opcional</label><textarea style={{...inS,minHeight:50,resize:"vertical"}} value={f.comentarios} placeholder="Ej. El propietario acepta $3,900/m² si el saldo se paga en 6 meses." onChange={e=>set("comentarios",e.target.value)}/></div><div><label style={lbS}>🔒 Nota interna (solo equipo) · opcional</label><textarea style={{...inS,minHeight:50,resize:"vertical"}} value={f.nota} placeholder="Ej. Negociado por teléfono con el propietario." onChange={e=>set("nota",e.target.value)}/></div></div>
           </div>
           <div style={box}>{head(2,"Precio")}
             <div style={g2}><div><label style={lbS}>Precio por m² *</label><input style={inS} inputMode="decimal" value={f.precio_m2} onChange={e=>set("precio_m2",e.target.value)}/></div><div><label style={lbS}>Superficie (fija)</label><input style={{...inS,background:B.offW}} readOnly value={(Number(c.superficie_m2)||0).toLocaleString("es-MX")+" m²"}/></div><div><label style={lbS}>Apartado (fijo)</label><input style={{...inS,background:B.offW}} readOnly value={coMx(c.apartado)}/></div></div>
