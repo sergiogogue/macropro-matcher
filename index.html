@@ -2372,6 +2372,57 @@ function PruebaAvisosWA({ onToast }){
   );
 }
 
+// Ficha del terreno → "🧾 Cotización": dice CLARO si el propietario ya firmó (y cuándo) o si
+// todavía no, y trae los botones para (re)enviarle su liga. Lee siempre el estatus fresco de la base.
+function CapCotizacionEstado({ cap, onToast, onCotizar }){
+  const capId=String((cap&&cap.id)||""); const sufijo=capId.indexOf("capta-opc-")===0?capId.slice(10):"";
+  const elegir=(lista)=>{ let m=null; const rk=(o)=>o.terminos_aceptados?4:(/^rechaz/i.test(o.estatus||"")?0:(/^borr/i.test(o.estatus||"")?2:3));
+    (lista||[]).forEach(o=>{ if(!o||!(o.captacion_id===capId||(sufijo&&o.id===sufijo))) return; if(!m||rk(o)>rk(m)||(rk(o)===rk(m)&&String(o.created_at||"")>String(m.created_at||""))) m=o; }); return m; };
+  const [cot,setCot]=useState(()=>elegir(MP_OPC_CACHE.lista));
+  const [cargando,setCargando]=useState(true);
+  React.useEffect(()=>{ let vivo=true;
+    (async()=>{ try{ if(!window.sb||!capId) return;
+        let q=window.sb.from("cotizaciones_opcionador").select("*");
+        q=sufijo?q.or("captacion_id.eq."+capId+",id.eq."+sufijo):q.eq("captacion_id",capId);
+        const {data,error}=await q; if(!error&&vivo) setCot(elegir(data||[]));
+      }catch(e){} finally{ if(vivo) setCargando(false); } })();
+    return ()=>{ vivo=false; }; },[capId]);
+  const fecha=(v)=>{ try{ return v?new Date(v).toLocaleString("es-MX",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):""; }catch(e){ return ""; } };
+  const marcarEnviada=async()=>{ if(!cot||!/^borr/i.test(cot.estatus||"")||!window.sb) return;
+    try{ const {error}=await window.sb.from("cotizaciones_opcionador").update({estatus:"enviada"}).eq("id",cot.id).eq("estatus","borrador"); if(error) throw error;
+      const nv={...cot,estatus:"enviada"}; setCot(nv); if(MP_OPC_CACHE.lista) MP_OPC_CACHE.lista=MP_OPC_CACHE.lista.map(x=>x&&x.id===cot.id?nv:x); onToast&&onToast("📨 Cotización marcada como ENVIADA"); }catch(e){} };
+  const caja=(bg,bd)=>({padding:"11px 13px",borderRadius:10,border:"1.5px solid "+bd,background:bg,display:"flex",flexDirection:"column",gap:8});
+  if(!cot) return (
+    <div data-cap-cot-estado="sin" style={caja("#f8fafc","#e2e8f0")}>
+      <div style={{fontSize:13,fontWeight:800,color:B.navy}}>🧾 Cotización: {cargando?"revisando…":"este terreno aún no tiene cotización"}</div>
+      {!cargando&&onCotizar&&<button onClick={()=>onCotizar(cap)} style={{alignSelf:"flex-start",padding:"8px 13px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧾 Hacer su cotización</button>}
+    </div>);
+  const liga="https://macrolotes.grupoguia.mx/aceptar?c="+cot.id;
+  const nom=String(cot.cliente_nombre||cap.propietario||"").trim().split(/\s+/)[0]||"";
+  const terr=(cot.terreno_nombre||"tu terreno")+(cot.terreno_ciudad?(" ("+cot.terreno_ciudad+")"):"");
+  const firmada=!!cot.terminos_aceptados, rech=/^rechaz/i.test(cot.estatus||""), borr=/^borr/i.test(cot.estatus||"");
+  const botones=(etq)=>(<ShareButtons chico etiqueta={etq} url={liga} telefono={cot.cliente_telefono||cap.telefono} email={cot.cliente_email||cap.email} onToast={onToast} onEnviar={marcarEnviada}
+      asunto={"Tu cotización · "+(cot.terreno_nombre||"terreno")+" · Grupo Guía"}
+      mensaje={firmada?("Hola"+(nom?" "+nom:"")+", en esta liga subes los documentos de tu terreno "+terr+": "+liga):("Hola"+(nom?" "+nom:"")+", aquí puedes revisar y firmar la cotización de tu terreno "+terr+" y subir tus documentos: "+liga)}/>);
+  if(firmada) return (
+    <div data-cap-cot-estado="firmada" style={caja("#f0fdf4","#86efac")}>
+      <div style={{fontSize:13.5,fontWeight:800,color:"#15803d"}}>✅ El propietario YA FIRMÓ la cotización{cot.aceptada_at?(" · "+fecha(cot.aceptada_at)):""}</div>
+      <div style={{fontSize:11.5,color:B.grey4}}>{cot.monto_comision?("Comisión "+cot.monto_comision+" · "):""}Con su misma liga sube sus documentos.</div>
+      {botones("Liga del propietario (documentos)")}
+    </div>);
+  if(rech) return (
+    <div data-cap-cot-estado="rechazada" style={caja("#fef2f2","#fecaca")}>
+      <div style={{fontSize:13.5,fontWeight:800,color:"#b91c1c"}}>✕ El propietario RECHAZÓ la cotización{cot.rechazado_at?(" · "+fecha(cot.rechazado_at)):""}</div>
+      {onCotizar&&<button onClick={()=>onCotizar(cap)} style={{alignSelf:"flex-start",padding:"8px 13px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧾 Hacer otra cotización</button>}
+    </div>);
+  return (
+    <div data-cap-cot-estado={borr?"borrador":"enviada"} style={caja(borr?"#f8fafc":"#fffbeb",borr?"#e2e8f0":"#fde68a")}>
+      <div style={{fontSize:13.5,fontWeight:800,color:borr?"#475569":"#92400e"}}>{borr?"📝 Cotización SIN ENVIAR al propietario":"⏳ Cotización ENVIADA · el propietario todavía NO la firma"}</div>
+      <div style={{fontSize:11.5,color:B.grey4}}>{cot.created_at?("Hecha el "+fecha(cot.created_at)+" · "):""}{cot.monto_comision?("comisión "+cot.monto_comision+" · "):""}Cuando la firme, aquí aparece ✅ con la fecha y la tarjeta pasa sola a 🖋️ Firmada.</div>
+      {botones(borr?"Mandarle la cotización":"Reenviarle la liga para que la firme")}
+    </div>);
+}
+
 function ShareButtons({ url, mensaje, asunto, telefono, email, chico, onToast, etiqueta, mostrarMensaje, onEnviar }){
   const [copiado,setCopiado]=useState(false);
   const tRef=useRef(null);
@@ -19541,6 +19592,9 @@ Respuesta: [respuesta exacta, conversacional]
       if(!window.sb) return;
       try{
         const { data:cc }=await window.sb.from("cotizaciones_opcionador").select("*").order("created_at",{ascending:false}).limit(500);
+        // ¿Alguien FIRMÓ desde la última revisión? → aviso en pantalla (además del WhatsApp a Dirección).
+        try{ const antes=MP_OPC_CACHE.lista; if(Array.isArray(antes)){ const prev={}; antes.forEach(x=>{ if(x&&x.id) prev[x.id]=!!x.terminos_aceptados; });
+          (cc||[]).forEach(x=>{ if(x&&x.terminos_aceptados&&prev[x.id]===false) toast("🖊️ "+(x.cliente_nombre||"El propietario")+" FIRMÓ su cotización"+(x.terreno_nombre?(" · "+x.terreno_nombre):"")); }); } }catch(e){}
         MP_OPC_CACHE.lista=cc||[];
         setOpcLista(prev=>{ const nv=cc||[]; return JSON.stringify(prev)===JSON.stringify(nv)?prev:nv; }); opcCargadasRef.current=true;
         const ids=(cc||[]).map(c=>c.id); const map={};
@@ -24293,12 +24347,8 @@ Respuesta: [respuesta exacta, conversacional]
                   {/* 🔗 Liga Mágica: link único para que el propietario suba su expediente legal */}
                   {/* Captación que nació de una cotización aceptada: su liga de propietario es /aceptar
                       (ahí sube sus documentos a ESTA misma ficha). Una sola liga por terreno. */}
-                  {f.id && String(f.id).indexOf("capta-opc-")===0 && (
-                    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 12px",borderRadius:10,border:"1px dashed "+B.gold,background:"#fffdf5"}}>
-                      <button onClick={async()=>{ const url="https://macrolotes.grupoguia.mx/aceptar?c="+String(f.id).slice("capta-opc-".length); try{ await navigator.clipboard.writeText(url); toast("🔗 Liga del propietario copiada"); }catch(e){ try{ window.prompt("Copia la liga del propietario:", url); }catch(_){ toast(url); } } }} style={{padding:"8px 14px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🔗 Copiar liga del propietario</button>
-                      <span style={{fontSize:10.5,color:B.grey4}}>Viene de una cotización aceptada. Con esta liga el dueño sube sus documentos y aparecen aquí abajo.</span>
-                    </div>
-                  )}
+                  {/* 🧾 Estatus de la cotización: ¿ya firmó el propietario? + reenviar su liga */}
+                  {!esNueva && f.id && <CapCotizacionEstado key={"cotest-"+f.id} cap={f} onToast={toast} onCotizar={(c)=>{ setShowCaptacionModal(false); iniciarCotizacionDeCaptacion(c); }}/>}
                   {f.id && String(f.id).indexOf("capta-opc-")!==0 && (
                     <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 12px",borderRadius:10,border:"1px dashed "+B.gold,background:"#fffdf5"}}>
                       <button onClick={()=>copiarLigaMagica(f)} style={{padding:"8px 14px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🔗 Copiar Liga Mágica</button>
