@@ -19621,7 +19621,9 @@ Respuesta: [respuesta exacta, conversacional]
     //   firmada por el propietario → Firmada · documentos de viabilidad completos → Viabilidad ·
     //   documento de validación subido → Confirmada la viabilidad.
     const cotDeCap=(id)=>{ let mejor=null; const rk=(o)=>o.terminos_aceptados?3:(esBorradorCot(o)?1:2);
-      (opcLista||[]).forEach(o=>{ if(!o||o.captacion_id!==id||String(o.estatus||"").toLowerCase().startsWith("rechaz")) return; if(!mejor||rk(o)>rk(mejor)||(rk(o)===rk(mejor)&&String(o.created_at||"")>String(mejor.created_at||""))) mejor=o; });
+      // También la cotización de la que NACIÓ la tarjeta (id "capta-opc-<id de la cotización>"): misma regla que la ficha.
+      const suf=String(id||"").indexOf("capta-opc-")===0?String(id).slice(10):"";
+      (opcLista||[]).forEach(o=>{ if(!o||!(o.captacion_id===id||(suf&&o.id===suf))||String(o.estatus||"").toLowerCase().startsWith("rechaz")) return; if(!mejor||rk(o)>rk(mejor)||(rk(o)===rk(mejor)&&String(o.created_at||"")>String(mejor.created_at||""))) mejor=o; });
       return mejor; };
     const etapaJourney=(c)=>{
       const ed=estadoDocsCaptacion(c); const cot=cotDeCap(c.id);
