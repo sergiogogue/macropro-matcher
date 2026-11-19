@@ -3693,6 +3693,7 @@ ${cuerpo}
 }
 
 const CO_UI={}; // estado de UI por ficha (sobrevive si la ficha se re-monta)
+const CO_AUT={}; // "Revisé la carta y autorizo la ronda N" por carta+ronda (sobrevive re-montajes)
 // 🗂 Caché de las cartas por vista (key = "todas" / "cap:id" / "lote:id"): la vista se re-monta con cada
 // sincronización o aviso; con el caché se muestra al instante (sin "Cargando…" ni lista vacía) y solo se
 // vuelve a pedir a la base si pasaron 30 s, o al dar ↻ Actualizar / enviar algo (evento co-actualizado).
@@ -3756,6 +3757,8 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   const [envioOk,setEnvioOkRaw]=useState(()=>(CO_UI[uiKey]&&CO_UI[uiKey].envioOk)||null);
   const setEnvioOk=(v)=>{ CO_UI[uiKey]={...(CO_UI[uiKey]||{}),envioOk:v}; setEnvioOkRaw(v); };
   const [masId,setMasId]=useState(null);     // carta con el menú "⋯ Más opciones" abierto
+  const [autOk,setAutOkRaw]=useState(()=>({...CO_AUT}));   // casilla de autorización antes de mandar una respuesta
+  const setAutOk=(k,v)=>{ CO_AUT[k]=v; setAutOkRaw({...CO_AUT}); };
   const [fichaId,setFichaIdRaw]=useState(()=>(CO_UI[uiKey]&&CO_UI[uiKey].fichaId)||null); // ficha abierta desde el kanban
   const setFichaId=(v)=>{ CO_UI[uiKey]={...(CO_UI[uiKey]||{}),fichaId:v}; setFichaIdRaw(v); };
   const [shareId,setShareId]=useState(null); // carta mostrando "Compartir avance con el comprador"
@@ -4221,9 +4224,40 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
             {Lr&&<div style={{fontSize:11.5,color:B.grey4,marginTop:5}}>Montos calculados sobre el total de {coMxC(r.total)} con los porcentajes que escribió el {deV?"vendedor":"comprador"}.{apt>0&&neto1!=null&&<React.Fragment> El apartado de <b>{coMxC(apt)}</b> se descuenta del primer pago: {Lr[0].w.toLowerCase()} se pagan <b>{coMxC(neto1)}</b>.</React.Fragment>}</div>}
             {!Lr&&r.condiciones&&!String(r.condiciones).startsWith(CO_MARCA3)&&<div style={{fontSize:11.5,color:B.grey4,marginTop:5}}>Plazos tal como los escribió el {deV?"vendedor":"comprador"}.</div>}
             {r.comentarios&&<div style={{fontSize:12.5,color:B.navy,background:"#fff",borderLeft:"3px solid #f59e0b",borderRadius:"0 8px 8px 0",padding:"6px 10px",marginTop:8}}>💬 <b>Comentario del {deV?"vendedor":"comprador"}:</b> {r.comentarios}</div>}
+            {(()=>{ /* 👁 VISTA RÁPIDA: así queda la carta que va a firmar (sin abrir el PDF) */
+              const td={padding:"5px 9px",borderBottom:"1px solid "+B.grey1,fontSize:13};
+              const firmaQ=(t,okF,sub)=><div style={{flex:"1 1 150px",border:okF?"1.5px solid #86efac":"1.5px dashed "+B.grey2,background:okF?"#f0fdf4":"#fff",borderRadius:8,padding:"6px 9px",fontSize:12}}><b style={{color:okF?"#15803d":B.grey4}}>{okF?"✓ ":"⏳ "}{t}</b><div style={{color:B.grey4,fontSize:11.5}}>{sub}</div></div>;
+              return (<div data-co-vista style={{marginTop:12,border:"2px solid "+B.navy,borderRadius:12,overflow:"hidden",background:"#fff"}}>
+                <div style={{background:B.navy,color:"#fff",padding:"8px 13px",display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                  <div><span style={{fontSize:10,fontWeight:800,letterSpacing:1.2,color:B.gold}}>👁 ASÍ QUEDA LA CARTA QUE VA A FIRMAR EL {dest.toUpperCase()}</span><div style={{fontSize:15,fontWeight:800,marginTop:1}}><span style={{background:B.gold,color:B.navy,borderRadius:4,padding:"0 7px",marginRight:7}}>RONDA {nA}</span>Respuesta del {deV?"vendedor":"comprador"} a la ronda {nA-1}</div></div>
+                  <div style={{fontSize:11.5,opacity:0.9,textAlign:"right"}}>{c.folio} · {c.terreno_nombre}{c.terreno_ubicacion?(", "+c.terreno_ubicacion):""}</div></div>
+                <div style={{padding:"10px 13px"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse"}}><tbody>
+                    <tr><td style={{...td,color:B.grey4,width:"42%"}}>Comprador</td><td style={{...td,fontWeight:700,color:B.navy}}>{[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")||"—"}</td></tr>
+                    <tr><td style={{...td,color:B.grey4}}>Superficie</td><td style={{...td,fontWeight:700,color:B.navy}}>{(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m²</td></tr>
+                    <tr><td style={{...td,color:B.grey4}}>Precio por m²</td><td style={{...td,fontWeight:700,color:B.navy}}>{coMxC(r.precio_m2)}</td></tr>
+                    <tr><td style={{...td,color:B.grey4,borderBottom:"2px solid "+B.navy}}>Precio total</td><td style={{...td,fontWeight:900,color:B.navy,fontSize:15,borderBottom:"2px solid "+B.navy}}>{coMxC(r.total)}</td></tr>
+                  </tbody></table>
+                  <div style={{fontWeight:800,color:B.navy,fontSize:13,margin:"9px 0 4px"}}>Forma de pago</div>
+                  {Lr?<table style={{width:"100%",borderCollapse:"collapse"}}><tbody>{Lr.map((y,i)=><tr key={i}><td style={{...td,width:28}}>{i+1}</td><td style={td}>{y.c}</td><td style={td}>{y.w}</td><td style={{...td,textAlign:"right",fontWeight:800,color:B.navy}}>{coMxC(y.m)}</td></tr>)}</tbody></table>
+                    :<div style={{fontSize:13,color:B.grey5}}>{fl(r.forma_pago)}: {coClausula3(r)}</div>}
+                  {Lr&&apt>0&&neto1!=null&&<div style={{fontSize:12,color:B.grey4,marginTop:4}}>El apartado de {coMxC(apt)} se descuenta del primer pago: {Lr[0].w.toLowerCase()} se pagan {coMxC(neto1)}.</div>}
+                  {r.comentarios&&<div style={{fontSize:12.5,color:B.grey5,marginTop:6}}><i>Comentarios de la parte {deV?"vendedora":"compradora"}:</i> {r.comentarios}</div>}
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:9}}>
+                    {firmaQ("Vendedor",!!r.vendedor_firma_at,r.vendedor_firma_at?("firmó "+coFH(r.vendedor_firma_at)):"pendiente")}
+                    {firmaQ("Comprador",!!r.comprador_firma_at,r.comprador_firma_at?("firmó "+coFH(r.comprador_firma_at)):"firma al abrir su liga")}
+                    {firmaQ("Grupo Guía",!!(c.gg_firma_at&&r.comprador_firma_at),"recibe al firmar el comprador")}
+                  </div>
+                  <div style={{fontSize:11,color:B.grey4,marginTop:7}}>Las demás cláusulas (inmueble, apartado, vigencia y confidencialidad) siguen igual que en la oferta original. El vendedor va confidencial para el comprador.</div>
+                </div></div>); })()}
+            <label data-co-autorizo style={{display:"flex",gap:9,alignItems:"center",marginTop:10,padding:"9px 12px",borderRadius:10,cursor:"pointer",border:"2px solid "+(autOk[c.id+"_"+nA]?"#86efac":"#fcd34d"),background:autOk[c.id+"_"+nA]?"#f0fdf4":"#fff",fontSize:13.5,fontWeight:700,color:B.navy}}>
+              <input type="checkbox" checked={!!autOk[c.id+"_"+nA]} onChange={e=>setAutOk(c.id+"_"+nA,e.target.checked)} style={{width:18,height:18}}/>
+              Revisé la carta y autorizo la RONDA {nA} para mandarla al {dest}
+            </label>
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:10}}>
-              {opcion(1,"Autorizar como RONDA "+nA+" y mandarla al "+dest,<React.Fragment><button disabled={!!busy} onClick={()=>reenviar(c,dest,"copiar")} style={bB(B.gold,B.navy)}>🔗 Copiar liga del {dest}</button><button disabled={!!busy} onClick={()=>reenviar(c,dest,"whatsapp")} style={bB("#25D366","#fff")}>🟢 WhatsApp</button>{(deV?c.comprador_email:c.vendedor_email)&&<button disabled={!!busy} onClick={()=>reenviar(c,dest,"correo")} style={bB(B.navy,"#fff")}>✉️ Correo</button>}</React.Fragment>,
-                <div style={{fontSize:12,color:B.grey5}}>Al mandarla queda como <b>ronda {nA}</b> y le llega al {dest} con su misma liga. Si la firma, la carta queda <b style={{color:B.green}}>ACEPTADA</b>.</div>)}
+              {(()=>{ const okA=!!autOk[c.id+"_"+nA], dis=!!busy||!okA, apag=okA?{}:{opacity:0.45,cursor:"not-allowed"};
+                return opcion(1,"Autorizar como RONDA "+nA+" y mandarla al "+dest,<React.Fragment><button data-co-mandar disabled={dis} onClick={()=>reenviar(c,dest,"copiar")} style={{...bB(B.gold,B.navy),...apag}}>🔗 Copiar liga del {dest}</button><button disabled={dis} onClick={()=>reenviar(c,dest,"whatsapp")} style={{...bB("#25D366","#fff"),...apag}}>🟢 WhatsApp</button>{(deV?c.comprador_email:c.vendedor_email)&&<button disabled={dis} onClick={()=>reenviar(c,dest,"correo")} style={{...bB(B.navy,"#fff"),...apag}}>✉️ Correo</button>}</React.Fragment>,
+                <div style={{fontSize:12,color:okA?B.grey5:"#b45309",fontWeight:okA?400:700}}>{okA?<React.Fragment>Al mandarla queda como <b>ronda {nA}</b> y le llega al {dest} con su misma liga. Si la firma, la carta queda <b style={{color:B.green}}>ACEPTADA</b>.</React.Fragment>:"☝️ Primero revisa la carta de arriba y marca la casilla de autorización."}</div>); })()}
               {deV&&opcion(2,"No la mandamos: el comprador quiere otra cosa",<button onClick={()=>abrirContra(c,"comprador")} style={bB("#fff7ed","#b45309","#fdba74")}>🔄 Capturar contraoferta del comprador</button>,
                 <div style={{fontSize:12,color:B.grey5}}>Capturas lo que pide el comprador y se manda al vendedor.</div>)}
             </div></div>); }
@@ -4248,6 +4282,18 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
         return caja(ok,"🎉 Firmada por ambos · siguiente paso",verde?"Expediente completo del comprador":"Pedir al comprador sus documentos para el contrato",
           (verde?"Ya subió todo y confirmó su contacto. ":"Al quedar firmada se le mandó en automático el correo con su liga de documentos. Puedes reenviarla: ")+"Avance: "+docsN+" de "+reqN+" documentos · "+coPersonaTxt(seg)+" · "+((seg&&seg.tipo_operacion==="credito")?"Crédito / pagos":"Contado")+".",null,
           <div>
+            {(()=>{ /* 🧾 CONSTANCIA de la aceptación + la solicitud automática de documentos */
+              const fin=r, quienF=fin.propone==="vendedor"?("la respuesta del vendedor a la ronda "+(fin.ronda-1)):(fin.ronda===1?"la oferta original":("la ronda "+fin.ronda));
+              const av=(c.avisos&&typeof c.avisos==="object")?c.avisos:{}, avAt=av["aceptada_r"+(c.ronda_actual||fin.ronda||1)];
+              return (<div data-co-constancia style={{marginTop:10,border:"1.5px solid #86efac",background:"#fff",borderRadius:10,padding:"9px 12px",fontSize:13,color:B.navy,lineHeight:1.55}}>
+                <div style={{fontSize:10.5,fontWeight:800,letterSpacing:0.8,textTransform:"uppercase",color:"#15803d"}}>🧾 Constancia</div>
+                {fin.comprador_firma_at&&<div>✅ El <b>comprador</b>{fin.comprador_firma_nombre?(" ("+fin.comprador_firma_nombre+")"):""} <b>aceptó {quienF}</b> (ronda {fin.ronda}) y la firmó el <b>{coFH(fin.comprador_firma_at)}</b>{fin.comprador_firma_email?(" · "+fin.comprador_firma_email):""}.</div>}
+                {fin.vendedor_firma_at&&<div>✅ El <b>vendedor</b>{fin.vendedor_firma_nombre?(" ("+fin.vendedor_firma_nombre+")"):""} la firmó el <b>{coFH(fin.vendedor_firma_at)}</b>.</div>}
+                <div>✅ Total {coMxC(fin.total)} · {fl(fin.forma_pago)}{coLineasDe(fin,c.apartado)?(" en "+coLineasDe(fin,c.apartado).length+" pagos"):""}.</div>
+                {avAt?<div style={{color:"#15803d"}}>📧 Solicitud de documentos enviada en automático al comprador{c.comprador_email?(" ("+c.comprador_email+")"):""} el <b>{coFH(avAt)}</b>.</div>
+                  :(c.comprador_email?<div style={{color:"#b45309"}}>📧 La solicitud automática de documentos al comprador ({c.comprador_email}) aún no aparece registrada: mándale su liga con los botones de abajo.</div>
+                    :<div style={{color:"#b91c1c",fontWeight:700}}>⚠ No tenemos el correo del comprador: mándale su liga de documentos por WhatsApp con los botones de abajo.</div>)}
+              </div>); })()}
             {docUrl&&<div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}><ShareButtons url={docUrl} mensaje={msg} asunto={"Tu expediente para el contrato · "+(c.terreno_nombre||"terreno")+(c.folio?(" · "+c.folio):"")+" · Grupo Guía"} telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast}/><button onClick={()=>window.open(docUrl,"_blank","noopener")} style={bB("#fff",B.navy,B.grey2)}>📍 Ver portal del comprador</button></div>}
             {legalBox}
           </div>); }
@@ -4263,7 +4309,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
         :(x.ronda===1&&x.propone!=="vendedor"?"Oferta del comprador":(x.propone==="vendedor"?"Respuesta del vendedor · autorizada":(x.propone==="comprador"?"Contrapropuesta del comprador":("Contraoferta del comprador"+(x.solicita==="vendedor"?" · a petición del vendedor":"")))));
       const L=coLineasDe(x,c.apartado);
       const pago=L?(L.map((y,i)=>"("+(i+1)+") "+y.c+", "+String(y.w||"").replace(/^./,m=>m.toLowerCase())+": "+coMxC(y.m)).join(" · ")):(()=>{ const t0=coClausula3(x); return t0.length>200?t0.slice(0,200)+"…":t0; })();
-      const fC=x.comprador_firma_at?chip("✓ Comprador firmó "+fH(x.comprador_firma_at),"ok","c"):(s?chip("↪ Comprador no firmó","cp","c"):chip("⏳ Comprador","pe","c"));
+      const fC=x.comprador_firma_at?chip((x.propone==="vendedor"?"✓ Comprador aceptó ":"✓ Comprador firmó ")+fH(x.comprador_firma_at),"ok","c"):(s?chip("↪ Comprador no firmó","cp","c"):chip("⏳ Comprador","pe","c"));
       const fG=(c.gg_firma_at&&x.comprador_firma_at)?chip("✓ Grupo Guía recibió","ok","g"):chip("⏳ Grupo Guía","pe","g");
       const fV=x.vendedor_firma_at?chip(x.propone==="vendedor"?"✓ Vendedor la firmó":"✓ Vendedor aceptó","ok","v"):(s?chip(s.propone==="vendedor"?"↪ Vendedor pidió cambios":"↪ Vendedor","cp","v"):chip("⏳ Vendedor","pe","v"));
       return (<div key={x.ronda} data-co-ronda={x.ronda} style={{border:act?"1.5px solid "+B.gold:"1px solid "+B.grey1,background:act?"#fffdf5":"#fff",borderRadius:10,padding:"9px 12px",display:"grid",gridTemplateColumns:"auto 1fr auto",gap:"5px 12px",alignItems:"center",marginBottom:7}}>
