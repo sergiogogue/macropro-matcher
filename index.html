@@ -1727,7 +1727,11 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
   const verPdf=async(a)=>{ const w=window.open("","_blank"); try{ const {data,error}=await window.sb.storage.from("acuerdos-comision").createSignedUrl(a.pdf_path,600); if(error) throw error; if(w) w.location=data.signedUrl; }catch(e){ if(w) w.close(); setMsg("⚠ No se pudo abrir el PDF"); } };
   const bt=(bg,col,bd)=>({padding:"6px 10px",borderRadius:8,border:"1.5px solid "+(bd||bg),background:bg,color:col,fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
   const [segCap,setSegCap]=React.useState(null);
-  const filas=(lista||[]).slice(0, verTodos?200:6);
+  // Aquí solo quedan los PENDIENTES DE COTIZAR (el asesor ya firmó y aún no hay cotización).
+  // El seguimiento de todos los acuerdos vive en 🗺️ Asesores → Por asesor (kanban) y el de las
+  // cotizaciones en 🌱 Opción / Captación (Dirección, 2026-11-19: no duplicar).
+  const listosCot=(lista||[]).filter(a=>a.estado==="firmado"&&!a.cotizacion_id&&!a.lote_id);
+  const filas=listosCot.slice(0, verTodos?200:6);
   // El estado se lee por firma + cotización (ya NO por "tiene captación": el alta nace con su
   // tarjeta del Kanban). El avance fino (semáforo, cliente aceptó, publicado) se ve en el Kanban.
   const etapa=(a)=> a.estado==="pendiente"?["⏳ Esperando firma del asesor","#92400e","#fffbeb"]
@@ -1756,11 +1760,12 @@ function TramiteOpcionPaso1({ asesores, onToast, onCotizar, ver }){
         {msg&&<div style={{padding:"0 22px 10px",fontSize:12,color:AZ,wordBreak:"break-all"}}>{msg}</div>}
         <div style={{borderTop:"1px solid #eef2f7",padding:"12px 22px 16px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
-            <div style={{fontSize:12,fontWeight:800,color:AZ,textTransform:"uppercase",letterSpacing:0.6}}>Trámites de opción con asesores {lista?("("+lista.length+")"):""}</div>
-            {lista&&lista.length>6&&<button onClick={()=>setVerTodos(v=>!v)} style={{...bt("#fff",AZ,"#cbd5e1")}}>{verTodos?"Ver menos":"Ver todos"}</button>}
+            <div data-pendientes-cotizar style={{fontSize:12,fontWeight:800,color:AZ,textTransform:"uppercase",letterSpacing:0.6}}>🧾 Listos para cotizar · el asesor ya firmó {lista?("("+listosCot.length+")"):""}</div>
+            <span style={{fontSize:11.5,color:"#64748b",flex:"1 1 260px"}}>El seguimiento de los acuerdos está en <b>🗺️ Asesores → Por asesor</b> y el de las cotizaciones en <b>🌱 Opción / Captación</b>.</span>
+            {listosCot.length>6&&<button onClick={()=>setVerTodos(v=>!v)} style={{...bt("#fff",AZ,"#cbd5e1")}}>{verTodos?"Ver menos":"Ver todos"}</button>}
           </div>
           {lista===null?<div style={{fontSize:12.5,color:"#64748b"}}>Cargando…</div>
-          : lista.length===0?<div style={{fontSize:12.5,color:"#64748b"}}>Aún no hay trámites. Mándale la liga a un asesor con los botones de arriba; cuando la llene y firme, aparece aquí.</div>
+          : listosCot.length===0?<div style={{fontSize:12.5,color:"#64748b"}}>No hay terrenos pendientes de cotizar. Cuando un asesor firme su acuerdo, aparece aquí para hacer su cotización.</div>
           : <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {segCap&&<SeguimientoModal cap={segCap} onClose={()=>{setSegCap(null);cargar();}} onToast={onToast}/>}
             {filas.map(a=>{ const et=etapa(a); return (
@@ -2270,6 +2275,48 @@ function EstadoCorreosModal(){
           <div style={{fontSize:11.5,color:"#64748b",marginTop:8}}>✅ entregado = llegó al servidor del destinatario (si no lo ve, revisar spam o cuarentena). ❌ rebotó/bloqueado = no llegó: corregir el correo o usar WhatsApp.</div>
         </>)}
       </div>
+    </div>
+  );
+}
+
+// Tipo de PROPIETARIO del terreno (física · moral · copropiedad) en la ficha de captación.
+// Lo puede elegir el propietario en su liga (/expediente) o el equipo aquí. Guarda aparte
+// (onGuardar) para no pisar lo que eligió el propietario con el guardado general de la ficha.
+function CapPersonaEditor({ f, onGuardar }){
+  const tp=(f&&f.tipoPersona)||"fisica";
+  const guardados=Array.isArray(f&&f.copropietarios)?f.copropietarios:[];
+  const [cops,setCops]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const lista=cops||(guardados.length?guardados.map(x=>({nombre:x.nombre,pct:String(x.pct)})):[{nombre:(f&&(f.propietario||f.contacto))||"",pct:"50"},{nombre:"",pct:"50"}]);
+  const suma=lista.reduce((a,x)=>a+(Number(String(x.pct).replace(/[^0-9.]/g,""))||0),0);
+  const okSuma=Math.abs(suma-100)<0.01;
+  const set=(i,k,v)=>setCops(lista.map((x,j)=>j===i?{...x,[k]:v}:x));
+  const guardar=async(p,l)=>{ setBusy(true); try{ const r=await onGuardar(f,p,l); if(r!==false) setCops(null); }finally{ setBusy(false); } };
+  const inp={border:"1px solid #cbd5e1",borderRadius:7,padding:"5px 8px",fontSize:12,color:B.navy,background:"#fff",fontFamily:"inherit"};
+  return (
+    <div data-ficha-persona style={{display:"flex",flexDirection:"column",gap:6,padding:"7px 9px",borderRadius:8,border:"1px solid #e2e8f0",background:"#fff"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <span style={{fontSize:11.5,fontWeight:800,color:B.navy}}>Dueño del terreno:</span>
+        <select data-ficha-persona-sel value={tp} disabled={busy} onChange={e=>guardar(e.target.value,null)} style={{...inp,fontWeight:700}}>
+          <option value="fisica">👤 Persona física</option><option value="copropiedad">👥 Copropiedad (varios dueños)</option><option value="moral">🏢 Persona moral (empresa)</option>
+        </select>
+        <span style={{fontSize:10,color:B.grey4}}>También lo puede elegir el propietario en su liga.</span>
+      </div>
+      {tp==="copropiedad"&&(
+        <div style={{border:"1.5px solid #c4b5fd",background:"#faf5ff",borderRadius:8,padding:"7px 9px"}}>
+          <div style={{fontSize:11,fontWeight:800,color:"#6d28d9",marginBottom:5}}>Copropietarios · los % deben sumar 100</div>
+          {lista.map((x,i)=>(
+            <div key={i} style={{display:"flex",gap:5,alignItems:"center",marginBottom:5}}>
+              <input data-ficha-cop-nombre value={x.nombre} placeholder="Nombre completo" onChange={e=>set(i,"nombre",e.target.value)} style={{...inp,flex:1,minWidth:0}}/>
+              <input data-ficha-cop-pct value={x.pct} onChange={e=>set(i,"pct",e.target.value)} style={{...inp,width:56,textAlign:"right"}}/><span style={{fontSize:11,color:B.grey4}}>%</span>
+              {lista.length>2&&<button type="button" onClick={()=>setCops(lista.filter((_,j)=>j!==i))} style={{border:"none",background:"transparent",color:"#dc2626",fontWeight:800,cursor:"pointer"}}>✕</button>}
+            </div>))}
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            {lista.length<8&&<button type="button" onClick={()=>setCops([...lista,{nombre:"",pct:""}])} style={{border:"1.5px dashed #6d28d9",background:"#fff",color:"#6d28d9",borderRadius:7,padding:"3px 9px",fontSize:11,fontWeight:800,cursor:"pointer"}}>＋ Agregar</button>}
+            <span style={{fontSize:11,fontWeight:800,color:okSuma?"#15803d":"#b45309"}}>{okSuma?"✓ Suma 100%":("Suma "+suma+"%")}</span>
+            <button type="button" data-ficha-cop-guardar disabled={busy} onClick={()=>guardar("copropiedad",lista.map(x=>({nombre:String(x.nombre||"").trim(),pct:x.pct})))} style={{marginLeft:"auto",border:"none",background:"#6d28d9",color:"#fff",borderRadius:7,padding:"5px 11px",fontSize:11,fontWeight:800,cursor:busy?"wait":"pointer"}}>{busy?"Guardando…":"Guardar copropietarios"}</button>
+          </div>
+        </div>)}
     </div>
   );
 }
@@ -5232,6 +5279,8 @@ function MacroProMatcher({ sessionEmail } = {}) {
     firma_nombre:r.firma_nombre||"", firma_fecha:r.firma_fecha||null, firma_ip:r.firma_ip||"",
     // Aprobación para publicar (la LANDING la inserta en lotes; MacroPro solo marca)
     aprobadaPublicar:!!r.aprobada_publicar, aprobadaAt:r.aprobada_at||null, aprobadaPor:r.aprobada_por||"", publicadaLoteId:r.publicada_lote_id||"",
+    tipoPersona:r.tipo_persona||"fisica",
+    copropietarios:Array.isArray(r.copropietarios)?r.copropietarios:[],   // solo lectura en el upsert general (ver guardarPersonaCap)
     ligaToken:r.liga_token||""   // Liga Mágica (solo lectura; NO se re-sube para no pisar el token del DB)
   });
   const filaDeCaptacion = (c)=>({
@@ -18258,13 +18307,25 @@ Respuesta: [respuesta exacta, conversacional]
   // 'legal'), por su tipo exacto o por su nombre; los rechazados NO cuentan.
   const CAP_DOC_RE={ escrituras:/escritura/, uso_suelo:/uso de suelo|usos y destinos|dictamen/, libertad_gravamen:/gravamen/, ine:/\bine\b|identificacion/, plano:/plano|levantamiento|medicion/, predial:/predial/, ubicacion:/kmz|kml|ubicacion/, fotos:/foto/ };
   const capNormTipo=(t)=>String(t||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
-  const capDocsDe=(c,r)=>(Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]).filter(d=>d&&d.tipo&&String(d.estatus||"").toLowerCase()!=="rechazado"&&(d.tipo===r.tipo||(CAP_DOC_RE[r.clave]&&CAP_DOC_RE[r.clave].test(capNormTipo(d.tipo)))));
+  const capDocsDe=(c,r)=>(Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]).filter(d=>{ if(!d||!d.tipo||String(d.estatus||"").toLowerCase()==="rechazado") return false; if(d.tipo===r.tipo) return true; const t=capNormTipo(d.tipo); return r.re?r.re.test(t):!!(CAP_DOC_RE[r.clave]&&CAP_DOC_RE[r.clave].test(t)); });
+  // Documentos para el CONTRATO según quién es el dueño (física · moral · copropiedad).
+  const CAP_ACC="image/*,application/pdf";
+  const capEscRe=(t)=>String(t).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  const capReqsComp=(c)=>{ const tp=(c&&c.tipoPersona)||"fisica"; const base=DOCS_REQUERIDOS.filter(r=>r.grupo==="comp"&&r.clave!=="ine");
+    const per = tp==="moral"
+      ? [{tipo:"Acta constitutiva",icon:"🏢",accept:CAP_ACC,privado:true,clave:"acta_const",grupo:"comp",re:/acta constitutiva/},{tipo:"Poder del representante legal",icon:"📜",accept:CAP_ACC,privado:true,clave:"poder",grupo:"comp",re:/poder/},{tipo:"INE del representante legal",icon:"🪪",accept:CAP_ACC,privado:true,clave:"ine_rep",grupo:"comp",re:/ine del representante/}]
+      : tp==="copropiedad"
+        ? [...(Array.isArray(c&&c.copropietarios)?c.copropietarios:[]).map((x,i)=>({tipo:"INE del copropietario · "+x.nombre,icon:"🪪",accept:CAP_ACC,privado:true,clave:"cop"+i,grupo:"comp",re:new RegExp("^ine del copropietario · "+capEscRe(capNormTipo(x.nombre).trim())+"$")})),{tipo:"Acta de matrimonio",icon:"💍",accept:CAP_ACC,privado:true,clave:"acta_matrimonio",grupo:"comp",re:/matrimonio/}]
+        : DOCS_REQUERIDOS.filter(r=>r.clave==="ine");
+    return [...base.filter(r=>r.clave!=="predial"),...per,...base.filter(r=>r.clave==="predial")]; };
+  const capPersonaTxt=(tp)=>tp==="moral"?"🏢 Persona moral":(tp==="copropiedad"?"👥 Copropiedad":"👤 Persona física");
   // Estado del expediente por fase: viab (5 = 4 docs + liga de Maps) y comp (4). Lo de arriba
   // (faltan/total/completas/listo) es lo que se pide HOY: antes de confirmar, solo viabilidad.
   const estadoDocsCaptacion=(c)=>{
-    const grupo=(g)=>{ const reqs=DOCS_REQUERIDOS.filter(r=>r.grupo===g); const faltan=[];
+    const grupo=(g)=>{ const reqs=g==="comp"?capReqsComp(c):DOCS_REQUERIDOS.filter(r=>r.grupo===g); const faltan=[];
       reqs.forEach(r=>{ if(capDocsDe(c,r).length<(r.min||1)) faltan.push(r.tipo); });
       let total=reqs.length; if(g==="viab"){ total++; if(!mapsOkCap(c)) faltan.push("Liga de Google Maps"); }
+      if(g==="comp"&&(c&&c.tipoPersona)==="copropiedad"&&!((c.copropietarios||[]).length>=2)){ total++; faltan.push("Copropietarios (nombres y %)"); }
       return { faltan, total, completas:total-faltan.length, listo:faltan.length===0 }; };
     const viab=grupo("viab"), comp=grupo("comp"), confirmada=capViabConfirmada(c);
     const faltan=confirmada?[...viab.faltan,...comp.faltan]:viab.faltan;
@@ -18343,7 +18404,7 @@ Respuesta: [respuesta exacta, conversacional]
   const subirDocCaptacion=async(c,tipo,file)=>{
     if(!c||!file) return;
     if(!window.sb){ toast("⚠ Sin conexión a Supabase"); return; }
-    const req=DOCS_REQUERIDOS.find(r=>r.tipo===tipo);
+    const req=DOCS_REQUERIDOS.find(r=>r.tipo===tipo)||capReqsComp(c).find(r=>r.tipo===tipo);
     const privado=!!(req&&req.privado);
     const bucket=privado?"documentos-opcionador":"captaciones-docs";
     toast("⬆️ Subiendo "+((req&&req.label)||tipo)+"…");
@@ -18368,6 +18429,22 @@ Respuesta: [respuesta exacta, conversacional]
     try{ const p=d.path||_pathDeUrl(d.url); if(window.sb&&p) await window.sb.storage.from(_bucketDeDoc(d)).remove([p]); }catch(e){ console.warn(e); }
     await docsCaptacionCloud(c,"quitar",_llaveDoc(d));
     toast("🗑 Documento quitado");
+  };
+  // Tipo de propietario: se guarda APARTE (update de 2 columnas), nunca en el upsert general.
+  const guardarPersonaCap=async(c,tp,lista)=>{
+    if(!c||!c.id){ toast("⚠ Guarda la ficha primero"); return false; }
+    let cops=null;
+    if(lista){ cops=lista.map(x=>({nombre:String(x.nombre||"").trim().slice(0,120),pct:Number(String(x.pct).replace(/[^0-9.]/g,""))||0}));
+      if(tp==="copropiedad"&&(cops.length<2||cops.some(x=>x.nombre.length<3||x.pct<=0)||Math.abs(cops.reduce((a,x)=>a+x.pct,0)-100)>0.01)){ toast("⚠ Revisa los copropietarios: mínimo 2, cada uno con nombre y los % deben sumar 100"); return false; } }
+    const cambios={tipo_persona:tp}; if(cops) cambios.copropietarios=cops;
+    if(!window.sb){ toast("⚠ Sin conexión a Supabase"); return false; }
+    try{ const {error}=await window.sb.from("captaciones").update({...cambios,updated_at:new Date().toISOString()}).eq("id",c.id); if(error) throw error; }
+    catch(e){ toast("No se pudo guardar: "+((e&&e.message)||e)); return false; }
+    const local={tipoPersona:tp}; if(cops) local.copropietarios=cops;
+    setCaptaciones(prev=>{ const a=Array.isArray(prev)?[...prev]:[]; const i=a.findIndex(y=>y&&y.id===c.id); if(i>=0){ a[i]={...a[i],...local}; saveCaptaciones(a); } return a; });
+    setEditingCaptacion(prev=>(prev&&prev.id===c.id)?{...prev,...local}:prev);
+    toast("✅ Dueño del terreno: "+capPersonaTxt(tp)+(cops?" · copropietarios guardados":""));
+    return true;
   };
   const depurarDocsCaptacion=async(c)=>{
     const docs=Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]; if(!docs.length){ toast("No hay documentos que depurar"); return; }
@@ -24375,7 +24452,8 @@ Respuesta: [respuesta exacta, conversacional]
                               : <span style={{fontSize:10,color:"#b45309",fontWeight:700}}>captúrala arriba en 🗺️ Liga de Google Maps</span>}
                           </div>
                           {tituloBloque("comp",est.confirmada?"2 · Para el contrato (viabilidad confirmada)":"2 · Para el contrato · se piden al confirmar la viabilidad",est.comp,!est.confirmada)}
-                          {DOCS_REQUERIDOS.filter(r=>r.grupo==="comp").map(filaReq)}
+                          <CapPersonaEditor f={f} onGuardar={guardarPersonaCap}/>
+                          {capReqsComp(f).map(filaReq)}
                           <div data-ficha-pedir style={{borderTop:"1px dashed "+B.grey1,paddingTop:9}}>
                             {ligaExp
                               ? <ShareButtons chico url={ligaExp} etiqueta={est.confirmada?"📨 Pedir al propietario los documentos para el contrato":"📨 Pedir al propietario los documentos de viabilidad"}
