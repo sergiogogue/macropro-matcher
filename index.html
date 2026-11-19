@@ -7458,6 +7458,10 @@ function MacroProMatcher({ sessionEmail } = {}) {
           <div style={{marginTop:"auto"}}><button style={s.btn("primary")} onClick={e=>{e.stopPropagation();setView("admin");}}>Ir a Admin →</button></div>
         </div>
       </div>
+      {/* Acceso al administrador de Brokers (vive en la Landing; abre en pestaña nueva) */}
+      <div style={{margin:"2px 0 10px",display:"flex",gap:10,flexWrap:"wrap"}}>
+        <a href={LANDING_URL+"/asesores?tab=brokers"} target="_blank" rel="noopener" style={{...s.btn("ghost"),textDecoration:"none",borderColor:B.gold,color:B.goldD}}>🧑‍💼 Administrar Brokers (Landing) →</a>
+      </div>
       {/* DEPRECADO (Option Engine): accesos a vistas viejas (Cliente→Lotes, Lote→Clientes, Búsqueda,
           Dashboard, Clientes, Inventario). Preservado — render desactivado con {false &&}. Reversible. */}
       {false && (<div>
