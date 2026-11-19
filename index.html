@@ -1092,6 +1092,11 @@ const CAPTACION_ETAPA_TXT = { "Nueva opción":"Firmada", "Viabilidad":"Viabilida
 const capEtapaTxt = (s)=>CAPTACION_ETAPA_TXT[s]||s;
 const CAP_FIRMADAS = ["Firmado","En inventario"];
 // Columna en la que se ve una captación (firmado y ya pasado a inventario → "En inventario").
+// Documentos en DOS instancias (Dirección, 2026-11-19): con la cotización solo se piden los de
+// VIABILIDAD; ya confirmada la viabilidad, los COMPLEMENTARIOS. Etapas (valores guardados) en las
+// que la viabilidad YA está confirmada:
+const CAP_ETAPAS_VIAB_OK = ["Cotización con el cliente","Contactado / visita","En negociación","Documentación","Contrato","Firmado","En inventario"];
+const capViabConfirmada = (c)=>!!(c && (CAP_ETAPAS_VIAB_OK.includes(String(c.pipeline||"").trim()) || c.aprobadaPublicar || c.publicadaLoteId));
 const capEtapaCol = (c)=>{ const p=(c&&c.pipeline)||"Nueva opción"; if(p==="En negociación") return "Contactado / visita"; if(p==="Firmado"&&(c.loteInventarioId||c.publicadaLoteId)) return "En inventario"; return CAPTACION_PIPELINE.includes(p)?p:"Nueva opción"; };
 const CAPTACION_PIPELINE_COLORS = {
   "Nueva opción":            { bg:"#e0e7ff", color:"#4338ca", border:"#6366f1" },
@@ -18138,14 +18143,14 @@ Respuesta: [respuesta exacta, conversacional]
   // Los "tipo" existentes NO cambian (los documentos ya guardados siguen contando).
   // privado:true → bucket privado 'documentos-opcionador' (se abre con URL firmada).
   const DOCS_REQUERIDOS=[
-    {tipo:"Escrituras", icon:"📜", accept:"image/*,application/pdf", privado:true, clave:"escrituras"},
-    {tipo:"Certificado de uso de suelo", icon:"📜", accept:"image/*,application/pdf", clave:"uso_suelo"},
-    {tipo:"Certificado de libertad de gravamen", icon:"⚖️", accept:"image/*,application/pdf", privado:true, clave:"libertad_gravamen"},
-    {tipo:"INE del propietario", icon:"🪪", accept:"image/*,application/pdf", privado:true, clave:"ine"},
-    {tipo:"Plano del terreno", icon:"🗺️", accept:"image/*,application/pdf", clave:"plano"},
-    {tipo:"Boleta registral / predial", icon:"🧾", accept:"image/*,application/pdf", clave:"predial"},
-    {tipo:"KMZ", label:"Ubicación (KMZ / KML)", icon:"🗂", accept:".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml", clave:"ubicacion"},
-    {tipo:"Fotos del terreno", icon:"📷", min:4, multiple:true, accept:"image/*", clave:"fotos"},
+    {tipo:"Escrituras", icon:"📜", accept:"image/*,application/pdf", privado:true, clave:"escrituras", grupo:"comp"},
+    {tipo:"Certificado de uso de suelo", icon:"📜", accept:"image/*,application/pdf", clave:"uso_suelo", grupo:"viab"},
+    {tipo:"Certificado de libertad de gravamen", icon:"⚖️", accept:"image/*,application/pdf", privado:true, clave:"libertad_gravamen", grupo:"comp"},
+    {tipo:"INE del propietario", icon:"🪪", accept:"image/*,application/pdf", privado:true, clave:"ine", grupo:"comp"},
+    {tipo:"Plano del terreno", icon:"🗺️", accept:"image/*,application/pdf", clave:"plano", grupo:"viab"},
+    {tipo:"Boleta registral / predial", icon:"🧾", accept:"image/*,application/pdf", clave:"predial", grupo:"comp"},
+    {tipo:"KMZ", label:"Ubicación (KMZ / KML)", icon:"🗂", accept:".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml", clave:"ubicacion", grupo:"viab"},
+    {tipo:"Fotos del terreno", icon:"📷", min:4, multiple:true, accept:"image/*", clave:"fotos", grupo:"viab"},
   ];
   // Back-Office (Tarea 4): documentos que deben estar al 100% para APROBAR Y PUBLICAR a vitrina.
   // (Fotos, Plano, Uso de suelo, KMZ + liga de Maps. La boleta/predial NO bloquea la publicación.)
@@ -18249,13 +18254,26 @@ Respuesta: [respuesta exacta, conversacional]
   const _pathDeUrl=(url)=>{ try{ const m=String(url||"").split("/captaciones-docs/")[1]; return m?decodeURIComponent(m.split("?")[0]):""; }catch(e){ return ""; } };
   const docsPorTipo=(c)=>{ const m={}; (Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]).forEach(d=>{ const t=d&&d.tipo; if(!t||(d&&d.origen==='legal')) return; (m[t]=m[t]||[]).push(d); }); return m; };
   const mapsOkCap=(c)=>/^https?:\/\//i.test(((c&&c.ligaMaps)||"").trim());
+  // Un documento cuenta venga de donde venga (ficha, /aceptar o la liga del propietario, origen
+  // 'legal'), por su tipo exacto o por su nombre; los rechazados NO cuentan.
+  const CAP_DOC_RE={ escrituras:/escritura/, uso_suelo:/uso de suelo|usos y destinos|dictamen/, libertad_gravamen:/gravamen/, ine:/\bine\b|identificacion/, plano:/plano|levantamiento|medicion/, predial:/predial/, ubicacion:/kmz|kml|ubicacion/, fotos:/foto/ };
+  const capNormTipo=(t)=>String(t||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+  const capDocsDe=(c,r)=>(Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]).filter(d=>d&&d.tipo&&String(d.estatus||"").toLowerCase()!=="rechazado"&&(d.tipo===r.tipo||(CAP_DOC_RE[r.clave]&&CAP_DOC_RE[r.clave].test(capNormTipo(d.tipo)))));
+  // Estado del expediente por fase: viab (5 = 4 docs + liga de Maps) y comp (4). Lo de arriba
+  // (faltan/total/completas/listo) es lo que se pide HOY: antes de confirmar, solo viabilidad.
   const estadoDocsCaptacion=(c)=>{
-    const m=docsPorTipo(c); const faltan=[];
-    DOCS_REQUERIDOS.forEach(r=>{ if((m[r.tipo]||[]).length<(r.min||1)) faltan.push(r.tipo); });
-    if(!mapsOkCap(c)) faltan.push("Liga de Google Maps");
-    const total=DOCS_REQUERIDOS.length+1;
-    return { faltan, total, completas:total-faltan.length, listo:faltan.length===0 };
+    const grupo=(g)=>{ const reqs=DOCS_REQUERIDOS.filter(r=>r.grupo===g); const faltan=[];
+      reqs.forEach(r=>{ if(capDocsDe(c,r).length<(r.min||1)) faltan.push(r.tipo); });
+      let total=reqs.length; if(g==="viab"){ total++; if(!mapsOkCap(c)) faltan.push("Liga de Google Maps"); }
+      return { faltan, total, completas:total-faltan.length, listo:faltan.length===0 }; };
+    const viab=grupo("viab"), comp=grupo("comp"), confirmada=capViabConfirmada(c);
+    const faltan=confirmada?[...viab.faltan,...comp.faltan]:viab.faltan;
+    const total=confirmada?(viab.total+comp.total):viab.total;
+    return { faltan, total, completas:total-faltan.length, listo:faltan.length===0, viab, comp, confirmada };
   };
+  const capDocsTxt=(ed)=>ed.confirmada
+    ? (ed.listo?"✅ Expediente completo":("📄 Docs contrato "+ed.comp.completas+"/"+ed.comp.total+(ed.viab.listo?"":(" · 🚦 "+ed.viab.completas+"/"+ed.viab.total))))
+    : (ed.listo?"✅ Listo para analizar":("🚦 Docs viabilidad "+ed.viab.completas+"/"+ed.viab.total));
   // ── Documentos de la ficha: escritura ATÓMICA en la nube ──
   // Nunca se reescribe la lista completa con el guardado general (eso borraba lo que el
   // propietario sube desde /aceptar). Cada alta/baja va a captacion_doc_* y la lista que
@@ -19341,7 +19359,8 @@ Respuesta: [respuesta exacta, conversacional]
   const ViewCaptacion = () => {
     const ahoraC = new Date();
     // ── OPCIONADORES desde la Landing (Opción 3): se muestran como tarjetas del Kanban ──
-    const OPC_DOCS=[{k:"escrituras",t:"Escrituras"},{k:"uso_suelo",t:"Uso de Suelo"},{k:"libertad_gravamen",t:"Libertad de gravamen"},{k:"ine",t:"INE"},{k:"plano",t:"Plano"},{k:"predial",t:"Predial"},{k:"ubicacion",t:"Ubicación"},{k:"fotos",t:"Fotos"}];
+    // Con la cotización aceptada solo se piden los documentos de VIABILIDAD (misma lista que /aceptar).
+    const OPC_DOCS=[{k:"uso_suelo",t:"Uso de Suelo"},{k:"plano",t:"Plano"},{k:"ubicacion",t:"Ubicación"},{k:"fotos",t:"Fotos"}];
     const OPC_TOTAL=OPC_DOCS.length;
     const OPC_URL="https://macrolotes.grupoguia.mx/opcionadores";
     const [opcLista,setOpcLista]=React.useState([]);
@@ -19379,11 +19398,14 @@ Respuesta: [respuesta exacta, conversacional]
     // respeta "Descartado" y respeta lo que muevas a mano en esta sesión.
     const JRANK = React.useMemo(()=>{ const o={}; CAPTACION_PIPELINE.forEach((s,i)=>o[s]=i); return o; },[]);
     const movManualRef = React.useRef(new Set());
+    // Documentos en dos instancias: los de viabilidad completos → Viabilidad (a validar);
+    // ya confirmada la viabilidad, los complementarios → Documentación contrato / Contrato.
     const etapaJourney=(c)=>{
       const ed=estadoDocsCaptacion(c);
       if(c.publicadaLoteId) return "Firmado";
-      if((ed&&ed.total>0&&ed.completas>=ed.total) || c.aprobadaPublicar) return "Contrato";
-      if(ed&&ed.completas>0) return "Documentación";
+      if(c.aprobadaPublicar || (ed.confirmada && ed.viab.listo && ed.comp.listo)) return "Contrato";
+      if(ed.confirmada && ed.comp.completas>0) return "Documentación";
+      if(ed.viab.listo) return "Viabilidad";
       return "Nueva opción";
     };
     React.useEffect(()=>{
@@ -19494,7 +19516,7 @@ Respuesta: [respuesta exacta, conversacional]
         <div style={{display:"inline-block",fontSize:8,fontWeight:800,color:"#9a6a00",background:"#fffaf0",border:"1px solid "+B.gold,borderRadius:5,padding:"1px 6px",marginBottom:5,letterSpacing:0.4}}>OPCIONADOR · LANDING</div>
         <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{o.cliente_nombre||"Sin nombre"}</div>
         <div style={{fontSize:10,color:B.grey4,marginBottom:6}}>{[o.terreno_nombre,o.terreno_ciudad].filter(Boolean).join(" · ")||"—"}{o.valor_terreno?(" · "+o.valor_terreno):""}</div>
-        <div style={{display:"inline-block",fontSize:9,fontWeight:800,borderRadius:6,padding:"2px 7px",marginBottom:7,color:listo?"#0f6b3f":"#b45309",background:listo?"#dcfce7":"#fff7ed",border:"1px solid "+(listo?"#86efac":"#fed7aa")}}>{h===0?"📥 Pendiente de documentos":("📥 Docs "+h+"/"+OPC_TOTAL)}</div>
+        <div style={{display:"inline-block",fontSize:9,fontWeight:800,borderRadius:6,padding:"2px 7px",marginBottom:7,color:listo?"#0f6b3f":"#b45309",background:listo?"#dcfce7":"#fff7ed",border:"1px solid "+(listo?"#86efac":"#fed7aa")}}>{h===0?"📥 Pendiente de documentos":("🚦 Docs viabilidad "+h+"/"+OPC_TOTAL)}</div>
         <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
           <button onClick={()=>setOpcSel(o)} style={{flex:1,fontSize:10,fontWeight:800,color:B.navy,background:B.offW,border:"1px solid "+B.grey1,borderRadius:6,padding:"5px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧱 Editar Terreno</button>
           <button onClick={()=>window.open(OPC_URL,"_blank")} title="Abrir Intelligence / documentos en la Landing" style={{fontSize:10,fontWeight:800,color:B.navy,background:"#fffaf0",border:"1px solid "+B.gold,borderRadius:6,padding:"5px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧠</button>
@@ -19767,7 +19789,7 @@ Respuesta: [respuesta exacta, conversacional]
                           {(()=>{ const ed=estadoDocsCaptacion(c); return (
                             <div style={{display:"inline-block", fontSize:9, fontWeight:800, marginLeft:vb?6:0, marginBottom:6, borderRadius:6, padding:"2px 7px",
                               color:ed.listo?"#0f6b3f":"#b45309", background:ed.listo?"#dcfce7":"#fff7ed", border:"1px solid "+(ed.listo?"#86efac":"#fed7aa")}}>
-                              {ed.listo?"✅ Listo para analizar":("📥 Docs "+ed.completas+"/"+ed.total)}
+                              {capDocsTxt(ed)}
                             </div>
                           ); })()}
                           <div style={{fontSize:10, color:B.grey4, lineHeight:1.6}}>
@@ -19827,7 +19849,7 @@ Respuesta: [respuesta exacta, conversacional]
               </div>
               <div style={{padding:"18px 22px"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <div style={{fontSize:13,fontWeight:800,color:B.navy}}>Documentos del opcionador</div>
+                  <div style={{fontSize:13,fontWeight:800,color:B.navy}}>Documentos para la viabilidad</div>
                   <div style={{fontSize:12,fontWeight:800,color:h===OPC_TOTAL?"#15803d":"#b45309"}}>{h}/{OPC_TOTAL} completos</div>
                 </div>
                 {OPC_DOCS.map(d=>{ const row=dm[d.k]; const ok=!!row; return (
@@ -24317,17 +24339,10 @@ Respuesta: [respuesta exacta, conversacional]
                     <div><span style={lbStyle}>Documentos (escrituras, predial, etc.)</span><input style={inStyle} value={f.documentos||""} onChange={e=>setF({documentos:e.target.value})} placeholder="Qué tenemos / qué falta"/></div>
                     {(()=>{ const est=estadoDocsCaptacion(f); const m=docsPorTipo(f); const reqSet=new Set(DOCS_REQUERIDOS.map(r=>r.tipo));
                       const otros=(Array.isArray(f.documentosUrls)?f.documentosUrls:[]).map((d,i)=>({d,i})).filter(x=>x.d&&(x.d.url||x.d.path)&&!reqSet.has(x.d.tipo)&&x.d.origen!=='legal');
-                      return (
-                      <div style={{marginTop:12, border:"1px solid "+B.grey1, borderRadius:10, overflow:"hidden"}}>
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",padding:"9px 12px",background:est.listo?"#ecfdf5":"#fff7ed",borderBottom:"1px solid "+B.grey1}}>
-                          <span style={{fontSize:12,fontWeight:800,color:est.listo?"#0f6b3f":"#b45309"}}>{est.listo?"✅ Listo para analizar":("📥 Documentos "+est.completas+"/"+est.total)}</span>
-                          {!est.listo&&<span style={{fontSize:10,fontWeight:700,color:"#b45309"}}>Falta: {est.faltan.join(" · ")}</span>}
-                        </div>
-                        <div style={{padding:"9px 12px",display:"flex",flexDirection:"column",gap:9}}>
-                          {DOCS_REQUERIDOS.map(r=>{ const items=m[r.tipo]||[]; const n=items.length; const req=r.min||1; const ok=n>=req; return (
+                      const filaReq=(r)=>{ const items=m[r.tipo]||[]; const n=items.length; const nTot=capDocsDe(f,r).length; const req=r.min||1; const ok=nTot>=req; return (
                             <div key={r.tipo} style={{display:"flex",flexDirection:"column",gap:5}}>
                               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-                                <span style={{fontSize:12,fontWeight:700,color:B.navy}}>{ok?"✅":"⬜"} {r.icon} {r.label||r.tipo}{r.privado?<span title="Documento privado: solo el equipo lo puede abrir" style={{fontSize:10,marginLeft:4}}>🔒</span>:null}{req>1?<span style={{fontSize:10,fontWeight:800,color:ok?"#0f6b3f":"#b45309"}}> ({n}/{req})</span>:null}</span>
+                                <span style={{fontSize:12,fontWeight:700,color:B.navy}}>{ok?"✅":"⬜"} {r.icon} {r.label||r.tipo}{r.privado?<span title="Documento privado: solo el equipo lo puede abrir" style={{fontSize:10,marginLeft:4}}>🔒</span>:null}{req>1?<span style={{fontSize:10,fontWeight:800,color:ok?"#0f6b3f":"#b45309"}}> ({nTot}/{req})</span>:null}{nTot>n?<span title="Lo subió el propietario por su liga (se revisa en Expediente legal)" style={{marginLeft:6,fontSize:9,fontWeight:800,color:"#7c3aed",background:"#f3e8ff",borderRadius:5,padding:"1px 5px"}}>+{nTot-n} en su liga</span>:null}</span>
                                 <label style={{fontSize:11,fontWeight:800,color:"#1d4ed8",cursor:"pointer",border:"1px solid #bfdbfe",background:"#eff6ff",borderRadius:7,padding:"4px 10px"}}>
                                   ⬆️ Subir
                                   <input type="file" hidden accept={r.accept} multiple={!!r.multiple} onChange={e=>{ const fs=Array.from(e.target.files||[]); fs.forEach(file=>subirDocCaptacion(f,r.tipo,file)); e.target.value=""; }}/>
@@ -24340,12 +24355,35 @@ Respuesta: [respuesta exacta, conversacional]
                                 </div>
                               ); })}
                             </div>
-                          ); })}
+                      ); };
+                      const ligaExp=f.ligaToken?("https://macrolotes.grupoguia.mx/expediente/"+f.ligaToken):"";
+                      const nomP=shNombre(f.contacto||f.propietario); const terrP=[f.zona,f.ciudad].filter(Boolean).join(", ")||"tu terreno";
+                      const tituloBloque=(g,txt,e2,gris)=>(<div data-ficha-bloque={g} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"6px 9px",borderRadius:7,background:gris?"#f1f5f9":(e2.listo?"#ecfdf5":"#fffbeb"),border:"1px solid "+(gris?"#e2e8f0":(e2.listo?"#a7f3d0":"#fde68a"))}}><span style={{fontSize:11.5,fontWeight:800,color:gris?"#64748b":(e2.listo?"#15803d":"#92400e")}}>{txt}</span><span style={{fontSize:11,fontWeight:800,whiteSpace:"nowrap",color:gris?"#64748b":(e2.listo?"#15803d":"#92400e")}}>{e2.completas}/{e2.total}</span></div>);
+                      return (
+                      <div style={{marginTop:12, border:"1px solid "+B.grey1, borderRadius:10, overflow:"hidden"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",padding:"9px 12px",background:est.listo?"#ecfdf5":"#fff7ed",borderBottom:"1px solid "+B.grey1}}>
+                          <span style={{fontSize:12,fontWeight:800,color:est.listo?"#0f6b3f":"#b45309"}}>{capDocsTxt(est)}</span>
+                          {!est.listo&&<span style={{fontSize:10,fontWeight:700,color:"#b45309"}}>Falta: {est.faltan.join(" · ")}</span>}
+                        </div>
+                        <div style={{padding:"9px 12px",display:"flex",flexDirection:"column",gap:9}}>
+                          {tituloBloque("viab","1 · Para la viabilidad (se piden con la cotización)",est.viab,false)}
+                          {DOCS_REQUERIDOS.filter(r=>r.grupo==="viab").map(filaReq)}
                           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
                             <span style={{fontSize:12,fontWeight:700,color:B.navy}}>{mapsOkCap(f)?"✅":"⬜"} 📍 Liga de Google Maps</span>
                             {mapsOkCap(f)
                               ? <a href={(f.ligaMaps||"").trim()} target="_blank" rel="noopener noreferrer" style={{fontSize:11,fontWeight:800,color:"#1d4ed8",textDecoration:"none"}}>Abrir ↗</a>
                               : <span style={{fontSize:10,color:"#b45309",fontWeight:700}}>captúrala arriba en 🗺️ Liga de Google Maps</span>}
+                          </div>
+                          {tituloBloque("comp",est.confirmada?"2 · Para el contrato (viabilidad confirmada)":"2 · Para el contrato · se piden al confirmar la viabilidad",est.comp,!est.confirmada)}
+                          {DOCS_REQUERIDOS.filter(r=>r.grupo==="comp").map(filaReq)}
+                          <div data-ficha-pedir style={{borderTop:"1px dashed "+B.grey1,paddingTop:9}}>
+                            {ligaExp
+                              ? <ShareButtons chico url={ligaExp} etiqueta={est.confirmada?"📨 Pedir al propietario los documentos para el contrato":"📨 Pedir al propietario los documentos de viabilidad"}
+                                  mensaje={est.confirmada
+                                    ? ("Hola"+(nomP?" "+nomP:"")+", ¡tu terreno "+terrP+" es viable! Para preparar el contrato sube estos documentos en tu liga: "+(est.comp.faltan.length?est.comp.faltan.join(", "):"escrituras, libertad de gravamen, INE y predial")+". "+ligaExp)
+                                    : ("Hola"+(nomP?" "+nomP:"")+", para revisar la viabilidad de tu terreno "+terrP+" sube estos documentos en tu liga: "+(est.viab.faltan.filter(x=>x!=="Liga de Google Maps").join(", ")||"uso de suelo, plano, ubicación y fotos")+". "+ligaExp)}
+                                  asunto={(est.confirmada?"Documentos para el contrato":"Documentos para la viabilidad")+" · "+terrP+" · Grupo Guía"} telefono={f.telefono} email={f.email} onToast={toast}/>
+                              : <span style={{fontSize:10.5,color:B.grey4}}>Para pedirle documentos al propietario, guarda la ficha: su liga se genera sola.</span>}
                           </div>
                           {otros.length>0&&(
                             <div style={{display:"flex",flexDirection:"column",gap:5,borderTop:"1px dashed "+B.grey1,paddingTop:8}}>
