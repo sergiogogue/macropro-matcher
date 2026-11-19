@@ -1087,7 +1087,7 @@ const CAPTACION_KEY = "macropro_captacion_v1";
 // Orden del tablero (Dirección, 2026-11-19). Los VALORES guardados no cambian (la base y la Landing
 // los usan: p.ej. el trigger del semáforo mueve a "Cotización con el cliente"); solo cambia el nombre
 // que se ve (CAPTACION_ETAPA_TXT). "En negociación" ya no es columna: esas tarjetas se ven en "Contactado".
-const CAPTACION_PIPELINE = ["Nueva opción","Viabilidad","Cotización con el cliente","Contactado / visita","Documentación","Contrato","Firmado","En inventario","Descartado"];
+const CAPTACION_PIPELINE = ["Nueva cotización","Enviada","Nueva opción","Viabilidad","Cotización con el cliente","Contactado / visita","Documentación","Contrato","Firmado","En inventario","Descartado"];
 const CAPTACION_ETAPA_TXT = { "Nueva opción":"Firmada", "Viabilidad":"Viabilidad · c/documentos para validar", "Cotización con el cliente":"Confirmada la viabilidad", "Contactado / visita":"Contactado", "Documentación":"Documentación contrato" };
 const capEtapaTxt = (s)=>CAPTACION_ETAPA_TXT[s]||s;
 const CAP_FIRMADAS = ["Firmado","En inventario"];
@@ -1099,6 +1099,8 @@ const CAP_ETAPAS_VIAB_OK = ["Cotización con el cliente","Contactado / visita","
 const capViabConfirmada = (c)=>!!(c && (CAP_ETAPAS_VIAB_OK.includes(String(c.pipeline||"").trim()) || c.aprobadaPublicar || c.publicadaLoteId));
 const capEtapaCol = (c)=>{ const p=(c&&c.pipeline)||"Nueva opción"; if(p==="En negociación") return "Contactado / visita"; if(p==="Firmado"&&(c.loteInventarioId||c.publicadaLoteId)) return "En inventario"; return CAPTACION_PIPELINE.includes(p)?p:"Nueva opción"; };
 const CAPTACION_PIPELINE_COLORS = {
+  "Nueva cotización":    { bg:"#f1f5f9", color:"#475569", border:"#94a3b8" },
+  "Enviada":             { bg:"#fffaf0", color:"#9a6a00", border:"#F5B335" },
   "Nueva opción":            { bg:"#e0e7ff", color:"#4338ca", border:"#6366f1" },
   "Viabilidad":          { bg:"#fef9c3", color:"#854d0e", border:"#eab308" },
   "Cotización con el cliente": { bg:"#f3e8ff", color:"#6b21a8", border:"#a855f7" },
@@ -1110,7 +1112,7 @@ const CAPTACION_PIPELINE_COLORS = {
   "En inventario":       { bg:"#e0f2fe", color:"#075985", border:"#0284c7" },
   "Descartado":          { bg:"#f1f5f9", color:"#475569", border:"#94a3b8" }
 };
-const CAPTACION_PIPELINE_ICONS = { "Nueva opción":"🖋️","Viabilidad":"🚦","Cotización con el cliente":"🟢","Contactado / visita":"📞","En negociación":"🤝","Documentación":"📄","Contrato":"✍️","Firmado":"✅","En inventario":"🏷️","Descartado":"🗑" };
+const CAPTACION_PIPELINE_ICONS = { "Nueva cotización":"📝","Enviada":"📨","Nueva opción":"🖋️","Viabilidad":"🚦","Cotización con el cliente":"🟢","Contactado / visita":"📞","En negociación":"🤝","Documentación":"📄","Contrato":"✍️","Firmado":"✅","En inventario":"🏷️","Descartado":"🗑" };
 const TIPOS_ACUERDO_CAPTACION = ["Exclusiva","Abierto / No exclusiva","Opción de compra","Consignación","Comisión mercantil","Por definir"];
 const MOTIVOS_DESCARTE = ["💰 Precio alto","📍 Ubicación / zona","📐 Superficie","🏗 Uso de suelo / zonificación","📄 Documentación / legal","🚰 Servicios / infraestructura","⏱ Tiempos / entrega","💵 Forma de pago / financiamiento","🌳 Topografía / forma del terreno","🤝 Eligió otra opción / desistió","🔇 No le interesó / sin respuesta","📝 Otro"];
 const VIABILIDAD_CAPTACION = [
@@ -18200,6 +18202,8 @@ Respuesta: [respuesta exacta, conversacional]
     {tipo:"Boleta registral / predial", icon:"🧾", accept:"image/*,application/pdf", clave:"predial", grupo:"comp"},
     {tipo:"KMZ", label:"Ubicación (KMZ / KML)", icon:"🗂", accept:".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml", clave:"ubicacion", grupo:"viab"},
     {tipo:"Fotos del terreno", icon:"📷", min:4, multiple:true, accept:"image/*", clave:"fotos", grupo:"viab"},
+    // Documento de VALIDACIÓN (autorización de viabilidad firmada): al subirlo, la tarjeta pasa sola a "Confirmada la viabilidad".
+    {tipo:"Autorización de viabilidad", label:"Documento de validación (autorización de viabilidad)", icon:"🟢", accept:"image/*,application/pdf", privado:true, clave:"validacion", grupo:"valid"},
   ];
   // Back-Office (Tarea 4): documentos que deben estar al 100% para APROBAR Y PUBLICAR a vitrina.
   // (Fotos, Plano, Uso de suelo, KMZ + liga de Maps. La boleta/predial NO bloquea la publicación.)
@@ -18305,7 +18309,7 @@ Respuesta: [respuesta exacta, conversacional]
   const mapsOkCap=(c)=>/^https?:\/\//i.test(((c&&c.ligaMaps)||"").trim());
   // Un documento cuenta venga de donde venga (ficha, /aceptar o la liga del propietario, origen
   // 'legal'), por su tipo exacto o por su nombre; los rechazados NO cuentan.
-  const CAP_DOC_RE={ escrituras:/escritura/, uso_suelo:/uso de suelo|usos y destinos|dictamen/, libertad_gravamen:/gravamen/, ine:/\bine\b|identificacion/, plano:/plano|levantamiento|medicion/, predial:/predial/, ubicacion:/kmz|kml|ubicacion/, fotos:/foto/ };
+  const CAP_DOC_RE={ escrituras:/escritura/, uso_suelo:/uso de suelo|usos y destinos|dictamen/, libertad_gravamen:/gravamen/, ine:/\bine\b|identificacion/, plano:/plano|levantamiento|medicion/, predial:/predial/, ubicacion:/kmz|kml|ubicacion/, fotos:/foto/, validacion:/autorizacion de viabilidad|validacion de viabilidad|documento de validacion/ };
   const capNormTipo=(t)=>String(t||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
   const capDocsDe=(c,r)=>(Array.isArray(c&&c.documentosUrls)?c.documentosUrls:[]).filter(d=>{ if(!d||!d.tipo||String(d.estatus||"").toLowerCase()==="rechazado") return false; if(d.tipo===r.tipo) return true; const t=capNormTipo(d.tipo); return r.re?r.re.test(t):!!(CAP_DOC_RE[r.clave]&&CAP_DOC_RE[r.clave].test(t)); });
   // Documentos para el CONTRATO según quién es el dueño (física · moral · copropiedad).
@@ -18330,7 +18334,8 @@ Respuesta: [respuesta exacta, conversacional]
     const viab=grupo("viab"), comp=grupo("comp"), confirmada=capViabConfirmada(c);
     const faltan=confirmada?[...viab.faltan,...comp.faltan]:viab.faltan;
     const total=confirmada?(viab.total+comp.total):viab.total;
-    return { faltan, total, completas:total-faltan.length, listo:faltan.length===0, viab, comp, confirmada };
+    const rv=DOCS_REQUERIDOS.find(r=>r.grupo==="valid"); const validada=!!(rv&&capDocsDe(c,rv).length>0);
+    return { faltan, total, completas:total-faltan.length, listo:faltan.length===0, viab, comp, confirmada, validada };
   };
   const capDocsTxt=(ed)=>ed.confirmada
     ? (ed.listo?"✅ Expediente completo":("📄 Docs contrato "+ed.comp.completas+"/"+ed.comp.total+(ed.viab.listo?"":(" · 🚦 "+ed.viab.completas+"/"+ed.viab.total))))
@@ -18532,9 +18537,14 @@ Respuesta: [respuesta exacta, conversacional]
     acuerdoParaCotRef.current={ id:a.id, folio:a.folio, terreno:a.terreno_nombre, captacion_id:a.captacion_id||null };
     MP_COT_UI.abierto=true; // viene de Paso 1 "Cotizar": el formulario se abre ya lleno
     setCotPrefillVer(v=>v+1);
-    toast("🧾 Paso 2: completa la cotización de "+(a.terreno_nombre||"el terreno")+" y pulsa Guardar (queda ligada al acuerdo "+a.folio+")");
+    toast("🧾 Paso 2: completa la cotización de "+(a.terreno_nombre||"el terreno")+" y pulsa Guardar ("+(a.folio?("queda ligada al acuerdo "+a.folio):"queda ligada a su tarjeta")+")");
     setTimeout(()=>{ try{ const el=document.getElementById("cotizacion-form"); if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }, 300);
   };
+  // Desde la tarjeta del terreno (columna "Nueva cotización"): abre la cotización ya llena y
+  // LIGADA a la captación (captacion_id) para que la tarjeta avance sola (Enviada → Firmada).
+  const iniciarCotizacionDeCaptacion=(c)=>{ if(!c) return;
+    iniciarCotizacionDeAcuerdo({ folio:"", propietario_nombre:c.propietario||c.contacto||"", propietario_celular:c.telefono||"", propietario_correo:c.email||"", asesor_nombre:c.asesorResponsableGG||"", terreno_nombre:c.zona||c.ubicacion||"", terreno_ubicacion:[c.ciudad,c.estado].filter(Boolean).join(", "), terreno_superficie:c.superficie?(String(c.superficie)+" m²"):"", terreno_precio:c.precioDueno||"", captacion_id:c.id });
+    setView("pitch"); };
   const ViewPitchCotizacion = () => {
     const AZUL = "#0f172a", DORADO = "#d4af37";
     const DRAFT_KEY = "macropro_cotizador_draft_v1";
@@ -19441,6 +19451,7 @@ Respuesta: [respuesta exacta, conversacional]
     const OPC_TOTAL=OPC_DOCS.length;
     const OPC_URL="https://macrolotes.grupoguia.mx/opcionadores";
     const [opcLista,setOpcLista]=React.useState([]);
+    const opcCargadasRef = React.useRef(false);
     const [opcDocs,setOpcDocs]=React.useState({});
     const [opcSel,setOpcSel]=React.useState(null);
     // ⏱️ SLA (Fase 3): relojes de cada tarjeta (caché de módulo MP_SLA; refresco cada 5 min y al cambiar tarjetas).
@@ -19461,7 +19472,7 @@ Respuesta: [respuesta exacta, conversacional]
       if(!window.sb) return;
       try{
         const { data:cc }=await window.sb.from("cotizaciones_opcionador").select("*").order("created_at",{ascending:false}).limit(500);
-        setOpcLista(cc||[]);
+        setOpcLista(cc||[]); opcCargadasRef.current=true;
         const ids=(cc||[]).map(c=>c.id); const map={};
         if(ids.length){ const { data:dd }=await window.sb.from("documentos_opcionador").select("*").in("cotizacion_id",ids); (dd||[]).forEach(r=>{ (map[r.cotizacion_id]=map[r.cotizacion_id]||{})[r.tipo_documento]=r; }); }
         setOpcDocs(map);
@@ -19477,13 +19488,20 @@ Respuesta: [respuesta exacta, conversacional]
     const movManualRef = React.useRef(new Set());
     // Documentos en dos instancias: los de viabilidad completos → Viabilidad (a validar);
     // ya confirmada la viabilidad, los complementarios → Documentación contrato / Contrato.
+    // AUTOMÁTICO (Dirección, 2026-11-19) — lo demás es manual:
+    //   sin cotización / borrador → Nueva cotización · cotización enviada → Enviada ·
+    //   firmada por el propietario → Firmada · documentos de viabilidad completos → Viabilidad ·
+    //   documento de validación subido → Confirmada la viabilidad.
+    const cotDeCap=(id)=>{ let mejor=null; const rk=(o)=>o.terminos_aceptados?3:(esBorradorCot(o)?1:2);
+      (opcLista||[]).forEach(o=>{ if(!o||o.captacion_id!==id||String(o.estatus||"").toLowerCase().startsWith("rechaz")) return; if(!mejor||rk(o)>rk(mejor)||(rk(o)===rk(mejor)&&String(o.created_at||"")>String(mejor.created_at||""))) mejor=o; });
+      return mejor; };
     const etapaJourney=(c)=>{
-      const ed=estadoDocsCaptacion(c);
-      if(c.publicadaLoteId) return "Firmado";
-      if(c.aprobadaPublicar || (ed.confirmada && ed.viab.listo && ed.comp.listo)) return "Contrato";
-      if(ed.confirmada && ed.comp.completas>0) return "Documentación";
+      const ed=estadoDocsCaptacion(c); const cot=cotDeCap(c.id);
+      if(ed.validada) return "Cotización con el cliente";
       if(ed.viab.listo) return "Viabilidad";
-      return "Nueva opción";
+      if(String(c.id).startsWith("capta-opc-") || (cot&&cot.terminos_aceptados)) return "Nueva opción";
+      if(cot && !esBorradorCot(cot)) return "Enviada";
+      return "Nueva cotización";
     };
     React.useEffect(()=>{
       if(!Array.isArray(captaciones)||!captaciones.length) return;
@@ -19492,13 +19510,21 @@ Respuesta: [respuesta exacta, conversacional]
         const cur=c.pipeline||"Nueva opción";
         if(cur==="Descartado") return;                  // los descartes se respetan
         if(movManualRef.current.has(c.id)) return;       // movido a mano: respétalo
-        const meta=etapaJourney(c);
-        if((JRANK[meta]||0) > (JRANK[cur]||0)){ upsertCaptacion({...c, pipeline:meta}); }
+        const meta=etapaJourney(c); const col=capEtapaCol(c);
+        const adelante=(JRANK[meta]??0) > (JRANK[col]??0);
+        // "Nueva opción" (hoy "Firmada") era la etapa por omisión de toda tarjeta nueva: si su
+        // cotización aún no está firmada, se acomoda en Nueva cotización / Enviada (con las
+        // cotizaciones ya cargadas, para no moverla a ciegas).
+        const acomoda=opcCargadasRef.current && cur==="Nueva opción" && (meta==="Nueva cotización"||meta==="Enviada");
+        if(meta!==col && (adelante||acomoda)){ upsertCaptacion({...c, pipeline:meta}); }
       });
-    }, [captaciones]); // eslint-disable-line
+    }, [captaciones, opcLista]); // eslint-disable-line
     const opcHechos=(id)=>OPC_DOCS.filter(d=>opcDocs[id]&&opcDocs[id][d.k]).length;
     // "En cotización" = esperando que el propietario acepte (las rechazadas se ven en el Panel).
-    const opcEnCot=(opcLista||[]).filter(o=>!o.terminos_aceptados && !String(o.estatus||"").toLowerCase().startsWith("rechaz"));
+    // Si la cotización ya tiene su tarjeta del terreno aquí (captacion_id), se ve UNA sola tarjeta:
+    // la del terreno, con los botones de su cotización.
+    const capIdsLocal=new Set((captaciones||[]).map(c=>c&&c.id).filter(Boolean));
+    const opcEnCot=(opcLista||[]).filter(o=>!o.terminos_aceptados && !String(o.estatus||"").toLowerCase().startsWith("rechaz") && !(o.captacion_id && capIdsLocal.has(o.captacion_id)));
     // Unificado con la pestaña Cotización (2026-11-19): borrador · enviada · rechazada viven en este tablero.
     const esBorradorCot=(o)=>String(o.estatus||"").toLowerCase()==="borrador";
     const opcRech=(opcLista||[]).filter(o=>!o.terminos_aceptados && String(o.estatus||"").toLowerCase().startsWith("rechaz"));
@@ -19507,7 +19533,6 @@ Respuesta: [respuesta exacta, conversacional]
     // no duplicar). Así, cuando acepta/convierte pero la captación aún no se sincronizó a
     // MacroPro, NO desaparece del Kanban (antes: con captacion_id se ocultaba y quedaba
     // invisible hasta sincronizar). Reaparece como nativa en cuanto se cargue.
-    const capIdsLocal=new Set((captaciones||[]).map(c=>c&&c.id).filter(Boolean));
     const opcNueva=(opcLista||[]).filter(o=>!!o.terminos_aceptados && !(o.captacion_id && capIdsLocal.has(o.captacion_id)));
     const verOpcDoc=async(row)=>{ try{ const {data,error}=await window.sb.storage.from("documentos-opcionador").createSignedUrl(row.url,180); if(error) throw error; window.open(data.signedUrl,"_blank"); }catch(e){ toast("No se pudo abrir el archivo"); } };
     // Subir/reemplazar un documento del opcionador desde MacroPro (asesor o admin),
@@ -19571,6 +19596,16 @@ Respuesta: [respuesta exacta, conversacional]
     };
     const btnElimOpc=(o)=>(<button disabled={opcEliminando===o.id} onClick={e=>{ e.stopPropagation(); eliminarOpc(o); }} title="Eliminar" style={{fontSize:10,fontWeight:800,color:"#b91c1c",background:"#fff",border:"1px solid #fecaca",borderRadius:6,padding:"5px 8px",cursor:opcEliminando===o.id?"wait":"pointer",fontFamily:"'DM Sans',sans-serif"}}>{opcEliminando===o.id?"…":"🗑"}</button>);
     const ligaAceptarDe=(o)=>"https://macrolotes.grupoguia.mx/aceptar?c="+o.id;
+    // Botones de la cotización (WhatsApp / liga / correo al propietario · 🤝 al asesor · 📄 PDF).
+    const accionesCot=(o)=>{ const u=ligaAceptarDe(o); const nom=shNombre(o.cliente_nombre); const terr=(o.terreno_nombre||"tu terreno")+(o.terreno_ciudad?(" ("+o.terreno_ciudad+")"):"");
+      const bS={fontSize:10,fontWeight:800,borderRadius:6,padding:"5px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"};
+      return (<div data-cot-acciones={o.id} onClick={e=>e.stopPropagation()} style={{margin:"4px 0 6px",padding:"7px 8px",borderRadius:8,background:esBorradorCot(o)?"#f8fafc":"#fffaf0",border:"1px solid "+(esBorradorCot(o)?"#e2e8f0":"#fde68a")}}>
+        <div style={{fontSize:9,fontWeight:800,color:esBorradorCot(o)?"#475569":"#9a6a00",marginBottom:5}}>{esBorradorCot(o)?"📝 COTIZACIÓN SIN ENVIAR":"📨 COTIZACIÓN ENVIADA · esperando que el propietario la firme"}{o.monto_comision?(" · comisión "+o.monto_comision):""}</div>
+        <ShareButtons chico url={u} mensaje={"Hola"+(nom?" "+nom:"")+", aquí puedes revisar y aceptar la cotización de tu terreno "+terr+" y subir tus documentos: "+u} asunto={"Tu cotización · "+(o.terreno_nombre||"terreno")+" · Grupo Guía"} telefono={o.cliente_telefono} email={o.cliente_email} onToast={toast}/>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:5}}>
+          <button data-cot-asesor onClick={()=>setAcuerdoCotG(o)} title="Acuerdo de comisión del asesor" style={{...bS,color:B.navy,background:B.gold,border:"none"}}>🤝 Enviar al asesor</button>
+          <button data-cot-pdf onClick={()=>{ MP_COT_PENDIENTE.pdf=o; setView("pitch"); }} title="Genera el PDF de la cotización (abre la pestaña Cotización)" style={{...bS,color:B.navy,background:"#fff",border:"1px solid "+B.gold}}>📄 PDF</button>
+        </div></div>); };
     const renderOpcPendiente=(o)=>{ const borr=esBorradorCot(o), rech=String(o.estatus||"").toLowerCase().startsWith("rechaz"); const u=ligaAceptarDe(o); const nom=shNombre(o.cliente_nombre);
       const terr=(o.terreno_nombre||"tu terreno")+(o.terreno_ciudad?(" ("+o.terreno_ciudad+")"):"");
       const bS={fontSize:10,fontWeight:800,borderRadius:6,padding:"5px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"};
@@ -19787,21 +19822,6 @@ Respuesta: [respuesta exacta, conversacional]
         {/* Kanban */}
         <div style={{background:B.white, borderRadius:14, padding:18, border:"1px solid "+B.grey1, marginBottom:20, boxShadow:"0 2px 10px rgba(0,43,73,0.04)"}}>
           <div style={{display:"flex", gap:12, overflowX:"auto", paddingBottom:8}}>
-            {/* Columnas iniciales: COTIZACIONES (unificado con la pestaña Cotización) */}
-            {[["cot-borrador","📝 Nueva cotización","#475569","#f1f5f9","#94a3b8",opcBorrF],["cot-enviada","📨 Enviada","#9a6a00","#fffaf0",B.gold,opcEnvF]].map(([k,t,fg,bg,bd,arr])=>(
-            <div key={k} data-cap-col={k} style={{minWidth:270, maxWidth:270, flexShrink:0}}>
-              <div style={{padding:"10px 12px", borderRadius:8, background:bg, borderTop:"3px solid "+bd, marginBottom:10}}>
-                <div style={{fontSize:10, fontWeight:800, color:fg, textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
-                  <span>{t}</span>
-                  <span style={{background:fg, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{arr.length}</span>
-                </div>
-              </div>
-              <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:620, overflowY:"auto"}}>
-                {k==="cot-borrador"&&(<button data-cap-nueva-cot onClick={()=>{ MP_COT_UI.abierto=true; setView("pitch"); }} title="Abre el formulario de cotización" style={{padding:"9px 10px", borderRadius:8, border:"1.5px dashed #94a3b8", background:"#fff", color:B.navy, fontSize:11.5, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>＋ Nueva cotización</button>)}
-                {arr.map(renderOpcCard)}
-                {arr.length===0&&k!=="cot-borrador"&&(<div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>)}
-              </div>
-            </div>))}
             {CAPTACION_PIPELINE.map(stage=>{
               const colors = CAPTACION_PIPELINE_COLORS[stage];
               // Las captaciones nacidas de un opcionador (id "capta-opc-…") van FIJADAS
@@ -19810,14 +19830,17 @@ Respuesta: [respuesta exacta, conversacional]
               const items = (()=>{ const a=porEtapaC[stage]||[]; return [...a.filter(esOpcCap), ...a.filter(c=>!esOpcCap(c))]; })();
               const icon = CAPTACION_PIPELINE_ICONS[stage]||"";
               return (
-                <div key={stage} data-cap-col={stage} style={{minWidth:270, maxWidth:270, flexShrink:0}}>
+                <div key={stage} data-cap-col={stage==="Nueva cotización"?"cot-borrador":(stage==="Enviada"?"cot-enviada":stage)} style={{minWidth:270, maxWidth:270, flexShrink:0}}>
                   <div style={{padding:"10px 12px", borderRadius:8, background:colors.bg, borderTop:"3px solid "+colors.border, marginBottom:10}}>
                     <div style={{fontSize:10, fontWeight:800, color:colors.color, textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, lineHeight:1.35}}>
                       <span>{icon} {capEtapaTxt(stage)}</span>
-                      <span style={{background:colors.color, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10, flexShrink:0}}>{items.length+(stage==="Nueva opción"?opcNuevaF.length:0)+(stage==="Descartado"?opcRechF.length:0)}</span>
+                      <span style={{background:colors.color, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10, flexShrink:0}}>{items.length+(stage==="Nueva opción"?opcNuevaF.length:0)+(stage==="Descartado"?opcRechF.length:0)+(stage==="Nueva cotización"?opcBorrF.length:0)+(stage==="Enviada"?opcEnvF.length:0)}</span>
                     </div>
                   </div>
                   <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:620, overflowY:"auto"}}>
+                    {stage==="Nueva cotización"&&(<button data-cap-nueva-cot onClick={()=>{ MP_COT_UI.abierto=true; setView("pitch"); }} title="Abre el formulario de cotización" style={{padding:"9px 10px", borderRadius:8, border:"1.5px dashed #94a3b8", background:"#fff", color:B.navy, fontSize:11.5, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>＋ Nueva cotización</button>)}
+                    {stage==="Nueva cotización" && opcBorrF.map(renderOpcCard)}
+                    {stage==="Enviada" && opcEnvF.map(renderOpcCard)}
                     {stage==="Nueva opción" && opcNuevaF.map(renderOpcCard)}
                     {stage==="Descartado" && opcRechF.map(renderOpcPendiente)}
                     {items.map(c=>{
@@ -19832,6 +19855,9 @@ Respuesta: [respuesta exacta, conversacional]
                           <div style={{fontSize:13, fontWeight:800, color:B.navy, marginBottom:2}}>{c.propietario||"Propietario sin nombre"}</div>
                           <div style={{fontSize:10, color:B.grey4, marginBottom:6}}>{c.contacto?c.contacto:""}{c.telefono?(c.contacto?" · ":"")+c.telefono:""}</div>
                           <div style={{display:"inline-flex", alignItems:"center", gap:4, fontSize:10, fontWeight:800, color:c.asesorResponsableGG?"#0f6b3f":"#b45309", background:c.asesorResponsableGG?"#dcfce7":"#fef3c7", border:"1px solid "+(c.asesorResponsableGG?"#86efac":"#fde68a"), borderRadius:6, padding:"3px 8px", marginBottom:7}}>👤 {c.asesorResponsableGG||"Sin asesor asignado"}</div>
+                          {(stage==="Nueva cotización"||stage==="Enviada")&&(()=>{ const cot=cotDeCap(c.id);
+                            return cot ? accionesCot(cot)
+                              : <button data-cap-cotizar onClick={e=>{ e.stopPropagation(); iniciarCotizacionDeCaptacion(c); }} style={{width:"100%",margin:"2px 0 8px",padding:"7px 8px",borderRadius:7,border:"none",background:B.gold,color:B.navy,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧾 Hacer su cotización</button>; })()}
                           {(()=>{ const rows=slaMap[c.id]||[]; if(!rows.length) return null;
                             const ENTREGABLES=["estudios","fotografia"];
                             const franjas=rows.filter(r=>!r.fecha_fin && !ENTREGABLES.includes(r.etapa));
@@ -19900,7 +19926,7 @@ Respuesta: [respuesta exacta, conversacional]
                         </div>
                       );
                     })}
-                    {items.length===0 && !(stage==="Nueva opción" && opcNuevaF.length>0) && !(stage==="Descartado" && opcRechF.length>0) && (
+                    {items.length===0 && stage!=="Nueva cotización" && !(stage==="Nueva opción" && opcNuevaF.length>0) && !(stage==="Descartado" && opcRechF.length>0) && !(stage==="Enviada" && opcEnvF.length>0) && (
                       <div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>
                     )}
                   </div>
@@ -24414,7 +24440,7 @@ Respuesta: [respuesta exacta, conversacional]
                     )}
                     <div style={{fontSize:12,fontWeight:800,color:B.navy,marginBottom:8}}>📄 Documentos y seguimiento</div>
                     <div><span style={lbStyle}>Documentos (escrituras, predial, etc.)</span><input style={inStyle} value={f.documentos||""} onChange={e=>setF({documentos:e.target.value})} placeholder="Qué tenemos / qué falta"/></div>
-                    {(()=>{ const est=estadoDocsCaptacion(f); const m=docsPorTipo(f); const reqSet=new Set(DOCS_REQUERIDOS.map(r=>r.tipo));
+                    {(()=>{ const est=estadoDocsCaptacion(f); const m=docsPorTipo(f); const reqSet=new Set([...DOCS_REQUERIDOS,...capReqsComp(f)].map(r=>r.tipo));
                       const otros=(Array.isArray(f.documentosUrls)?f.documentosUrls:[]).map((d,i)=>({d,i})).filter(x=>x.d&&(x.d.url||x.d.path)&&!reqSet.has(x.d.tipo)&&x.d.origen!=='legal');
                       const filaReq=(r)=>{ const items=m[r.tipo]||[]; const n=items.length; const nTot=capDocsDe(f,r).length; const req=r.min||1; const ok=nTot>=req; return (
                             <div key={r.tipo} style={{display:"flex",flexDirection:"column",gap:5}}>
@@ -24451,6 +24477,10 @@ Respuesta: [respuesta exacta, conversacional]
                               ? <a href={(f.ligaMaps||"").trim()} target="_blank" rel="noopener noreferrer" style={{fontSize:11,fontWeight:800,color:"#1d4ed8",textDecoration:"none"}}>Abrir ↗</a>
                               : <span style={{fontSize:10,color:"#b45309",fontWeight:700}}>captúrala arriba en 🗺️ Liga de Google Maps</span>}
                           </div>
+                          {(()=>{ const rv=DOCS_REQUERIDOS.find(r=>r.grupo==="valid"); return (<>
+                            {tituloBloque("valid","✔ Validación · al subirla, la tarjeta pasa a Confirmada la viabilidad",{listo:est.validada,completas:est.validada?1:0,total:1},false)}
+                            {filaReq(rv)}
+                          </>); })()}
                           {tituloBloque("comp",est.confirmada?"2 · Para el contrato (viabilidad confirmada)":"2 · Para el contrato · se piden al confirmar la viabilidad",est.comp,!est.confirmada)}
                           <CapPersonaEditor f={f} onGuardar={guardarPersonaCap}/>
                           {capReqsComp(f).map(filaReq)}
