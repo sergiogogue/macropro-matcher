@@ -3344,6 +3344,8 @@ const coRondas=(c)=>((c&&c.cartas_oferta_rondas)||[]).slice().sort((a,b)=>a.rond
 const coActual=(c)=>{ const rs=coRondas(c); return rs.find(r=>r.ronda===c.ronda_actual)||rs[rs.length-1]||{}; };
 const coEspera=(c)=> c.estado==="enviada_comprador"?{rol:"comprador",exp:c.token_comprador_exp}:(c.estado==="enviada_vendedor"?{rol:"vendedor",exp:c.token_vendedor_exp}:null);
 // Quién propone cada ronda. Ronda >1 con propone=grupo_guia = contraoferta capturada por Grupo Guía (v6).
+// La contrapropuesta que llega (vendedor/comprador) es una RESPUESTA a la ronda anterior; se vuelve ronda cuando GG la autoriza y la manda.
+const coEsResp=(c)=>!!c&&(c.estado==="contrapropuesta_vendedor"||c.estado==="contrapropuesta_comprador");
 const coQuien=(x)=>{ if(x&&x.propone==="grupo_guia"&&Number(x.ronda)>1) return "Contraoferta GG"+(x.solicita==="vendedor"?" · la pidió el vendedor":(x.solicita==="comprador"?" · la pidió el comprador":" · reenvío a firma")); return x&&x.propone==="vendedor"?"Vendedor":(x&&x.propone==="comprador"?"Comprador":"Comprador (oferta original)"); };
 const coVencida=(c)=>{ const e=coEspera(c); return !!(e&&e.exp&&new Date(e.exp)<new Date()); };
 // 🗂 KANBAN de cartas oferta (mockup aprobado 2026-11-19): columna según el estado de la carta y, ya
@@ -3421,7 +3423,7 @@ const coPctPlan=(texto,total)=>{ const x=String(texto||"").trim().replace(/[.]$/
   const suma=out.reduce((a,y)=>a+y.pct,0); if(Math.abs(suma-100)>0.01) return null; return out; };
 const coClausula3=(r)=>{ const c=String((r&&r.condiciones)||""); if(c.startsWith(CO_MARCA3)) return c.slice(1).trim(); const x=c.trim();
   const P=coPctPlan(x,r&&r.total);   // plazos en %: se redactan como pagos (sin el texto estándar de "una sola exhibición", que lo contradecía)
-  if(P) return "el precio total de "+coMxC(r.total)+" se cubrirá en "+P.length+" pagos: "+P.map((y,i)=>"("+(i+1)+") "+y.c+", "+y.w.charAt(0).toLowerCase()+y.w.slice(1)+": "+coMxC(y.m)).join("; ")+"; descontando el monto del apartado.";
+  if(P) return "el precio total de "+coMxC(r.total)+" se cubrirá en "+P.length+" pagos: "+P.map((y,i)=>"("+(i+1)+") "+y.c+", "+y.w.charAt(0).toLowerCase()+y.w.slice(1)+": "+coMxC(y.m)).join("; ")+". El monto del apartado se descuenta del primer pago.";
   return coFormaTxt(r&&r.forma_pago)+(x?(" Condiciones: "+x+(/[.]$/.test(x)?"":".")):""); };
 const coCond3=(forma,texto)=>{ const x=String(texto||"").trim(); if(!x||x===coFormaTxt(forma)) return null; return CO_MARCA3+x; };
 const CO_RAZON_SOCIAL="Guía Excelencia Inmobiliaria S.A. de C.V.";
@@ -4190,29 +4192,40 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
         const Lp=coLineasDe(prev,c.apartado), Lr=coLineasDe(r,c.apartado);
         const pagoTxt=(x,L)=>L?L.map((y,i)=>(i+1)+") "+y.c+" · "+y.w+" · "+coMxC(y.m)).join(" | "):coClausula3(x);
         const cPago=String(prev.forma_pago||"")!==String(r.forma_pago||"")||pagoTxt(prev,Lp)!==pagoTxt(r,Lr);
-        const titulo=<span data-co-llego={nA}>📩 El {quienM} no aceptó la ronda {nA-1}: {cPrecio
+        const titulo=<span data-co-llego={nA}>📩 El {quienM} respondió a la ronda {nA-1}: {cPrecio
           ?<React.Fragment>pide <u>{coMx(r.precio_m2)}/m²</u>{dPct!=null&&dPct!==0?(" ("+(dPct>0?"+":"−")+Math.abs(dPct).toFixed(1)+"%)"):""}{cPago?" y cambia la forma de pago":""}</React.Fragment>
           :(cPago?<React.Fragment>mantiene el precio ({coMx(r.precio_m2)}/m²) pero <u>cambia la forma de pago</u></React.Fragment>:"mismo precio y forma de pago · lee su comentario")}</span>;
-        const badge=(cambia)=><span style={{marginLeft:6,fontSize:10,fontWeight:900,borderRadius:5,padding:"1px 6px",whiteSpace:"nowrap",...(cambia?{background:"#b45309",color:"#fff"}:{background:"#f1f5f9",color:"#64748b"})}}>{cambia?"CAMBIA":"= IGUAL"}</span>;
-        const lineas=(x,L,fuerte)=>L?(<div style={{display:"grid",gap:3}}>{L.map((y,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",gap:10}}><span>{i+1}) <b>{y.c}</b> · {y.w}</span><b style={{whiteSpace:"nowrap",color:fuerte?"#b45309":B.navy}}>{coMxC(y.m)}</b></div>)}</div>)
+        const badge=(cambia)=><span style={{display:"inline-block",marginTop:3,fontSize:10,fontWeight:900,borderRadius:5,padding:"1px 6px",whiteSpace:"nowrap",...(cambia?{background:"#b45309",color:"#fff"}:{background:"#f1f5f9",color:"#64748b"})}}>{cambia?"CAMBIA vs ronda "+(nA-1):"= IGUAL"}</span>;
+        const lineas=(x,L,fuerte)=>L?(<div style={{display:"grid",gap:3}}>{L.map((y,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}><span>{i+1}) <b>{y.c}</b> · {y.w}</span><b style={{whiteSpace:"nowrap",color:fuerte?"#b45309":B.navy}}>{coMxC(y.m)}</b></div>)}</div>)
           :<span>{fl(x.forma_pago)}{x.condiciones&&!String(x.condiciones).startsWith(CO_MARCA3)?(" · "+x.condiciones):""}</span>;
-        const fila=(k,a,b,cambia)=><React.Fragment><div style={{...cel,color:B.grey4,fontSize:12}}>{k}</div><div style={cel}>{a}</div><div style={{...cel,...(cambia?{fontWeight:800,color:"#b45309",background:"#fffbeb"}:{})}}>{b}{badge(cambia)}</div></React.Fragment>;
-        return caja(gg,"Siguiente paso · te toca a ti",titulo,"Ya viene firmada por el "+(deV?"vendedor":"comprador")+(deV&&r.vendedor_firma_at?(" · "+coFH(r.vendedor_firma_at)):"")+". Nadie más la ha visto.",null,
+        // TODAS las rondas anteriores, explícitas (columna por ronda) + la RESPUESTA (que aún no es ronda: se carga como ronda {nA} al autorizarla).
+        const ant=rs.filter(x=>x.ronda<nA).sort((a,b)=>a.ronda-b.ronda);
+        const etq=(x)=>x.ronda===1&&x.propone!=="vendedor"?"Oferta del comprador":(x.propone==="vendedor"?"Respuesta del vendedor":(x.propone==="comprador"?"Contrapropuesta del comprador":"Contraoferta del comprador"));
+        const firmas=(x)=>[x.comprador_firma_at?("✓ Comprador "+fH(x.comprador_firma_at)):null,x.vendedor_firma_at?("✓ Vendedor "+fH(x.vendedor_firma_at)):null].filter(Boolean).join(" · ")||"—";
+        const hd={...cel,background:"#fef3c7",fontSize:10.5,fontWeight:800,textTransform:"uppercase",color:"#92400e",lineHeight:1.35};
+        const hdR={...hd,background:"#b45309",color:"#fff"};
+        const resC=(cambia)=>({...cel,...(cambia?{fontWeight:800,color:"#b45309",background:"#fffbeb"}:{})});
+        const filaT=(k,fA,fR,cambia)=><React.Fragment><div style={{...cel,color:B.grey4,fontSize:12}}>{k}</div>{ant.map(x=><div key={x.ronda} style={{...cel,...(x.ronda===nA-1?{}:{color:B.grey4})}}>{fA(x)}</div>)}<div style={resC(cambia)}>{fR}{cambia!=null&&<div>{badge(cambia)}</div>}</div></React.Fragment>;
+        const apt=Number(c.apartado)||0, neto1=Lr&&Lr[0]?Math.round((Lr[0].m-apt)*100)/100:null;
+        return caja(gg,"Siguiente paso · te toca a ti",titulo,"Ya viene firmada por el "+(deV?"vendedor":"comprador")+(deV&&r.vendedor_firma_at?(" · "+coFH(r.vendedor_firma_at)):"")+". Todavía NO es ronda "+nA+": se carga como ronda "+nA+" cuando la autorices y se la mandes al "+dest+".",null,
           <div>
-            <div data-co-compara style={{display:"grid",gridTemplateColumns:"110px 1fr 1.25fr",border:"1px solid #fde68a",borderRadius:9,overflow:"hidden",marginTop:10}}>
-              <div style={{...cel,background:"#fef3c7"}}></div><div style={{...cel,background:"#fef3c7",fontSize:10.5,fontWeight:800,textTransform:"uppercase",color:"#92400e"}}>Ronda {nA-1} · anterior</div><div style={{...cel,background:"#fef3c7",fontSize:10.5,fontWeight:800,textTransform:"uppercase",color:"#92400e"}}>Ronda {nA} · lo que pide el {deV?"vendedor":"comprador"}</div>
-              {fila("Precio por m²",coMx(prev.precio_m2)+"/m²",coMx(r.precio_m2)+"/m²",cPrecio)}
-              {fila("Total",coMx(prev.total),coMx(r.total),Math.abs((Number(r.total)||0)-(Number(prev.total)||0))>0.5)}
-              {fila("Forma de pago",lineas(prev,Lp,false),lineas(r,Lr,true),cPago)}
-            </div>
-            {Lr&&<div style={{fontSize:11.5,color:B.grey4,marginTop:5}}>Montos calculados sobre el total de {coMxC(r.total)} con los porcentajes que escribió el {deV?"vendedor":"comprador"} · apartado pactado {coMxC(c.apartado)}.</div>}
+            <div style={{overflowX:"auto",marginTop:10}}><div data-co-compara style={{display:"grid",gridTemplateColumns:"104px repeat("+ant.length+",minmax(150px,1fr)) minmax(230px,1.35fr)",border:"1px solid #fde68a",borderRadius:9,overflow:"hidden",minWidth:104+ant.length*150+230}}>
+              <div style={hd}></div>
+              {ant.map(x=><div key={x.ronda} data-co-col-ronda={x.ronda} style={hd}>Ronda {x.ronda} · {etq(x)}<div style={{fontWeight:600,textTransform:"none",letterSpacing:0}}>{fH(x.created_at||c.created_at)}</div></div>)}
+              <div data-co-col-respuesta style={hdR}>Respuesta del {deV?"vendedor":"comprador"} a la ronda {nA-1}<div style={{fontWeight:600,textTransform:"none",letterSpacing:0}}>{fH(r.created_at)} · al autorizarla = ronda {nA}</div></div>
+              {filaT("Precio por m²",x=>coMx(x.precio_m2)+"/m²",coMx(r.precio_m2)+"/m²",cPrecio)}
+              {filaT("Total",x=>coMx(x.total),coMx(r.total),Math.abs((Number(r.total)||0)-(Number(prev.total)||0))>0.5)}
+              {filaT("Forma de pago",x=>lineas(x,coLineasDe(x,c.apartado),false),lineas(r,Lr,true),cPago)}
+              {filaT("Firmas",x=>firmas(x),firmas(r),null)}
+            </div></div>
+            {Lr&&<div style={{fontSize:11.5,color:B.grey4,marginTop:5}}>Montos calculados sobre el total de {coMxC(r.total)} con los porcentajes que escribió el {deV?"vendedor":"comprador"}.{apt>0&&neto1!=null&&<React.Fragment> El apartado de <b>{coMxC(apt)}</b> se descuenta del primer pago: {Lr[0].w.toLowerCase()} se pagan <b>{coMxC(neto1)}</b>.</React.Fragment>}</div>}
             {!Lr&&r.condiciones&&!String(r.condiciones).startsWith(CO_MARCA3)&&<div style={{fontSize:11.5,color:B.grey4,marginTop:5}}>Plazos tal como los escribió el {deV?"vendedor":"comprador"}.</div>}
             {r.comentarios&&<div style={{fontSize:12.5,color:B.navy,background:"#fff",borderLeft:"3px solid #f59e0b",borderRadius:"0 8px 8px 0",padding:"6px 10px",marginTop:8}}>💬 <b>Comentario del {deV?"vendedor":"comprador"}:</b> {r.comentarios}</div>}
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:10}}>
-              {opcion(1,"Mandarla al "+dest+" tal cual",<React.Fragment><button disabled={!!busy} onClick={()=>reenviar(c,dest,"copiar")} style={bB(B.gold,B.navy)}>🔗 Copiar liga del {dest}</button><button disabled={!!busy} onClick={()=>reenviar(c,dest,"whatsapp")} style={bB("#25D366","#fff")}>🟢 WhatsApp</button>{(deV?c.comprador_email:c.vendedor_email)&&<button disabled={!!busy} onClick={()=>reenviar(c,dest,"correo")} style={bB(B.navy,"#fff")}>✉️ Correo</button>}</React.Fragment>,
-                <div style={{fontSize:12,color:B.grey5}}>Abre su misma liga. Si la firma, la carta queda <b style={{color:B.green}}>ACEPTADA</b>.</div>)}
-              {deV&&opcion(2,"El comprador quiere otra cosa",<button onClick={()=>abrirContra(c,"comprador")} style={bB("#fff7ed","#b45309","#fdba74")}>🔄 Hacer contraoferta · ronda {nSig}</button>,
-                <div style={{fontSize:12,color:B.grey5}}>Capturas lo que pide el comprador como ronda {nSig}.</div>)}
+              {opcion(1,"Autorizar como RONDA "+nA+" y mandarla al "+dest,<React.Fragment><button disabled={!!busy} onClick={()=>reenviar(c,dest,"copiar")} style={bB(B.gold,B.navy)}>🔗 Copiar liga del {dest}</button><button disabled={!!busy} onClick={()=>reenviar(c,dest,"whatsapp")} style={bB("#25D366","#fff")}>🟢 WhatsApp</button>{(deV?c.comprador_email:c.vendedor_email)&&<button disabled={!!busy} onClick={()=>reenviar(c,dest,"correo")} style={bB(B.navy,"#fff")}>✉️ Correo</button>}</React.Fragment>,
+                <div style={{fontSize:12,color:B.grey5}}>Al mandarla queda como <b>ronda {nA}</b> y le llega al {dest} con su misma liga. Si la firma, la carta queda <b style={{color:B.green}}>ACEPTADA</b>.</div>)}
+              {deV&&opcion(2,"No la mandamos: el comprador quiere otra cosa",<button onClick={()=>abrirContra(c,"comprador")} style={bB("#fff7ed","#b45309","#fdba74")}>🔄 Capturar contraoferta del comprador</button>,
+                <div style={{fontSize:12,color:B.grey5}}>Capturas lo que pide el comprador y se manda al vendedor.</div>)}
             </div></div>); }
       if(c.estado==="aceptada"&&coSeg(c)&&coSeg(c).etapa==="escrituracion") return caja(ok,"🏁 Vendida","Operación escriturada","El negocio quedó cerrado. Todo el historial y las cartas firmadas siguen abajo.",null);
       if(c.estado==="aceptada"){ const seg=coSeg(c);
@@ -4244,15 +4257,17 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
     // La negociación: una ronda por renglón (abajo la más reciente)
     const sigDe=(x)=>rs.find(y=>y.ronda===x.ronda+1);
     const renglon=(x)=>{ const s=sigDe(x), act=x.ronda===nA;
-      const est=s?{t:"Superada",fg:B.grey4}:(c.estado==="aceptada"?{t:"🎉 Aceptada",fg:B.green}:(c.estado==="rechazada"?{t:"✕ Rechazada",fg:B.red}:{t:"Vigente",fg:"#b45309"}));
-      const quien=x.ronda===1&&x.propone!=="vendedor"?"Oferta original":(x.propone==="vendedor"?"Contrapropuesta del vendedor":(x.propone==="comprador"?"Contrapropuesta del comprador":("Contraoferta"+(x.solicita==="vendedor"?" · la pidió el vendedor":(x.solicita==="comprador"?" · la pidió el comprador":" acordada")))));
+      const est=s?{t:"Superada",fg:B.grey4}:(c.estado==="aceptada"?{t:"🎉 Aceptada",fg:B.green}:(c.estado==="rechazada"?{t:"✕ Rechazada",fg:B.red}:(coEsResp(c)?{t:"Por autorizar",fg:"#b45309"}:{t:"Vigente",fg:"#b45309"})));
+      const esResp=coEsResp(c)&&act;
+      const quien=esResp?("Respuesta del "+(x.propone==="comprador"?"comprador":"vendedor")+" a la ronda "+(x.ronda-1)+" · por autorizar (se carga como ronda "+x.ronda+")")
+        :(x.ronda===1&&x.propone!=="vendedor"?"Oferta del comprador":(x.propone==="vendedor"?"Respuesta del vendedor · autorizada":(x.propone==="comprador"?"Contrapropuesta del comprador":("Contraoferta del comprador"+(x.solicita==="vendedor"?" · a petición del vendedor":"")))));
       const L=coLineasDe(x,c.apartado);
       const pago=L?(L.map((y,i)=>"("+(i+1)+") "+y.c+", "+String(y.w||"").replace(/^./,m=>m.toLowerCase())+": "+coMxC(y.m)).join(" · ")):(()=>{ const t0=coClausula3(x); return t0.length>200?t0.slice(0,200)+"…":t0; })();
       const fC=x.comprador_firma_at?chip("✓ Comprador firmó "+fH(x.comprador_firma_at),"ok","c"):(s?chip("↪ Comprador no firmó","cp","c"):chip("⏳ Comprador","pe","c"));
       const fG=(c.gg_firma_at&&x.comprador_firma_at)?chip("✓ Grupo Guía recibió","ok","g"):chip("⏳ Grupo Guía","pe","g");
       const fV=x.vendedor_firma_at?chip(x.propone==="vendedor"?"✓ Vendedor la firmó":"✓ Vendedor aceptó","ok","v"):(s?chip(s.propone==="vendedor"?"↪ Vendedor pidió cambios":"↪ Vendedor","cp","v"):chip("⏳ Vendedor","pe","v"));
       return (<div key={x.ronda} data-co-ronda={x.ronda} style={{border:act?"1.5px solid "+B.gold:"1px solid "+B.grey1,background:act?"#fffdf5":"#fff",borderRadius:10,padding:"9px 12px",display:"grid",gridTemplateColumns:"auto 1fr auto",gap:"5px 12px",alignItems:"center",marginBottom:7}}>
-        <span style={{background:act?B.navy:B.grey4,color:"#fff",borderRadius:7,padding:"3px 9px",fontSize:12,fontWeight:900,letterSpacing:0.5,whiteSpace:"nowrap"}}>RONDA {x.ronda}</span>
+        <span style={{background:act?B.navy:B.grey4,color:"#fff",borderRadius:7,padding:"3px 9px",fontSize:12,fontWeight:900,letterSpacing:0.5,whiteSpace:"nowrap"}}>{coEsResp(c)&&act?("RESPUESTA A R"+(x.ronda-1)):("RONDA "+x.ronda)}</span>
         <div style={{fontSize:13.5,color:B.navy}}>{quien} · {fH(x.created_at||c.created_at)} · <b>{coMx(x.precio_m2)}/m² · {coMx(x.total)}</b> <span style={{color:B.grey4}}>· {fl(x.forma_pago)}</span></div>
         <span style={{fontSize:11.5,fontWeight:800,borderRadius:999,padding:"2px 9px",border:"1.5px solid "+est.fg,color:est.fg,whiteSpace:"nowrap"}}>{est.t}</span>
         {act&&<div style={{gridColumn:"2 / 4",fontSize:12.5,color:B.grey5,background:"#fbfaf6",borderLeft:"3px solid "+B.gold,borderRadius:"0 7px 7px 0",padding:"5px 9px"}}><b>Forma de pago:</b> {pago}</div>}
@@ -4274,8 +4289,9 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       {(()=>{ const dl=(Number(c.precio_lista_m2)>0&&Number(r.precio_m2)>0)?((Number(r.precio_m2)-Number(c.precio_lista_m2))/Number(c.precio_lista_m2)*100):null; return (
       <div data-co-vigente={nA} style={{display:"flex",marginTop:enModal?0:10,border:"1.5px solid "+B.navy,borderRadius:11,overflow:"hidden"}}>
         <div style={{background:B.navy,color:"#fff",padding:"7px 14px",display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",minWidth:92}}>
-          <span style={{fontSize:9.5,fontWeight:800,letterSpacing:1.2,color:B.gold}}>RONDA</span><span style={{fontSize:26,fontWeight:900,lineHeight:1}}>{nA}</span><span style={{fontSize:9,fontWeight:800,letterSpacing:0.8,opacity:0.85}}>VIGENTE</span></div>
-        <div style={{flex:1,padding:"8px 14px"}}><div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>{nA===1&&r.propone!=="vendedor"?"Oferta original":coQuien(r)}</div>
+          {coEsResp(c)?<React.Fragment><span style={{fontSize:9,fontWeight:800,letterSpacing:1,color:B.gold}}>RESPUESTA</span><span style={{fontSize:13,fontWeight:900,lineHeight:1.2}}>a ronda {nA-1}</span><span style={{fontSize:8.5,fontWeight:800,letterSpacing:0.6,opacity:0.85}}>POR AUTORIZAR</span></React.Fragment>
+            :<React.Fragment><span style={{fontSize:9.5,fontWeight:800,letterSpacing:1.2,color:B.gold}}>RONDA</span><span style={{fontSize:26,fontWeight:900,lineHeight:1}}>{nA}</span><span style={{fontSize:9,fontWeight:800,letterSpacing:0.8,opacity:0.85}}>VIGENTE</span></React.Fragment>}</div>
+        <div style={{flex:1,padding:"8px 14px"}}><div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.5}}>{coEsResp(c)?("Respuesta del "+(c.estado==="contrapropuesta_vendedor"?"vendedor":"comprador")+" · al autorizarla se carga como ronda "+nA):(nA===1&&r.propone!=="vendedor"?"Oferta original":coQuien(r))}</div>
           <div style={{fontSize:14,color:B.navy,marginTop:1}}><b style={{fontSize:16}}>{coMx(r.total)}</b> <span style={{color:B.grey4}}>({(Number(c.superficie_m2)||0).toLocaleString("es-MX")} m² × {coMx(r.precio_m2)}) · {fl(r.forma_pago)} · apartado {coMx(c.apartado)}</span>{dl!=null&&<span style={{marginLeft:8,fontSize:11.5,fontWeight:800,color:dl<0?"#b45309":B.green}}>{dl>=0?"+":""}{dl.toFixed(1)}% vs lista</span>}</div></div>
       </div>); })()}
       {envioOk && envioOk.id===c.id && (
