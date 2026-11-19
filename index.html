@@ -2323,6 +2323,55 @@ function CapPersonaEditor({ f, onGuardar }){
   );
 }
 
+// ⚙️ Admin → "📲 Probar aviso por WhatsApp": manda una prueba a Dirección (Sergio y Fernanda) y
+// muestra lo que contestó WhatsApp por cada número. El resultado sobrevive al redibujado (MP_WA_PRUEBA).
+const MP_WA_PRUEBA={res:null};
+function PruebaAvisosWA({ onToast }){
+  const [res,setResRaw]=useState(()=>MP_WA_PRUEBA.res);
+  const [busy,setBusy]=useState(false);
+  const setRes=(v)=>{ MP_WA_PRUEBA.res=v; setResRaw(v); };
+  const probar=async()=>{
+    if(!window.sb){ onToast&&onToast("⚠ Inicia sesión para probar"); return; }
+    setBusy(true); setRes(null);
+    try{
+      const {data:sess}=await window.sb.auth.getSession(); const tkn=(sess&&sess.session&&sess.session.access_token)||"";
+      const r=await fetch(LANDING_URL+"/.netlify/functions/wa-admin-prueba",{method:"POST",headers:{"content-type":"application/json",Authorization:"Bearer "+tkn},body:"{}"});
+      const d=await r.json().catch(()=>({ok:false,motivo:"respuesta inválida (HTTP "+r.status+")"}));
+      setRes(d);
+    }catch(e){ setRes({ok:false,motivo:String((e&&e.message)||e)}); }
+    finally{ setBusy(false); }
+  };
+  const MOT={"sin-sesion":"No hay sesión: vuelve a iniciar sesión.","no-admin":"Tu usuario no es administrador.","sin-config-whatsapp":"Netlify no tiene configurado WhatsApp (WHATSAPP_TOKEN / WHATSAPP_PHONE_ID).","sin-config-supabase":"Netlify no tiene configurado Supabase."};
+  const explica=(x)=>{ const e=String((x&&x.error)||""); const c=x&&x.codigo;
+    if(c===132001||/does not exist/i.test(e)) return "La plantilla de aviso no existe o no está aprobada en Meta (gg_aviso_admin, es_MX).";
+    if(c===131030||/recipient phone number not in allowed list/i.test(e)) return "Ese número no está permitido (la app de WhatsApp está en modo prueba).";
+    if(c===190||/access token/i.test(e)) return "El token de WhatsApp en Netlify venció o es inválido.";
+    if(c===131026||/undeliverable/i.test(e)) return "WhatsApp no puede entregar a ese número.";
+    return e; };
+  const fila=(t,x,extra)=>!x?null:(<div style={{fontSize:12,color:x.ok?"#15803d":"#b91c1c",fontWeight:700}}>{t}: {x.ok?"✅ WhatsApp lo aceptó"+(extra||""):"❌ "+explica(x)}</div>);
+  return (
+    <div data-wa-prueba style={{marginBottom:18,background:B.white,border:"1px solid "+B.grey1,borderRadius:12,padding:"14px 16px",boxShadow:"0 2px 10px rgba(0,43,73,0.05)"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+        <div><div style={{fontSize:14,fontWeight:800,color:B.navy}}>📲 Avisos por WhatsApp a Dirección</div>
+          <div style={{fontSize:12,color:B.grey4}}>Cada firma (asesor, propietario, comprador, vendedor y contrapropuestas) les avisa a Sergio y a Fernanda por el chatbot.</div></div>
+        <button data-wa-probar disabled={busy} onClick={probar} style={{padding:"9px 14px",borderRadius:9,border:"none",background:"#25D366",color:"#fff",fontSize:13,fontWeight:800,cursor:busy?"wait":"pointer",fontFamily:"'DM Sans',sans-serif"}}>{busy?"Enviando prueba…":"📲 Probar aviso por WhatsApp"}</button>
+      </div>
+      {res&&(
+        <div data-wa-resultado style={{marginTop:10,borderTop:"1px dashed "+B.grey1,paddingTop:10,display:"flex",flexDirection:"column",gap:8}}>
+          {!res.ok&&<div style={{fontSize:12.5,color:"#b91c1c",fontWeight:800}}>❌ {MOT[res.motivo]||res.motivo||res.error||"No se pudo probar"}</div>}
+          {(res.resultados||[]).map((x,i)=>(
+            <div key={i} style={{border:"1px solid "+B.grey1,borderRadius:8,padding:"8px 10px"}}>
+              <div style={{fontSize:12.5,fontWeight:800,color:B.navy}}>{x.email}{x.tel?(" · "+x.tel):""}</div>
+              {x.nota&&<div style={{fontSize:12,color:"#b91c1c",fontWeight:700}}>❌ {x.nota==="sin celular"?"No tiene celular en landing_colaboradores":(x.nota==="inactivo"?"Está inactivo en landing_colaboradores":"No está dado de alta en landing_colaboradores")}</div>}
+              {fila("Plantilla de aviso",x.plantilla," (llega aunque no hayan escrito al bot)")}
+              {fila("Texto normal",x.texto," · solo llega si escribieron al chatbot en las últimas 24 h")}
+            </div>))}
+          {res.ok&&<div style={{fontSize:11.5,color:B.grey4}}>"Aceptado" quiere decir que WhatsApp lo recibió para entregar: confirmen en su celular que les llegó la prueba.</div>}
+        </div>)}
+    </div>
+  );
+}
+
 function ShareButtons({ url, mensaje, asunto, telefono, email, chico, onToast, etiqueta, mostrarMensaje, onEnviar }){
   const [copiado,setCopiado]=useState(false);
   const tRef=useRef(null);
@@ -8892,6 +8941,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
           </div>
           <div style={{...s.sectionSub,marginBottom:18}}>Carga y administra aquí los datos del negocio. Todo se guarda en la nube y lo leen TODAS las apps (MacroPro, Cotizador, Intelligence, Presentaciones, Hub).</div>
           {!sb&&<div style={{padding:16,background:B.redL,color:B.red,borderRadius:10,fontSize:13,marginBottom:14}}>Sin conexión a Supabase — inicia sesión para administrar.</div>}
+          <PruebaAvisosWA onToast={toast}/>
           {(()=>{ const cands=(captaciones||[]).filter(c=>c&&!c.eliminado&&!c.aprobadaPublicar); return (
             <div style={{marginBottom:18,background:B.white,border:"1px solid "+B.grey1,borderRadius:12,padding:"14px 16px",boxShadow:"0 2px 10px rgba(0,43,73,0.05)"}}>
               <div style={{fontSize:14,fontWeight:800,color:B.navy,marginBottom:4}}>✅ Aprobar para publicar · Macrolotes (Dirección)</div>
