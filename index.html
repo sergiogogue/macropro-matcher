@@ -2950,7 +2950,7 @@ const CO_COLS=[
   {k:"nueva",     t:"📝 Nueva",                fg:"#475569", bg:"#f1f5f9", bd:"#94a3b8"},
   {k:"enviada",   t:"🔗 Enviada al comprador", fg:"#1d4ed8", bg:"#eff6ff", bd:"#3b82f6"},
   {k:"firmo",     t:"✍️ Firmó el comprador",   fg:"#4338ca", bg:"#eef2ff", bd:"#6366f1"},
-  {k:"contra",    t:"🔄 Contrapropuesta",      fg:"#b45309", bg:"#fff7ed", bd:"#f59e0b"},
+  {k:"contra",    t:"🔄 En contrapropuesta",   fg:"#b45309", bg:"#fff7ed", bd:"#f59e0b"},
   {k:"firmada",   t:"🎉 Firmada por ambos",    fg:"#15803d", bg:"#ecfdf3", bd:"#22c55e"},
   {k:"documentos",t:"📂 En documentos",        fg:"#0e7490", bg:"#ecfeff", bd:"#06b6d4"},
   {k:"contrato",  t:"📜 En contrato",          fg:"#6d28d9", bg:"#f5f3ff", bd:"#8b5cf6"},
@@ -2959,8 +2959,14 @@ const CO_COLS=[
 ];
 const coSeg=(c)=>Array.isArray(c&&c.ofertas_seguimiento)?c.ofertas_seguimiento[0]:(c&&c.ofertas_seguimiento)||null;
 const coDocsN=(seg)=>(seg&&seg.documentos&&typeof seg.documentos==="object")?Object.keys(seg.documentos).length:0;
+// Cuántos documentos pide el expediente (docs_total lo calcula la base; si no, la regla anterior).
+const coDocsReq=(seg)=>{ if(seg&&Number(seg.docs_total)>0) return Number(seg.docs_total); const cred=seg&&seg.tipo_operacion==="credito"; return (seg&&seg.tipo_persona==="moral")?(cred?8:5):(cred?8:4); };
+const coPersonaTxt=(seg)=>{ const p=seg&&seg.tipo_persona; if(p==="moral") return "Persona moral"; if(p==="copropiedad"){ const n=Array.isArray(seg.copropietarios)?seg.copropietarios.length:0; return "Persona física en copropiedad"+(n?(" ("+n+")"):""); } return "Persona física"; };
 function coColumna(c){ const e=c&&c.estado;
-  if(e==="borrador") return "nueva"; if(e==="enviada_comprador") return "enviada";
+  if(e==="borrador") return "nueva";
+  // Ronda 2 o más y todavía en negociación (quien sea que deba firmar) → "En contrapropuesta".
+  if(Number(c&&c.ronda_actual)>1&&e!=="aceptada"&&e!=="rechazada") return "contra";
+  if(e==="enviada_comprador") return "enviada";
   if(e==="firmada_comprador"||e==="autorizada"||e==="enviada_vendedor") return "firmo";
   if(e==="contrapropuesta_vendedor"||e==="contrapropuesta_comprador") return "contra";
   if(e==="rechazada") return "rechazada";
@@ -3336,7 +3342,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
     if(!forzar&&cache&&(Date.now()-cache.at)<CO_FRESCO_MS){ setLista(cache.data); try{ onLista&&onLista(cache.data); }catch(e){} return; }
     try{ const { data:ss }=await window.sb.auth.getSession(); if(!(ss&&ss.session)){ if((intento||0)<20) setTimeout(()=>cargar(modo,(intento||0)+1),700); return; } }catch(e){}
     if(!CO_VUELO[ck]){
-      let q=window.sb.from("cartas_oferta").select("*, cartas_oferta_rondas(*), ofertas_seguimiento(etapa,tipo_operacion,documentos,enviado_legal_at,legal_email)");
+      let q=window.sb.from("cartas_oferta").select("*, cartas_oferta_rondas(*), ofertas_seguimiento(*)");
       if(!todas) q=q.eq(cap&&cap.id?"captacion_id":"lote_id",cap&&cap.id?cap.id:loteId);
       CO_VUELO[ck]=q.order("created_at",{ascending:false}).then(r=>r,e=>({error:e})).finally(()=>{ delete CO_VUELO[ck]; });
     }
@@ -3532,13 +3538,13 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       if(msg) toast(msg); await cargar(); }
     catch(e){ try{ w&&w.close(); }catch(_){} toast("No se pudo enviar al vendedor: "+((e&&e.message)||e)); }
     setBusy(""); };
-  const enviarLegal=async(c,email)=>{ setBusy(c.id+"leg");
+  const enviarLegal=async(c,email,tipo,nombre)=>{ setBusy(c.id+"leg");
     try{
       const {data:sess}=await window.sb.auth.getSession(); const tkn=(sess&&sess.session&&sess.session.access_token)||"";
-      const r=await fetch(LANDING_URL+"/.netlify/functions/oferta-legal",{method:"POST",headers:{"content-type":"application/json",Authorization:"Bearer "+tkn},body:JSON.stringify({carta_id:c.id,email:email||null})});
+      const r=await fetch(LANDING_URL+"/.netlify/functions/oferta-legal",{method:"POST",headers:{"content-type":"application/json",Authorization:"Bearer "+tkn},body:JSON.stringify({carta_id:c.id,email:email||null,tipo:tipo||"interno",nombre:nombre||null})});
       const d=await r.json().catch(()=>({}));
       if(!r.ok||d.error){ toast("No se pudo enviar a Legal: "+(d.error||r.status)); return; }
-      toast("📤 Expediente enviado a Legal ("+(d.legal_email||"")+")"+(d.correo_enviado===false?" — revisa el correo":"")); cargar();
+      toast("📤 Expediente enviado a "+(tipo==="externo"?("abogado externo"+(nombre?(" "+nombre):"")):"Legal interno")+" ("+(d.legal_email||"")+")"+(d.correo_enviado===false?" — el correo no salió, revisa 📬 Estado de correos":"")); cargar();
     }catch(e){ toast("Error al enviar a Legal: "+((e&&e.message)||e)); } finally{ setBusy(""); } };
   // 🏁 Marcar como VENDIDA (escriturada): etapa "escrituracion" del expediente → columna "Vendido".
   const marcarVendida=async(c)=>{ if(!window.confirm("¿Marcar "+(c.terreno_nombre||c.folio)+" — "+(c.comprador_nombre||"")+" como VENDIDA (escriturada)?\n\nPasa a la columna 🏁 Vendido.")) return;
@@ -3766,14 +3772,29 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
                 <div style={{fontSize:12,color:B.grey5}}>Capturas lo que pide el comprador como ronda {nSig}.</div>)}
             </div></div>); }
       if(c.estado==="aceptada"&&coSeg(c)&&coSeg(c).etapa==="escrituracion") return caja(ok,"🏁 Vendida","Operación escriturada","El negocio quedó cerrado. Todo el historial y las cartas firmadas siguen abajo.",null);
-      if(c.estado==="aceptada"){ const seg=Array.isArray(c.ofertas_seguimiento)?c.ofertas_seguimiento[0]:c.ofertas_seguimiento;
-        const reqN=(seg&&seg.tipo_operacion==="credito")?8:4, docsN=(seg&&seg.documentos&&typeof seg.documentos==="object")?Object.keys(seg.documentos).length:0;
+      if(c.estado==="aceptada"){ const seg=coSeg(c);
+        const reqN=coDocsReq(seg), docsN=coDocsN(seg);
         const listo=seg&&seg.etapa==="listo_contrato", enviado=(seg&&seg.etapa==="revision_legal")||(seg&&seg.enviado_legal_at), verde=listo||enviado;
         const docUrl=c.token_comprador?(LANDING_URL+"/mi-oferta/"+c.token_comprador):""; const nom=shNombre(c.comprador_nombre||c.comprador_empresa);
-        const msg="Hola"+(nom?" "+nom:"")+" 👋 Para preparar tu contrato de compraventa"+(c.folio?(" ("+c.folio+")"):"")+" sube aquí tus documentos y confirma tus datos de contacto:\n"+docUrl+"\n\n— Equipo Macrolotes de Grupo Guía";
-        return caja(ok,"🎉 Aceptada · siguiente paso",enviado?"El expediente ya está en Revisión Legal":(listo?"Expediente completo: mándalo a Legal":"Que el comprador suba su expediente para el contrato"),"Expediente "+(seg?(seg.tipo_operacion==="credito"?"crédito":"contado"):"")+" · "+docsN+"/"+reqN+" documentos.",
-          <React.Fragment><button disabled={(!verde)||busy===c.id+"leg"} onClick={()=>{ const mail=window.prompt("Correo de Legal (puedes cambiarlo por un abogado externo):",(seg&&seg.legal_email)||"legal@grupoguia.mx"); if(mail===null) return; enviarLegal(c,(mail||"").trim()); }} style={{...bB(verde?B.gold:B.grey1,verde?B.navy:B.grey4),opacity:verde?1:0.6}}>{busy===c.id+"leg"?"Enviando…":(enviado?"📤 Reenviar a Legal":"📤 Enviar a Legal")}</button>{enviado&&<button data-co-vendida disabled={busy===c.id+"vend"} onClick={()=>marcarVendida(c)} style={bB(B.navy,B.gold)}>{busy===c.id+"vend"?"Guardando…":"🏁 Marcar como vendida (escriturada)"}</button>}</React.Fragment>,
-          docUrl&&<div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}><ShareButtons url={docUrl} mensaje={msg} asunto={"Tu expediente para el contrato · "+(c.terreno_nombre||"terreno")+(c.folio?(" · "+c.folio):"")+" · Grupo Guía"} telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast}/><button onClick={()=>window.open(docUrl,"_blank","noopener")} style={bB("#fff",B.navy,B.grey2)}>📍 Ver portal del comprador</button></div>); }
+        const msg="Hola"+(nom?" "+nom:"")+" 👋 Tu carta oferta"+(c.folio?(" "+c.folio):"")+" quedó aceptada. Para preparar tu contrato de compraventa sube aquí tus documentos (elige si compras como persona física, en copropiedad o como empresa) y confirma tus datos de contacto:\n"+docUrl+"\n\n— Equipo Macrolotes de Grupo Guía";
+        const legalBox=(<div data-co-legal style={{marginTop:12,border:"2px solid #c4b5fd",background:"#faf5ff",borderRadius:12,padding:"11px 13px"}}>
+          <div style={{fontSize:10.5,fontWeight:800,letterSpacing:0.8,textTransform:"uppercase",color:"#6d28d9"}}>👉 {enviado?"Enviado a Legal":(verde?"Expediente completo":("Cuando esté completo ("+reqN+"/"+reqN+")"))}</div>
+          <div style={{fontSize:15,fontWeight:800,color:B.navy,marginTop:2}}>{enviado?("Expediente en revisión legal · "+((seg&&seg.legal_email)||"")+(seg&&seg.enviado_legal_at?(" · "+coFH(seg.enviado_legal_at)):"")):"Enviar el expediente a Legal"}</div>
+          <div style={{fontSize:12,color:B.grey4,marginTop:2}}>Va por correo con la <b>forma de pago final</b> (la de la ronda firmada, sin el historial) y las ligas a cada documento.</div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:9}}>
+            <div style={{flex:"1 1 230px",background:"#fff",border:"1.5px solid #c4b5fd",borderRadius:10,padding:"9px 11px"}}><b style={{display:"block",color:B.navy,fontSize:13}}>⚖️ Legal interno</b><span style={{fontSize:11.5,color:B.grey4}}>legal@grupoguia.mx</span>
+              <div style={{marginTop:6}}><button data-co-legal-interno disabled={!verde||busy===c.id+"leg"} onClick={()=>{ if(!window.confirm("¿Enviar el expediente de "+(c.terreno_nombre||c.folio)+" a Legal interno (legal@grupoguia.mx)?")) return; enviarLegal(c,"legal@grupoguia.mx","interno"); }} style={{...bB(verde?"#6d28d9":B.grey1,verde?"#fff":B.grey4),opacity:verde?1:0.6}}>{busy===c.id+"leg"?"Enviando…":(enviado?"📤 Reenviar a Legal interno":"📤 Enviar a Legal interno")}</button></div></div>
+            <div style={{flex:"1 1 230px",background:"#fff",border:"1.5px solid #c4b5fd",borderRadius:10,padding:"9px 11px"}}><b style={{display:"block",color:B.navy,fontSize:13}}>👨‍⚖️ Abogado externo</b><span style={{fontSize:11.5,color:B.grey4}}>Escribes su nombre y correo</span>
+              <div style={{marginTop:6}}><button data-co-legal-externo disabled={!verde||busy===c.id+"leg"} onClick={()=>{ const n=window.prompt("Nombre del abogado externo:",""); if(n===null) return; const m=window.prompt("Correo del abogado externo:",""); if(m===null) return; const mail=String(m||"").trim().toLowerCase(); if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){ toast("Escribe un correo válido del abogado."); return; } enviarLegal(c,mail,"externo",String(n||"").trim()); }} style={{...bB("#fff",verde?"#6d28d9":B.grey4,verde?"#6d28d9":B.grey2),opacity:verde?1:0.6}}>{enviado?"📤 Reenviar a abogado externo":"📤 Enviar a abogado externo"}</button></div></div>
+          </div>
+          {enviado&&<div style={{marginTop:9}}><button data-co-vendida disabled={busy===c.id+"vend"} onClick={()=>marcarVendida(c)} style={bB(B.navy,B.gold)}>{busy===c.id+"vend"?"Guardando…":"🏁 Marcar como vendida (escriturada)"}</button></div>}
+        </div>);
+        return caja(ok,"🎉 Firmada por ambos · siguiente paso",verde?"Expediente completo del comprador":"Pedir al comprador sus documentos para el contrato",
+          (verde?"Ya subió todo y confirmó su contacto. ":"Al quedar firmada se le mandó en automático el correo con su liga de documentos. Puedes reenviarla: ")+"Avance: "+docsN+" de "+reqN+" documentos · "+coPersonaTxt(seg)+" · "+((seg&&seg.tipo_operacion==="credito")?"Crédito / pagos":"Contado")+".",null,
+          <div>
+            {docUrl&&<div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}><ShareButtons url={docUrl} mensaje={msg} asunto={"Tu expediente para el contrato · "+(c.terreno_nombre||"terreno")+(c.folio?(" · "+c.folio):"")+" · Grupo Guía"} telefono={c.comprador_telefono} email={c.comprador_email} onToast={toast}/><button onClick={()=>window.open(docUrl,"_blank","noopener")} style={bB("#fff",B.navy,B.grey2)}>📍 Ver portal del comprador</button></div>}
+            {legalBox}
+          </div>); }
       if(c.estado==="rechazada") return caja(no,"Carta rechazada","Rechazada por el "+(c.rechazo_por||"—")+" · "+coFH(c.rechazo_at),c.rechazo_motivo||null,
         <button onClick={()=>abrirContra(c,c.rechazo_por==="comprador"?"comprador":"vendedor")} style={bB("#fff7ed","#b45309","#fdba74")}>🔄 Retomar con contraoferta · ronda {nSig}</button>);
       return null; })();
@@ -3904,11 +3925,11 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
     const porCol={}; CO_COLS.forEach(k=>{ porCol[k.k]=[]; }); vis.forEach(c=>{ porCol[coColumna(c)].push(c); });
     const hace=(iso)=>{ if(!iso) return ""; const d=Math.floor((Date.now()-new Date(iso))/864e5); return d<=0?"Hoy":(d===1?"Ayer":("Hace "+d+" d")); };
     const fl=(x)=>x==="Financiamiento"?"Crédito":(x==="Diferido"?"Pagos":(x||"—"));
-    const tocaDe=(c,col)=>{ if(col==="documentos"){ const sg=coSeg(c); return {t:"📂 Documentos "+coDocsN(sg)+"/"+((sg&&sg.tipo_operacion==="credito")?8:4),fg:"#0e7490",bg:"#ecfeff",bd:"#67e8f9"}; }
+    const tocaDe=(c,col)=>{ if(col==="documentos"){ const sg=coSeg(c); return {t:"📂 Documentos "+coDocsN(sg)+"/"+coDocsReq(sg),fg:"#0e7490",bg:"#ecfeff",bd:"#67e8f9"}; }
       if(col==="contrato"){ const sg=coSeg(c); return (sg&&(sg.etapa==="revision_legal"||sg.enviado_legal_at))?{t:"⚖️ En revisión legal",fg:"#6d28d9",bg:"#f5f3ff",bd:"#c4b5fd"}:{t:"👉 Te toca: enviar a Legal",fg:"#b45309",bg:"#fff7ed",bd:"#fdba74"}; }
       if(col==="vendido") return {t:"🏁 Escriturada",fg:"#002B49",bg:"#fffbeb",bd:"#F5B335"};
       if(col==="firmada") return {t:"👉 Comprador: subir documentos",fg:"#15803d",bg:"#ecfdf3",bd:"#86efac"};
-      if(col==="contra"){ const r=coActual(c); return {t:"📩 Te toca: pide "+coMx(r.precio_m2)+"/m²",fg:"#b45309",bg:"#fff7ed",bd:"#fdba74"}; }
+      if(col==="contra"&&(c.estado==="contrapropuesta_vendedor"||c.estado==="contrapropuesta_comprador")){ const r=coActual(c); return {t:"📩 Te toca: pide "+coMx(r.precio_m2)+"/m²",fg:"#b45309",bg:"#fff7ed",bd:"#fdba74"}; }
       const tt=coTurno(c); const gg=/Grupo Guía/.test(tt.t); return {t:(gg?"👉 Te toca: ":"")+tt.t.replace(/^Grupo Guía · /,""),fg:gg?"#b45309":"#1d4ed8",bg:gg?"#fff7ed":"#eff6ff",bd:gg?"#fdba74":"#93c5fd"}; };
     const card=(c)=>{ const col=coColumna(c), r=coActual(c), n=Number(c.ronda_actual||1), to=tocaDe(c,col);
       const comp=[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")||"Comprador";
