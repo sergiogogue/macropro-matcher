@@ -1084,7 +1084,15 @@ function saveSolicitudesAsesor(arr){
 // ══════════ CAPTACIÓN DE TERRENOS (opcionamiento) ══════════
 // Seguimiento de terrenos que un propietario nos ofrece para vender/opcionar.
 const CAPTACION_KEY = "macropro_captacion_v1";
-const CAPTACION_PIPELINE = ["Nueva opción","Viabilidad","Cotización con el cliente","Contactado / visita","En negociación","Documentación","Contrato","Firmado","Descartado"];
+// Orden del tablero (Dirección, 2026-11-19). Los VALORES guardados no cambian (la base y la Landing
+// los usan: p.ej. el trigger del semáforo mueve a "Cotización con el cliente"); solo cambia el nombre
+// que se ve (CAPTACION_ETAPA_TXT). "En negociación" ya no es columna: esas tarjetas se ven en "Contactado".
+const CAPTACION_PIPELINE = ["Nueva opción","Viabilidad","Cotización con el cliente","Contactado / visita","Documentación","Contrato","Firmado","En inventario","Descartado"];
+const CAPTACION_ETAPA_TXT = { "Nueva opción":"Firmada", "Viabilidad":"Viabilidad · c/documentos para validar", "Cotización con el cliente":"Confirmada la viabilidad", "Contactado / visita":"Contactado", "Documentación":"Documentación contrato" };
+const capEtapaTxt = (s)=>CAPTACION_ETAPA_TXT[s]||s;
+const CAP_FIRMADAS = ["Firmado","En inventario"];
+// Columna en la que se ve una captación (firmado y ya pasado a inventario → "En inventario").
+const capEtapaCol = (c)=>{ const p=(c&&c.pipeline)||"Nueva opción"; if(p==="En negociación") return "Contactado / visita"; if(p==="Firmado"&&(c.loteInventarioId||c.publicadaLoteId)) return "En inventario"; return CAPTACION_PIPELINE.includes(p)?p:"Nueva opción"; };
 const CAPTACION_PIPELINE_COLORS = {
   "Nueva opción":            { bg:"#e0e7ff", color:"#4338ca", border:"#6366f1" },
   "Viabilidad":          { bg:"#fef9c3", color:"#854d0e", border:"#eab308" },
@@ -1094,9 +1102,10 @@ const CAPTACION_PIPELINE_COLORS = {
   "Documentación":       { bg:"#fae8ff", color:"#86198f", border:"#c026d3" },
   "Contrato":            { bg:"#cffafe", color:"#155e75", border:"#06b6d4" },
   "Firmado":             { bg:"#dcfce7", color:"#15803d", border:"#16a34a" },
+  "En inventario":       { bg:"#e0f2fe", color:"#075985", border:"#0284c7" },
   "Descartado":          { bg:"#f1f5f9", color:"#475569", border:"#94a3b8" }
 };
-const CAPTACION_PIPELINE_ICONS = { "Nueva opción":"📥","Viabilidad":"🚦","Cotización con el cliente":"🧾","Contactado / visita":"📞","En negociación":"🤝","Documentación":"📄","Contrato":"✍️","Firmado":"✅","Descartado":"🗑" };
+const CAPTACION_PIPELINE_ICONS = { "Nueva opción":"🖋️","Viabilidad":"🚦","Cotización con el cliente":"🟢","Contactado / visita":"📞","En negociación":"🤝","Documentación":"📄","Contrato":"✍️","Firmado":"✅","En inventario":"🏷️","Descartado":"🗑" };
 const TIPOS_ACUERDO_CAPTACION = ["Exclusiva","Abierto / No exclusiva","Opción de compra","Consignación","Comisión mercantil","Por definir"];
 const MOTIVOS_DESCARTE = ["💰 Precio alto","📍 Ubicación / zona","📐 Superficie","🏗 Uso de suelo / zonificación","📄 Documentación / legal","🚰 Servicios / infraestructura","⏱ Tiempos / entrega","💵 Forma de pago / financiamiento","🌳 Topografía / forma del terreno","🤝 Eligió otra opción / desistió","🔇 No le interesó / sin respuesta","📝 Otro"];
 const VIABILIDAD_CAPTACION = [
@@ -18019,12 +18028,12 @@ Respuesta: [respuesta exacta, conversacional]
   // ── Reporte / estadístico de captación (recibidos, aceptados, descartados, tiempos) ──
   const computeReporteCaptacion = () => {
     const arr = captaciones||[];
-    const esAceptado = (c)=> (c.viabilidad||"").startsWith("🟢") || ["En negociación","Documentación","Contrato","Firmado"].includes(c.pipeline);
+    const esAceptado = (c)=> (c.viabilidad||"").startsWith("🟢") || ["En negociación","Documentación","Contrato","Firmado","En inventario"].includes(c.pipeline);
     const esDescartado = (c)=> c.pipeline==="Descartado" || (c.viabilidad||"").startsWith("🔴");
     const totalRecibidos = arr.length;
     const totalAceptados = arr.filter(esAceptado).length;
     const totalDescartados = arr.filter(esDescartado).length;
-    const totalFirmados = arr.filter(c=>c.pipeline==="Firmado").length;
+    const totalFirmados = arr.filter(c=>CAP_FIRMADAS.includes(c.pipeline)).length;
     const tasaAcept = totalRecibidos ? Math.round(totalAceptados/totalRecibidos*100) : 0;
     const tiempos = arr.map(c=>{ if(!c.fechaCreacion||!c.fechaUltimaActividad) return null; const d=(new Date(c.fechaUltimaActividad)-new Date(c.fechaCreacion))/(1000*60*60*24); return (d>0)?d:null; }).filter(x=>x!=null);
     const tRespProm = tiempos.length ? (tiempos.reduce((a,b)=>a+b,0)/tiempos.length) : 0;
@@ -19083,7 +19092,7 @@ Respuesta: [respuesta exacta, conversacional]
             </div>
             <button data-cot-nueva onClick={(e)=>{ e.stopPropagation(); if(cotAbierto){ setCotAbierto(false); return; } if(guardada){ setF(DEF_F); setGuardada(null); setClienteSel(null); } setCotAbierto(true); setTimeout(()=>{ try{ document.getElementById("cotizacion-form").scrollIntoView({behavior:"smooth",block:"start"}); }catch(_){} },60); }} style={{padding:"10px 16px",borderRadius:10,border:"none",background:cotAbierto?"rgba(255,255,255,.15)":DORADO,color:cotAbierto?"#fff":AZUL,fontSize:13.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{cotAbierto?"✕ Cerrar":((!guardada&&String(f.terreno_nombre||f.cliente_nombre||"").trim())?"✏️ Continuar cotización":"＋ Nueva cotización")}</button>
           </div>
-          {!cotAbierto && (<div data-cot-cerrado style={{padding:"14px 26px",fontSize:13,color:"#64748b",lineHeight:1.55}}>El formulario está cerrado. Da <b>＋ Nueva cotización</b> para capturar una. Las cotizaciones enviadas se siguen en <a href="#" onClick={(e)=>{ e.preventDefault(); setView("captacion"); }} style={{color:"#1d4ed8",fontWeight:800}}>🌱 Opción / Captación →</a> (columnas 📝 Borrador · 📨 Cotización enviada · ✕ Rechazada).</div>)}
+          {!cotAbierto && (<div data-cot-cerrado style={{padding:"14px 26px",fontSize:13,color:"#64748b",lineHeight:1.55}}>El formulario está cerrado. Da <b>＋ Nueva cotización</b> para capturar una. Las cotizaciones enviadas se siguen en <a href="#" onClick={(e)=>{ e.preventDefault(); setView("captacion"); }} style={{color:"#1d4ed8",fontWeight:800}}>🌱 Opción / Captación →</a> (columnas 📝 Nueva cotización · 📨 Enviada · 🖋️ Firmada).</div>)}
           {cotAbierto && (<div style={{display:"flex",flexWrap:"wrap",alignItems:"stretch"}}>
             {/* ── Izquierda: campos de la cotización ── */}
             <div style={{flex:"999 1 520px",minWidth:0,boxSizing:"border-box",padding:"22px 26px",display:"flex",flexDirection:"column",gap:14}}>
@@ -19494,7 +19503,7 @@ Respuesta: [respuesta exacta, conversacional]
       </div>
     ); };
     const fechaRelC = (iso)=>{ if(!iso) return "—"; const d=new Date(iso); const dias=Math.floor((ahoraC-d)/(1000*60*60*24)); if(dias===0) return "Hoy"; if(dias===1) return "Ayer"; if(dias<7) return `Hace ${dias}d`; if(dias<30) return `Hace ${Math.floor(dias/7)}sem`; return `Hace ${Math.floor(dias/30)}m`; };
-    const isStaleC = (c)=>{ if(c.pipeline==="Firmado"||c.pipeline==="Descartado") return false; const ult=new Date(c.fechaUltimaActividad||c.fechaCreacion||0); return (ahoraC-ult)/(1000*60*60*24)>7; };
+    const isStaleC = (c)=>{ if(CAP_FIRMADAS.includes(c.pipeline)||c.pipeline==="Descartado") return false; const ult=new Date(c.fechaUltimaActividad||c.fechaCreacion||0); return (ahoraC-ult)/(1000*60*60*24)>7; };
     const viabInfo = (v)=> VIABILIDAD_CAPTACION.find(x=>x.v===v) || null;
     // ── 🔎 FILTROS: asesor · cliente · ciudad. Las listas solo traen valores que SÍ tienen terreno en el tablero.
     const [fCap,setFCapRaw]=React.useState(()=>({...CAP_FILTRO}));
@@ -19522,15 +19531,15 @@ Respuesta: [respuesta exacta, conversacional]
     const opcEnCotF=opcEnCot.filter(pasa(opcVal)), opcNuevaF=opcNueva.filter(pasa(opcVal)), opcRechF=opcRech.filter(pasa(opcVal));
     const opcBorrF=opcEnCotF.filter(esBorradorCot), opcEnvF=opcEnCotF.filter(o=>!esBorradorCot(o));
     const totalConFiltro=capsF.length+opcEnCotF.length+opcNuevaF.length+opcRechF.length;
-    const activosC = capsF.filter(c=>c.pipeline!=="Firmado"&&c.pipeline!=="Descartado");
+    const activosC = capsF.filter(c=>!CAP_FIRMADAS.includes(c.pipeline)&&c.pipeline!=="Descartado");
     const totalActivosC = activosC.length;
     const totalNegoc = capsF.filter(c=>c.pipeline==="En negociación").length;
-    const totalFirm = capsF.filter(c=>c.pipeline==="Firmado").length;
+    const totalFirm = capsF.filter(c=>CAP_FIRMADAS.includes(c.pipeline)).length;
     const totalDesc = capsF.filter(c=>c.pipeline==="Descartado").length;
     const totalStaleC = capsF.filter(isStaleC).length;
     const valorCaptacion = activosC.reduce((s,c)=>s+(parseFloat(c.precioDueno)||0),0);
     const porEtapaC = {}; CAPTACION_PIPELINE.forEach(p=>{ porEtapaC[p]=[]; });
-    capsF.forEach(c=>{ if(porEtapaC[c.pipeline]) porEtapaC[c.pipeline].push(c); else porEtapaC["Nueva opción"].push(c); });
+    capsF.forEach(c=>{ porEtapaC[capEtapaCol(c)].push(c); });
     const fmtMon=(v)=>{ const n=parseFloat(v)||0; return n>0?("$"+n.toLocaleString("es-MX")):""; };
     return (
       <div style={{padding:"24px 28px", maxWidth:1600, margin:"0 auto"}}>
@@ -19680,7 +19689,7 @@ Respuesta: [respuesta exacta, conversacional]
         <div style={{background:B.white, borderRadius:14, padding:18, border:"1px solid "+B.grey1, marginBottom:20, boxShadow:"0 2px 10px rgba(0,43,73,0.04)"}}>
           <div style={{display:"flex", gap:12, overflowX:"auto", paddingBottom:8}}>
             {/* Columnas iniciales: COTIZACIONES (unificado con la pestaña Cotización) */}
-            {[["cot-borrador","📝 Cotización borrador","#475569","#f1f5f9","#94a3b8",opcBorrF],["cot-enviada","📨 Cotización enviada","#9a6a00","#fffaf0",B.gold,opcEnvF]].map(([k,t,fg,bg,bd,arr])=>(
+            {[["cot-borrador","📝 Nueva cotización","#475569","#f1f5f9","#94a3b8",opcBorrF],["cot-enviada","📨 Enviada","#9a6a00","#fffaf0",B.gold,opcEnvF]].map(([k,t,fg,bg,bd,arr])=>(
             <div key={k} data-cap-col={k} style={{minWidth:270, maxWidth:270, flexShrink:0}}>
               <div style={{padding:"10px 12px", borderRadius:8, background:bg, borderTop:"3px solid "+bd, marginBottom:10}}>
                 <div style={{fontSize:10, fontWeight:800, color:fg, textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
@@ -19689,8 +19698,9 @@ Respuesta: [respuesta exacta, conversacional]
                 </div>
               </div>
               <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:620, overflowY:"auto"}}>
+                {k==="cot-borrador"&&(<button data-cap-nueva-cot onClick={()=>{ MP_COT_UI.abierto=true; setView("pitch"); }} title="Abre el formulario de cotización" style={{padding:"9px 10px", borderRadius:8, border:"1.5px dashed #94a3b8", background:"#fff", color:B.navy, fontSize:11.5, fontWeight:800, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>＋ Nueva cotización</button>)}
                 {arr.map(renderOpcCard)}
-                {arr.length===0&&(<div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>{k==="cot-borrador"?"Vacío · las cotizaciones se capturan en 🧾 Cotización → ＋ Nueva cotización":"Vacío"}</div>)}
+                {arr.length===0&&k!=="cot-borrador"&&(<div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>)}
               </div>
             </div>))}
             {CAPTACION_PIPELINE.map(stage=>{
@@ -19701,15 +19711,16 @@ Respuesta: [respuesta exacta, conversacional]
               const items = (()=>{ const a=porEtapaC[stage]||[]; return [...a.filter(esOpcCap), ...a.filter(c=>!esOpcCap(c))]; })();
               const icon = CAPTACION_PIPELINE_ICONS[stage]||"";
               return (
-                <div key={stage} style={{minWidth:270, maxWidth:270, flexShrink:0}}>
+                <div key={stage} data-cap-col={stage} style={{minWidth:270, maxWidth:270, flexShrink:0}}>
                   <div style={{padding:"10px 12px", borderRadius:8, background:colors.bg, borderTop:"3px solid "+colors.border, marginBottom:10}}>
-                    <div style={{fontSize:10, fontWeight:800, color:colors.color, textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
-                      <span>{icon} {stage}</span>
-                      <span style={{background:colors.color, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{items.length+(stage==="Nueva opción"?opcNuevaF.length:0)}</span>
+                    <div style={{fontSize:10, fontWeight:800, color:colors.color, textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, lineHeight:1.35}}>
+                      <span>{icon} {capEtapaTxt(stage)}</span>
+                      <span style={{background:colors.color, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10, flexShrink:0}}>{items.length+(stage==="Nueva opción"?opcNuevaF.length:0)+(stage==="Descartado"?opcRechF.length:0)}</span>
                     </div>
                   </div>
                   <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:620, overflowY:"auto"}}>
                     {stage==="Nueva opción" && opcNuevaF.map(renderOpcCard)}
+                    {stage==="Descartado" && opcRechF.map(renderOpcPendiente)}
                     {items.map(c=>{
                       const stale = isStaleC(c);
                       const vb = viabInfo(c.viabilidad);
@@ -19725,7 +19736,7 @@ Respuesta: [respuesta exacta, conversacional]
                           {(()=>{ const rows=slaMap[c.id]||[]; if(!rows.length) return null;
                             const ENTREGABLES=["estudios","fotografia"];
                             const franjas=rows.filter(r=>!r.fecha_fin && !ENTREGABLES.includes(r.etapa));
-                            const fichas=rows.filter(r=>ENTREGABLES.includes(r.etapa) || (r.fecha_fin && stage==="Firmado"));
+                            const fichas=rows.filter(r=>ENTREGABLES.includes(r.etapa) || (r.fecha_fin && CAP_FIRMADAS.includes(stage)));
                             return (<>{franjas.map(r=><SlaFranja key={r.etapa} r={r}/>)}{fichas.length>0 && <SlaFichas filas={fichas} onCumplir={slaCumplir}/>}</>); })()}
                           {(()=>{
                             const dcre = c.fechaCreacion ? Math.floor((ahoraC-new Date(c.fechaCreacion))/(1000*60*60*24)) : null;
@@ -19766,9 +19777,9 @@ Respuesta: [respuesta exacta, conversacional]
                             {c.tipoAcuerdo&&<div>📑 {c.tipoAcuerdo}</div>}
                           </div>
                           <div style={{marginTop:8}} onClick={e=>e.stopPropagation()}>
-                            <select value={c.pipeline} onChange={e=>{ movManualRef.current.add(c.id); upsertCaptacion({...c, pipeline:e.target.value}); }}
+                            <select value={capEtapaCol(c)} onChange={e=>{ movManualRef.current.add(c.id); upsertCaptacion({...c, pipeline:e.target.value}); }}
                               style={{width:"100%", fontSize:10, fontWeight:700, color:B.navy, border:"1px solid "+B.grey1, borderRadius:6, padding:"5px 6px", background:B.offW, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
-                              {CAPTACION_PIPELINE.map(p=><option key={p} value={p}>{(CAPTACION_PIPELINE_ICONS[p]||"")+" "+p}</option>)}
+                              {CAPTACION_PIPELINE.map(p=><option key={p} value={p}>{(CAPTACION_PIPELINE_ICONS[p]||"")+" "+capEtapaTxt(p)}</option>)}
                             </select>
                           </div>
                           <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, paddingTop:6, borderTop:"1px dashed "+B.grey1}}>
@@ -19790,26 +19801,13 @@ Respuesta: [respuesta exacta, conversacional]
                         </div>
                       );
                     })}
-                    {items.length===0 && !(stage==="Nueva opción" && opcNuevaF.length>0) && (
+                    {items.length===0 && !(stage==="Nueva opción" && opcNuevaF.length>0) && !(stage==="Descartado" && opcRechF.length>0) && (
                       <div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>
                     )}
                   </div>
                 </div>
               );
             })}
-            {/* ✕ Cotizaciones rechazadas (al final) */}
-            <div data-cap-col="cot-rechazada" style={{minWidth:230, maxWidth:230, flexShrink:0, opacity:opcRechF.length?1:0.7}}>
-              <div style={{padding:"10px 12px", borderRadius:8, background:"#fef2f2", borderTop:"3px solid #ef4444", marginBottom:10}}>
-                <div style={{fontSize:10, fontWeight:800, color:"#b91c1c", textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
-                  <span>✕ Cotización rechazada</span>
-                  <span style={{background:"#b91c1c", color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{opcRechF.length}</span>
-                </div>
-              </div>
-              <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:620, overflowY:"auto"}}>
-                {opcRechF.map(renderOpcPendiente)}
-                {opcRechF.length===0&&(<div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>)}
-              </div>
-            </div>
           </div>
         </div>
 
@@ -19922,7 +19920,7 @@ Respuesta: [respuesta exacta, conversacional]
     const cliActivos=cliSrc.filter(c=>["Negociando","Presentación activa","Calificado","Presentación enviada"].includes(c.status));
     const cliCalientes=cliSrc.filter(c=>["Negociando","Presentación activa"].includes(c.status));
     // Captación
-    const capActivas=(captaciones||[]).filter(c=>c.pipeline!=="Firmado"&&c.pipeline!=="Descartado");
+    const capActivas=(captaciones||[]).filter(c=>!CAP_FIRMADAS.includes(c.pipeline)&&c.pipeline!=="Descartado");
     const valCap=capActivas.reduce((a,c)=>a+(parseFloat(c.precioDueno)||0),0);
     const capFirmadosPend=(captaciones||[]).filter(c=>c.pipeline==="Firmado"&&!c.loteInventarioId).length;
     // Actividades / salud
@@ -20126,11 +20124,11 @@ Respuesta: [respuesta exacta, conversacional]
           ))}
           {sc("🌱 Captación · pipeline de oferta",(
             <div>
-              {CAPTACION_PIPELINE.filter(p=>p!=="Descartado").map(p=>{ const arr=(captaciones||[]).filter(c=>c.pipeline===p); const mx=Math.max(1,...CAPTACION_PIPELINE.map(x=>(captaciones||[]).filter(c=>c.pipeline===x).length));
+              {CAPTACION_PIPELINE.filter(p=>p!=="Descartado").map(p=>{ const arr=(captaciones||[]).filter(c=>capEtapaCol(c)===p); const mx=Math.max(1,...CAPTACION_PIPELINE.map(x=>(captaciones||[]).filter(c=>capEtapaCol(c)===x).length));
                 return (
                   <div key={p} style={{marginBottom:8}}>
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,marginBottom:2}}>
-                      <span style={{color:B.grey5}}>{(CAPTACION_PIPELINE_ICONS[p]||"")} {p}</span><span style={{color:B.navy,fontWeight:700}}>{arr.length}</span>
+                      <span style={{color:B.grey5}}>{(CAPTACION_PIPELINE_ICONS[p]||"")} {capEtapaTxt(p)}</span><span style={{color:B.navy,fontWeight:700}}>{arr.length}</span>
                     </div>
                     <div style={{background:B.grey1,borderRadius:5,height:8,overflow:"hidden"}}><div style={{width:`${(arr.length/mx)*100}%`,height:"100%",borderRadius:5,background:(CAPTACION_PIPELINE_COLORS[p]&&CAPTACION_PIPELINE_COLORS[p].border)||B.gold}}/></div>
                   </div>
@@ -24096,8 +24094,8 @@ Respuesta: [respuesta exacta, conversacional]
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                     <div>
                       <span style={lbStyle}>Etapa del seguimiento</span>
-                      <select value={f.pipeline||"Nueva opción"} onChange={e=>setF({pipeline:e.target.value})} style={inStyle}>
-                        {CAPTACION_PIPELINE.map(p=><option key={p} value={p}>{(CAPTACION_PIPELINE_ICONS[p]||"")+" "+p}</option>)}
+                      <select value={capEtapaCol(f)} onChange={e=>setF({pipeline:e.target.value})} style={inStyle}>
+                        {CAPTACION_PIPELINE.map(p=><option key={p} value={p}>{(CAPTACION_PIPELINE_ICONS[p]||"")+" "+capEtapaTxt(p)}</option>)}
                       </select>
                     </div>
                     <div>
