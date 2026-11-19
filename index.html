@@ -2950,7 +2950,7 @@ const CO_COLS=[
   {k:"nueva",     t:"📝 Nueva",                fg:"#475569", bg:"#f1f5f9", bd:"#94a3b8"},
   {k:"enviada",   t:"🔗 Enviada al comprador", fg:"#1d4ed8", bg:"#eff6ff", bd:"#3b82f6"},
   {k:"firmo",     t:"✍️ Firmó el comprador",   fg:"#4338ca", bg:"#eef2ff", bd:"#6366f1"},
-  {k:"contra",    t:"🔄 Contrapropuesta",      fg:"#b45309", bg:"#fff7ed", bd:"#f59e0b"},
+  {k:"contra",    t:"🔄 En contrapropuesta",   fg:"#b45309", bg:"#fff7ed", bd:"#f59e0b"},
   {k:"firmada",   t:"🎉 Firmada por ambos",    fg:"#15803d", bg:"#ecfdf3", bd:"#22c55e"},
   {k:"documentos",t:"📂 En documentos",        fg:"#0e7490", bg:"#ecfeff", bd:"#06b6d4"},
   {k:"contrato",  t:"📜 En contrato",          fg:"#6d28d9", bg:"#f5f3ff", bd:"#8b5cf6"},
@@ -2963,7 +2963,10 @@ const coDocsN=(seg)=>(seg&&seg.documentos&&typeof seg.documentos==="object")?Obj
 const coDocsReq=(seg)=>{ if(seg&&Number(seg.docs_total)>0) return Number(seg.docs_total); const cred=seg&&seg.tipo_operacion==="credito"; return (seg&&seg.tipo_persona==="moral")?(cred?8:5):(cred?8:4); };
 const coPersonaTxt=(seg)=>{ const p=seg&&seg.tipo_persona; if(p==="moral") return "Persona moral"; if(p==="copropiedad"){ const n=Array.isArray(seg.copropietarios)?seg.copropietarios.length:0; return "Persona física en copropiedad"+(n?(" ("+n+")"):""); } return "Persona física"; };
 function coColumna(c){ const e=c&&c.estado;
-  if(e==="borrador") return "nueva"; if(e==="enviada_comprador") return "enviada";
+  if(e==="borrador") return "nueva";
+  // Ronda 2 o más y todavía en negociación (quien sea que deba firmar) → "En contrapropuesta".
+  if(Number(c&&c.ronda_actual)>1&&e!=="aceptada"&&e!=="rechazada") return "contra";
+  if(e==="enviada_comprador") return "enviada";
   if(e==="firmada_comprador"||e==="autorizada"||e==="enviada_vendedor") return "firmo";
   if(e==="contrapropuesta_vendedor"||e==="contrapropuesta_comprador") return "contra";
   if(e==="rechazada") return "rechazada";
@@ -3926,7 +3929,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       if(col==="contrato"){ const sg=coSeg(c); return (sg&&(sg.etapa==="revision_legal"||sg.enviado_legal_at))?{t:"⚖️ En revisión legal",fg:"#6d28d9",bg:"#f5f3ff",bd:"#c4b5fd"}:{t:"👉 Te toca: enviar a Legal",fg:"#b45309",bg:"#fff7ed",bd:"#fdba74"}; }
       if(col==="vendido") return {t:"🏁 Escriturada",fg:"#002B49",bg:"#fffbeb",bd:"#F5B335"};
       if(col==="firmada") return {t:"👉 Comprador: subir documentos",fg:"#15803d",bg:"#ecfdf3",bd:"#86efac"};
-      if(col==="contra"){ const r=coActual(c); return {t:"📩 Te toca: pide "+coMx(r.precio_m2)+"/m²",fg:"#b45309",bg:"#fff7ed",bd:"#fdba74"}; }
+      if(col==="contra"&&(c.estado==="contrapropuesta_vendedor"||c.estado==="contrapropuesta_comprador")){ const r=coActual(c); return {t:"📩 Te toca: pide "+coMx(r.precio_m2)+"/m²",fg:"#b45309",bg:"#fff7ed",bd:"#fdba74"}; }
       const tt=coTurno(c); const gg=/Grupo Guía/.test(tt.t); return {t:(gg?"👉 Te toca: ":"")+tt.t.replace(/^Grupo Guía · /,""),fg:gg?"#b45309":"#1d4ed8",bg:gg?"#fff7ed":"#eff6ff",bd:gg?"#fdba74":"#93c5fd"}; };
     const card=(c)=>{ const col=coColumna(c), r=coActual(c), n=Number(c.ronda_actual||1), to=tocaDe(c,col);
       const comp=[c.comprador_nombre,c.comprador_empresa].filter(Boolean).join(" · ")||"Comprador";
