@@ -2323,18 +2323,19 @@ function CapPersonaEditor({ f, onGuardar }){
   );
 }
 
-function ShareButtons({ url, mensaje, asunto, telefono, email, chico, onToast, etiqueta, mostrarMensaje }){
+function ShareButtons({ url, mensaje, asunto, telefono, email, chico, onToast, etiqueta, mostrarMensaje, onEnviar }){
   const [copiado,setCopiado]=useState(false);
   const tRef=useRef(null);
   React.useEffect(()=>()=>clearTimeout(tRef.current),[]);
   const msg=mensaje||url||"";
   const avisa=(t)=>{ try{ (onToast||window.alert)(t); }catch(e){} };
   const ok=()=>{ setCopiado(true); avisa("✓ ¡Liga copiada!"); clearTimeout(tRef.current); tRef.current=setTimeout(()=>setCopiado(false),2000); };
-  const copiar=(e)=>{ if(e) e.stopPropagation(); const txt=url||"";
+  const enviado=(canal)=>{ try{ if(onEnviar) onEnviar(canal); }catch(_){} };
+  const copiar=(e)=>{ if(e) e.stopPropagation(); enviado("liga"); const txt=url||"";
     const respaldo=()=>{ try{ const t=document.createElement("textarea"); t.value=txt; t.setAttribute("readonly",""); t.style.position="fixed"; t.style.opacity="0"; document.body.appendChild(t); t.select(); const r=document.execCommand("copy"); document.body.removeChild(t); if(r){ ok(); return; } }catch(_){} try{ window.prompt("Copia la liga:",txt); }catch(_){} };
     if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(ok,respaldo); else respaldo(); };
-  const whatsapp=(e)=>{ if(e) e.stopPropagation(); const ph=shTel(telefono); window.open("https://wa.me/"+(ph?ph:"")+"?text="+encodeURIComponent(msg),"_blank"); };
-  const correo=(e)=>{ if(e) e.stopPropagation(); window.location.href="mailto:"+encodeURIComponent(String(email||"").trim())+"?subject="+encodeURIComponent(asunto||"Grupo Guía")+"&body="+encodeURIComponent(msg); };
+  const whatsapp=(e)=>{ if(e) e.stopPropagation(); enviado("whatsapp"); const ph=shTel(telefono); window.open("https://wa.me/"+(ph?ph:"")+"?text="+encodeURIComponent(msg),"_blank"); };
+  const correo=(e)=>{ if(e) e.stopPropagation(); enviado("correo"); window.location.href="mailto:"+encodeURIComponent(String(email||"").trim())+"?subject="+encodeURIComponent(asunto||"Grupo Guía")+"&body="+encodeURIComponent(msg); };
   const ico=(d,fill)=>(<svg viewBox="0 0 24 24" width={chico?14:17} height={chico?14:17} aria-hidden="true" style={{flexShrink:0}}><path d={d} fill={fill?"currentColor":"none"} stroke={fill?"none":"currentColor"} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"/></svg>);
   const base={display:"inline-flex",alignItems:"center",gap:7,borderRadius:chico?8:10,padding:chico?"7px 9px":"9px 14px",fontSize:chico?11.5:13,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit",lineHeight:1.1};
   return (
@@ -3352,6 +3353,13 @@ const MP_NAV_H={h:0};
 // 🧾 Cotización (pestaña): el formulario va retráctil y solo se abre con "＋ Nueva cotización" (o desde
 // Paso 1 "Cotizar"). MP_COT_PENDIENTE.pdf = cotización cuyo PDF se pidió desde el tablero de Captación.
 const MP_COT_UI={abierto:false};
+// Movimientos MANUALES en el Kanban de captación: id → la etapa automática que había al moverla.
+// El automático la respeta mientras no pase algo NUEVO (p.ej. llega la firma).
+// Cotizaciones ya bajadas: sobreviven al redibujado del tablero (evita que el automático
+// decida con la lista vacía mientras vuelve a cargar).
+const MP_OPC_CACHE={lista:null};
+const MP_CAP_MANUAL=(()=>{ try{ return JSON.parse(localStorage.getItem("mp_cap_manual")||"{}")||{}; }catch(e){ return {}; } })();
+const mpCapManualSet=(id,meta)=>{ if(meta==null) delete MP_CAP_MANUAL[id]; else MP_CAP_MANUAL[id]=meta; try{ localStorage.setItem("mp_cap_manual",JSON.stringify(MP_CAP_MANUAL)); }catch(e){} };
 const MP_COT_PENDIENTE={pdf:null}; // alto del menú superior fijo (para pegar barras debajo de él)
 const CAP_FILTRO=(()=>{ try{ const o=JSON.parse(localStorage.getItem("mp_cap_filtro")||"{}"); return {asesor:o.asesor||"",cliente:o.cliente||"",ciudad:o.ciudad||""}; }catch(e){ return {asesor:"",cliente:"",ciudad:""}; } })();
 const CAP_REP_UI={ abierto:(()=>{ try{ return localStorage.getItem("mp_cap_reporte_abierto")==="1"; }catch(e){ return false; } })() };
@@ -5334,13 +5342,11 @@ function MacroProMatcher({ sessionEmail } = {}) {
       .eq('id', id); }
     catch(e){ console.warn('borrar captación:', e&&e.message); }
   };
-  // Bajar (fusión por id) desde la nube al abrir; si no hay nube, queda lo local.
+  // Bajar (fusión por id) desde la nube al abrir y luego cada 2 min (pestaña visible): así llegan
+  // solos los documentos y firmas del propietario. Solo redibuja si algo cambió.
   React.useEffect(()=>{
-    let cancel=false;
-    const t=setInterval(async ()=>{
-      if(cancel){ clearInterval(t); return; }
-      if(window.sb){
-        clearInterval(t);
+    let cancel=false; let iv=null;
+    const bajar=async ()=>{
         try{
           const r = await window.sb.from('captaciones').select('*');
           if(!cancel && r && !r.error && Array.isArray(r.data)){
@@ -5355,13 +5361,20 @@ function MacroProMatcher({ sessionEmail } = {}) {
                 byId[row.id]=nc;
               });
               const arr=Object.values(byId);
+              if(JSON.stringify(arr)===JSON.stringify(prev||[])) return prev;   // sin cambios: no redibuja
               saveCaptaciones(arr); return arr;
             });
           }
         }catch(e){ /* queda lo local */ }
-      }
+    };
+    const t=setInterval(()=>{
+      if(cancel){ clearInterval(t); return; }
+      if(window.sb){ clearInterval(t); bajar();
+        iv=setInterval(()=>{ if(!cancel && document.visibilityState==="visible") bajar(); }, 120000); }
     },400);
-    return ()=>{ cancel=true; clearInterval(t); };
+    const foco=()=>{ if(!cancel && window.sb && document.visibilityState==="visible") bajar(); };
+    document.addEventListener("visibilitychange",foco);
+    return ()=>{ cancel=true; clearInterval(t); if(iv) clearInterval(iv); document.removeEventListener("visibilitychange",foco); };
   }, []);
   // ─── SOLICITUDES ASESOR · persistencia (local + Supabase POR REGISTRO) ───
   // Sube/baja por `id` (last-write-wins por registro), nunca reemplaza toda la tabla.
@@ -18683,6 +18696,8 @@ Respuesta: [respuesta exacta, conversacional]
       const nom=(r.cliente_nombre||"cliente").trim();
       const msg="Hola "+nom+", aquí puedes revisar y aceptar tu cotización y subir tus documentos:\n"+ligaAceptar(r);
       window.open("https://api.whatsapp.com/send?phone="+ph+"&text="+encodeURIComponent(msg),"_blank");
+      // Mandada al cliente → queda ENVIADA (su tarjeta pasa sola a 📨 Enviada en Opción / Captación).
+      if(r&&r.id&&window.sb&&normEst(r.estatus)==="borrador"){ window.sb.from("cotizaciones_opcionador").update({estatus:"enviada"}).eq("id",r.id).eq("estatus","borrador").then(({error})=>{ if(!error){ toast("📨 Cotización marcada como ENVIADA"); try{ if(guardada&&guardada.id===r.id) setGuardada({...guardada,estatus:"enviada"}); }catch(_){} } }); }
     };
     // Abre la ficha de la captación que nació de esta cotización (el lugar único de trabajo).
     const abrirFichaDeCotizacion = async (r)=>{
@@ -19450,8 +19465,8 @@ Respuesta: [respuesta exacta, conversacional]
     const OPC_DOCS=[{k:"uso_suelo",t:"Uso de Suelo"},{k:"plano",t:"Plano"},{k:"ubicacion",t:"Ubicación"},{k:"fotos",t:"Fotos"}];
     const OPC_TOTAL=OPC_DOCS.length;
     const OPC_URL="https://macrolotes.grupoguia.mx/opcionadores";
-    const [opcLista,setOpcLista]=React.useState([]);
-    const opcCargadasRef = React.useRef(false);
+    const [opcLista,setOpcLista]=React.useState(()=>MP_OPC_CACHE.lista||[]);
+    const opcCargadasRef = React.useRef(!!MP_OPC_CACHE.lista);
     const [opcDocs,setOpcDocs]=React.useState({});
     const [opcSel,setOpcSel]=React.useState(null);
     // ⏱️ SLA (Fase 3): relojes de cada tarjeta (caché de módulo MP_SLA; refresco cada 5 min y al cambiar tarjetas).
@@ -19472,20 +19487,25 @@ Respuesta: [respuesta exacta, conversacional]
       if(!window.sb) return;
       try{
         const { data:cc }=await window.sb.from("cotizaciones_opcionador").select("*").order("created_at",{ascending:false}).limit(500);
-        setOpcLista(cc||[]); opcCargadasRef.current=true;
+        MP_OPC_CACHE.lista=cc||[];
+        setOpcLista(prev=>{ const nv=cc||[]; return JSON.stringify(prev)===JSON.stringify(nv)?prev:nv; }); opcCargadasRef.current=true;
         const ids=(cc||[]).map(c=>c.id); const map={};
         if(ids.length){ const { data:dd }=await window.sb.from("documentos_opcionador").select("*").in("cotizacion_id",ids); (dd||[]).forEach(r=>{ (map[r.cotizacion_id]=map[r.cotizacion_id]||{})[r.tipo_documento]=r; }); }
         setOpcDocs(map);
       }catch(e){}
     },[]);
-    React.useEffect(()=>{ cargarOpc(); },[cargarOpc]);
+    React.useEffect(()=>{ cargarOpc();
+      // Firmas y envíos que llegan de la Landing: revisa cada minuto (con la pestaña visible).
+      const iv=setInterval(()=>{ if(document.visibilityState==="visible") cargarOpc(); },60000);
+      const foco=()=>{ if(document.visibilityState==="visible") cargarOpc(); };
+      document.addEventListener("visibilitychange",foco);
+      return ()=>{ clearInterval(iv); document.removeEventListener("visibilitychange",foco); }; },[cargarOpc]);
     // ── KANBAN AUTO-AVANCE (journey de las ligas) ──────────────────────────────
     // La tarjeta se mueve sola según el avance real: captada → Nueva opción; con
     // documentos → Documentación; expediente completo o aprobada → Contrato;
     // publicada en inventario → Firmado. Solo avanza HACIA ADELANTE (nunca retrocede),
     // respeta "Descartado" y respeta lo que muevas a mano en esta sesión.
     const JRANK = React.useMemo(()=>{ const o={}; CAPTACION_PIPELINE.forEach((s,i)=>o[s]=i); return o; },[]);
-    const movManualRef = React.useRef(new Set());
     // Documentos en dos instancias: los de viabilidad completos → Viabilidad (a validar);
     // ya confirmada la viabilidad, los complementarios → Documentación contrato / Contrato.
     // AUTOMÁTICO (Dirección, 2026-11-19) — lo demás es manual:
@@ -19499,23 +19519,27 @@ Respuesta: [respuesta exacta, conversacional]
       const ed=estadoDocsCaptacion(c); const cot=cotDeCap(c.id);
       if(ed.validada) return "Cotización con el cliente";
       if(ed.viab.listo) return "Viabilidad";
-      if(String(c.id).startsWith("capta-opc-") || (cot&&cot.terminos_aceptados)) return "Nueva opción";
+      if(cot&&cot.terminos_aceptados) return "Nueva opción";   // firmada SOLO si el propietario ya firmó su cotización
       if(cot && !esBorradorCot(cot)) return "Enviada";
       return "Nueva cotización";
     };
     React.useEffect(()=>{
       if(!Array.isArray(captaciones)||!captaciones.length) return;
+      if(!opcCargadasRef.current) return;   // sin las cotizaciones cargadas no se decide nada
       captaciones.forEach(c=>{
         if(!c||!c.id) return;
         const cur=c.pipeline||"Nueva opción";
         if(cur==="Descartado") return;                  // los descartes se respetan
-        if(movManualRef.current.has(c.id)) return;       // movido a mano: respétalo
         const meta=etapaJourney(c); const col=capEtapaCol(c);
+        if(Object.prototype.hasOwnProperty.call(MP_CAP_MANUAL,c.id)){      // movido a mano: se respeta…
+          if(MP_CAP_MANUAL[c.id]===meta) return;
+          mpCapManualSet(c.id,null);                                       // …hasta que pasa algo nuevo
+        }
         const adelante=(JRANK[meta]??0) > (JRANK[col]??0);
         // "Nueva opción" (hoy "Firmada") era la etapa por omisión de toda tarjeta nueva: si su
         // cotización aún no está firmada, se acomoda en Nueva cotización / Enviada (con las
         // cotizaciones ya cargadas, para no moverla a ciegas).
-        const acomoda=opcCargadasRef.current && cur==="Nueva opción" && (meta==="Nueva cotización"||meta==="Enviada");
+        const acomoda=cur==="Nueva opción" && (meta==="Nueva cotización"||meta==="Enviada");
         if(meta!==col && (adelante||acomoda)){ upsertCaptacion({...c, pipeline:meta}); }
       });
     }, [captaciones, opcLista]); // eslint-disable-line
@@ -19596,12 +19620,16 @@ Respuesta: [respuesta exacta, conversacional]
     };
     const btnElimOpc=(o)=>(<button disabled={opcEliminando===o.id} onClick={e=>{ e.stopPropagation(); eliminarOpc(o); }} title="Eliminar" style={{fontSize:10,fontWeight:800,color:"#b91c1c",background:"#fff",border:"1px solid #fecaca",borderRadius:6,padding:"5px 8px",cursor:opcEliminando===o.id?"wait":"pointer",fontFamily:"'DM Sans',sans-serif"}}>{opcEliminando===o.id?"…":"🗑"}</button>);
     const ligaAceptarDe=(o)=>"https://macrolotes.grupoguia.mx/aceptar?c="+o.id;
+    // Al mandarla por cualquier canal, la cotización queda ENVIADA (y su tarjeta pasa sola a Enviada).
+    const marcarCotEnviada=async(o)=>{ if(!o||!esBorradorCot(o)||!window.sb) return;
+      try{ const {error}=await window.sb.from("cotizaciones_opcionador").update({estatus:"enviada"}).eq("id",o.id).eq("estatus","borrador"); if(error) throw error;
+        setOpcLista(prev=>{ const nv=(prev||[]).map(x=>x&&x.id===o.id?{...x,estatus:"enviada"}:x); MP_OPC_CACHE.lista=nv; return nv; }); toast("📨 Cotización marcada como ENVIADA"); }catch(e){ console.warn("marcar enviada:",e&&e.message); } };
     // Botones de la cotización (WhatsApp / liga / correo al propietario · 🤝 al asesor · 📄 PDF).
     const accionesCot=(o)=>{ const u=ligaAceptarDe(o); const nom=shNombre(o.cliente_nombre); const terr=(o.terreno_nombre||"tu terreno")+(o.terreno_ciudad?(" ("+o.terreno_ciudad+")"):"");
       const bS={fontSize:10,fontWeight:800,borderRadius:6,padding:"5px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"};
       return (<div data-cot-acciones={o.id} onClick={e=>e.stopPropagation()} style={{margin:"4px 0 6px",padding:"7px 8px",borderRadius:8,background:esBorradorCot(o)?"#f8fafc":"#fffaf0",border:"1px solid "+(esBorradorCot(o)?"#e2e8f0":"#fde68a")}}>
         <div style={{fontSize:9,fontWeight:800,color:esBorradorCot(o)?"#475569":"#9a6a00",marginBottom:5}}>{esBorradorCot(o)?"📝 COTIZACIÓN SIN ENVIAR":"📨 COTIZACIÓN ENVIADA · esperando que el propietario la firme"}{o.monto_comision?(" · comisión "+o.monto_comision):""}</div>
-        <ShareButtons chico url={u} mensaje={"Hola"+(nom?" "+nom:"")+", aquí puedes revisar y aceptar la cotización de tu terreno "+terr+" y subir tus documentos: "+u} asunto={"Tu cotización · "+(o.terreno_nombre||"terreno")+" · Grupo Guía"} telefono={o.cliente_telefono} email={o.cliente_email} onToast={toast}/>
+        <ShareButtons chico url={u} mensaje={"Hola"+(nom?" "+nom:"")+", aquí puedes revisar y aceptar la cotización de tu terreno "+terr+" y subir tus documentos: "+u} asunto={"Tu cotización · "+(o.terreno_nombre||"terreno")+" · Grupo Guía"} telefono={o.cliente_telefono} email={o.cliente_email} onToast={toast} onEnviar={()=>marcarCotEnviada(o)}/>
         <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:5}}>
           <button data-cot-asesor onClick={()=>setAcuerdoCotG(o)} title="Acuerdo de comisión del asesor" style={{...bS,color:B.navy,background:B.gold,border:"none"}}>🤝 Enviar al asesor</button>
           <button data-cot-pdf onClick={()=>{ MP_COT_PENDIENTE.pdf=o; setView("pitch"); }} title="Genera el PDF de la cotización (abre la pestaña Cotización)" style={{...bS,color:B.navy,background:"#fff",border:"1px solid "+B.gold}}>📄 PDF</button>
@@ -19616,7 +19644,7 @@ Respuesta: [respuesta exacta, conversacional]
         <div style={{fontSize:10,color:B.grey4,marginBottom:6}}>{[o.terreno_nombre,o.terreno_ciudad].filter(Boolean).join(" · ")||"—"}{o.valor_terreno?(" · "+o.valor_terreno):""}{o.monto_comision?(" · comisión "+o.monto_comision):""}</div>
         {(o.asesor_nombre||o.asesor)&&<div style={{display:"inline-block",fontSize:9,fontWeight:800,borderRadius:6,padding:"2px 7px",marginBottom:5,color:"#0f6b3f",background:"#dcfce7",border:"1px solid #86efac"}}>👤 {o.asesor_nombre||o.asesor}</div>}
         {!rech&&<div style={{fontSize:9,fontWeight:800,borderRadius:6,padding:"2px 7px",marginBottom:7,color:"#b45309",background:"#fff7ed",border:"1px solid #fed7aa",display:"inline-block",marginLeft:4}}>{borr?"📝 Sin enviar":"⏳ Esperando que el propietario acepte"}</div>}
-        {!rech&&<div style={{margin:"2px 0 4px"}}><ShareButtons chico url={u} mensaje={"Hola"+(nom?" "+nom:"")+", aquí puedes revisar y aceptar la cotización de tu terreno "+terr+" y subir tus documentos: "+u} asunto={"Tu cotización · "+(o.terreno_nombre||"terreno")+" · Grupo Guía"} telefono={o.cliente_telefono} email={o.cliente_email} onToast={toast}/></div>}
+        {!rech&&<div style={{margin:"2px 0 4px"}}><ShareButtons chico url={u} mensaje={"Hola"+(nom?" "+nom:"")+", aquí puedes revisar y aceptar la cotización de tu terreno "+terr+" y subir tus documentos: "+u} asunto={"Tu cotización · "+(o.terreno_nombre||"terreno")+" · Grupo Guía"} telefono={o.cliente_telefono} email={o.cliente_email} onToast={toast} onEnviar={()=>marcarCotEnviada(o)}/></div>}
         <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:4}}>
           {!rech&&<button data-cot-asesor onClick={()=>setAcuerdoCotG(o)} title="Acuerdo de comisión del asesor" style={{...bS,color:B.navy,background:B.gold,border:"none"}}>🤝 Enviar al asesor</button>}
           <button data-cot-pdf onClick={()=>{ MP_COT_PENDIENTE.pdf=o; setView("pitch"); }} title="Genera el PDF de la cotización (abre la pestaña Cotización)" style={{...bS,color:B.navy,background:"#fff",border:"1px solid "+B.gold}}>📄 PDF</button>
@@ -19902,7 +19930,7 @@ Respuesta: [respuesta exacta, conversacional]
                             {c.tipoAcuerdo&&<div>📑 {c.tipoAcuerdo}</div>}
                           </div>
                           <div style={{marginTop:8}} onClick={e=>e.stopPropagation()}>
-                            <select value={capEtapaCol(c)} onChange={e=>{ movManualRef.current.add(c.id); upsertCaptacion({...c, pipeline:e.target.value}); }}
+                            <select value={capEtapaCol(c)} onChange={e=>{ mpCapManualSet(c.id, etapaJourney(c)); upsertCaptacion({...c, pipeline:e.target.value}); }}
                               style={{width:"100%", fontSize:10, fontWeight:700, color:B.navy, border:"1px solid "+B.grey1, borderRadius:6, padding:"5px 6px", background:B.offW, cursor:"pointer", fontFamily:"'DM Sans',sans-serif"}}>
                               {CAPTACION_PIPELINE.map(p=><option key={p} value={p}>{(CAPTACION_PIPELINE_ICONS[p]||"")+" "+capEtapaTxt(p)}</option>)}
                             </select>
