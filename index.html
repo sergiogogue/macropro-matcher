@@ -2558,10 +2558,20 @@ function MultimediaLote({ lot, onToast }){
           <label style={{...bt(B.gold,B.navy),cursor:subiendo?"wait":"pointer"}}>{subiendo==="fotos"?"Subiendo…":"＋ Subir fotos"}
             <input data-media-input="fotos" type="file" hidden multiple accept="image/*" disabled={!!subiendo} onChange={e=>{ const fs=e.target.files; subirFotos(fs); e.target.value=""; }}/></label>
         </div>
-        {m.fotos_urls.length===0?<div style={{fontSize:12,color:B.grey4}}>Sin fotos. La primera que subas queda como portada.</div>:(
+        {/* ⭐ PORTADA: la foto que se ve primero en la Landing, en la ficha técnica y en su PDF */}
+        <div data-media-portada style={{display:"flex",gap:12,alignItems:"center",padding:10,borderRadius:10,border:"2px solid "+(m.portada_url?B.gold:"#e2e8f0"),background:m.portada_url?"#fffbeb":"#f8fafc"}}>
+          {m.portada_url?<img src={m.portada_url} alt="Portada" style={{width:190,height:110,objectFit:"cover",borderRadius:8,display:"block",flexShrink:0,background:"#e2e8f0"}}/>:<div style={{width:190,height:110,borderRadius:8,background:"#e2e8f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,flexShrink:0}}>🖼️</div>}
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:900,color:"#92400e",letterSpacing:0.5}}>⭐ PORTADA</div>
+            <div style={{fontSize:12,color:B.grey5,lineHeight:1.45,marginTop:3}}>{m.portada_url?"Es la foto que se ve primero en la Landing, en la ficha técnica y en su PDF. Para cambiarla, toca ☆ en otra foto.":"Aún no hay portada. La primera foto que subas será la portada (luego la cambias con ☆)."}</div>
+            {m.portada_url&&m.fotos_urls.length>1&&<div style={{fontSize:11,color:B.grey4,marginTop:4}}>{m.fotos_urls.length===2?"La otra foto sale en la GALERÍA.":("Las otras "+(m.fotos_urls.length-1)+" fotos salen en la GALERÍA.")}</div>}
+          </div>
+        </div>
+        {m.fotos_urls.length===0?<div style={{fontSize:12,color:B.grey4}}>Sin fotos todavía.</div>:(
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:8}}>
             {m.fotos_urls.map((u,i)=>(
-              <div key={u} data-media-foto={i} style={{border:"2px solid "+(m.portada_url===u?B.gold:B.grey1),borderRadius:9,overflow:"hidden",background:"#f8fafc"}}>
+              <div key={u} data-media-foto={i} style={{position:"relative",border:"2px solid "+(m.portada_url===u?B.gold:B.grey1),borderRadius:9,overflow:"hidden",background:"#f8fafc"}}>
+                {m.portada_url===u&&<span style={{position:"absolute",top:4,left:4,fontSize:9,fontWeight:900,color:B.navy,background:B.gold,borderRadius:5,padding:"2px 6px",letterSpacing:0.4}}>PORTADA</span>}
                 <img src={u} alt={"Foto "+(i+1)} style={{width:"100%",height:84,objectFit:"cover",display:"block"}}/>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 5px",gap:2}}>
                   <button title="Usar como portada" onClick={()=>set("portada_url",u)} style={{border:"none",background:"transparent",cursor:"pointer",fontSize:13}}>{m.portada_url===u?"⭐":"☆"}</button>
@@ -2570,7 +2580,7 @@ function MultimediaLote({ lot, onToast }){
                 </div>
               </div>))}
           </div>)}
-        <div style={{fontSize:11,color:B.grey4}}>⭐ = portada · ◀ ▶ = orden en la Landing</div>
+        <div style={{fontSize:11,color:B.grey4}}>☆ = hacerla portada · ◀ ▶ = orden en la galería · ✕ = quitar</div>
       </div>
       <div style={sec}>
         <span style={tit}>🎬 Video (YouTube o Vimeo)</span>
