@@ -3513,6 +3513,28 @@ function coLineasCalc(L, total){ const tot=Math.round((Number(total)||0)*100)/10
   const base=(L||[]).map(x=>{ const raw=String(x.m==null?"":x.m).trim(); const m=x.resto?0:(/%$/.test(raw)?r2(tot*(parseFloat(raw.replace(/[^\d.]/g,""))||0)/100):coNum(raw)); return {...x,m}; });
   const fijo=r2(base.filter(x=>!x.resto).reduce((a,x)=>a+x.m,0)); let dado=false;
   return base.map(x=>{ if(!x.resto) return {...x,w:coLineaCuando(x)}; const m=dado?0:r2(tot-fijo); dado=true; return {...x,m,w:coLineaCuando(x)}; }); }
+// Revisión "contra niños" de los pagos (contraoferta y carta nueva). "" = todo bien.
+function coValidarPagos(L, tot){
+  if(!(L||[]).length) return "Agrega al menos un pago.";
+  const sinFecha=L.findIndex(x=>(x.t==="pago"||(x.t==="enganche"&&x.cu==="fecha"))&&!x.f); if(sinFecha>=0) return "Pon la fecha del pago "+(sinFecha+1)+" ("+(L[sinFecha].c||"pago")+").";
+  const mala=L.findIndex(x=>!String(x.c||"").trim()||!(Number(x.m)>0)); if(mala>=0) return "El pago "+(mala+1)+(L[mala].c?(" ("+L[mala].c+")"):"")+" necesita concepto y un monto mayor a cero.";
+  const suma=Math.round(L.reduce((a,x)=>a+(Number(x.m)||0),0)*100)/100;
+  if(Math.abs(suma-tot)>0.05) return "Los pagos suman "+coMxC(suma)+" y el total es "+coMxC(tot)+": ajusta los montos (diferencia "+coMxC(Math.abs(suma-tot))+").";
+  const sinMedio=L.findIndex(x=>!x.md); if(sinMedio>=0) return "Elige cómo se paga el pago "+(sinMedio+1)+" ("+(L[sinMedio].c||"pago")+"): transferencia, efectivo, cheque de caja o dividir.";
+  for(let i=0;i<L.length;i++){ const x=L[i]; if(x.md!=="dividir") continue; const P=coPartes(x);
+    if(!Array.isArray(x.partes)||x.partes.some(p=>!CO_MEDIOS[p&&p.md])) return "En el pago "+(i+1)+" ("+(x.c||"pago")+") elige cómo se paga cada parte.";
+    if(P.length<2) return "El pago "+(i+1)+" ("+(x.c||"pago")+") está dividido: necesita al menos 2 partes.";
+    if(P.some(p=>!(p.m>0))) return "En el pago "+(i+1)+" ("+(x.c||"pago")+") cada parte necesita un monto mayor a cero.";
+    const sp=Math.round(P.reduce((a,p)=>a+p.m,0)*100)/100; if(Math.abs(sp-x.m)>0.05) return "Las partes del pago "+(i+1)+" ("+(x.c||"pago")+") suman "+coMxC(sp)+" y el pago es de "+coMxC(x.m)+"."; }
+  const ef=coEfectivoDe(L); if(ef>CO_EFECTIVO_MAX) return "⛔ Efectivo: "+coMxC(ef)+". La ley antilavado no permite pagar en efectivo más de "+CO_EFECTIVO_UMA.toLocaleString("es-MX")+" UMA ("+coMxC(CO_EFECTIVO_MAX)+") en la compra de un inmueble. Pasa la diferencia a transferencia o cheque.";
+  return ""; }
+// Líneas que se GUARDAN en plan_pago (montos ya calculados + cómo se paga).
+const coLineasGuardar=(L)=>(L||[]).map(x=>({t:x.t||"otro",c:String(x.c||"").trim(),w:String(x.w||"").trim(),f:x.f||null,d:Number(x.d)||null,cu:x.cu||null,resto:!!x.resto,m:Math.round((Number(x.m)||0)*100)/100,md:x.md||null,partes:x.md==="dividir"?coPartes(x):null}));
+// Mantiene el renglón de APARTADO igual al monto de apartado de la carta (lo agrega o lo quita).
+function coSyncApartado(ls, apt){ ls=[...(ls||[])]; const i=ls.findIndex(x=>x.t==="apartado");
+  if(apt>0){ if(i>=0){ if(String(ls[i].m)!==String(apt)) ls[i]={...ls[i],m:String(apt)}; } else ls.unshift({t:"apartado",c:"Apartado",m:String(apt)}); }
+  else if(i>=0) ls.splice(i,1);
+  return ls; }
 // Líneas iniciales según la forma elegida (todo se puede cambiar después).
 function coLineasPreset(forma, apartado){ const apt=Number(apartado)||0; const hoy=new Date();
   const mes=(k)=>new Date(hoy.getFullYear(),hoy.getMonth()+k,15).toISOString().slice(0,10); const L=[];
@@ -3606,7 +3628,8 @@ ${conf?'<div class="mk">CONFIDENCIAL</div>':''}${!actual&&!base?'<div class="mk"
 <div class="cl"><span class="n">SEGUNDA. Precio ${contra?"propuesto":"ofertado"}.</span> ${contra?("En esta ronda se propone el siguiente precio por el inmueble:"):"El Comprador ofrece el siguiente precio por el inmueble:"}</div>
 <table class="t"><tr><td>Superficie</td><td>${sup.toLocaleString("es-MX")} m²</td></tr><tr><td>Precio por metro cuadrado</td><td>${coMx(r.precio_m2)}.00 M.N.</td></tr><tr class="to"><td>Precio total de la oferta</td><td>${coMx(total)}.00 M.N.</td></tr></table>
 <div class="le">(${coPesosLetra(total)})</div>
-<div class="cl"><span class="n">TERCERA. Forma de pago.</span> <b>${esc(r.forma_pago==="Financiamiento"?"Crédito bancario":(r.forma_pago==="Diferido"?"Pagos diferidos":(r.forma_pago||"—")))}</b>: ${esc(coClausula3(r))}</div>
+<div class="cl"><span class="n">TERCERA. Forma de pago.</span> <b>${esc(r.forma_pago==="Financiamiento"?"Crédito bancario":(r.forma_pago==="Diferido"?"Pagos diferidos":(r.forma_pago||"—")))}</b>: ${esc(coClausula3(r))}</div>${(()=>{ const L1=r.plan_pago&&Array.isArray(r.plan_pago.lineas)&&r.plan_pago.lineas.length?coLineasDe(r,apt):null; if(!L1) return ""; const md1=L1.some(y=>coPartes(y).length);
+  return `<table class="fp"><tr><th style="width:6%">#</th><th>Concepto</th><th>Cuándo</th>${md1?"<th>Cómo se paga</th>":""}<th style="text-align:right">Monto</th></tr>${L1.map((y,i)=>`<tr><td>${i+1}</td><td>${esc(y.c)}</td><td>${esc(y.w)}</td>${md1?`<td>${coMedioHtml(y).split("<br>").map(esc).join("<br>")}</td>`:""}<td class="m">${coMxC(y.m)}</td></tr>`).join("")}<tr class="to"><td></td><td>Total</td><td></td>${md1?"<td></td>":""}<td class="m">${coMxC(L1.reduce((a,y)=>a+(Number(y.m)||0),0))}</td></tr></table>`; })()}
 <div class="cl"><span class="n">CUARTA. Apartado y exclusividad.</span> Al ser aceptada la presente, el Comprador entregará un apartado de <b>${coMx(apt)}.00 M.N.</b> (${coPesosLetra(apt)})${total?`, equivalente al ${(apt/total*100).toFixed(1)}% del precio total,`:""} que asegura la exclusividad del inmueble a su favor por <b>30 (treinta) días naturales</b>.</div>
 <div class="cl"><span class="n">QUINTA. Vigencia de la oferta.</span> Esta oferta tiene una vigencia de <b>10 (diez) días naturales</b> contados a partir de su fecha. Transcurrido dicho plazo sin aceptación, quedará sin efecto.</div>
 <div class="cl"><span class="n">SEXTA. Naturaleza del documento.</span> La presente es una carta de intención y oferta de compra; <b>no constituye un contrato de compraventa definitivo</b> y queda sujeta a la revisión legal y documental del inmueble, así como a la firma del contrato correspondiente.</div>
@@ -3812,6 +3835,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   const coEditable=(c)=>{ const r=coActual(c); return !["aceptada","rechazada"].includes(c.estado) && !r.vendedor_firma_at; };
   const coCondLibres=(c)=>{ const r=coActual(c); return ["borrador","enviada_comprador"].includes(c.estado) && Number(c.ronda_actual||1)===1 && !r.comprador_firma_at; };
   const editar=(c)=>{ const r=coActual(c); setAbierto(true); setForm({ id:c.id, ronda_id:r.id, estado:c.estado, libres:coCondLibres(c), comprador_nombre:c.comprador_nombre||"", comprador_empresa:c.comprador_empresa||"", comprador_email:c.comprador_email||"", comprador_telefono:c.comprador_telefono||"", asesor_nombre:c.asesor_nombre||"", superficie_m2:String(c.superficie_m2||""), precio_m2:String(r.precio_m2||""), forma_pago:r.forma_pago||"Contado", apartado:String(c.apartado||""), condiciones:r.condiciones||"", clausula3:coClausula3(r),
+    lineas:(r.plan_pago&&Array.isArray(r.plan_pago.lineas)&&r.plan_pago.lineas.length&&r.plan_pago.lineas[0].t)?r.plan_pago.lineas.map(x=>({...x,m:x.resto?"":coMxC(x.m),partes:Array.isArray(x.partes)?x.partes.map(z=>({...z,m:coMxC(z.m)})):null})):null, condTxt:(r.plan_pago&&r.plan_pago.cond)||"",
     vendedor_nombre:c.vendedor_nombre||(cap&&cap.propietario)||"", vendedor_email:c.vendedor_email||(cap&&cap.email)||"", vendedor_telefono:c.vendedor_telefono||(cap&&cap.telefono)||"" }); };
   const guardar=async()=>{
     const f=form; const sup=coNum(f.superficie_m2), pm2=coNum(f.precio_m2), apt=coNum(f.apartado);
@@ -3823,6 +3847,11 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
     try{
       const base={ comprador_nombre:f.comprador_nombre.trim(), comprador_empresa:f.comprador_empresa.trim()||null, comprador_email:f.comprador_email.trim().toLowerCase()||null, comprador_telefono:f.comprador_telefono.trim()||null, asesor_nombre:f.asesor_nombre.trim()||null, superficie_m2:sup, apartado:apt };
       const ronda={ precio_m2:pm2, forma_pago:f.forma_pago, condiciones:f.clausula3!=null?coCond3(f.forma_pago,f.clausula3):(String(f.condiciones||"").trim()||null) };
+      if(Array.isArray(f.lineas)){   // pagos en renglones con "cómo se paga"
+        const totE=Math.round(sup*pm2*100)/100, LE=coLineasCalc(f.lineas,totE), eP=coValidarPagos(LE,totE);
+        if(eP){ toast("Pagos: "+eP); setBusy(""); return; }
+        const plan={ forma:f.forma_pago, lineas:coLineasGuardar(LE), lineas_editadas:true, cond:String(f.condTxt||"").trim() };
+        ronda.plan_pago=plan; ronda.condiciones=CO_MARCA3+coLineasClausula(plan.lineas,totE,plan.cond); }
       if(f.id){
         const vend={ vendedor_nombre:String(f.vendedor_nombre||"").trim()||null, vendedor_email:String(f.vendedor_email||"").trim().toLowerCase()||null, vendedor_telefono:String(f.vendedor_telefono||"").trim()||null };
         if(f.libres){
@@ -3884,7 +3913,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   // Líneas con sus montos ya calculados ("30%" y "resto") y su "cuándo" en texto.
   const cofLineas=(c,f)=> coLineasCalc(f.lineas||[], cofTotal(c,f));
   // Plan final que se guarda en la ronda (plan_pago): forma + líneas (con tipo y fechas) + condiciones.
-  const cofPlanFinal=(c,f)=>({ forma:f.forma, lineas:cofLineas(c,f).map(x=>({t:x.t||"otro",c:String(x.c||"").trim(),w:String(x.w||"").trim(),f:x.f||null,d:Number(x.d)||null,cu:x.cu||null,resto:!!x.resto,m:Math.round((Number(x.m)||0)*100)/100,md:x.md||null,partes:x.md==="dividir"?coPartes(x):null})), lineas_editadas:true, cond:String(f.condTxt||"").trim() });
+  const cofPlanFinal=(c,f)=>({ forma:f.forma, lineas:coLineasGuardar(cofLineas(c,f)), lineas_editadas:true, cond:String(f.condTxt||"").trim() });
   const abrirContra=(c,solicita)=>{ const r=coActual(c); setForm(null); setEnvioOk(null);
     const pp=r.plan_pago||{}; const hoy=new Date(); const ini=new Date(hoy.getFullYear(),hoy.getMonth()+1,15).toISOString().slice(0,10);
     const condIni=coCondDe(r)||CO_CONDS.filter(x=>x.k==="posesion"||x.k==="gastos").map(x=>x.c).join(" ");
@@ -3897,19 +3926,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   // Revisa la contraoferta antes de guardarla o enviarla. Devuelve el texto del problema o "".
   const validarContra=(c,f)=>{ const pm2=coNum(f.precio_m2); if(!(pm2>0)) return "Escribe el precio por m² de la ronda nueva.";
     const tot=cofTotal(c,f);
-    const L=cofLineas(c,f); if(!L.length) return "Agrega al menos un pago.";
-    const sinFecha=L.findIndex(x=>(x.t==="pago"||(x.t==="enganche"&&x.cu==="fecha"))&&!x.f); if(sinFecha>=0) return "Pon la fecha del pago "+(sinFecha+1)+" ("+(L[sinFecha].c||"pago")+").";
-    const mala=L.findIndex(x=>!String(x.c||"").trim()||!(Number(x.m)>0)); if(mala>=0) return "El pago "+(mala+1)+(L[mala].c?(" ("+L[mala].c+")"):"")+" necesita concepto y un monto mayor a cero.";
-    const suma=Math.round(L.reduce((a,x)=>a+(Number(x.m)||0),0)*100)/100;
-    if(Math.abs(suma-tot)>0.05) return "Las líneas suman "+coMxC(suma)+" y el total de la ronda es "+coMxC(tot)+": ajusta los montos (diferencia "+coMxC(Math.abs(suma-tot))+").";
-    const sinMedio=L.findIndex(x=>!x.md); if(sinMedio>=0) return "Elige cómo se paga el pago "+(sinMedio+1)+" ("+(L[sinMedio].c||"pago")+"): transferencia, efectivo, cheque de caja o dividir.";
-    for(let i=0;i<L.length;i++){ const x=L[i]; if(x.md!=="dividir") continue; const P=coPartes(x);
-      if(P.length<2) return "El pago "+(i+1)+" ("+(x.c||"pago")+") está dividido: necesita al menos 2 partes.";
-      if(P.some(p=>!(p.m>0))) return "En el pago "+(i+1)+" ("+(x.c||"pago")+") cada parte necesita un monto mayor a cero.";
-      const sp=Math.round(P.reduce((a,p)=>a+p.m,0)*100)/100; if(Math.abs(sp-x.m)>0.05) return "Las partes del pago "+(i+1)+" ("+(x.c||"pago")+") suman "+coMxC(sp)+" y el pago es de "+coMxC(x.m)+".";
-      if(!Array.isArray(x.partes)||x.partes.some(p=>!CO_MEDIOS[p&&p.md])) return "En el pago "+(i+1)+" elige cómo se paga cada parte."; }
-    const ef=coEfectivoDe(L); if(ef>CO_EFECTIVO_MAX) return "⛔ Efectivo: "+coMxC(ef)+". La ley antilavado no permite pagar en efectivo más de "+CO_EFECTIVO_UMA.toLocaleString("es-MX")+" UMA ("+coMxC(CO_EFECTIVO_MAX)+") en la compra de un inmueble. Pasa la diferencia a transferencia o cheque.";
-    return ""; };
+    const L=cofLineas(c,f); return coValidarPagos(L,tot); };
   // PASO 1 · GUARDAR (todavía NO se crea la ronda ni la liga; el comprador no ve nada).
   const guardarContra=(c)=>{ const f=cof; if(!f) return; const e=validarContra(c,f); if(e){ toast(e); return; }
     setCof(p=>({...p, guardada:true, guardada_at:new Date().toISOString()}));
@@ -4444,11 +4461,16 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
                 <div style={{background:B.navy,color:"#fff",borderRadius:8,padding:"6px 10px",textAlign:"right"}}><div style={{fontSize:9,fontWeight:800,color:B.gold,letterSpacing:1,textTransform:"uppercase"}}>Total de la oferta</div><div style={{fontSize:18,fontWeight:800,fontFamily:"'Playfair Display',serif"}}>{coMx(tot)}</div></div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:8,marginTop:10}}>
-                <div><label style={lbS}>Forma de pago</label><select style={inS} value={f.forma_pago} onChange={e=>{ const v=e.target.value; setForm(p=>({...p,forma_pago:v,clausula3:(p.clausula3==null||String(p.clausula3).trim()===coFormaTxt(p.forma_pago))?coFormaTxt(v):p.clausula3})); }}>{CO_FORMAS.map(x=><option key={x}>{x}</option>)}</select></div>
-                <div><label style={lbS}>Monto de apartado</label><input style={{...inS,textAlign:"right"}} inputMode="decimal" value={f.apartado} onChange={e=>set("apartado",e.target.value)}/>{apt>0&&tot>0&&<div style={{fontSize:10.5,color:B.grey4,marginTop:2}}>{(apt/tot*100).toFixed(1)}% del total · saldo {coMx(tot-apt)}</div>}</div>
-                <div style={{gridColumn:"1 / -1"}}><label style={lbS}>Cláusula TERCERA · texto de forma de pago</label>
+                <div><label style={lbS}>Forma de pago</label><select style={inS} value={f.forma_pago} onChange={e=>{ const v=e.target.value; setForm(p=>({...p,forma_pago:v,clausula3:(p.clausula3==null||String(p.clausula3).trim()===coFormaTxt(p.forma_pago))?coFormaTxt(v):p.clausula3,lineas:Array.isArray(p.lineas)?coLineasPreset(v,coNum(p.apartado)):p.lineas})); }}>{CO_FORMAS.map(x=><option key={x}>{x}</option>)}</select></div>
+                <div><label style={lbS}>Monto de apartado</label><input style={{...inS,textAlign:"right"}} inputMode="decimal" value={f.apartado} onChange={e=>{ const v=e.target.value; setForm(p=>({...p,apartado:v,lineas:Array.isArray(p.lineas)?coSyncApartado(p.lineas,coNum(v)):p.lineas})); }}/>{apt>0&&tot>0&&<div style={{fontSize:10.5,color:B.grey4,marginTop:2}}>{(apt/tot*100).toFixed(1)}% del total · saldo {coMx(tot-apt)}</div>}</div>
+                {Array.isArray(f.lineas)?(<div style={{gridColumn:"1 / -1"}}><label style={lbS}>Pagos · cuándo y cómo se paga cada uno</label>
+                  <CoPagosEditor lineas={f.lineas} onChange={(ls)=>set("lineas",ls)} total={tot} apartado={apt}/>
+                  <label style={{...lbS,marginTop:8}}>Condiciones adicionales (opcional)</label>
+                  <textarea style={{...inS,minHeight:48,resize:"vertical",fontFamily:"'DM Sans',sans-serif"}} value={f.condTxt||""} onChange={e=>set("condTxt",e.target.value)}/></div>)
+                :(<div style={{gridColumn:"1 / -1"}}><label style={lbS}>Cláusula TERCERA · texto de forma de pago</label>
                   <textarea style={{...inS,minHeight:64,resize:"vertical",fontFamily:"'DM Sans',sans-serif"}} value={f.clausula3!=null?f.clausula3:coFormaTxt(f.forma_pago)} onChange={e=>set("clausula3",e.target.value)}/>
-                  <div style={{fontSize:10.5,color:B.grey4,marginTop:2}}>En la carta sale: <b>TERCERA. Forma de pago. {f.forma_pago}:</b> + este texto. <a href="#" onClick={e=>{ e.preventDefault(); set("clausula3",coFormaTxt(f.forma_pago)); }} style={{color:"#1d4ed8"}}>Restaurar texto estándar</a></div></div>
+                  <div style={{fontSize:10.5,color:B.grey4,marginTop:2}}>En la carta sale: <b>TERCERA. Forma de pago. {f.forma_pago}:</b> + este texto. <a href="#" onClick={e=>{ e.preventDefault(); set("clausula3",coFormaTxt(f.forma_pago)); }} style={{color:"#1d4ed8"}}>Restaurar texto estándar</a></div>
+                  <button type="button" data-co-a-renglones onClick={()=>setForm(p=>({...p,lineas:coLineasPreset(p.forma_pago,coNum(p.apartado)),condTxt:p.condTxt||CO_CONDS.filter(x=>x.k==="posesion"||x.k==="gastos").map(x=>x.c).join(" ")}))} style={{marginTop:6,border:"1.5px dashed "+B.navy,color:B.navy,background:"#fff",borderRadius:8,padding:"5px 11px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>💳 Pasar a renglones de pago (para decir cómo se paga)</button></div>)}
               </div>
               </fieldset>
               {f.id && (<div style={{marginTop:10,border:"1.5px solid "+B.navy,borderRadius:10,padding:"8px 10px",background:"#f6f8fb"}}>
@@ -4565,6 +4587,62 @@ function CoCombo({ valor, placeholder, opciones, texto, render, onElegir }){
   );
 }
 
+// 💳 Renglones de pago con "Cómo se paga" (transferencia / efectivo / cheque / dividir en partes).
+// Controlado: recibe las líneas "crudas" (montos como texto o %) y devuelve las nuevas con onChange.
+function CoPagosEditor({ lineas, onChange, total, apartado }){
+  const ls=lineas||[], tot=Math.round((Number(total)||0)*100)/100, L=coLineasCalc(ls,tot);
+  const upd=(i,k,v)=>onChange(ls.map((x,j)=>j===i?{...x,[k]:v}:x));
+  const rmv=(i)=>onChange(ls.filter((_,j)=>j!==i));
+  const suma=Math.round(L.reduce((a,x)=>a+(Number(x.m)||0),0)*100)/100, cuadra=tot>0&&Math.abs(suma-tot)<=0.05, ef=coEfectivoDe(L);
+  const th={padding:"6px 6px",fontSize:10,textTransform:"uppercase",letterSpacing:0.5,color:"#fff",background:B.navy,textAlign:"left"};
+  const cIn={width:"100%",border:"1px solid "+B.grey2,borderRadius:7,padding:"5px 7px",fontSize:12.5,fontFamily:"inherit",background:"#fff",boxSizing:"border-box"};
+  const medSel=(val,on,attr)=>(<select {...attr} value={val||""} onChange={e=>on(e.target.value)} style={{...cIn,fontWeight:700,padding:"5px 4px",color:val?B.navy:B.red,borderColor:val?B.grey2:B.red}}><option value="">— Elige —</option>{Object.keys(CO_MEDIOS).map(k=><option key={k} value={k}>{CO_MEDIOS[k].i} {CO_MEDIOS[k].t}</option>)}{attr&&attr["data-co-medio"]!=null&&<option value="dividir">✂️ Dividir en partes</option>}</select>);
+  const agregar=(t)=>{ const nx=[...ls]; const np=nx.filter(x=>x.t==="pago").length+1; const hoy=new Date();
+    const nueva=t==="enganche"?{t,c:"Enganche",cu:"contrato",m:""}:(t==="pago"?{t,c:"Pago "+np,f:new Date(hoy.getFullYear(),hoy.getMonth()+np,15).toISOString().slice(0,10),m:""}:(t==="escritura"?{t,c:"Pago contra escritura",m:"",resto:!nx.some(x=>x.resto)}:{t:"otro",c:"",w:"",m:""}));
+    const iEs=nx.findIndex(x=>x.t==="escritura"); if(t!=="escritura"&&t!=="otro"&&iEs>=0) nx.splice(iEs,0,nueva); else nx.push(nueva); onChange(nx); };
+  return (<div data-co-pagos>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",margin:"2px 0 7px"}}>{[["enganche","＋ Enganche"],["pago","＋ Pago con fecha"],["escritura","＋ Pago contra escritura"],["otro","＋ Otro concepto"]].map(([t,lb])=><button key={t} type="button" data-co-pago-add={t} onClick={()=>agregar(t)} style={{border:"1.5px dashed "+B.navy,color:B.navy,background:"#fff",borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{lb}</button>)}</div>
+    <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5,background:"#fff",minWidth:720}}>
+      <thead><tr><th style={{...th,width:"3%"}}>#</th><th style={{...th,width:"17%"}}>Concepto</th><th style={{...th,width:"23%"}}>Cuándo</th><th style={{...th,width:"17%",textAlign:"right"}}>Monto</th><th style={{...th,width:"23%"}}>Cómo se paga</th><th style={{...th,width:"7%",textAlign:"right"}}>%</th><th style={th}></th></tr></thead>
+      <tbody>{L.map((x,i)=>{ const raw=ls[i]||{}; return (<React.Fragment key={i}><tr data-co-pago={x.t} style={{borderBottom:raw.md==="dividir"?"none":"1px solid "+B.grey1}}>
+        <td style={{padding:"5px 6px",color:B.grey4}}>{i+1}</td>
+        <td style={{padding:"5px 6px"}}>{x.t==="apartado"?<b style={{color:B.navy}}>Apartado</b>:<input style={cIn} value={raw.c||""} placeholder="Concepto" onChange={e=>upd(i,"c",e.target.value)}/>}</td>
+        <td style={{padding:"5px 6px",color:B.grey5}}>
+          {x.t==="apartado"&&<span style={{color:B.grey4}}>A la aceptación de la carta</span>}
+          {x.t==="enganche"&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}><select style={{...cIn,width:raw.cu==="fecha"?"auto":"100%"}} value={raw.cu||"contrato"} onChange={e=>upd(i,"cu",e.target.value)}><option value="contrato">A la firma del contrato</option><option value="aceptacion">A la aceptación de la carta</option><option value="fecha">En una fecha…</option></select>{raw.cu==="fecha"&&<input type="date" style={{...cIn,width:"auto",borderColor:raw.f?B.grey2:B.red}} value={raw.f||""} onChange={e=>upd(i,"f",e.target.value)}/>}</div>}
+          {x.t==="pago"&&<input type="date" style={{...cIn,borderColor:raw.f?B.grey2:B.red}} value={raw.f||""} onChange={e=>upd(i,"f",e.target.value)}/>}
+          {x.t==="escritura"&&<b style={{color:B.navy}}>Contra escritura</b>}
+          {x.t==="credito"&&<span>Al autorizarse el crédito</span>}
+          {x.t==="otro"&&<input style={cIn} value={raw.w||""} placeholder="Ej. A la entrega de la posesión" onChange={e=>upd(i,"w",e.target.value)}/>}
+        </td>
+        <td style={{padding:"5px 6px"}}>{x.t==="apartado"?<div style={{textAlign:"right",fontWeight:800,color:B.navy}}>{coMxC(x.m)}<div style={{fontSize:10,color:B.grey4,fontWeight:500}}>monto de apartado</div></div>
+          :(raw.resto?<div style={{textAlign:"right"}}><b style={{color:B.navy}}>{coMxC(x.m)}</b><div style={{fontSize:10,color:B.grey4}}>lo que falta</div></div>
+          :<input data-co-pago-monto style={{...cIn,textAlign:"right"}} inputMode="decimal" value={raw.m==null?"":raw.m} placeholder="$0.00 o 30%" onChange={e=>upd(i,"m",e.target.value)} onBlur={e=>{ const v=String(e.target.value||"").trim(); if(v&&!/%$/.test(v)) upd(i,"m",coMxC(coNum(v))); }}/>)}
+          {(x.t==="escritura"||x.t==="otro"||x.t==="credito")&&<label style={{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end",fontSize:10.5,color:B.grey4,marginTop:3,cursor:"pointer"}}><input type="checkbox" checked={!!raw.resto} onChange={e=>{ const v=e.target.checked; onChange(ls.map((y,j)=>j===i?{...y,resto:v,m:v?"":coMxC(x.m)}:(v?{...y,resto:false}:y))); }}/>por lo que falte</label>}
+          {raw.m&&/%$/.test(String(raw.m).trim())&&<div style={{fontSize:10.5,color:B.grey4,textAlign:"right"}}>= {coMxC(x.m)}</div>}</td>
+        <td style={{padding:"5px 6px"}}>{medSel(raw.md,(v)=>onChange(ls.map((y,j)=>j!==i?y:(v==="dividir"?{...y,md:v,partes:(Array.isArray(y.partes)&&y.partes.length>=2)?y.partes:[{md:"transferencia",m:""},{md:"efectivo",m:""}]}:{...y,md:v||null,partes:null}))),{"data-co-medio":i})}</td>
+        <td style={{padding:"5px 6px",textAlign:"right",fontSize:11,color:B.grey4}}>{tot?((x.m/tot*100).toFixed(1)+"%"):"—"}</td>
+        <td style={{textAlign:"center"}}>{x.t!=="apartado"&&<button type="button" title="Quitar" onClick={()=>rmv(i)} style={{border:"none",background:"none",color:"#b91c1c",fontWeight:800,cursor:"pointer",fontSize:14}}>✕</button>}</td></tr>
+        {raw.md==="dividir"&&(()=>{ const PS=Array.isArray(raw.partes)?raw.partes:[]; const updP=(k,campo,val)=>onChange(ls.map((y,j)=>j!==i?y:{...y,partes:(y.partes||[]).map((z,q)=>q===k?{...z,[campo]:val}:z)}));
+          const sp=Math.round(PS.reduce((a,z)=>a+coNum(z.m),0)*100)/100, okP=Math.abs(sp-x.m)<=0.05&&PS.length>=2, falta=Math.round((x.m-sp)*100)/100;
+          return (<React.Fragment>{PS.map((z,k)=><tr key={"p"+k} data-co-parte={i+"-"+k} style={{background:"#fbfaf6"}}><td/><td colSpan={2} style={{padding:"3px 6px",textAlign:"right",fontSize:12,color:B.grey4}}>↳ parte {String.fromCharCode(97+k)}</td>
+            <td style={{padding:"3px 6px"}}><input data-co-parte-monto style={{...cIn,textAlign:"right"}} inputMode="decimal" value={z.m==null?"":z.m} placeholder="$0.00" onChange={e=>updP(k,"m",e.target.value)} onBlur={e=>{ const v=String(e.target.value||"").trim(); if(v) updP(k,"m",coMxC(coNum(v))); }}/></td>
+            <td style={{padding:"3px 6px"}}>{medSel(z.md,(v)=>updP(k,"md",v),{"data-co-parte-medio":""})}</td><td/>
+            <td style={{textAlign:"center"}}>{PS.length>2&&<button type="button" title="Quitar parte" onClick={()=>onChange(ls.map((y,j)=>j!==i?y:{...y,partes:(y.partes||[]).filter((_,q)=>q!==k)}))} style={{border:"none",background:"none",color:"#b91c1c",cursor:"pointer"}}>✕</button>}</td></tr>)}
+            <tr style={{background:"#fbfaf6",borderBottom:"1px solid "+B.grey1}}><td/><td colSpan={2} style={{padding:"3px 6px 7px",textAlign:"right"}}><button type="button" onClick={()=>onChange(ls.map((y,j)=>j!==i?y:{...y,partes:[...(y.partes||[]),{md:"",m:""}]}))} style={{border:"1.5px dashed "+B.navy,color:B.navy,background:"#fff",borderRadius:7,padding:"3px 9px",fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>＋ Otra parte</button></td>
+              <td colSpan={4} style={{padding:"3px 6px 7px",fontSize:11.5,fontWeight:800,color:okP?"#15803d":B.red}}>{okP?("✓ Las partes suman "+coMxC(x.m)):("Las partes suman "+coMxC(sp)+" · "+(falta>0?"faltan ":"sobran ")+coMxC(Math.abs(falta)))}
+                {!okP&&PS.length>=2&&<button type="button" onClick={()=>onChange(ls.map((y,j)=>{ if(j!==i) return y; const ps=[...(y.partes||[])]; const u=ps.length-1; const otras=Math.round(ps.slice(0,u).reduce((a,z)=>a+coNum(z.m),0)*100)/100; ps[u]={...ps[u],m:coMxC(Math.max(0,x.m-otras))}; return {...y,partes:ps}; }))} style={{marginLeft:8,border:"1.5px solid #f59e0b",background:"#fff",color:"#b45309",borderRadius:7,padding:"2px 8px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Poner lo que falta en la última parte</button>}</td></tr></React.Fragment>); })()}
+        </React.Fragment>); })}
+        <tr style={{borderTop:"2px solid "+B.navy}}><td/><td colSpan={2} style={{padding:"7px 6px",fontWeight:800,color:B.navy}}>Suma de los pagos</td><td style={{padding:"7px 6px",textAlign:"right",fontWeight:800,color:cuadra?B.navy:B.red}}>{coMxC(suma)}</td>
+          <td data-co-efectivo style={{padding:"7px 6px",fontSize:11.5,fontWeight:800,color:ef>CO_EFECTIVO_MAX?B.red:B.grey4}}>{ef>0?("💵 Efectivo "+coMxC(ef)+(ef>CO_EFECTIVO_MAX?" ⛔":"")):""}</td><td style={{textAlign:"right",fontSize:11,fontWeight:800,color:cuadra?"#15803d":B.red}}>{tot?((suma/tot*100).toFixed(1)+"%"):""}</td><td style={{textAlign:"center",fontWeight:800,color:cuadra?"#15803d":B.red}}>{cuadra?"✓":"✗"}</td></tr>
+      </tbody></table></div>
+    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:6}}>
+      <span data-co-pagos-cuadra={cuadra?"si":"no"} style={{fontSize:12,fontWeight:800,color:cuadra?"#15803d":B.red}}>{tot>0?(cuadra?"✓ Los pagos cuadran con el total":((suma<tot?"Faltan ":"Sobran ")+coMxC(Math.abs(tot-suma))+" para cuadrar con el total ("+coMxC(tot)+")")):"Captura superficie y precio para calcular los pagos."}</span>
+      {tot>0&&!cuadra&&<button type="button" onClick={()=>{ const nx=[...ls]; const i=nx.findIndex(y=>y.t==="escritura"); if(i<0){ nx.push({t:"escritura",c:"Pago contra escritura",m:"",resto:true}); onChange(nx); return; } nx[i]={...nx[i],resto:true,m:""}; onChange(nx.map((y,j)=>j!==i&&y.resto?{...y,resto:false,m:coMxC(L[j].m)}:y)); }} style={{border:"1.5px solid #f59e0b",background:"#fff",color:"#b45309",borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Poner lo que falte en el pago contra escritura</button>}
+    </div>
+    {ef>CO_EFECTIVO_MAX&&<div style={{marginTop:6,fontSize:12,fontWeight:700,color:B.red}}>⛔ La ley antilavado no permite pagar en efectivo más de {CO_EFECTIVO_UMA.toLocaleString("es-MX")} UMA ({coMxC(CO_EFECTIVO_MAX)}) en la compra de un inmueble.</div>}
+  </div>); }
+
 function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, asesoresCatalog, onNuevoCliente, onAbrirTerreno, onClose, onToast }){
   const toast=onToast||(()=>{});
   const [lotesDB,setLotesDB]=useState(null);
@@ -4575,6 +4653,7 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
   const [aseId,setAseId]=useState("");
   const [aseSug,setAseSug]=useState(false);
   const [sup,setSup]=useState(""); const [pm2,setPm2]=useState(""); const [apt,setApt]=useState(""); const [forma,setForma]=useState("Contado"); const [cl3,setCl3]=useState(()=>coFormaTxt("Contado"));
+  const [pagos,setPagos]=useState(()=>coLineasPreset("Contado",0)); const [condTxt,setCondTxt]=useState(()=>CO_CONDS.filter(x=>x.k==="posesion"||x.k==="gastos").map(x=>x.c).join(" "));   // pagos con "cómo se paga" (ronda 1)
   const [vNom,setVNom]=useState(""); const [vMail,setVMail]=useState(""); const [vTel,setVTel]=useState(""); // vendedor (propietario)
   const [nuevo,setNuevo]=useState(null);     // mini-modal {nombre,email,tel,err}
   const [busy,setBusy]=useState(false);
@@ -4635,11 +4714,15 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
     setClientesDB(prev=>[row,...(prev||[])]); setNuevo(null); elegirCli(row); toast("✅ Cliente "+nom+" guardado y seleccionado"); };
 
   const s_=coNum(sup), p_=coNum(pm2), a_=coNum(apt), total=s_*p_;
-  const ok=[!!terr,!!cli,!!ase,s_>0&&p_>0];
+  React.useEffect(()=>{ setPagos(ls=>coSyncApartado(ls,a_)); },[a_]);   // el renglón de apartado sigue al monto de apartado
+  const Lp=coLineasCalc(pagos,total), errPagos=coValidarPagos(Lp,total);
+  const planR1={ forma, lineas:coLineasGuardar(Lp), lineas_editadas:true, cond:String(condTxt||"").trim() };
+  const condR1=CO_MARCA3+coLineasClausula(planR1.lineas,total,planR1.cond);
+  const ok=[!!terr,!!cli,!!ase,s_>0&&p_>0&&!errPagos];
   const faltan=["terreno","comprador","asesor","oferta"].filter((x,i)=>!ok[i]);
 
   const guardar=async(conLiga)=>{
-    if(faltan.length){ toast("Falta: "+faltan.join(", ")); return; }
+    if(faltan.length){ toast(errPagos&&s_>0&&p_>0?("Pagos: "+errPagos):("Falta: "+faltan.join(", "))); return; }
     setBusy(true);
     try{
       let por=null; try{ const { data } = await window.sb.auth.getSession(); por=(data&&data.session&&data.session.user&&data.session.user.email)||null; }catch(e){}
@@ -4650,7 +4733,7 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
         vendedor_nombre:vNom.trim()||null, vendedor_email:vMail.trim().toLowerCase()||null, vendedor_telefono:vTel.trim()||null, creado_por:por };
       const ins=await window.sb.from("cartas_oferta").insert(carta).select("*").single();
       if(ins.error) throw ins.error;
-      const r1=await window.sb.from("cartas_oferta_rondas").insert({ carta_id:ins.data.id, ronda:1, propone:"grupo_guia", precio_m2:p_, forma_pago:forma, condiciones:coCond3(forma,cl3) });
+      const r1=await window.sb.from("cartas_oferta_rondas").insert({ carta_id:ins.data.id, ronda:1, propone:"grupo_guia", precio_m2:p_, forma_pago:forma, condiciones:condR1, plan_pago:planR1 });
       if(r1.error){ try{ await window.sb.from("cartas_oferta").delete().eq("id",ins.data.id); }catch(e){} throw r1.error; }
       let liga=null;
       if(conLiga){ const { data, error } = await window.sb.rpc("carta_oferta_liga",{ p_id:ins.data.id, p_rol:"comprador", p_renovar:false }); if(error) toast("La carta se guardó, pero no se generó la liga: "+error.message); else liga=CO_URL+data;
@@ -4696,7 +4779,7 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
             </div>)}
             <div style={{fontSize:12.5,color:B.grey4,marginTop:12}}>El seguimiento (firmas, autorización, liga del vendedor, contrapropuestas y PDF) está en la ficha del terreno, sección <b>📝 Cartas oferta</b>.</div>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14,flexWrap:"wrap"}}>
-              <button onClick={()=>{ if(!coImprimir({...listo.carta,ronda_actual:1,cartas_oferta_rondas:[{ronda:1,propone:"grupo_guia",precio_m2:p_,total,forma_pago:forma,condiciones:coCond3(forma,cl3)}]},"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF</button>
+              <button onClick={()=>{ if(!coImprimir({...listo.carta,ronda_actual:1,cartas_oferta_rondas:[{ronda:1,propone:"grupo_guia",precio_m2:p_,total,forma_pago:forma,condiciones:condR1,plan_pago:planR1}]},"interno")) toast("Permite ventanas emergentes para ver el PDF."); }} style={btn("#fff",B.navy,B.grey2)}>📄 PDF</button>
               {onAbrirTerreno && <button onClick={()=>{ onAbrirTerreno(terr); onClose(); }} style={btn(B.navy,"#fff")}>Abrir ficha del terreno</button>}
               <button onClick={onClose} style={btn(B.green,"#fff")}>Listo</button>
             </div>
@@ -4754,12 +4837,15 @@ function CartaOfertaWizard({ inicial, captaciones, inventory, clientesLocal, ase
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:10,marginTop:10}}>
                 <div><label style={lbl}>Monto de apartado</label><input value={apt} onChange={e=>setApt(e.target.value)} inputMode="decimal" placeholder="$0" style={{...inS,textAlign:"right"}}/></div>
-                <div><label style={lbl}>Forma de pago</label><select value={forma} onChange={e=>{ const v=e.target.value; if(String(cl3).trim()===coFormaTxt(forma)) setCl3(coFormaTxt(v)); setForma(v); }} style={inS}>{CO_FORMAS.map(f=><option key={f}>{f}</option>)}</select></div>
+                <div><label style={lbl}>Forma de pago</label><select value={forma} onChange={e=>{ const v=e.target.value; setForma(v); setPagos(coLineasPreset(v,a_)); }} style={inS}>{CO_FORMAS.map(f=><option key={f}>{f}</option>)}</select></div>
                 <div><label style={lbl}>{terr?terr.etiquetaLista:"Precio de lista"}</label><input readOnly value={terr?(terr.pm2Lista?(coMx(terr.pm2Lista)+"/m² · "+coMx(terr.totalLista)):"Pendiente"):""} placeholder="— elige un terreno —" style={{...inS,background:B.offW,textAlign:"right"}}/></div>
               </div>
-              <div style={{marginTop:10}}><label style={lbl}>Cláusula TERCERA · texto de forma de pago</label>
-                <textarea value={cl3} onChange={e=>setCl3(e.target.value)} style={{...inS,minHeight:64,resize:"vertical",fontSize:13.5,fontWeight:500}}/>
-                <div style={{fontSize:11,color:B.grey4,marginTop:2}}>En la carta sale: <b>TERCERA. Forma de pago. {forma}:</b> + este texto. <a href="#" onClick={e=>{ e.preventDefault(); setCl3(coFormaTxt(forma)); }} style={{color:"#1d4ed8"}}>Restaurar texto estándar</a></div></div>
+              <div style={{marginTop:12}}><label style={lbl}>Pagos · cuándo y cómo se paga cada uno</label>
+                <CoPagosEditor lineas={pagos} onChange={setPagos} total={total} apartado={a_}/>
+                <label style={{...lbl,marginTop:10}}>Condiciones adicionales (opcional)</label>
+                <textarea value={condTxt} onChange={e=>setCondTxt(e.target.value)} style={{...inS,minHeight:52,resize:"vertical",fontSize:13,fontWeight:500}}/>
+                {total>0&&!errPagos&&<div data-co-clausula style={{fontSize:11.5,color:B.grey5,marginTop:6,background:B.offW,borderRadius:8,padding:"6px 9px"}}><b>Así sale la cláusula TERCERA:</b> {condR1.slice(1)}</div>}
+                {total>0&&errPagos&&<div style={{fontSize:12,color:B.red,fontWeight:700,marginTop:6}}>⚠ {errPagos}</div>}</div>
               {dif!=null && nota(false,<>{dif<0?"📉":"📈"} Precio ofertado <b>{dif>=0?"+":""}{dif.toFixed(1)}%</b> vs. {terr.etiquetaLista.toLowerCase()} ({coMx(terr.pm2Lista)}/m²) · diferencia total <b>{coMx(Math.abs(total-s_*terr.pm2Lista))}</b> {Math.abs(dif)<0.05?"(igual)":(dif<0?"abajo":"arriba")}.</>)}
               {terr&&terr.sup>0&&s_>terr.sup && nota(true,<>⚠ La superficie ofertada ({s_.toLocaleString("es-MX")} m²) es mayor que la del terreno ({terr.sup.toLocaleString("es-MX")} m²).</>)}
               {a_>0&&total>0 && nota(false,<>Apartado: <b>{coMx(a_)}</b> ({(a_/total*100).toFixed(1)}% del total) · saldo {coMx(total-a_)}.</>)}
