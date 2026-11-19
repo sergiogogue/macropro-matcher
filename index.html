@@ -2442,7 +2442,7 @@ const mediaNombre=(n)=>String(n||"archivo").normalize("NFD").replace(/[̀-ͯ]/g,
 function MultimediaLote({ lot, onToast }){
   const id=lot?loteKey(lot):"";
   const tipoFicha=/corretaje/i.test(String((lot&&(lot.tipo_inventario||lot.tipo||lot.desarrollo))||""))?"corretaje":"lote";
-  const vacio={fotos_urls:[],portada_url:"",video_url:"",plano_url:"",kmz_url:"",maps_url:"",ficha_tecnica_url:"",ficha_tecnica_at:null,media_actualizado_at:null,media_actualizado_por:""};
+  const vacio={fotos_urls:[],portada_url:"",video_url:"",plano_url:"",kmz_url:"",maps_url:"",uso_suelo_url:"",presentacion_url:"",poligono:null,ficha_tecnica_url:"",ficha_tecnica_at:null,media_actualizado_at:null,media_actualizado_por:""};
   const [st,setSt]=useState(()=>MP_MEDIA.draft[id]||{});
   React.useEffect(()=>{ const subs=(MP_MEDIA.subs[id]=MP_MEDIA.subs[id]||new Set()); subs.add(setSt); return ()=>{ subs.delete(setSt); }; },[id]);
   const m=st.m||vacio, orig=(st.orig===undefined?null:st.orig), cargando=!st.cargado, subiendo=st.subiendo||"", guardando=!!st.guardando, err=st.err||"";
@@ -2483,13 +2483,14 @@ function MultimediaLote({ lot, onToast }){
   const cargarNube=()=>{
     (async()=>{ try{
         if(!window.sb||!id) throw new Error(!id?"Este lote no tiene id":"Sin conexión a Supabase");
-        const {data,error}=await window.sb.from("landing_lote_meta").select("lote_id,portada_url,fotos_urls,video_url,plano_url,kmz_url,maps_url,ficha_tecnica_url,ficha_tecnica_at,media_actualizado_at,media_actualizado_por").eq("lote_id",id).maybeSingle();
+        const {data,error}=await window.sb.from("landing_lote_meta").select("lote_id,portada_url,fotos_urls,video_url,plano_url,kmz_url,maps_url,uso_suelo_url,presentacion_url,poligono,ficha_tecnica_url,ficha_tecnica_at,media_actualizado_at,media_actualizado_por").eq("lote_id",id).maybeSingle();
         if(error) throw error;
         const d={...vacio,...(data||{})}; d.fotos_urls=Array.isArray(d.fotos_urls)?d.fotos_urls:[];
-        ["portada_url","video_url","plano_url","kmz_url","maps_url","ficha_tecnica_url","media_actualizado_por"].forEach(k=>{ d[k]=d[k]||""; });
+        ["portada_url","video_url","plano_url","kmz_url","maps_url","uso_suelo_url","presentacion_url","ficha_tecnica_url","media_actualizado_por"].forEach(k=>{ d[k]=d[k]||""; });
+        d.poligono=Array.isArray(d.poligono)&&d.poligono.length>=3?d.poligono:null;
         if(!d.maps_url&&mediaEsMaps(lot.maps_url)) d.maps_url=String(lot.maps_url).trim();   // lo que ya traía el inventario
         mpMediaSet(id,{m:d,orig:JSON.stringify(d),cargado:true,err:""});
-      }catch(e){ mpMediaSet(id,{cargado:true,err:/fotos_urls|column/i.test(String(e&&e.message))?"Falta correr sql/media_centralizada_fase1.sql en Supabase.":String((e&&e.message)||e)}); }
+      }catch(e){ mpMediaSet(id,{cargado:true,err:/fotos_urls|column/i.test(String(e&&e.message))?"Falta correr sql/media_centralizada_fase1.sql y fase3 en Supabase.":String((e&&e.message)||e)}); }
     })(); };
   // Solo baja de la nube la PRIMERA vez (o al descartar); si hay borrador, lo conserva.
   React.useEffect(()=>{ if(!(MP_MEDIA.draft[id]&&MP_MEDIA.draft[id].cargado)) cargarNube(); },[id]);
@@ -2515,6 +2516,15 @@ function MultimediaLote({ lot, onToast }){
   const subirUno=async(file,k,carpeta,okRe,msg)=>{ if(!file) return; if(!okRe.test(file.name)){ toast(msg); return; }
     setSubiendo(carpeta); try{ const url=await subir(file,carpeta); set(k,url); toast("✅ Subido · falta 💾 Guardar ficha"); }
     catch(e){ toast("No se pudo subir: "+((e&&e.message)||e)); } finally{ setSubiendo(""); } };
+  // KMZ/KML → la Landing (kmz-poligono) lee el perímetro y su centro: el mapa dibuja el predio exacto.
+  const subirKmz=async(file)=>{ if(!file) return; if(!/\.(kmz|kml)$/i.test(file.name)){ toast("⚠ Debe ser un archivo .kmz o .kml"); return; }
+    setSubiendo("kmz");
+    try{ const url=await subir(file,"kmz"); set("kmz_url",url);
+      try{ const r=await fetch(LANDING_URL+"/.netlify/functions/kmz-poligono",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({url})}); const d=await r.json().catch(()=>({}));
+        if(d&&d.ok&&Array.isArray(d.poligono)){ set("poligono",d.poligono); toast("✅ KMZ subido · polígono detectado ("+d.poligono.length+" puntos) · falta 💾 Guardar ficha"); }
+        else toast("⚠ KMZ subido, pero no se encontró el polígono: "+((d&&d.error)||"revisa el archivo")); }
+      catch(e){ toast("⚠ KMZ subido; no se pudo leer el polígono ahora"); } }
+    catch(e){ toast("No se pudo subir: "+((e&&e.message)||e)); } finally{ setSubiendo(""); } };
   const mover=(i,d)=>setM(p=>{ const a=[...p.fotos_urls]; const j=i+d; if(j<0||j>=a.length) return p; [a[i],a[j]]=[a[j],a[i]]; return {...p,fotos_urls:a}; });
   const quitarFoto=(i)=>setM(p=>{ const a=p.fotos_urls.filter((_,k)=>k!==i); const quitada=p.fotos_urls[i]; return {...p,fotos_urls:a,portada_url:p.portada_url===quitada?(a[0]||""):p.portada_url}; });
   const guardar=async()=>{
@@ -2527,7 +2537,8 @@ function MultimediaLote({ lot, onToast }){
     try{
       let quien=""; try{ const u=await window.sb.auth.getUser(); quien=(u&&u.data&&u.data.user&&u.data.user.email)||""; }catch(e){}
       const ahora=new Date().toISOString();
-      const fila={ lote_id:id, fotos_urls:m.fotos_urls, portada_url:m.portada_url||null, video_url:m.video_url.trim()||null, plano_url:m.plano_url||null, kmz_url:m.kmz_url||null, maps_url:m.maps_url.trim()||null, media_actualizado_at:ahora, media_actualizado_por:quien||null, updated_at:ahora };
+      const fila={ lote_id:id, fotos_urls:m.fotos_urls, portada_url:m.portada_url||null, video_url:m.video_url.trim()||null, plano_url:m.plano_url||null, kmz_url:m.kmz_url||null, maps_url:m.maps_url.trim()||null, uso_suelo_url:m.uso_suelo_url||null, presentacion_url:m.presentacion_url||null, media_actualizado_at:ahora, media_actualizado_por:quien||null, updated_at:ahora };
+      if(Array.isArray(m.poligono)&&m.poligono.length>=3) fila.poligono=m.poligono;   // solo si hay uno (nunca borra el que ya tenía)
       const {error}=await window.sb.from("landing_lote_meta").upsert(fila,{onConflict:"lote_id"});
       if(error) throw error;
       const d={...m,media_actualizado_at:ahora,media_actualizado_por:quien}; setM(d); setOrig(JSON.stringify(d));
@@ -2589,7 +2600,19 @@ function MultimediaLote({ lot, onToast }){
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
         <div style={sec}><span style={tit}>📐 Plano (PDF o imagen)</span>{archivo("plano_url","plano","plano","application/pdf,image/*",/\.(pdf|jpe?g|png|webp)$/i,"⚠ El plano debe ser PDF, JPG, PNG o WEBP")}</div>
-        <div style={sec}><span style={tit}>🗂 KMZ / KML</span>{archivo("kmz_url","kmz","KMZ",".kmz,.kml",/\.(kmz|kml)$/i,"⚠ Debe ser un archivo .kmz o .kml")}</div>
+        <div style={sec}><span style={tit}>🗂 KMZ / KML</span>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            {m.kmz_url?<a href={m.kmz_url} target="_blank" rel="noopener noreferrer" style={{fontSize:12,fontWeight:800,color:"#1d4ed8",textDecoration:"none"}}>✅ Ver KMZ ↗</a>:<span style={{fontSize:12,color:B.grey4}}>Sin KMZ</span>}
+            <label style={{...bt("#eff6ff","#1d4ed8","#bfdbfe"),cursor:subiendo?"wait":"pointer"}}>{subiendo==="kmz"?"Subiendo…":(m.kmz_url?"Reemplazar":"⬆️ Subir")}
+              <input data-media-input="kmz" type="file" hidden accept=".kmz,.kml" disabled={!!subiendo} onChange={e=>{ const f=e.target.files&&e.target.files[0]; e.target.value=""; subirKmz(f); }}/></label>
+            {m.kmz_url&&<button onClick={()=>set("kmz_url","")} style={bt("#fff","#dc2626","#fecaca")}>Quitar</button>}
+          </div>
+          <span data-media-poligono style={{fontSize:11,fontWeight:700,color:m.poligono?"#15803d":B.grey4}}>{m.poligono?("📐 Polígono del predio: "+m.poligono.length+" puntos (se dibuja en el mapa)"):"Al subir el KMZ se detecta el polígono del predio."}</span>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <div style={sec}><span style={tit}>📄 Documento de uso de suelo</span>{archivo("uso_suelo_url","uso-suelo","uso de suelo","application/pdf,image/*",/\.(pdf|jpe?g|png|webp)$/i,"⚠ Debe ser PDF, JPG, PNG o WEBP")}</div>
+        <div style={sec}><span style={tit}>📑 Presentación (PDF)</span>{archivo("presentacion_url","presentacion","presentación","application/pdf",/\.pdf$/i,"⚠ La presentación debe ser PDF")}</div>
       </div>
       <div style={sec}>
         <span style={tit}>📍 Liga de Google Maps</span>
