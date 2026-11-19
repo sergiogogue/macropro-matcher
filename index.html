@@ -2450,6 +2450,34 @@ function MultimediaLote({ lot, onToast }){
   const setOrig=(v)=>mpMediaSet(id,{orig:v});
   const setSubiendo=(v)=>mpMediaSet(id,{subiendo:v});
   const setGuardando=(v)=>mpMediaSet(id,{guardando:v});
+  const pdfEstado=st.pdf||"";   // "" | "generando" | "ok" | "error"
+  // 📄 PDF de la ficha técnica: la Landing lo genera con el MISMO diseño (fichaPrint.js + el motor de
+  // "Descargar PDF") en una ventanita y nos lo regresa; aquí se sube a media-terrenos y se guarda la liga.
+  // La ventanita se abre en el CLIC (si no, el navegador la bloquea).
+  const abrirVentanaPdf=()=>{ try{ return window.open("","gg-ficha-pdf","width=920,height=760"); }catch(e){ return null; } };
+  const generarPdf=async(w)=>{
+    if(!w){ toast("⚠ Permite las ventanas emergentes de MacroPro para generar el PDF de la ficha"); return; }
+    const nonce=Math.random().toString(36).slice(2)+Date.now().toString(36);
+    mpMediaSet(id,{pdf:"generando"});
+    try{
+      w.location.href=LANDING_URL+"/f/"+tipoFicha+"/"+encodeURIComponent(id)+"?ft=1&pdf=macropro&n="+nonce+"&o="+encodeURIComponent(window.location.origin);
+      const d=await new Promise((res,rej)=>{
+        const fin=(fn,v)=>{ window.removeEventListener("message",oir); clearTimeout(t); fn(v); };
+        const oir=(ev)=>{ if(ev.origin!==LANDING_URL) return; const x=ev.data||{}; if(x.tipo!=="gg-ficha-pdf"||x.nonce!==nonce) return; if(x.ok&&x.buffer) fin(res,x); else fin(rej,new Error(x.error||"la Landing no pudo generar el PDF")); };
+        const t=setTimeout(()=>fin(rej,new Error("tardó demasiado (60 s)")),60000);
+        window.addEventListener("message",oir);
+      });
+      const blob=new Blob([d.buffer],{type:"application/pdf"});
+      const url=await subir(new File([blob],"ficha-tecnica.pdf",{type:"application/pdf"}),"ficha");
+      const ahora=new Date().toISOString();
+      const {error}=await window.sb.from("landing_lote_meta").upsert({lote_id:id,ficha_tecnica_url:url,ficha_tecnica_at:ahora,updated_at:ahora},{onConflict:"lote_id"});
+      if(error) throw error;
+      const cur=(MP_MEDIA.draft[id]&&MP_MEDIA.draft[id].m)||vacio; const nm={...cur,ficha_tecnica_url:url,ficha_tecnica_at:ahora};
+      let o=null; try{ o=JSON.parse((MP_MEDIA.draft[id]&&MP_MEDIA.draft[id].orig)||"null"); }catch(e){}
+      mpMediaSet(id,{m:nm,orig:o?JSON.stringify({...o,ficha_tecnica_url:url,ficha_tecnica_at:ahora}):JSON.stringify(nm),pdf:"ok"});
+      toast("📄 PDF de la ficha técnica guardado");
+    }catch(e){ mpMediaSet(id,{pdf:"error"}); toast("⚠ No se pudo generar el PDF: "+((e&&e.message)||e)); try{ w.close(); }catch(_){} }
+  };
   const toast=(t)=>{ try{ onToast&&onToast(t); }catch(e){} };
   const recargar=()=>{ mpMediaSet(id,{cargado:false,err:"",m:undefined,orig:undefined}); cargarNube(); };
   const cargarNube=()=>{
@@ -2493,7 +2521,9 @@ function MultimediaLote({ lot, onToast }){
     if(m.video_url&&!mediaEsVideo(m.video_url)){ toast("⚠ El video debe ser una liga de YouTube o Vimeo"); return; }
     if(m.maps_url&&!mediaEsMaps(m.maps_url)){ toast("⚠ La liga de Maps debe ser de Google Maps (maps.app.goo.gl o google.com/maps)"); return; }
     if(!id||id!==id.toLowerCase()){ toast("⚠ Id de lote inválido"); return; }
+    const w=abrirVentanaPdf();   // en el clic, para que el navegador no la bloquee
     setGuardando(true);
+    let okGuardado=false;
     try{
       let quien=""; try{ const u=await window.sb.auth.getUser(); quien=(u&&u.data&&u.data.user&&u.data.user.email)||""; }catch(e){}
       const ahora=new Date().toISOString();
@@ -2501,9 +2531,10 @@ function MultimediaLote({ lot, onToast }){
       const {error}=await window.sb.from("landing_lote_meta").upsert(fila,{onConflict:"lote_id"});
       if(error) throw error;
       const d={...m,media_actualizado_at:ahora,media_actualizado_por:quien}; setM(d); setOrig(JSON.stringify(d));
-      toast("💾 Ficha guardada");
+      toast("💾 Ficha guardada · generando su PDF…"); okGuardado=true;
     }catch(e){ const t=String((e&&e.message)||e); toast(/row-level security|permission|policy/i.test(t)?"⚠ Tu usuario no tiene permiso de administrador en la Landing":"No se pudo guardar: "+t); }
     finally{ setGuardando(false); }
+    if(okGuardado) generarPdf(w); else { try{ w&&w.close(); }catch(_){} }
   };
   const sec={border:"1px solid "+B.grey1,borderRadius:12,padding:"12px 14px",display:"flex",flexDirection:"column",gap:8,background:"#fff"};
   const tit={fontSize:13,fontWeight:800,color:B.navy};
@@ -2558,7 +2589,13 @@ function MultimediaLote({ lot, onToast }){
       <div style={{...sec,background:"#f8fafc"}}>
         <span style={tit}>📄 Ficha técnica</span>
         <div style={{fontSize:12,color:B.grey5}}>Liga viva (siempre al día con lo que guardes): <a data-media-ficha-viva href={ligaViva} target="_blank" rel="noopener noreferrer" style={{fontWeight:800,color:"#1d4ed8"}}>{ligaViva.replace("https://","")} ↗</a></div>
-        <div style={{fontSize:12,color:B.grey4}}>{m.ficha_tecnica_url?<a href={m.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" style={{fontWeight:800,color:"#1d4ed8"}}>PDF guardado ↗</a>:"PDF guardado: se generará solo al guardar (siguiente fase)."}</div>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontSize:12,color:B.grey4}}>
+          {pdfEstado==="generando"?<span data-media-pdf="generando" style={{fontWeight:800,color:"#92400e"}}>⏳ Generando el PDF (se abre una ventanita unos segundos)…</span>
+            :(m.ficha_tecnica_url?<a data-media-pdf="ok" href={m.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" style={{fontWeight:800,color:"#1d4ed8"}}>📄 PDF guardado{m.ficha_tecnica_at?(" · "+new Date(m.ficha_tecnica_at).toLocaleString("es-MX",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})):""} ↗</a>
+            :<span>El PDF se genera solo al <b>💾 Guardar ficha</b>.</span>)}
+          {pdfEstado==="error"&&<span style={{color:"#b91c1c",fontWeight:800}}>No se pudo generar.</span>}
+          <button data-media-regenerar disabled={pdfEstado==="generando"||cambios} title={cambios?"Primero guarda los cambios":"Vuelve a generar el PDF con los datos actuales"} onClick={()=>generarPdf(abrirVentanaPdf())} style={{...bt("#fff",B.navy,"#cbd5e1"),opacity:(pdfEstado==="generando"||cambios)?0.5:1}}>🔄 {m.ficha_tecnica_url?"Regenerar PDF":"Generar PDF ahora"}</button>
+        </div>
       </div>
       <div style={{position:"sticky",bottom:0,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",padding:"10px 12px",borderRadius:12,background:cambios?"#fffbeb":"#f0fdf4",border:"1px solid "+(cambios?"#fde68a":"#bbf7d0")}}>
         <span style={{fontSize:12,fontWeight:700,color:cambios?"#92400e":"#15803d"}}>{cambios?"Hay cambios sin guardar":(m.media_actualizado_at?("Guardado "+new Date(m.media_actualizado_at).toLocaleString("es-MX",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})+(m.media_actualizado_por?(" · "+m.media_actualizado_por):"")):"Sin cambios")}</span>
