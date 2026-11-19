@@ -3358,6 +3358,8 @@ const MP_COT_UI={abierto:false};
 // Cotizaciones ya bajadas: sobreviven al redibujado del tablero (evita que el automático
 // decida con la lista vacía mientras vuelve a cargar).
 const MP_OPC_CACHE={lista:null};
+// Sub-pestaña de Asesores guardada al abrir (antes de que Asesores la reescriba): "cartas" → pestaña propia.
+const MP_FA_MODO_INICIAL=(()=>{ try{ return localStorage.getItem("mp_fa_modo")||""; }catch(e){ return ""; } })();
 const MP_CAP_MANUAL=(()=>{ try{ return JSON.parse(localStorage.getItem("mp_cap_manual")||"{}")||{}; }catch(e){ return {}; } })();
 const mpCapManualSet=(id,meta)=>{ if(meta==null) delete MP_CAP_MANUAL[id]; else MP_CAP_MANUAL[id]=meta; try{ localStorage.setItem("mp_cap_manual",JSON.stringify(MP_CAP_MANUAL)); }catch(e){} };
 const MP_COT_PENDIENTE={pdf:null}; // alto del menú superior fijo (para pegar barras debajo de él)
@@ -4611,7 +4613,9 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const setView=(v)=>{setViewRaw(v);savePersisted(STORAGE_KEYS.view,v);};
   // Back-Office "Option Engine": si al cargar, la vista persistida/por URL es OCULTA, redirige a
   // Captación (solo al montar; la navegación interna no se bloquea). Reversible.
-  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch","equipo","requerimientos","calidad"];
+  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch","equipo","requerimientos","calidad","cartas"];
+    // "Cartas oferta" dejó de ser sub-pestaña de Asesores (2026-11-19): quien la tenía abierta, va a la pestaña propia.
+    try{ if(view==="equipo"&&MP_FA_MODO_INICIAL==="cartas"){ localStorage.setItem("mp_fa_modo","general"); setView("cartas"); return; } }catch(e){}
     if(!permitidas.includes(view)){ setView("captacion"); try{ if(window.location.hash && window.location.hash!=="#captacion") window.history.replaceState(null,"","#captacion"); }catch(e){} }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -19632,7 +19636,7 @@ Respuesta: [respuesta exacta, conversacional]
         <ShareButtons chico url={u} mensaje={"Hola"+(nom?" "+nom:"")+", aquí puedes revisar y aceptar la cotización de tu terreno "+terr+" y subir tus documentos: "+u} asunto={"Tu cotización · "+(o.terreno_nombre||"terreno")+" · Grupo Guía"} telefono={o.cliente_telefono} email={o.cliente_email} onToast={toast} onEnviar={()=>marcarCotEnviada(o)}/>
         <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:5}}>
           <button data-cot-asesor onClick={()=>setAcuerdoCotG(o)} title="Acuerdo de comisión del asesor" style={{...bS,color:B.navy,background:B.gold,border:"none"}}>🤝 Enviar al asesor</button>
-          <button data-cot-pdf onClick={()=>{ MP_COT_PENDIENTE.pdf=o; setView("pitch"); }} title="Genera el PDF de la cotización (abre la pestaña Cotización)" style={{...bS,color:B.navy,background:"#fff",border:"1px solid "+B.gold}}>📄 PDF</button>
+          <button data-cot-pdf onClick={()=>{ MP_COT_PENDIENTE.pdf=o; setView("pitch"); }} title="Genera el PDF de la cotización" style={{...bS,color:B.navy,background:"#fff",border:"1px solid "+B.gold}}>📄 PDF</button>
         </div></div>); };
     const renderOpcPendiente=(o)=>{ const borr=esBorradorCot(o), rech=String(o.estatus||"").toLowerCase().startsWith("rechaz"); const u=ligaAceptarDe(o); const nom=shNombre(o.cliente_nombre);
       const terr=(o.terreno_nombre||"tu terreno")+(o.terreno_ciudad?(" ("+o.terreno_ciudad+")"):"");
@@ -19647,7 +19651,7 @@ Respuesta: [respuesta exacta, conversacional]
         {!rech&&<div style={{margin:"2px 0 4px"}}><ShareButtons chico url={u} mensaje={"Hola"+(nom?" "+nom:"")+", aquí puedes revisar y aceptar la cotización de tu terreno "+terr+" y subir tus documentos: "+u} asunto={"Tu cotización · "+(o.terreno_nombre||"terreno")+" · Grupo Guía"} telefono={o.cliente_telefono} email={o.cliente_email} onToast={toast} onEnviar={()=>marcarCotEnviada(o)}/></div>}
         <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:4}}>
           {!rech&&<button data-cot-asesor onClick={()=>setAcuerdoCotG(o)} title="Acuerdo de comisión del asesor" style={{...bS,color:B.navy,background:B.gold,border:"none"}}>🤝 Enviar al asesor</button>}
-          <button data-cot-pdf onClick={()=>{ MP_COT_PENDIENTE.pdf=o; setView("pitch"); }} title="Genera el PDF de la cotización (abre la pestaña Cotización)" style={{...bS,color:B.navy,background:"#fff",border:"1px solid "+B.gold}}>📄 PDF</button>
+          <button data-cot-pdf onClick={()=>{ MP_COT_PENDIENTE.pdf=o; setView("pitch"); }} title="Genera el PDF de la cotización" style={{...bS,color:B.navy,background:"#fff",border:"1px solid "+B.gold}}>📄 PDF</button>
           {btnElimOpc(o)}
         </div>
       </div>); };
@@ -19883,7 +19887,8 @@ Respuesta: [respuesta exacta, conversacional]
                           <div style={{fontSize:13, fontWeight:800, color:B.navy, marginBottom:2}}>{c.propietario||"Propietario sin nombre"}</div>
                           <div style={{fontSize:10, color:B.grey4, marginBottom:6}}>{c.contacto?c.contacto:""}{c.telefono?(c.contacto?" · ":"")+c.telefono:""}</div>
                           <div style={{display:"inline-flex", alignItems:"center", gap:4, fontSize:10, fontWeight:800, color:c.asesorResponsableGG?"#0f6b3f":"#b45309", background:c.asesorResponsableGG?"#dcfce7":"#fef3c7", border:"1px solid "+(c.asesorResponsableGG?"#86efac":"#fde68a"), borderRadius:6, padding:"3px 8px", marginBottom:7}}>👤 {c.asesorResponsableGG||"Sin asesor asignado"}</div>
-                          {(stage==="Nueva cotización"||stage==="Enviada")&&(()=>{ const cot=cotDeCap(c.id);
+                          {["Nueva cotización","Enviada","Nueva opción","Viabilidad"].includes(stage)&&(()=>{ const cot=cotDeCap(c.id);
+                            if(cot && !(stage==="Nueva cotización"||stage==="Enviada")) return null;   // ya tiene cotización: sus botones viven en Nueva cotización / Enviada
                             return cot ? accionesCot(cot)
                               : <button data-cap-cotizar onClick={e=>{ e.stopPropagation(); iniciarCotizacionDeCaptacion(c); }} style={{width:"100%",margin:"2px 0 8px",padding:"7px 8px",borderRadius:7,border:"none",background:B.gold,color:B.navy,fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧾 Hacer su cotización</button>; })()}
                           {(()=>{ const rows=slaMap[c.id]||[]; if(!rows.length) return null;
@@ -22500,7 +22505,7 @@ Respuesta: [respuesta exacta, conversacional]
     // Banderas "en curso" a nivel módulo (MP_FA_BUSY): este tick solo re-pinta cuando cambian.
     const [,setBusyTick]=React.useState(0);
     React.useEffect(()=>{ const f=()=>setBusyTick(t=>t+1); window.addEventListener("mp-fa-busy",f); return ()=>window.removeEventListener("mp-fa-busy",f); },[]);
-    const [modo,setModo]=React.useState(()=>FA("modo","general")); // general | asesor
+    const [modo,setModo]=React.useState(()=>{ const m=FA("modo","general"); return m==="cartas"?"general":m; }); // general | asesor | huecos  (Cartas oferta ya es pestaña propia)
     const [sel,setSel]=React.useState(()=>FA("sel",""));
     const [ciudadF,setCiudadF]=React.useState(()=>FA("ciudad",""));
     const [estadoF,setEstadoF]=React.useState(()=>FA("estado","todos")); // todos | tramite | firmados
@@ -23341,7 +23346,6 @@ Respuesta: [respuesta exacta, conversacional]
               {tabBtn("general","📊 General")}
               {tabBtn("asesor","👤 Por asesor")}
               {tabBtn("huecos","🚩 Sin asesor",sinAsesorTotal||null)}
-              {tabBtn("cartas","📝 Cartas oferta")}
             </div>
             <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
               {modo==="asesor" && (
@@ -24106,7 +24110,7 @@ Respuesta: [respuesta exacta, conversacional]
               NO se borran vistas: componentes y render (view===) siguen intactos; reversible re-agregando entradas.
               Ocultas (solo accesibles internamente): dashboard, corretaje, asesores(Buscando), quickSearch,
               matchClient, matchLot, matches, clients, lots(Inventario), crm, metas, ejecutivo, comparador. */}
-          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["pitch","🧾 Cotización"],["equipo","👔 Asesores"],["requerimientos","🔍 Requerimientos"],["calidad","🩺 Calidad de datos"],["admin","⚙️ Admin"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["cartas","📝 Cartas oferta"],["equipo","👔 Asesores"],["requerimientos","🔍 Requerimientos"],["calidad","🩺 Calidad de datos"],["admin","⚙️ Admin"]].map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <button title="Crear una carta oferta desde cero" style={{...s.navBtn(false),background:B.gold,color:B.navy,fontWeight:800}} onClick={()=>setWizardCO({})}>➕ Nueva Carta Oferta</button>
@@ -24160,8 +24164,16 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="admin"&&<ViewAdmin/>}
       {view==="asesores"&&<ViewAsesores/>}
       {view==="captacion"&&<ViewCaptacion/>}
-      {view==="pitch"&&<TramiteOpcionPaso1 asesores={asesoresCloud} onToast={toast} onCotizar={iniciarCotizacionDeAcuerdo} ver={acuerdosVer+"-"+cotPrefillVer}/>}
+      {view==="cartas"&&<ViewCartasOferta s={s} onToast={toast} onNueva={()=>setWizardCO({})} onAbrirTerreno={(c)=>{ if(c.captacion_id){ const x=(captaciones||[]).find(y=>y.id===c.captacion_id); if(x){ setEditingCaptacion(x); setShowCaptacionModal(true); } else toast("Ese terreno de captación no está cargado en este equipo."); } else if(c.lote_id){ const l=(inventory||[]).find(y=>loteKey(y)===c.lote_id); if(l) setSelectedLotDetail(l); else toast("Ese lote no está cargado en este equipo."); } }}/>}
+      {/* Cotización: ya no es pestaña (2026-11-19). El formulario se abre desde 🌱 Opción / Captación
+          (＋ Nueva cotización · 🧾 Hacer su cotización · 📄 PDF) y desde Asesores (Paso 2: Hacer cotización). */}
+      {view==="pitch"&&(
+        <div style={{maxWidth:1240,margin:"0 auto",padding:"16px 18px 0"}}>
+          <button data-cot-volver onClick={()=>setView("captacion")} style={{padding:"9px 14px",borderRadius:9,border:"1.5px solid #cbd5e1",background:"#fff",color:B.navy,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>← Volver a 🌱 Opción / Captación</button>
+        </div>)}
       {view==="pitch"&&<ViewPitchCotizacion key={"cot-"+cotPrefillVer}/>}
+      {/* Paso 1 (mandar el Alta de terreno y Acuerdo de Comisión al asesor) y "Listos para cotizar" viven en Asesores. */}
+      {view==="equipo"&&<TramiteOpcionPaso1 asesores={asesoresCloud} onToast={toast} onCotizar={(a)=>{ iniciarCotizacionDeAcuerdo(a); setView("pitch"); }} ver={acuerdosVer+"-"+cotPrefillVer}/>}
       {view==="equipo"&&<ViewFichaAsesores/>}
       {view==="equipo"&&<EstadoCorreosModal/>}
       {view==="calidad"&&<ViewCalidadDatos s={s} clients={clients} inventory={inventory} captaciones={captaciones}
