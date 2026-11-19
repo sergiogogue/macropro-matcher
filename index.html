@@ -3285,7 +3285,11 @@ const CO_VUELO={};          // key → promesa en curso (no se piden dos veces a
 const CO_FRESCO_MS=30000;
 // Reporte de captación plegable: recuerda si quedó abierto (por equipo). Cerrado por defecto.
 // 🔎 Filtros del tablero de captación (asesor · cliente · ciudad). Se recuerdan por equipo.
-const MP_NAV_H={h:0}; // alto del menú superior fijo (para pegar barras debajo de él)
+const MP_NAV_H={h:0};
+// 🧾 Cotización (pestaña): el formulario va retráctil y solo se abre con "＋ Nueva cotización" (o desde
+// Paso 1 "Cotizar"). MP_COT_PENDIENTE.pdf = cotización cuyo PDF se pidió desde el tablero de Captación.
+const MP_COT_UI={abierto:false};
+const MP_COT_PENDIENTE={pdf:null}; // alto del menú superior fijo (para pegar barras debajo de él)
 const CAP_FILTRO=(()=>{ try{ const o=JSON.parse(localStorage.getItem("mp_cap_filtro")||"{}"); return {asesor:o.asesor||"",cliente:o.cliente||"",ciudad:o.ciudad||""}; }catch(e){ return {asesor:"",cliente:"",ciudad:""}; } })();
 const CAP_REP_UI={ abierto:(()=>{ try{ return localStorage.getItem("mp_cap_reporte_abierto")==="1"; }catch(e){ return false; } })() };
 // 👔 Liga INFORMATIVA del asesor (solo lectura: no puede firmar ni responder) · sql v4.
@@ -18422,6 +18426,7 @@ Respuesta: [respuesta exacta, conversacional]
       localStorage.setItem(DK, JSON.stringify({ ...prev, cliente_id:"", cliente_nombre:a.propietario_nombre||"", cliente_telefono:a.propietario_celular||"", cliente_email:a.propietario_correo||"", asesor_nombre:a.asesor_nombre||"", terreno_nombre:a.terreno_nombre||"", terreno_ciudad:a.terreno_ubicacion||"", terreno_dimensiones:a.terreno_superficie||"", valor_terreno:String(a.terreno_precio||"").replace(/[^0-9.]/g,"") }));
     }catch(e){}
     acuerdoParaCotRef.current={ id:a.id, folio:a.folio, terreno:a.terreno_nombre, captacion_id:a.captacion_id||null };
+    MP_COT_UI.abierto=true; // viene de Paso 1 "Cotizar": el formulario se abre ya lleno
     setCotPrefillVer(v=>v+1);
     toast("🧾 Paso 2: completa la cotización de "+(a.terreno_nombre||"el terreno")+" y pulsa Guardar (queda ligada al acuerdo "+a.folio+")");
     setTimeout(()=>{ try{ const el=document.getElementById("cotizacion-form"); if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){} }, 300);
@@ -18437,6 +18442,9 @@ Respuesta: [respuesta exacta, conversacional]
     const [historial, setHistorial] = useState([]);
     const [cargandoHist, setCargandoHist] = useState(false);
     const [pdfBusy, setPdfBusy] = useState(false);
+    // Formulario retráctil: cerrado por defecto; se recuerda si la vista se re-monta.
+    const [cotAbierto, setCotAbiertoRaw] = useState(()=>!!MP_COT_UI.abierto);
+    const setCotAbierto=(v)=>{ MP_COT_UI.abierto=!!v; setCotAbiertoRaw(!!v); };
     const set = (k,v)=>setF((p)=>({ ...p, [k]:v }));
     // Superficie desde "Dimensiones": "2,500 m²" → 2500 · "50 x 50" → 2500.
     const m2De=(txt)=>{ const s=String(txt||"").replace(/,/g,""); const m=s.match(/(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)/i); if(m) return parseFloat(m[1])*parseFloat(m[2]); const n=s.match(/\d+(?:\.\d+)?/); return n?parseFloat(n[0]):0; };
@@ -19051,6 +19059,8 @@ Respuesta: [respuesta exacta, conversacional]
     const card={background:"#fff",border:"1px solid #e5e7eb",borderRadius:16,overflow:"hidden",boxShadow:"0 10px 40px rgba(15,23,42,.08)"};
     const header={background:AZUL,color:"#fff",padding:"22px 26px",display:"flex",alignItems:"center",justifyContent:"space-between"};
     pitchFns.current={ generarPDF, copiarTxt, ligaAceptar };
+    // PDF pedido desde el tablero de Opción/Captación (la tarjeta de la cotización).
+    React.useEffect(()=>{ const r=MP_COT_PENDIENTE.pdf; if(!r) return; MP_COT_PENDIENTE.pdf=null; const t=setTimeout(()=>{ try{ generarPDF(r); }catch(e){} },500); return ()=>clearTimeout(t); },[]);
     const lb={fontSize:11,fontWeight:800,color:AZUL,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5,display:"block"};
     const inp={width:"100%",padding:"11px 12px",borderRadius:10,border:"1.5px solid #e5e7eb",fontSize:14,color:AZUL,outline:"none",fontFamily:"inherit",background:"#fff"};
     // Menú de asesores: usa el catálogo curado (o la nube si el catálogo está vacío).
@@ -19065,15 +19075,16 @@ Respuesta: [respuesta exacta, conversacional]
       <React.Fragment>
       <div style={wrapW}>
         <div style={card}>
-          <div style={header} id="cotizacion-form">
+          <div style={{...header,cursor:"pointer"}} id="cotizacion-form" onClick={(e)=>{ if(e.target.closest&&e.target.closest("button")) return; setCotAbierto(!cotAbierto); }}>
             <div>
               <div style={{fontSize:11,fontWeight:800,letterSpacing:2,textTransform:"uppercase",color:DORADO}}>Paso 2 · Cuando el asesor ya firmó su acuerdo</div>
               <div style={{fontSize:22,fontWeight:800,marginTop:2}}>Cotización para su cliente opcionador</div>
               {acuerdoParaCotRef.current&&<div style={{marginTop:6,fontSize:12.5,fontWeight:800,color:AZUL,background:DORADO,borderRadius:8,padding:"5px 10px",display:"inline-block"}}>🔗 Esta cotización se ligará al acuerdo {acuerdoParaCotRef.current.folio} ({acuerdoParaCotRef.current.terreno}) al guardar</div>}
             </div>
-            <div style={{width:44,height:44,borderRadius:10,background:DORADO,color:AZUL,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20}}>G</div>
+            <button data-cot-nueva onClick={(e)=>{ e.stopPropagation(); if(cotAbierto){ setCotAbierto(false); return; } if(guardada){ setF(DEF_F); setGuardada(null); setClienteSel(null); } setCotAbierto(true); setTimeout(()=>{ try{ document.getElementById("cotizacion-form").scrollIntoView({behavior:"smooth",block:"start"}); }catch(_){} },60); }} style={{padding:"10px 16px",borderRadius:10,border:"none",background:cotAbierto?"rgba(255,255,255,.15)":DORADO,color:cotAbierto?"#fff":AZUL,fontSize:13.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{cotAbierto?"✕ Cerrar":((!guardada&&String(f.terreno_nombre||f.cliente_nombre||"").trim())?"✏️ Continuar cotización":"＋ Nueva cotización")}</button>
           </div>
-          <div style={{display:"flex",flexWrap:"wrap",alignItems:"stretch"}}>
+          {!cotAbierto && (<div data-cot-cerrado style={{padding:"14px 26px",fontSize:13,color:"#64748b",lineHeight:1.55}}>El formulario está cerrado. Da <b>＋ Nueva cotización</b> para capturar una. Las cotizaciones enviadas se siguen en <a href="#" onClick={(e)=>{ e.preventDefault(); setView("captacion"); }} style={{color:"#1d4ed8",fontWeight:800}}>🌱 Opción / Captación →</a> (columnas 📝 Borrador · 📨 Cotización enviada · ✕ Rechazada).</div>)}
+          {cotAbierto && (<div style={{display:"flex",flexWrap:"wrap",alignItems:"stretch"}}>
             {/* ── Izquierda: campos de la cotización ── */}
             <div style={{flex:"999 1 520px",minWidth:0,boxSizing:"border-box",padding:"22px 26px",display:"flex",flexDirection:"column",gap:14}}>
             <div style={grid2}>
@@ -19128,7 +19139,7 @@ Respuesta: [respuesta exacta, conversacional]
               <button disabled={pdfBusy||!f.terreno_nombre.trim()} onClick={()=>generarPDF(guardada,{share:true})} title="Genera el PDF de la cotización y lo comparte como archivo. El envío al cliente por WhatsApp es el botón verde 'Enviar cotización al cliente'." style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+((f.terreno_nombre.trim()&&!pdfBusy)?DORADO:"#e5e7eb"),background:"transparent",color:(f.terreno_nombre.trim()&&!pdfBusy)?"#92400e":"#94a3b8",fontSize:13,fontWeight:700,cursor:(f.terreno_nombre.trim()&&!pdfBusy)?"pointer":"not-allowed",fontFamily:"inherit"}}>📄 Compartir PDF</button>
               <button disabled={guardando||!f.terreno_nombre.trim()} onClick={async()=>{ const d=guardada||await guardar(); if(d) setAcuerdoCot(d); }} title="Paso 1 · Manda al asesor SOLO su Acuerdo de Comisión (100/0 ó 60/40) para que lo firme. Al enviarlo se habilita mandar la cotización al cliente." style={{padding:"9px 15px",borderRadius:9,border:"none",background:f.terreno_nombre.trim()?DORADO:"#e5e7eb",color:f.terreno_nombre.trim()?AZUL:"#94a3b8",fontSize:13,fontWeight:800,cursor:f.terreno_nombre.trim()?"pointer":"not-allowed",fontFamily:"inherit",boxShadow:f.terreno_nombre.trim()?"0 2px 10px rgba(212,175,55,.4)":"none"}}>🤝 1 · Enviar al asesor</button>
               {(()=>{ const acG=acuerdoDe(guardada); const ok=!!(guardada&&acG); return (
-              <button disabled={!ok} onClick={()=>waLiga(guardada)} title={!guardada?"Primero guarda la cotización y manda al asesor su Acuerdo (Paso 1)":(!acG?"Se habilita en cuanto mandas al asesor su Acuerdo de Comisión (Paso 1)":"Manda la cotización al cliente por WhatsApp para que la acepte y suba sus documentos")} style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+(ok?"#25D366":"#e5e7eb"),background:ok?"#25D366":"transparent",color:ok?"#fff":"#94a3b8",fontSize:13,fontWeight:800,cursor:ok?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 2 · Enviar cotización al cliente</button>
+              <button disabled={!ok} onClick={()=>{ waLiga(guardada); setCotAbierto(false); toast("📨 Cotización enviada · síguela en 🌱 Opción / Captación"); }} title={!guardada?"Primero guarda la cotización y manda al asesor su Acuerdo (Paso 1)":(!acG?"Se habilita en cuanto mandas al asesor su Acuerdo de Comisión (Paso 1)":"Manda la cotización al cliente por WhatsApp para que la acepte y suba sus documentos")} style={{padding:"9px 15px",borderRadius:9,border:"1.5px solid "+(ok?"#25D366":"#e5e7eb"),background:ok?"#25D366":"transparent",color:ok?"#fff":"#94a3b8",fontSize:13,fontWeight:800,cursor:ok?"pointer":"not-allowed",fontFamily:"inherit"}}>🟢 2 · Enviar cotización al cliente</button>
               ); })()}
             </div>
             {guardada && (<div style={{fontSize:12,color:"#15803d",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:10,padding:"8px 11px"}}>✅ Guardada (id: {String(guardada.id).slice(0,8)}…). Lista para el PDF del Paso 4.</div>)}
@@ -19142,13 +19153,14 @@ Respuesta: [respuesta exacta, conversacional]
               </ul>
               <div style={{fontSize:12,color:"#b45309",marginTop:10,lineHeight:1.5}}>{DOCS_NOTA}</div>
             </div>
-          </div>{/* fin cuerpo 2 columnas del formulario */}
+          </div>)}{/* fin cuerpo 2 columnas del formulario */}
         </div>
 
       </div>{/* ── cierra la columna del formulario (720px) ── */}
 
-      {/* ══════ PANEL DE COTIZACIONES — ancho completo, 2 columnas ══════ */}
-      <div style={wrapW}>
+      {/* ══════ PANEL DE COTIZACIONES — ya no se muestra: las cotizaciones viven en el tablero de 🌱 Opción /
+           Captación (unificado por Dirección, 2026-11-19). Se conserva el código por el modal de documentos. ══════ */}
+      {false && <div style={wrapW}>
         <div style={card}>
           <div style={{...header, padding:"20px 26px", flexWrap:"wrap", gap:12}}>
             <div>
@@ -19258,7 +19270,7 @@ Respuesta: [respuesta exacta, conversacional]
             </div>{/* fin columna derecha */}
           </div>{/* fin cuerpo a 2 columnas */}
         </div>{/* fin card del panel */}
-      </div>{/* fin wrapW */}
+      </div>}{/* fin wrapW (panel oculto) */}
 
       {/* ══ Modal: documentos de una cotización (ver / subir / eliminar) ══ */}
       {docCot && (
@@ -19379,6 +19391,9 @@ Respuesta: [respuesta exacta, conversacional]
     const opcHechos=(id)=>OPC_DOCS.filter(d=>opcDocs[id]&&opcDocs[id][d.k]).length;
     // "En cotización" = esperando que el propietario acepte (las rechazadas se ven en el Panel).
     const opcEnCot=(opcLista||[]).filter(o=>!o.terminos_aceptados && !String(o.estatus||"").toLowerCase().startsWith("rechaz"));
+    // Unificado con la pestaña Cotización (2026-11-19): borrador · enviada · rechazada viven en este tablero.
+    const esBorradorCot=(o)=>String(o.estatus||"").toLowerCase()==="borrador";
+    const opcRech=(opcLista||[]).filter(o=>!o.terminos_aceptados && String(o.estatus||"").toLowerCase().startsWith("rechaz"));
     // Aceptadas → tarjeta en "Nueva opción". Se muestra el opcionador SIEMPRE que haya
     // aceptado, EXCEPTO si su captación ligada ya está cargada de forma nativa aquí (para
     // no duplicar). Así, cuando acepta/convierte pero la captación aún no se sincronizó a
@@ -19448,20 +19463,23 @@ Respuesta: [respuesta exacta, conversacional]
     };
     const btnElimOpc=(o)=>(<button disabled={opcEliminando===o.id} onClick={e=>{ e.stopPropagation(); eliminarOpc(o); }} title="Eliminar" style={{fontSize:10,fontWeight:800,color:"#b91c1c",background:"#fff",border:"1px solid #fecaca",borderRadius:6,padding:"5px 8px",cursor:opcEliminando===o.id?"wait":"pointer",fontFamily:"'DM Sans',sans-serif"}}>{opcEliminando===o.id?"…":"🗑"}</button>);
     const ligaAceptarDe=(o)=>"https://macrolotes.grupoguia.mx/aceptar?c="+o.id;
-    const renderOpcPendiente=(o)=>(
-      <div key={"opc-"+o.id} style={{padding:"11px 12px",background:B.white,borderRadius:8,border:"1px solid "+B.grey1,borderLeft:"3px solid "+B.gold,boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
-        <div style={{display:"inline-block",fontSize:8,fontWeight:800,color:"#9a6a00",background:"#fffaf0",border:"1px solid "+B.gold,borderRadius:5,padding:"1px 6px",marginBottom:5,letterSpacing:0.4}}>COTIZACIÓN ENVIADA</div>
+    const renderOpcPendiente=(o)=>{ const borr=esBorradorCot(o), rech=String(o.estatus||"").toLowerCase().startsWith("rechaz"); const u=ligaAceptarDe(o); const nom=shNombre(o.cliente_nombre);
+      const terr=(o.terreno_nombre||"tu terreno")+(o.terreno_ciudad?(" ("+o.terreno_ciudad+")"):"");
+      const bS={fontSize:10,fontWeight:800,borderRadius:6,padding:"5px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"};
+      return (
+      <div key={"opc-"+o.id} data-cot-tarjeta={o.id} style={{padding:"11px 12px",background:B.white,borderRadius:8,border:"1px solid "+B.grey1,borderLeft:"3px solid "+(rech?"#ef4444":(borr?"#94a3b8":B.gold)),boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
+        <div style={{display:"inline-block",fontSize:8,fontWeight:800,color:rech?"#b91c1c":(borr?"#475569":"#9a6a00"),background:rech?"#fef2f2":(borr?"#f1f5f9":"#fffaf0"),border:"1px solid "+(rech?"#fecaca":(borr?"#cbd5e1":B.gold)),borderRadius:5,padding:"1px 6px",marginBottom:5,letterSpacing:0.4}}>{rech?"COTIZACIÓN RECHAZADA":(borr?"COTIZACIÓN · BORRADOR":"COTIZACIÓN ENVIADA")}{o.created_at?(" · "+new Date(o.created_at).toLocaleDateString("es-MX",{day:"2-digit",month:"short"})):""}</div>
         <div style={{fontSize:13,fontWeight:800,color:B.navy}}>{o.cliente_nombre||"Sin nombre"}</div>
-        <div style={{fontSize:10,color:B.grey4,marginBottom:6}}>{[o.terreno_nombre,o.terreno_ciudad].filter(Boolean).join(" · ")||"—"}{o.valor_terreno?(" · "+o.valor_terreno):""}</div>
-        <div style={{display:"inline-block",fontSize:9,fontWeight:800,borderRadius:6,padding:"2px 7px",marginBottom:7,color:"#b45309",background:"#fff7ed",border:"1px solid #fed7aa"}}>⏳ Esperando que el propietario acepte</div>
-        <div style={{display:"flex",gap:6}}>
-          <button onClick={async()=>{ const url=ligaAceptarDe(o); try{ await navigator.clipboard.writeText(url); toast("📋 Liga copiada"); }catch(e){ try{ window.prompt("Copia la liga:", url); }catch(_){ toast(url); } } }} style={{flex:1,fontSize:10,fontWeight:800,color:B.navy,background:B.offW,border:"1px solid "+B.grey1,borderRadius:6,padding:"5px 6px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>📋 Copiar liga</button>
-          <button onClick={()=>setView("pitch")} title="Ver en la pestaña Cotización" style={{fontSize:10,fontWeight:800,color:B.navy,background:"#fffaf0",border:"1px solid "+B.gold,borderRadius:6,padding:"5px 8px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🧾 Cotización</button>
+        <div style={{fontSize:10,color:B.grey4,marginBottom:6}}>{[o.terreno_nombre,o.terreno_ciudad].filter(Boolean).join(" · ")||"—"}{o.valor_terreno?(" · "+o.valor_terreno):""}{o.monto_comision?(" · comisión "+o.monto_comision):""}</div>
+        {(o.asesor_nombre||o.asesor)&&<div style={{display:"inline-block",fontSize:9,fontWeight:800,borderRadius:6,padding:"2px 7px",marginBottom:5,color:"#0f6b3f",background:"#dcfce7",border:"1px solid #86efac"}}>👤 {o.asesor_nombre||o.asesor}</div>}
+        {!rech&&<div style={{fontSize:9,fontWeight:800,borderRadius:6,padding:"2px 7px",marginBottom:7,color:"#b45309",background:"#fff7ed",border:"1px solid #fed7aa",display:"inline-block",marginLeft:4}}>{borr?"📝 Sin enviar":"⏳ Esperando que el propietario acepte"}</div>}
+        {!rech&&<div style={{margin:"2px 0 4px"}}><ShareButtons chico url={u} mensaje={"Hola"+(nom?" "+nom:"")+", aquí puedes revisar y aceptar la cotización de tu terreno "+terr+" y subir tus documentos: "+u} asunto={"Tu cotización · "+(o.terreno_nombre||"terreno")+" · Grupo Guía"} telefono={o.cliente_telefono} email={o.cliente_email} onToast={toast}/></div>}
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:4}}>
+          {!rech&&<button data-cot-asesor onClick={()=>setAcuerdoCotG(o)} title="Acuerdo de comisión del asesor" style={{...bS,color:B.navy,background:B.gold,border:"none"}}>🤝 Enviar al asesor</button>}
+          <button data-cot-pdf onClick={()=>{ MP_COT_PENDIENTE.pdf=o; setView("pitch"); }} title="Genera el PDF de la cotización (abre la pestaña Cotización)" style={{...bS,color:B.navy,background:"#fff",border:"1px solid "+B.gold}}>📄 PDF</button>
           {btnElimOpc(o)}
         </div>
-        <div style={{fontSize:9,color:B.grey4,marginTop:6}}>Al aceptar, se convierte en captación en "Nueva opción" y ahí recibes sus documentos.</div>
-      </div>
-    );
+      </div>); };
     const renderOpcCard=(o)=>{ if(!o.terminos_aceptados) return renderOpcPendiente(o); const h=opcHechos(o.id); const listo=h===OPC_TOTAL; return (
       <div key={"opc-"+o.id} onClick={()=>setOpcSel(o)} style={{padding:"11px 12px",background:B.white,borderRadius:8,border:"1px solid "+B.grey1,borderLeft:"3px solid "+B.gold,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
         <div style={{display:"inline-block",fontSize:8,fontWeight:800,color:"#9a6a00",background:"#fffaf0",border:"1px solid "+B.gold,borderRadius:5,padding:"1px 6px",marginBottom:5,letterSpacing:0.4}}>OPCIONADOR · LANDING</div>
@@ -19492,7 +19510,7 @@ Respuesta: [respuesta exacta, conversacional]
     const SIN="__sin__";
     const capVal={ asesor:(c)=>c.asesorResponsableGG, cliente:(c)=>c.propietario, ciudad:(c)=>c.ciudad };
     const opcVal={ asesor:(o)=>o.asesor_nombre||o.asesor, cliente:(o)=>o.cliente_nombre, ciudad:(o)=>o.terreno_ciudad };
-    const opcTodos=[...opcEnCot,...opcNueva];
+    const opcTodos=[...opcEnCot,...opcNueva,...opcRech];
     const opcionesDe=(k)=>{ const m=new Map(); let sin=0;
       const add=(v)=>{ const n=fcN(v); if(!n){ sin++; return; } const key=fcK(n); const e=m.get(key); if(e) e.n++; else m.set(key,{key,t:n,n:1}); };
       (captaciones||[]).forEach(c=>add(capVal[k](c))); opcTodos.forEach(o=>add(opcVal[k](o)));
@@ -19501,8 +19519,9 @@ Respuesta: [respuesta exacta, conversacional]
     const hayFiltro=!!(fCap.asesor||fCap.cliente||fCap.ciudad);
     const totalSinFiltro=(captaciones||[]).length+opcTodos.length;
     const capsF=(captaciones||[]).filter(pasa(capVal));
-    const opcEnCotF=opcEnCot.filter(pasa(opcVal)), opcNuevaF=opcNueva.filter(pasa(opcVal));
-    const totalConFiltro=capsF.length+opcEnCotF.length+opcNuevaF.length;
+    const opcEnCotF=opcEnCot.filter(pasa(opcVal)), opcNuevaF=opcNueva.filter(pasa(opcVal)), opcRechF=opcRech.filter(pasa(opcVal));
+    const opcBorrF=opcEnCotF.filter(esBorradorCot), opcEnvF=opcEnCotF.filter(o=>!esBorradorCot(o));
+    const totalConFiltro=capsF.length+opcEnCotF.length+opcNuevaF.length+opcRechF.length;
     const activosC = capsF.filter(c=>c.pipeline!=="Firmado"&&c.pipeline!=="Descartado");
     const totalActivosC = activosC.length;
     const totalNegoc = capsF.filter(c=>c.pipeline==="En negociación").length;
@@ -19660,19 +19679,20 @@ Respuesta: [respuesta exacta, conversacional]
         {/* Kanban */}
         <div style={{background:B.white, borderRadius:14, padding:18, border:"1px solid "+B.grey1, marginBottom:20, boxShadow:"0 2px 10px rgba(0,43,73,0.04)"}}>
           <div style={{display:"flex", gap:12, overflowX:"auto", paddingBottom:8}}>
-            {/* Columna inicial: OPCIONADORES en cotización (llegan desde la Landing) */}
-            <div style={{minWidth:270, maxWidth:270, flexShrink:0}}>
-              <div style={{padding:"10px 12px", borderRadius:8, background:"#fffaf0", borderTop:"3px solid "+B.gold, marginBottom:10}}>
-                <div style={{fontSize:10, fontWeight:800, color:"#9a6a00", textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
-                  <span>📝 En Cotización</span>
-                  <span style={{background:"#9a6a00", color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{opcEnCotF.length}</span>
+            {/* Columnas iniciales: COTIZACIONES (unificado con la pestaña Cotización) */}
+            {[["cot-borrador","📝 Cotización borrador","#475569","#f1f5f9","#94a3b8",opcBorrF],["cot-enviada","📨 Cotización enviada","#9a6a00","#fffaf0",B.gold,opcEnvF]].map(([k,t,fg,bg,bd,arr])=>(
+            <div key={k} data-cap-col={k} style={{minWidth:270, maxWidth:270, flexShrink:0}}>
+              <div style={{padding:"10px 12px", borderRadius:8, background:bg, borderTop:"3px solid "+bd, marginBottom:10}}>
+                <div style={{fontSize:10, fontWeight:800, color:fg, textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
+                  <span>{t}</span>
+                  <span style={{background:fg, color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{arr.length}</span>
                 </div>
               </div>
               <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:620, overflowY:"auto"}}>
-                {opcEnCotF.map(renderOpcCard)}
-                {opcEnCotF.length===0&&(<div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>)}
+                {arr.map(renderOpcCard)}
+                {arr.length===0&&(<div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>{k==="cot-borrador"?"Vacío · las cotizaciones se capturan en 🧾 Cotización → ＋ Nueva cotización":"Vacío"}</div>)}
               </div>
-            </div>
+            </div>))}
             {CAPTACION_PIPELINE.map(stage=>{
               const colors = CAPTACION_PIPELINE_COLORS[stage];
               // Las captaciones nacidas de un opcionador (id "capta-opc-…") van FIJADAS
@@ -19777,6 +19797,19 @@ Respuesta: [respuesta exacta, conversacional]
                 </div>
               );
             })}
+            {/* ✕ Cotizaciones rechazadas (al final) */}
+            <div data-cap-col="cot-rechazada" style={{minWidth:230, maxWidth:230, flexShrink:0, opacity:opcRechF.length?1:0.7}}>
+              <div style={{padding:"10px 12px", borderRadius:8, background:"#fef2f2", borderTop:"3px solid #ef4444", marginBottom:10}}>
+                <div style={{fontSize:10, fontWeight:800, color:"#b91c1c", textTransform:"uppercase", letterSpacing:1, display:"flex", justifyContent:"space-between"}}>
+                  <span>✕ Cotización rechazada</span>
+                  <span style={{background:"#b91c1c", color:"#fff", padding:"1px 7px", borderRadius:8, fontSize:10}}>{opcRechF.length}</span>
+                </div>
+              </div>
+              <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:620, overflowY:"auto"}}>
+                {opcRechF.map(renderOpcPendiente)}
+                {opcRechF.length===0&&(<div style={{padding:"18px 8px", textAlign:"center", fontSize:10, color:B.grey3, fontStyle:"italic"}}>Vacío</div>)}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -22879,25 +22912,54 @@ Respuesta: [respuesta exacta, conversacional]
       const t2=tabla(showAse?["Asesor","Terreno","Ciudad","Convenio","Acción"]:["Terreno","Ciudad","Convenio","Acción"],
         g2.map((c,i)=>{ const a=acuerdoFirmadoDe(c); return (<tr key={c.id||i} style={bg(i)}>{asCel(c)}<td style={{padding:"5px 14px"}}>{lnkT(c)}</td><td style={{...tdS,color:B.grey5}}>{c.ciudad||"—"}</td>
           <td style={tdS}>{pillConv(a,c)}</td>{accCel(c,false)}</tr>); }));
-      const seccion=(key,titulo,fg,bgc,count,vacioTxt,contenido,extra)=>{ const cerrado=!!col[key]; return (
-        <div id={"kb-"+key} style={{marginBottom:14}}>
-          <div onClick={()=>toggleCol(key)} title={cerrado?"Mostrar":"Ocultar"} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:bgc,borderRadius:cerrado?"12px":"12px 12px 0 0",border:"1px solid "+B.grey1,borderBottom:cerrado?("1px solid "+B.grey1):"none",cursor:"pointer",userSelect:"none"}}>
-            <span style={{fontSize:13,color:fg,transform:cerrado?"rotate(-90deg)":"none",transition:"transform .15s"}}>▾</span>
-            <span style={{fontSize:13.5,fontWeight:800,color:fg}}>{titulo}</span>
-            <span data-kb-count={key} style={{fontSize:12,fontWeight:800,color:"#fff",background:fg,borderRadius:999,padding:"1px 9px"}}>{count}</span>
-            {extra}
+      // ── KANBAN HORIZONTAL (mockup aprobado 2026-11-19): 3 columnas · una tarjeta por asesor ──
+      const porAsesor=(lst)=>{ const out=[]; const m=new Map(); lst.forEach(c=>{ const k=asesorKey(c.asesorResponsableGG)||"__sin__"; let g=m.get(k); if(!g){ g={nombre:c.asesorResponsableGG,items:[]}; m.set(k,g); out.push(g); } g.items.push(c); }); return out.sort((x,y)=>String(x.nombre||"~").localeCompare(String(y.nombre||"~"))); };
+      const tarjeta=(key,children)=>(<div key={key} data-kb-tarjeta style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:10,padding:"10px 12px",marginBottom:9,boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>{children}</div>);
+      const filaT=(c,extra,acciones)=>(<div key={c.id||c.__lote&&c.__lote.id} style={{borderTop:"1px solid "+B.grey1,padding:"6px 0",fontSize:12.5}}>
+        <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start",flexWrap:"wrap"}}><div style={{minWidth:0}}>{lnkT(c)}{extra}<div style={{fontSize:11,color:B.grey4}}>{c.ciudad||"—"}</div></div>
+          {acciones&&<div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>{acciones}</div>}</div></div>);
+      const titAse=(nombre,sub,tag)=>(<div style={{marginBottom:4}}>{tag}<div style={{fontSize:13.5,fontWeight:800,color:B.navy}}>{nombre||<span style={{color:"#b45309"}}>Sin asesor</span>}</div>{sub&&<div style={{fontSize:11,color:B.grey4}}>{sub}</div>}</div>);
+      // ⏳ Sin convenio
+      const c0=porAsesor(g0).map((g,gi)=>tarjeta("s0-"+gi,<React.Fragment>
+        {titAse(g.nombre,g.items.length+" terreno"+(g.items.length===1?"":"s")+" sin convenio")}
+        {g.items.map(c=>filaT(c,generadaSinEnviar(c),<React.Fragment>{shAse(c)}{accionesFirma(c)}{btnBorrar(c)}</React.Fragment>))}
+      </React.Fragment>));
+      // 📨 Enviado · por firmar
+      const c1=grupos.map((g,gi)=>{ const a=acuerdoDeAsesor(g.nombre)||{}; const ct=contactoDe(g.nombre); const n=g.items.length; const busy=ocupado(g.nombre);
+        const intentos=Number(a.recordatorio_intentos)||0; const f1=a.liga_enviada_at||a.ultimo_recordatorio_at; const liga=ligaConv(a.token);
+        const bb=(bg,fg,brd)=>({...s.btn("sm"),padding:"3px 9px",fontSize:11.5,background:bg,color:fg,border:brd?("1.5px solid "+brd):"none",boxShadow:"none",whiteSpace:"nowrap",cursor:busy?"wait":"pointer"});
+        return tarjeta("s1-"+gi,<React.Fragment>
+          {titAse(g.nombre,[ct.email,"1 correo · cubre "+n+" terreno"+(n===1?"":"s"),f1?("enviado "+fmtFecha(f1)):""].filter(Boolean).join(" · "),a.folio?<span style={{display:"inline-block",fontSize:9,fontWeight:800,borderRadius:5,padding:"1px 6px",marginBottom:4,color:"#b45309",background:"#fff7ed",border:"1px solid #fed7aa"}}>{a.folio}</span>:null)}
+          <span style={{display:"inline-block",marginBottom:6,background:intentos>=4?"#b45309":"#fff",color:intentos>=4?"#fff":"#b45309",border:"1px solid #f3d19c",borderRadius:999,padding:"1px 8px",fontSize:11,fontWeight:800}}>recordatorio {intentos} de 5</span>
+          <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>
+            <button onClick={async()=>{ try{ await navigator.clipboard.writeText(liga); toast("🔗 Liga copiada"); }catch(_){ try{ window.prompt("Copia la liga:",liga);}catch(e2){} } }} style={bb(B.navy,"#fff")}>🔗 Liga</button>
+            <button disabled={!!busy} onClick={()=>genConvCorreo(g.nombre)} title="Reenviar la liga por correo" style={bb(busy?"#94a3b8":B.blue,"#fff")}>{busy==="correo"?"Enviando…":"📧 Correo"}</button>
+            <button disabled={!!busy} onClick={()=>genConvWA(g.nombre)} title="Reenviar la liga por WhatsApp" style={bb(busy?"#94a3b8":"#25D366","#fff")}>{busy?"…":"🟢 WhatsApp"}</button>
+            <button disabled={!!busy} onClick={()=>aplicar6040(g.nombre)} title="Admin: cerrar YA su convenio con 60/40 por política (definitivo; se le avisa)" style={bb(busy?"#94a3b8":"#fff",busy?"#fff":"#b45309","#b45309")}>{busy==="6040"?"Aplicando…":"⚖️ 60/40 ahora"}</button>
           </div>
-          {!cerrado && <div style={{...s.resultCard(1),marginBottom:0,padding:0,overflow:"hidden",borderRadius:"0 0 12px 12px"}}>
-            {count===0 ? <div style={{padding:"10px 14px",fontSize:12.5,color:B.grey3}}>{vacioTxt}</div> : contenido}
-          </div>}
-        </div>
-      ); };
-      const notaCorrSolo=(showAse&&corrSoloPend.length)?<span onClick={e=>{ e.stopPropagation(); setModo("huecos"); }} title="Corretaje de asesores sin captación: se genera y manda en 🚩 Sin asesor" style={{marginLeft:6,background:"#fff",border:"1px solid "+B.red,color:B.red,borderRadius:999,padding:"1px 10px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>+{corrSoloPend.length} de corretaje en 🚩 Sin asesor →</span>:null;
-      return (<div>
-        {seccion("g0","⏳ Sin convenio",B.red,B.redL,g0.length,"Nada por mandar — todos tienen al menos su liga enviada.",t0,notaCorrSolo)}
-        {seccion("g1","📨 Enviado · por firmar","#b45309","#fff7ed",g1.length,"Nada enviado todavía.",t1)}
-        {seccion("g2","✅ Firmado",B.green,B.greenL,g2.length,fEsq?("Nadie ha firmado "+fEsq+" todavía."):"Aún no hay convenios firmados.",t2,
-          fEsq ? <span onClick={e=>{ e.stopPropagation(); setFEsq(""); }} title="Quitar filtro" style={{marginLeft:6,background:"#fff",border:"1px solid "+B.green,color:B.green,borderRadius:999,padding:"1px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Solo esquema {fEsq} ✕</span> : null)}
+          {g.items.map(c=>filaT(c,null,btnBorrar(c)))}
+        </React.Fragment>); });
+      // ✅ Firmado
+      const c2=porAsesor(g2).map((g,gi)=>{ const a0=acuerdoFirmadoDe(g.items[0]); return tarjeta("s2-"+gi,<React.Fragment>
+        {titAse(g.nombre,g.items.length+" terreno"+(g.items.length===1?"":"s"),a0&&a0.folio?<span style={{display:"inline-block",fontSize:9,fontWeight:800,borderRadius:5,padding:"1px 6px",marginBottom:4,color:"#15803d",background:"#ecfdf3",border:"1px solid #86efac"}}>{a0.folio}</span>:null)}
+        {g.items.map(c=>filaT(c,<span style={{marginLeft:6}}>{pillConv(acuerdoFirmadoDe(c),c)}</span>,<React.Fragment>{shAse(c)}{btnBorrar(c)}</React.Fragment>))}
+      </React.Fragment>); });
+      const columna=(key,titulo,fg,bgc,bd,count,vacioTxt,cards,extra)=>(
+        <div id={"kb-"+key} data-kb-col={key} style={{flex:"1 1 0",minWidth:300,scrollMarginTop:120}}>
+          <div style={{padding:"10px 12px",borderRadius:8,background:bgc,borderTop:"3px solid "+bd,marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
+              <span style={{fontSize:10.5,fontWeight:800,color:fg,textTransform:"uppercase",letterSpacing:1}}>{titulo}</span>
+              <span data-kb-count={key} style={{fontSize:10.5,fontWeight:800,color:"#fff",background:fg,borderRadius:999,padding:"1px 8px"}}>{count}</span></div>
+            {extra&&<div style={{marginTop:6}}>{extra}</div>}
+          </div>
+          <div style={{maxHeight:720,overflowY:"auto"}}>{count===0?<div style={{padding:"16px 8px",textAlign:"center",fontSize:11,color:B.grey3,fontStyle:"italic"}}>{vacioTxt}</div>:cards}</div>
+        </div>);
+      const notaCorrSolo=(showAse&&corrSoloPend.length)?<span onClick={e=>{ e.stopPropagation(); setModo("huecos"); }} title="Corretaje de asesores sin captación: se genera y manda en 🚩 Sin asesor" style={{display:"inline-block",background:"#fff",border:"1px solid "+B.red,color:B.red,borderRadius:999,padding:"1px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+{corrSoloPend.length} de corretaje en 🚩 Sin asesor →</span>:null;
+      return (<div data-kb-firma style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:14,display:"flex",gap:12,overflowX:"auto",alignItems:"flex-start"}}>
+        {columna("g0","⏳ Sin convenio",B.red,B.redL,"#ef4444",g0.length,"Nada por mandar — todos tienen al menos su liga enviada.",c0,notaCorrSolo)}
+        {columna("g1","📨 Enviado · por firmar","#b45309","#fff7ed","#f59e0b",g1.length,"Nada enviado todavía.",c1)}
+        {columna("g2","✅ Firmado",B.green,B.greenL,"#22c55e",g2.length,fEsq?("Nadie ha firmado "+fEsq+" todavía."):"Aún no hay convenios firmados.",c2,
+          fEsq ? <span onClick={e=>{ e.stopPropagation(); setFEsq(""); }} title="Quitar filtro" style={{display:"inline-block",background:"#fff",border:"1px solid "+B.green,color:B.green,borderRadius:999,padding:"1px 10px",fontSize:11.5,fontWeight:800,cursor:"pointer"}}>Solo esquema {fEsq} ✕</span> : null)}
       </div>);
     };
 
@@ -23954,7 +24016,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="calidad"&&<ViewCalidadDatos s={s} clients={clients} inventory={inventory} captaciones={captaciones}
         onAbrirCliente={(c)=>abrirFichaCliente(c)} onAbrirLote={(l)=>setSelectedLotDetail(l)} onAbrirCaptacion={(c)=>{ setEditingCaptacion(c); setShowCaptacionModal(true); }}/>}
       {view==="requerimientos"&&<ViewRequerimientos s={s} onToast={toast} onBorrarCompradores={(ids)=>{ const set=new Set((ids||[]).map(String)); setClients(prev=>(prev||[]).filter(c=>{ const r=clienteToSupabase(c,{}); return !(r&&set.has(String(r.id_cliente))); })); }}/>}
-      {view==="pitch" && acuerdoCotG && (
+      {(view==="pitch"||view==="captacion") && acuerdoCotG && (
         <div onClick={()=>{ setAcuerdoCotG(null); setAcuerdosVer(v=>v+1); }} style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div onClick={(e)=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:640,width:"100%",maxHeight:"90vh",overflow:"auto",boxShadow:"0 24px 70px rgba(0,0,0,.35)"}}>
             <div style={{background:"#0f172a",color:"#fff",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,padding:"18px 22px",position:"sticky",top:0,zIndex:1,borderBottom:"3px solid #d4af37"}}>
@@ -23969,8 +24031,8 @@ Respuesta: [respuesta exacta, conversacional]
               <div style={{fontSize:12.5,color:"#475569",marginBottom:12,lineHeight:1.55}}>Mándale al asesor <b>una sola liga por WhatsApp</b> con su <b>Acuerdo de Comisión</b> (entra con su cuenta, elige 100/0 ó 60/40 y firma; le llega el PDF y queda en su ficha) y la <b>liga de la cotización para su cliente</b> (acepta las condiciones y sube sus documentos).</div>
               <AcuerdoComisionCaptacion cotizacion={acuerdoCotG} asesores={asesoresCloud} onToast={toast} onCambio={()=>{}}/>
               <div style={{display:"flex",gap:8,flexWrap:"wrap",borderTop:"1px solid #eef2f7",paddingTop:12}}>
-                <button onClick={()=>pitchFns.current.generarPDF&&pitchFns.current.generarPDF(acuerdoCotG)} style={{padding:"8px 13px",borderRadius:8,border:"1.5px solid #d4af37",background:"#fff",color:"#0f172a",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📄 PDF de la cotización</button>
-                <button onClick={()=>pitchFns.current.copiarTxt&&pitchFns.current.copiarTxt(pitchFns.current.ligaAceptar(acuerdoCotG))} style={{padding:"8px 13px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:"#0f172a",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📋 Liga para el cliente</button>
+                <button onClick={()=>{ if(view==="pitch"&&pitchFns.current.generarPDF) pitchFns.current.generarPDF(acuerdoCotG); else { MP_COT_PENDIENTE.pdf=acuerdoCotG; setAcuerdoCotG(null); setView("pitch"); } }} style={{padding:"8px 13px",borderRadius:8,border:"1.5px solid #d4af37",background:"#fff",color:"#0f172a",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📄 PDF de la cotización</button>
+                <button onClick={async()=>{ const u="https://macrolotes.grupoguia.mx/aceptar?c="+acuerdoCotG.id; try{ await navigator.clipboard.writeText(u); toast("📋 Liga copiada"); }catch(e){ try{ window.prompt("Copia la liga:",u); }catch(_){} } }} style={{padding:"8px 13px",borderRadius:8,border:"1.5px solid #cbd5e1",background:"#fff",color:"#0f172a",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📋 Liga para el cliente</button>
                 <button onClick={()=>{ setAcuerdoCotG(null); setAcuerdosVer(v=>v+1); }} style={{marginLeft:"auto",padding:"8px 16px",borderRadius:8,border:"none",background:"#0f172a",color:"#fff",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Listo</button>
               </div>
             </div>
