@@ -3245,6 +3245,12 @@ ${cuerpo}
 }
 
 const CO_UI={}; // estado de UI por ficha (sobrevive si la ficha se re-monta)
+// 🗂 Caché de las cartas por vista (key = "todas" / "cap:id" / "lote:id"): la vista se re-monta con cada
+// sincronización o aviso; con el caché se muestra al instante (sin "Cargando…" ni lista vacía) y solo se
+// vuelve a pedir a la base si pasaron 30 s, o al dar ↻ Actualizar / enviar algo (evento co-actualizado).
+const CO_CACHE={};          // key → { data, at }
+const CO_VUELO={};          // key → promesa en curso (no se piden dos veces a la vez)
+const CO_FRESCO_MS=30000;
 // Reporte de captación plegable: recuerda si quedó abierto (por equipo). Cerrado por defecto.
 // 🔎 Filtros del tablero de captación (asesor · cliente · ciudad). Se recuerdan por equipo.
 const MP_NAV_H={h:0}; // alto del menú superior fijo (para pegar barras debajo de él)
@@ -3271,7 +3277,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   const uiKey=todas?"todas":(cap&&cap.id?("cap:"+cap.id):("lote:"+loteId));
   const [abierto,setAbiertoRaw]=useState(()=>!!todas||!!(CO_UI[uiKey]&&CO_UI[uiKey].abierto));
   const setAbierto=(fn)=>setAbiertoRaw(prev=>{ const v=typeof fn==="function"?fn(prev):fn; CO_UI[uiKey]={...(CO_UI[uiKey]||{}),abierto:v}; return v; });
-  const [lista,setLista]=useState(null);
+  const [lista,setLista]=useState(()=>CO_CACHE[uiKey]?CO_CACHE[uiKey].data:null);
   const [err,setErr]=useState("");
   const [busy,setBusy]=useState("");
   // Formulario abierto (crear/editar): se recuerda en CO_UI para no perder lo escrito si la vista se re-monta.
@@ -3294,15 +3300,25 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   const nombreTerr=String((cap&&(cap.zona||cap.ubicacion))||"").trim()||(cap&&cap.propietario?("Terreno de "+cap.propietario):"Terreno");
   const ubic=[cap&&cap.ubicacion&&cap.ubicacion!==cap.zona?cap.ubicacion:"", cap&&cap.ciudad].filter(Boolean).join(", ");
 
-  const cargar=useCallback(async()=>{
+  // cargar() (↻ Actualizar, después de enviar/guardar/borrar): siempre pide a la base. cargar("cache") (al
+  // montar): usa el caché si tiene menos de 30 s. Nunca consulta sin sesión (antes salía "no hay cartas").
+  const cargar=useCallback(async(modo,intento)=>{ const forzar=modo!=="cache";
     if(!window.sb||!(todas||(cap&&cap.id)||loteId)) return;
-    let q=window.sb.from("cartas_oferta").select("*, cartas_oferta_rondas(*), ofertas_seguimiento(etapa,tipo_operacion,documentos,enviado_legal_at,legal_email)");
-    if(!todas) q=q.eq(cap&&cap.id?"captacion_id":"lote_id",cap&&cap.id?cap.id:loteId);
-    const { data, error } = await q.order("created_at",{ascending:false});
-    if(error){ setErr(/does not exist|schema cache|PGRST205|42P01/i.test(error.message)?"Falta correr sql/cartas_oferta.sql en Supabase.":("No se pudieron leer las cartas: "+error.message)); setLista([]); try{ onLista&&onLista([]); }catch(e){} return; }
+    const ck=uiKey, cache=CO_CACHE[ck];
+    if(!forzar&&cache&&(Date.now()-cache.at)<CO_FRESCO_MS){ setLista(cache.data); try{ onLista&&onLista(cache.data); }catch(e){} return; }
+    try{ const { data:ss }=await window.sb.auth.getSession(); if(!(ss&&ss.session)){ if((intento||0)<20) setTimeout(()=>cargar(modo,(intento||0)+1),700); return; } }catch(e){}
+    if(!CO_VUELO[ck]){
+      let q=window.sb.from("cartas_oferta").select("*, cartas_oferta_rondas(*), ofertas_seguimiento(etapa,tipo_operacion,documentos,enviado_legal_at,legal_email)");
+      if(!todas) q=q.eq(cap&&cap.id?"captacion_id":"lote_id",cap&&cap.id?cap.id:loteId);
+      CO_VUELO[ck]=q.order("created_at",{ascending:false}).then(r=>r,e=>({error:e})).finally(()=>{ delete CO_VUELO[ck]; });
+    }
+    const { data, error } = await CO_VUELO[ck];
+    if(error){ const m=String((error&&error.message)||error); setErr(/does not exist|schema cache|PGRST205|42P01/i.test(m)?"Falta correr sql/cartas_oferta.sql en Supabase.":("No se pudieron leer las cartas: "+m));
+      if(!cache){ setLista([]); try{ onLista&&onLista([]); }catch(e){} } return; }
+    CO_CACHE[ck]={ data:data||[], at:Date.now() };
     setErr(""); setLista(data||[]); try{ onLista&&onLista(data||[]); }catch(e){}
   },[todas,cap&&cap.id,loteId]);
-  React.useEffect(()=>{ cargar(); },[cargar]);
+  React.useEffect(()=>{ cargar("cache"); },[cargar]);
   React.useEffect(()=>{ const h=()=>cargar(); window.addEventListener("co-actualizado",h); return ()=>window.removeEventListener("co-actualizado",h); },[cargar]);
 
   const nueva=()=>{ setAbierto(true); if(onNueva){ onNueva(); return; } setForm({ comprador_nombre:"", comprador_empresa:"", comprador_email:"", comprador_telefono:"", asesor_nombre:(cap&&cap.asesorResponsableGG)||"", superficie_m2:supCap?String(supCap):"", precio_m2:"", forma_pago:"Contado", apartado:"", condiciones:"" }); };
@@ -4139,7 +4155,7 @@ const CO_GRUPOS={
 };
 let VCO_UI={ q:"", grupo:"", fEst:"", fAse:"", fVig:"", fComp:"", fVend:"" }; // sobrevive si Asesores se re-monta
 function ViewCartasOferta({ s, onToast, onNueva, onAbrirTerreno, embebido }){
-  const [lista,setLista]=useState([]);
+  const [lista,setLista]=useState(()=>CO_CACHE.todas?CO_CACHE.todas.data:[]);
   // Hooks en el cuerpo del componente (regla del proyecto); los filtros se recuerdan en VCO_UI.
   const [q,setQv]=useState(VCO_UI.q);
   const [grupo,setGrupov]=useState(VCO_UI.grupo);
