@@ -5158,6 +5158,203 @@ const MP_FA_CACHE = { acuerdos:null, cots:null };
 const MP_AC_CERRADOS = ["firmado","validado","forzado_6040"];
 function mpAcCerrado(a){ return !!a && MP_AC_CERRADOS.includes(a.estado); }
 
+// ─── 🔐 ACCESOS (solo administradores) ─────────────────────────────────────────
+// Un solo lugar para decidir quién entra a ver qué (aprobado por dirección 2026-11-21):
+//  · Desarrolladores → entran a Intelligence con SU correo y solo ven sus desarrollos.
+//    Usa las MISMAS funciones protegidas de la base que el portal de la landing
+//    (landing_desarrolladores_admin, landing_invitacion_crear, landing_desarrollador_*_correo):
+//    nada se duplica y la base rechaza a quien no sea admin (landing_es_admin()).
+//  · Dueños de terreno (corretaje) → una liga privada "Mi terreno" por terreno
+//    (macrolotes.grupoguia.mx/avance/<token>): solo se guarda el SHA-256 del token en
+//    propietario_accesos (RLS: dirección). El link completo se ve UNA vez.
+const ACC_NRM=(x)=>String(x==null?"":x).normalize("NFD").replace(/[̀-ͯ]/g,"").trim().toLowerCase().replace(/\s+/g," ");
+// Mismo criterio que Intelligence (_rcTerr): el terreno es su desarrollo, salvo que diga solo
+// "Corretaje" (o venga vacío); entonces su clave (Av Americas, Cañadas, Santa Teresita…).
+const ACC_TERR=(l)=>{ const d=String(l.desarrollo||"").trim(); return (!d||ACC_NRM(d)==="corretaje")?String(l.clave_unica||l.id||"").trim():d; };
+const ACC_FECHA=(d)=>{ if(!d) return ""; const x=new Date(d); if(isNaN(x)) return ""; return x.toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"}).replace(".",""); };
+async function accSha256(t){ const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t)); return Array.from(new Uint8Array(b)).map(x=>("0"+x.toString(16)).slice(-2)).join(""); }
+function accToken(){ const r=new Uint8Array(32); crypto.getRandomValues(r); return Array.from(r).map(x=>("0"+x.toString(16)).slice(-2)).join(""); }
+function AccTag({c,children}){ const M={ok:["#dcfce7","#15803d"],wa:["#fef3c7","#b45309"],ba:["#fee2e2","#b91c1c"],gr:["#f1f5f9","#475569"]}; const m=M[c]||M.gr; return <span style={{display:"inline-block",fontSize:11,fontWeight:800,borderRadius:999,padding:"2px 8px",background:m[0],color:m[1],whiteSpace:"nowrap"}}>{children}</span>; }
+function AccLiga({titulo,url,mensaje,onCerrar}){
+  const [cop,setCop]=useState(false);
+  return (<div style={{margin:"10px 0 14px",padding:"12px 14px",border:"1px solid #fcd34d",background:"#fffbeb",borderRadius:12}}>
+    <div style={{fontSize:11,fontWeight:800,letterSpacing:1.2,textTransform:"uppercase",color:"#92400e"}}>{titulo}</div>
+    <input readOnly value={url} onFocus={e=>e.target.select()} style={{width:"100%",marginTop:6,padding:"8px 10px",border:"1px solid #e2e8f0",borderRadius:8,fontSize:12,boxSizing:"border-box"}}/>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+      <button onClick={()=>{ try{ navigator.clipboard.writeText(url).then(()=>{ setCop(true); setTimeout(()=>setCop(false),2000); }); }catch(e){} }} style={{padding:"7px 12px",borderRadius:8,border:"none",background:B.gold,color:B.navy,fontWeight:800,fontSize:12,cursor:"pointer"}}>{cop?"✓ Copiada":"📋 Copiar"}</button>
+      <a href={"https://wa.me/?text="+encodeURIComponent(mensaje+" "+url)} target="_blank" rel="noopener noreferrer" style={{padding:"7px 12px",borderRadius:8,border:"1px solid #e2e8f0",background:"#fff",color:B.navy,fontWeight:700,fontSize:12,textDecoration:"none"}}>💬 Enviar por WhatsApp</a>
+      <a href={url} target="_blank" rel="noopener noreferrer" style={{padding:"7px 12px",borderRadius:8,border:"1px solid #e2e8f0",background:"#fff",color:B.navy,fontWeight:700,fontSize:12,textDecoration:"none"}}>👁 Abrir</a>
+      {onCerrar&&<button onClick={onCerrar} style={{padding:"7px 12px",borderRadius:8,border:"1px solid #e2e8f0",background:"#fff",color:B.grey4,fontWeight:700,fontSize:12,cursor:"pointer"}}>Listo</button>}
+    </div>
+    <div style={{fontSize:11.5,color:"#92400e",marginTop:6}}>Cópiala ahora: por seguridad no se vuelve a mostrar.</div>
+  </div>);
+}
+function ViewAccesos({ onToast }){
+  const toast=onToast||(()=>{});
+  const [esAdm,setEsAdm]=useState(null);           // null = verificando
+  const [sub,setSub]=useState(()=>{ try{ return localStorage.getItem("mp_accesos_sub")||"devs"; }catch(e){ return "devs"; } });
+  const [rows,setRows]=useState(null), [cat,setCat]=useState([]), [invs,setInvs]=useState([]);
+  const [lotes,setLotes]=useState(null), [ligas,setLigas]=useState([]), [errD,setErrD]=useState(""), [errL,setErrL]=useState("");
+  const [busy,setBusy]=useState(""), [q,setQ]=useState("");
+  const [inv,setInv]=useState(null);                // formulario de invitación abierto
+  const [ligaDev,setLigaDev]=useState(null), [ligaDue,setLigaDue]=useState(null), [genDue,setGenDue]=useState(null);
+  const cambiaSub=(v)=>{ setSub(v); try{ localStorage.setItem("mp_accesos_sub",v); }catch(e){} };
+  const cargarDevs=async()=>{ const sbc=window.sb; if(!sbc) return; setErrD("");
+    try{ const [a,b,c]=await Promise.all([sbc.rpc("landing_desarrolladores_admin"),sbc.rpc("landing_desarrollos_cat"),sbc.rpc("landing_invitaciones_admin")]);
+      if(a.error) throw a.error; setRows(a.data||[]); setCat((b&&!b.error&&b.data)||[]); setInvs((c&&!c.error&&c.data)||[]); }
+    catch(e){ setRows([]); setErrD(String((e&&e.message)||e)); } };
+  const cargarDuenos=async()=>{ const sbc=window.sb; if(!sbc) return; setErrL("");
+    try{ const r=await sbc.from("lotes").select("id,clave_unica,desarrollo,desarrollador,status_inventario,tipo_inventario,metadata").ilike("tipo_inventario","corretaje").is("dado_baja_at",null).limit(8000);
+      if(r.error) throw r.error; setLotes(r.data||[]); }
+    catch(e){ setLotes([]); setErrL(String((e&&e.message)||e)); }
+    try{ const p=await sbc.from("propietario_accesos").select("id,desarrollo,propietario,vigente_hasta,revocado,accesos,ultimo_acceso,creado_en").order("creado_en",{ascending:false}).limit(5000);
+      if(p.error) throw p.error; setLigas(p.data||[]); }
+    catch(e){ setLigas([]); const m=String((e&&e.message)||e); if(/propietario_accesos|does not exist|schema cache/i.test(m)) setErrL("Falta correr supabase/propietario_accesos.sql (landing)."); } };
+  React.useEffect(()=>{ let vivo=true; const sbc=window.sb; if(!sbc){ setEsAdm(false); return; }
+    sbc.rpc("landing_es_admin").then(({data})=>{ if(!vivo) return; const ok=data===true; setEsAdm(ok); if(ok){ cargarDevs(); cargarDuenos(); } },()=>{ if(vivo) setEsAdm(false); });
+    return ()=>{ vivo=false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
+  const card={background:"#fff",border:"1px solid "+B.grey1,borderRadius:16,padding:"16px 18px",marginBottom:16};
+  const th={fontSize:10.5,letterSpacing:1,textTransform:"uppercase",color:B.grey3,background:"#f8fafc",textAlign:"left",padding:"9px 10px",borderBottom:"1px solid "+B.grey1};
+  const td={padding:"10px",borderBottom:"1px solid #f1f5f9",verticalAlign:"top",fontSize:12.8};
+  const btn=(p)=>({padding:"7px 12px",borderRadius:8,border:p?"none":"1px solid "+B.grey1,background:p==="gold"?B.gold:(p?B.navy:"#fff"),color:p==="gold"?B.navy:(p?"#fff":B.navy),fontWeight:700,fontSize:12,cursor:"pointer",whiteSpace:"nowrap"});
+
+  if(esAdm===null) return <div style={{maxWidth:1200,margin:"0 auto",padding:"28px 20px",color:B.grey4}}>Verificando permisos…</div>;
+  if(!esAdm) return <div style={{maxWidth:1200,margin:"0 auto",padding:"28px 20px"}}><div style={card}><b style={{color:B.navy}}>🔒 Solo administradores</b><div style={{fontSize:13,color:B.grey4,marginTop:4}}>Esta pestaña la ven solo los administradores.</div></div></div>;
+
+  // ── Desarrolladores agrupados por correo ──
+  const grupos=(()=>{ const m=new Map(); (rows||[]).forEach(r=>{ const k=String(r.correo||"").toLowerCase(); if(!k) return; if(!m.has(k)) m.set(k,{correo:r.correo,nombre:r.nombre,empresa:r.empresa,filas:[]}); const g=m.get(k); g.filas.push(r); if(r.nombre&&!g.nombre) g.nombre=r.nombre; if(r.empresa&&!g.empresa) g.empresa=r.empresa; });
+    return [...m.values()].map(g=>{ const act=g.filas.some(r=>r.estado==="activo"), reg=g.filas.some(r=>r.registrado), conv=g.filas.some(r=>r.convenio_firmado), susp=g.filas.every(r=>r.estado==="suspendido");
+      g.est= act?"activo":(susp?"suspendido":(reg?"por_autorizar":"invitado")); g.conv=conv; return g; })
+      .filter(g=>{ const nq=ACC_NRM(q); return !nq || ACC_NRM([g.nombre,g.empresa,g.correo,g.filas.map(r=>r.desarrollo).join(" ")].join(" ")).includes(nq); }); })();
+  const EST={activo:["ok","Activo"],por_autorizar:["wa","Por autorizar"],invitado:["wa","Invitado · sin activar"],suspendido:["gr","Suspendido"]};
+  const ligaInv=(tok)=>LANDING_URL+"/portal-desarrollo?inv="+encodeURIComponent(tok);
+  const invitar=async(f)=>{ const correo=String(f.correo||"").trim().toLowerCase(); if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)){ toast("Escribe un correo válido."); return; } if(!f.ids.length){ toast("Elige al menos un desarrollo."); return; }
+    setBusy("invitar"); try{ const {data,error}=await window.sb.rpc("landing_invitacion_crear",{p:{correo,nombre:f.nombre||null,empresa:f.empresa||null,desarrollo_ids:f.ids}}); if(error) throw error; if(data&&data.error) throw new Error(data.error);
+      setLigaDev({url:ligaInv(data.token),correo}); setInv(null); toast("✅ Invitación creada para "+correo); cargarDevs(); }
+    catch(e){ toast("No se pudo invitar: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
+  const reinvitar=async(g)=>{ setBusy(g.correo); try{ const {data,error}=await window.sb.rpc("landing_invitacion_crear",{p:{correo:g.correo,nombre:g.nombre||null,empresa:g.empresa||null,desarrollo_ids:g.filas.map(r=>r.desarrollo_id)}}); if(error) throw error; if(data&&data.error) throw new Error(data.error);
+      setLigaDev({url:ligaInv(data.token),correo:g.correo}); toast("Nueva liga de invitación (la anterior quedó invalidada)."); cargarDevs(); }
+    catch(e){ toast("No se pudo: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
+  const setEstado=async(g,estado)=>{ if(estado==="suspendido"&&!window.confirm("¿Suspender a "+(g.nombre||g.correo)+"? Dejará de poder entrar.")) return; setBusy(g.correo);
+    try{ if(estado==="activo"&&!g.conv){ const r1=await window.sb.rpc("landing_desarrollador_convenio_correo",{p_correo:g.correo,p_firmado:true}); if(r1.error) throw r1.error; }
+      const {error}=await window.sb.rpc("landing_desarrollador_estado_correo",{p_correo:g.correo,p_estado:estado}); if(error) throw error; toast((g.nombre||g.correo)+": "+(estado==="activo"?"activo":"suspendido")+"."); cargarDevs(); }
+    catch(e){ toast("No se pudo cambiar el estado: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
+  const revocarInv=async(i)=>{ setBusy(i.id); try{ const {error}=await window.sb.rpc("landing_invitacion_revocar",{p_id:i.id}); if(error) throw error; cargarDevs(); } catch(e){ toast("No se pudo revocar: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
+  const invsPend=(invs||[]).filter(i=>i.estado==="pendiente"&&!i.usado_en&&(!i.expira_en||new Date(i.expira_en)>new Date()));
+
+  // ── Terrenos de corretaje y sus ligas ──
+  const hoy=new Date().toISOString().slice(0,10);
+  const terrenos=(()=>{ const T={}; (lotes||[]).forEach(l=>{ if(ACC_NRM(l.tipo_inventario)!=="corretaje") return; const n=ACC_TERR(l), k=ACC_NRM(n); if(!k) return; const t=T[k]||(T[k]={n,dueno:String(l.desarrollador||"").trim(),lotes:0,cap:false,ligas:[]}); t.lotes++; if(l.metadata&&l.metadata.captacion_id) t.cap=true; });
+    (ligas||[]).forEach(a=>{ const t=T[ACC_NRM(a.desarrollo)]; if(t) t.ligas.push(a); });
+    return Object.values(T).map(t=>{ const act=t.ligas.filter(a=>!a.revocado&&(!a.vigente_hasta||String(a.vigente_hasta)>=hoy)); const ult=t.ligas.map(a=>a.ultimo_acceso).filter(Boolean).sort().pop()||null; const vis=t.ligas.reduce((s,a)=>s+(+a.accesos||0),0); return {...t,act,ult,vis}; })
+      .filter(t=>{ const nq=ACC_NRM(q); return !nq||ACC_NRM(t.n+" "+t.dueno).includes(nq); })
+      .sort((a,b)=>(a.act.length?1:0)-(b.act.length?1:0)||a.n.localeCompare(b.n,"es")); })();
+  const generarDueno=async(t,nombre,vig)=>{ setBusy("due-"+t.n); try{ const tok=accToken(); const h=await accSha256(tok);
+      const {error}=await window.sb.from("propietario_accesos").insert({token_hash:h,desarrollo:t.n,propietario:(nombre||"").trim()||null,vigente_hasta:vig||null,creado_por:"macropro"}); if(error) throw error;
+      setLigaDue({url:LANDING_URL+"/avance/"+tok,terreno:t.n,nombre:(nombre||"").trim()}); setGenDue(null); toast("✅ Liga generada para "+t.n); cargarDuenos(); }
+    catch(e){ const m=String((e&&e.message)||e); toast("No se pudo generar: "+(/propietario_accesos|does not exist/i.test(m)?"falta correr supabase/propietario_accesos.sql.":m)); } finally{ setBusy(""); } };
+  const revocarDueno=async(a,t)=>{ if(!window.confirm("¿Revocar la liga de "+t.n+"? El dueño ya no podrá abrirla.")) return; setBusy(a.id);
+    try{ const {error}=await window.sb.from("propietario_accesos").update({revocado:true}).eq("id",a.id); if(error) throw error; toast("Liga revocada."); cargarDuenos(); }
+    catch(e){ toast("No se pudo revocar: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
+
+  const nDev=grupos.length, nAct=grupos.filter(g=>g.est==="activo").length, nPend=grupos.filter(g=>g.est==="invitado"||g.est==="por_autorizar").length;
+  const nLig=terrenos.filter(t=>t.act.length).length;
+  const vig6=(()=>{ const d=new Date(); d.setMonth(d.getMonth()+6); return d.toISOString().slice(0,10); })();
+
+  return (<div style={{maxWidth:1200,margin:"0 auto",padding:"24px 20px 40px"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:12,flexWrap:"wrap"}}>
+      <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:30,fontWeight:800,color:B.navy}}>🔐 Accesos</div>
+        <div style={{fontSize:13,color:B.grey4,maxWidth:720}}>Quién entra a ver qué. Desarrolladores (con su correo, solo sus desarrollos) y dueños de terreno (liga “Mi terreno”, solo su terreno).</div></div>
+      <span style={{fontSize:12,background:B.blueL,color:B.blue,border:"1px solid #bfdbfe",borderRadius:999,padding:"4px 10px",fontWeight:700}}>🔒 Solo administradores</span>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,margin:"16px 0"}}>
+      {[["Desarrolladores",nDev,nAct+" activos"],["Pendientes de activar",nPend,"invitados o por autorizar"],["Terrenos de corretaje",terrenos.length,nLig+" con liga activa"],["Ligas de dueños",(ligas||[]).filter(a=>!a.revocado&&(!a.vigente_hasta||String(a.vigente_hasta)>=hoy)).length,"activas"]].map(([l,v,sx])=>(
+        <div key={l} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:"12px 14px"}}><div style={{fontSize:10.5,letterSpacing:1.2,textTransform:"uppercase",color:B.grey3,fontWeight:800}}>{l}</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:28,color:B.navy,fontWeight:800,lineHeight:1.15}}>{v}</div><div style={{fontSize:12,color:B.grey4}}>{sx}</div></div>))}
+    </div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+      <div style={{display:"inline-flex",background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,padding:4,gap:4}}>
+        {[["devs","Desarrolladores",nDev],["duenos","Dueños de terreno",terrenos.length]].map(([v,l,n])=>(
+          <button key={v} onClick={()=>cambiaSub(v)} style={{padding:"8px 14px",borderRadius:9,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:sub===v?B.navy:"transparent",color:sub===v?"#fff":B.grey4}}>{l} <span style={{fontSize:11,opacity:.8}}>({n})</span></button>))}
+      </div>
+      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔎 Buscar" style={{padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:9,fontSize:13,minWidth:200}}/>
+    </div>
+
+    {sub==="devs"&&(<div style={card}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+        <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:21,fontWeight:800,color:B.navy}}>Desarrolladores</div><div style={{fontSize:12.5,color:B.grey4}}>Entran a Intelligence con su correo y solo ven sus desarrollos. Un correo por persona.</div></div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><button style={btn(true)} onClick={()=>setInv({correo:"",nombre:"",empresa:"",ids:[],bq:""})}>＋ Invitar desarrollador</button><a href={LANDING_URL+"/portal-desarrollo"} target="_blank" rel="noopener noreferrer" style={{...btn(false),textDecoration:"none"}}>Gestión completa ›</a></div>
+      </div>
+      {errD&&<div style={{marginTop:10,color:B.red,fontSize:12.5}}>No se pudo leer la lista: {errD}</div>}
+      {ligaDev&&<AccLiga titulo={"Invitación para "+ligaDev.correo} url={ligaDev.url} mensaje={"Hola, te damos acceso a Intelligence de Grupo Guía Macrolotes para ver tus desarrollos. Activa tu cuenta aquí:"} onCerrar={()=>setLigaDev(null)}/>}
+      {inv&&(<div style={{margin:"12px 0",padding:"14px",border:"1px solid "+B.grey1,borderRadius:12,background:"#f8fafc"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:8}}>
+          <input placeholder="Correo de la persona *" value={inv.correo} onChange={e=>setInv({...inv,correo:e.target.value})} style={{padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:13}}/>
+          <input placeholder="Nombre" value={inv.nombre} onChange={e=>setInv({...inv,nombre:e.target.value})} style={{padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:13}}/>
+          <input placeholder="Empresa" value={inv.empresa} onChange={e=>setInv({...inv,empresa:e.target.value})} style={{padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:13}}/>
+        </div>
+        <div style={{fontSize:11.5,fontWeight:800,color:B.grey4,margin:"10px 0 4px",textTransform:"uppercase",letterSpacing:1}}>Desarrollos que puede ver *</div>
+        <input placeholder="Filtrar desarrollos" value={inv.bq} onChange={e=>setInv({...inv,bq:e.target.value})} style={{padding:"6px 9px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:12,marginBottom:6}}/>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,maxHeight:180,overflow:"auto"}}>
+          {(cat||[]).filter(c=>!inv.bq||ACC_NRM((c.nombre||"")+" "+(c.desarrollador||"")).includes(ACC_NRM(inv.bq))).map(c=>{ const on=inv.ids.includes(c.id); return (
+            <button key={c.id} onClick={()=>setInv({...inv,ids:on?inv.ids.filter(x=>x!==c.id):[...inv.ids,c.id]})} style={{padding:"5px 10px",borderRadius:999,fontSize:12,cursor:"pointer",border:"1px solid "+(on?B.navy:B.grey1),background:on?B.navy:"#fff",color:on?"#fff":B.navy}}>{on?"✓ ":""}{c.nombre}{c.desarrollador?<span style={{opacity:.65}}> · {c.desarrollador}</span>:null}</button>); })}
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:10}}><button disabled={busy==="invitar"} style={btn(true)} onClick={()=>invitar(inv)}>{busy==="invitar"?"Creando…":"Crear invitación"}</button><button style={btn(false)} onClick={()=>setInv(null)}>Cancelar</button></div>
+        <div style={{fontSize:11.5,color:B.grey4,marginTop:6}}>La persona recibe una liga para crear su contraseña y aceptar términos; después entra a Intelligence con ese correo.</div>
+      </div>)}
+      <div style={{overflowX:"auto",marginTop:10}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+        <thead><tr><th style={th}>Desarrollador</th><th style={th}>Desarrollos</th><th style={th}>Estado</th><th style={th}>Convenio</th><th style={th}></th></tr></thead>
+        <tbody>
+          {rows===null&&<tr><td style={td} colSpan={5}>Cargando…</td></tr>}
+          {rows!==null&&!grupos.length&&<tr><td style={{...td,color:B.grey4}} colSpan={5}>Sin desarrolladores{q?" con esa búsqueda":""}.</td></tr>}
+          {grupos.map(g=>(<tr key={g.correo}>
+            <td style={td}><b>{g.nombre||g.correo}</b>{g.empresa?<div style={{fontSize:11.5,color:B.grey4}}>{g.empresa}</div>:null}<div style={{fontSize:11.5,color:B.grey3}}>{g.correo}</div></td>
+            <td style={td}>{g.filas.map(r=><span key={r.id} style={{display:"inline-block",fontSize:11,background:"#f1f5f9",borderRadius:6,padding:"1px 6px",margin:"1px 3px 1px 0",color:r.estado==="activo"?B.navy:B.grey3}}>{r.desarrollo}{r.estado!=="activo"?" ("+r.estado+")":""}</span>)}</td>
+            <td style={td}><AccTag c={EST[g.est][0]}>{EST[g.est][1]}</AccTag></td>
+            <td style={td}>{g.conv?"✓ Firmado":<span style={{color:B.grey3}}>—</span>}</td>
+            <td style={{...td,whiteSpace:"nowrap"}}>
+              {g.est!=="activo"&&g.est!=="invitado"&&<button disabled={busy===g.correo} style={btn(true)} onClick={()=>setEstado(g,"activo")} title={g.conv?"":"Marca el convenio como firmado y activa"}>Activar</button>}
+              {g.est==="activo"&&<button disabled={busy===g.correo} style={btn(false)} onClick={()=>setEstado(g,"suspendido")}>Suspender</button>}
+              {(g.est==="invitado"||g.est==="por_autorizar")&&<button disabled={busy===g.correo} style={{...btn("gold"),marginLeft:6}} onClick={()=>reinvitar(g)}>Reenviar invitación</button>}
+            </td></tr>))}
+        </tbody></table></div>
+      {invsPend.length>0&&(<div style={{marginTop:12}}><div style={{fontSize:11.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:1}}>Invitaciones vigentes sin usar ({invsPend.length})</div>
+        {invsPend.map(i=>(<div key={i.id} style={{display:"flex",gap:10,alignItems:"center",fontSize:12.5,padding:"6px 0",borderBottom:"1px dashed "+B.grey1}}><span style={{flex:1}}>{i.correo}{i.expira_en?<span style={{color:B.grey3}}> · vence {ACC_FECHA(i.expira_en)}</span>:null}</span><button disabled={busy===i.id} style={btn(false)} onClick={()=>revocarInv(i)}>Revocar</button></div>))}</div>)}
+      <div style={{fontSize:11.5,color:B.grey4,marginTop:10}}>“Activar” marca el convenio como firmado si aún no lo está (la base lo exige para activar). Contraseña directa, teléfono, bitácora de entradas y eliminar: en “Gestión completa”.</div>
+    </div>)}
+
+    {sub==="duenos"&&(<div style={card}>
+      <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:21,fontWeight:800,color:B.navy}}>Dueños de terreno</div><div style={{fontSize:12.5,color:B.grey4}}>Una liga “Mi terreno” por terreno: avance comercial, seguimiento y documentos, solo de su terreno. Sin cuenta, con vigencia y revocable.</div></div>
+      {errL&&<div style={{marginTop:10,color:B.red,fontSize:12.5}}>{errL}</div>}
+      {ligaDue&&<AccLiga titulo={"Liga “Mi terreno” · "+ligaDue.terreno} url={ligaDue.url} mensaje={"Hola"+(ligaDue.nombre?" "+ligaDue.nombre.split(" ")[0]:"")+", aquí puede consultar en cualquier momento el avance de su terreno "+ligaDue.terreno+":"} onCerrar={()=>setLigaDue(null)}/>}
+      <div style={{overflowX:"auto",marginTop:10}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+        <thead><tr><th style={th}>Terreno</th><th style={th}>Dueño</th><th style={th}>Liga</th><th style={th}>Última vez que la abrió</th><th style={th}></th></tr></thead>
+        <tbody>
+          {lotes===null&&<tr><td style={td} colSpan={5}>Cargando…</td></tr>}
+          {lotes!==null&&!terrenos.length&&<tr><td style={{...td,color:B.grey4}} colSpan={5}>Sin terrenos de corretaje{q?" con esa búsqueda":""}.</td></tr>}
+          {terrenos.map(t=>(<React.Fragment key={t.n}><tr>
+            <td style={td}><b>{t.n}</b><div style={{fontSize:11.5,color:B.grey3}}>{t.lotes} lote{t.lotes===1?"":"s"}{t.cap?" · con captación":" · sin captación (solo pestaña de avance)"}</div></td>
+            <td style={td}>{t.dueno||<span style={{color:B.grey3}}>—</span>}</td>
+            <td style={td}>{t.act.length?<AccTag c="ok">{"Activa"+(t.act[0].vigente_hasta?" · hasta "+ACC_FECHA(t.act[0].vigente_hasta+"T12:00:00"):"")}</AccTag>:(t.ligas.length?<AccTag c="gr">Vencida o revocada</AccTag>:<AccTag c="wa">Sin liga</AccTag>)}</td>
+            <td style={td}>{t.ult?(ACC_FECHA(t.ult)+(t.vis>1?" · "+t.vis+" veces":"")):<span style={{color:B.grey3}}>{t.act.length?"aún no la abre":"—"}</span>}</td>
+            <td style={{...td,whiteSpace:"nowrap"}}>
+              <button style={btn(t.act.length?false:true)} onClick={()=>setGenDue({t,nombre:t.dueno,vig:vig6})}>🔗 {t.act.length?"Otra liga":"Generar liga"}</button>
+              {t.act.map(a=><button key={a.id} disabled={busy===a.id} style={{...btn(false),marginLeft:6}} onClick={()=>revocarDueno(a,t)}>Revocar{t.act.length>1?" ("+(a.propietario||ACC_FECHA(a.creado_en))+")":""}</button>)}
+            </td></tr>
+            {genDue&&genDue.t.n===t.n&&(<tr><td colSpan={5} style={{padding:"0 10px 12px"}}><div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:12,border:"1px solid "+B.grey1,borderRadius:12,background:"#f8fafc"}}>
+              <input placeholder="Nombre del dueño" value={genDue.nombre} onChange={e=>setGenDue({...genDue,nombre:e.target.value})} style={{padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:13,flex:1,minWidth:180}}/>
+              <label style={{fontSize:12,color:B.grey4}}>Vigente hasta <input type="date" value={genDue.vig} onChange={e=>setGenDue({...genDue,vig:e.target.value})} style={{padding:"6px 8px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:12}}/></label>
+              <button disabled={busy==="due-"+t.n} style={btn(true)} onClick={()=>generarDueno(t,genDue.nombre,genDue.vig)}>{busy==="due-"+t.n?"Generando…":"Generar"}</button><button style={btn(false)} onClick={()=>setGenDue(null)}>Cancelar</button>
+            </div></td></tr>)}
+          </React.Fragment>))}
+        </tbody></table></div>
+      <div style={{fontSize:11.5,color:B.grey4,marginTop:10}}>Lo que ve el dueño en “Avance comercial” son las acciones del plan marcadas “👁 Visible para el dueño” en el Motor de Estrategia de Intelligence.</div>
+    </div>)}
+  </div>);
+}
+
 function MacroProMatcher({ sessionEmail } = {}) {
   // ═══════════════════════════════════════════════════════════
   // PERSISTENCIA: claves de localStorage y helpers
@@ -5182,12 +5379,12 @@ function MacroProMatcher({ sessionEmail } = {}) {
     try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn("No se pudo guardar "+key,e);try{toast("⚠ NO se guardó ("+key+"): almacenamiento del navegador lleno. Tu cambio NO quedó guardado.");}catch(_){}}
   };
 
-  const [view, setViewRaw] = useState(()=>loadPersisted(STORAGE_KEYS.view,"home"));
+  const [view, setViewRaw] = useState(()=>{ try{ if(window.location.hash==="#accesos") return "accesos"; }catch(e){} return loadPersisted(STORAGE_KEYS.view,"home"); }); // #accesos: liga directa desde Intelligence
   // Wrapper de setView que también persiste
   const setView=(v)=>{setViewRaw(v);savePersisted(STORAGE_KEYS.view,v);};
   // Back-Office "Option Engine": si al cargar, la vista persistida/por URL es OCULTA, redirige a
   // Captación (solo al montar; la navegación interna no se bloquea). Reversible.
-  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch","equipo","requerimientos","calidad","cartas"];
+  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch","equipo","requerimientos","calidad","cartas","accesos"];
     // "Cartas oferta" dejó de ser sub-pestaña de Asesores (2026-11-19): quien la tenía abierta, va a la pestaña propia.
     try{ if(view==="equipo"&&MP_FA_MODO_INICIAL==="cartas"){ localStorage.setItem("mp_fa_modo","general"); setView("cartas"); return; } }catch(e){}
     if(!permitidas.includes(view)){ setView("captacion"); try{ if(window.location.hash && window.location.hash!=="#captacion") window.history.replaceState(null,"","#captacion"); }catch(e){} }
@@ -6227,6 +6424,11 @@ function MacroProMatcher({ sessionEmail } = {}) {
   // Por eso todos son ADMIN: misma versión, misma velocidad y mismos resultados (sin candado
   // de "solo lo mío"). No hay permisos por territorio.
   const esAdmin = React.useMemo(()=> true, [sessionEmail]);
+  // 🔐 Accesos: solo administradores reales (landing_es_admin en la base). No cambia esAdmin (decisión de producto).
+  const [esAdminReal,setEsAdminReal]=useState(false);
+  React.useEffect(()=>{ let vivo=true; const sbc=window.sb; if(!sbc||!sessionEmail){ setEsAdminReal(false); return; }
+    sbc.rpc("landing_es_admin").then(({data})=>{ if(vivo) setEsAdminReal(data===true); },()=>{ if(vivo) setEsAdminReal(false); });
+    return ()=>{ vivo=false; }; },[sessionEmail]);
   const autoAsesorRef = React.useRef(false);
   React.useEffect(()=>{
     if(autoAsesorRef.current) return;
@@ -24703,7 +24905,7 @@ Respuesta: [respuesta exacta, conversacional]
               NO se borran vistas: componentes y render (view===) siguen intactos; reversible re-agregando entradas.
               Ocultas (solo accesibles internamente): dashboard, corretaje, asesores(Buscando), quickSearch,
               matchClient, matchLot, matches, clients, lots(Inventario), crm, metas, ejecutivo, comparador. */}
-          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["cartas","📝 Cartas oferta"],["equipo","👔 Asesores"],["requerimientos","🔍 Requerimientos"],["calidad","🩺 Calidad de datos"],["admin","⚙️ Admin"]].map(([v,l])=>(
+          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["cartas","📝 Cartas oferta"],["equipo","👔 Asesores"],["requerimientos","🔍 Requerimientos"],["calidad","🩺 Calidad de datos"],["admin","⚙️ Admin"]].concat(esAdminReal?[["accesos","🔐 Accesos"]]:[]).map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <button title="Crear una carta oferta desde cero" style={{...s.navBtn(false),background:B.gold,color:B.navy,fontWeight:800}} onClick={()=>setWizardCO({})}>➕ Nueva Carta Oferta</button>
@@ -24756,6 +24958,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="corretaje"&&<ViewCorretaje/>}
       {view==="admin"&&<ViewAdmin/>}
       {view==="asesores"&&<ViewAsesores/>}
+      {view==="accesos"&&<ViewAccesos onToast={toast}/>}
       {view==="captacion"&&<ViewCaptacion/>}
       {view==="cartas"&&<ViewCartasOferta s={s} onToast={toast} onNueva={()=>setWizardCO({})} onAbrirTerreno={(c)=>{ if(c.captacion_id){ const x=(captaciones||[]).find(y=>y.id===c.captacion_id); if(x){ setEditingCaptacion(x); setShowCaptacionModal(true); } else toast("Ese terreno de captación no está cargado en este equipo."); } else if(c.lote_id){ const l=(inventory||[]).find(y=>loteKey(y)===c.lote_id); if(l) setSelectedLotDetail(l); else toast("Ese lote no está cargado en este equipo."); } }}/>}
       {/* Cotización: ya no es pestaña (2026-11-19). El formulario se abre desde 🌱 Opción / Captación
