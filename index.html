@@ -5189,6 +5189,11 @@ function accUsoDe(evs){ const ahora=Date.now(), L=evs||[], d30=L.filter(e=>ahora
   const sem=[...Array(8)].map((_,i)=>L.filter(e=>{ const t=ahora-new Date(e.creado_at).getTime(); return e.accion==="entro"&&t>=i*7*ACC_DIA&&t<(i+1)*7*ACC_DIA; }).length).reverse();
   const ult=L[0]||null, ultVio=L.find(e=>e.accion!=="entro")||null;
   return { entradas, dias, sem, ult, ultVio, total:L.length }; }
+// 👁 Qué ve el desarrollador: lo decide INTELLIGENCE por desarrollo (Reporte Comercial · "Desarrollador · Sí/No").
+// Mismo mapa que supabase/dev_visibilidad_manda_intelligence_2026-11-21.sql (intel_dev_bloques).
+const ACC_BLOQ={metas:["s-result"],inventario:["s-inv"],interesados:["s-embudo"],capdo:["rc-capdo","s-motor"],foda:["s-foda"],radar:["s-ic"]};
+function accVeUnion(desarrollos, rc){ const out={presentacion:true}; const L=Array.isArray(rc)?rc:[]; const ds=(desarrollos||[]).map(d=>String(d||"").trim().toLowerCase()).filter(Boolean);
+  Object.keys(ACC_BLOQ).forEach(k=>{ out[k]=L.some(v=>v&&v.desarrollador&&ACC_BLOQ[k].includes(v.seccion)&&ds.includes(String(v.desarrollo||"").trim().toLowerCase())); }); return out; }
 function AccSwitch({on,onClick,disabled}){ return <button onClick={onClick} disabled={disabled} aria-pressed={!!on} style={{width:36,height:20,borderRadius:999,border:"none",background:on?"#16a34a":"#cbd5e1",position:"relative",cursor:disabled?"wait":"pointer",flex:"none",padding:0}}><span style={{position:"absolute",top:2,left:on?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 2px rgba(0,0,0,.25)",transition:"left .15s"}}/></button>; }
 async function accLlamarLanding(fn,payload){ const s=await window.sb.auth.getSession(); const tok=s&&s.data&&s.data.session&&s.data.session.access_token; if(!tok) throw new Error("Tu sesión expiró. Vuelve a entrar.");
   const r=await fetch(LANDING_URL+"/.netlify/functions/"+fn,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:tok,...payload})});
@@ -5253,6 +5258,7 @@ function ViewAccesos({ onToast }){
   const [inv,setInv]=useState(null);                // formulario de invitación abierto
   const [ligaDev,setLigaDev]=useState(null), [ligaDue,setLigaDue]=useState(null), [genDue,setGenDue]=useState(null);
   const [cartaDe,setCartaDe]=useState("");          // correo de la persona con "📨 Mandar liga" abierto
+  const [rcVis,setRcVis]=useState(null);           // 👁 lo que decide Intelligence (rc_secciones_vis), solo lectura
   const [usoEv,setUsoEv]=useState(null), [usoErr,setUsoErr]=useState(""), [histDe,setHistDe]=useState(""), [histN,setHistN]=useState(30);   // 📊 uso de accesos
   const cambiaSub=(v)=>{ setSub(v); try{ localStorage.setItem("mp_accesos_sub",v); }catch(e){} };
   const cargarUso=async()=>{ const sbc=window.sb; if(!sbc) return;
@@ -5265,6 +5271,7 @@ function ViewAccesos({ onToast }){
     if(!filas.length){ toast("Todavía no hay entradas registradas."); return; }
     const ws=XLSX.utils.json_to_sheet(filas), wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Uso de accesos"); XLSX.writeFile(wb,"Uso-accesos-desarrolladores-"+new Date().toISOString().slice(0,10)+".xlsx"); };
   const cargarDevs=async()=>{ const sbc=window.sb; if(!sbc) return; setErrD(""); cargarUso();
+    try{ const r=await sbc.from("rc_secciones_vis").select("desarrollo,seccion,desarrollador").limit(20000); if(!r.error) setRcVis(r.data||[]); }catch(e){}
     try{ const [a,b,c]=await Promise.all([sbc.rpc("landing_desarrolladores_admin"),sbc.rpc("landing_desarrollos_cat"),sbc.rpc("landing_invitaciones_admin")]);
       if(a.error) throw a.error; setRows(a.data||[]); setCat((b&&!b.error&&b.data)||[]); setInvs((c&&!c.error&&c.data)||[]); }
     catch(e){ setRows([]); setErrD(String((e&&e.message)||e)); }
@@ -5422,7 +5429,7 @@ function ViewAccesos({ onToast }){
         <button style={btn(true)} onClick={()=>setInv({correo:"",nombre:"",empresa:"",ids:[],bq:""})}>＋ Invitar persona</button>
       </div>
       {errD&&<div style={{marginTop:10,color:B.red,fontSize:12.5}}>No se pudo leer la lista: {errD}</div>}
-      {visErr&&<div style={{marginTop:8,color:B.red,fontSize:12.5}}>{visErr}</div>}
+      <div data-acc-nota-intel style={{marginTop:8,fontSize:12,color:B.grey4}}>👁 <b style={{color:B.navy}}>Qué ve cada desarrollo se decide en Intelligence</b> → Reporte Comercial, con el botón <b>"Desarrollador · Sí/No"</b> de cada bloque (y 📤 Publicar). Aquí solo se ve el resumen.</div>
       {ligaDev&&<AccLiga titulo={"Invitación para "+ligaDev.correo} url={ligaDev.url} mensaje={"Hola, te damos acceso a Intelligence de Grupo Guía Macrolotes para ver tus desarrollos. Activa tu cuenta aquí:"} onCerrar={()=>setLigaDev(null)}/>}
       {accDir&&(<div style={{margin:"10px 0 14px",padding:"12px 14px",border:"1px solid #86efac",background:"#f0fdf4",borderRadius:12}}>
         <div style={{fontSize:11,fontWeight:800,letterSpacing:1.2,textTransform:"uppercase",color:"#166534"}}>Acceso directo listo · {accDir.correo}</div>
@@ -5458,26 +5465,15 @@ function ViewAccesos({ onToast }){
             <div style={{fontSize:12,color:B.grey4}}>{E.personas.length} persona{E.personas.length===1?"":"s"} · {E.activos} activa{E.activos===1?"":"s"} · desarrollos: {E.desarrollos.join(", ")||"—"}</div>
             {usoEv&&!usoErr&&(()=>{ const U=E.personas.map(g=>accUsoDe(usoEv[String(g.correo||"").toLowerCase()])); const ent=U.reduce((a,u)=>a+u.entradas,0), quien=U.filter(u=>u.entradas>0).length;
               return <div data-acc-uso-emp={E.k} style={{fontSize:12,color:B.navy,marginTop:2}}>📊 Últimos 30 días: <b>{ent} entrada{ent===1?"":"s"}</b> · {quien} de {E.personas.length} entraron</div>; })()}</div>
-          <button style={btn(opE?true:false)} onClick={()=>setAbiertoEmp(opE?"":E.k)}>👁 Qué ve {E.nombre} · {vE.n} de {ACC_SECS.length}{vE.mixto?" (varía)":""}</button>
+          <span data-acc-ve-intel={E.k} title="Se decide en Intelligence → Reporte Comercial (botón 'Desarrollador · Sí/No' de cada bloque)" style={{fontSize:11.5,color:B.grey4,maxWidth:300}}>👁 Lo que ve <b style={{color:B.navy}}>se decide en Intelligence</b>{(()=>{ const u=accVeUnion(E.personas.flatMap(g=>(g.filas||[]).filter(r=>r.estado==="activo").map(r=>r.desarrollo)),rcVis); const l=ACC_SECS.filter(x=>u[x[0]]).map(x=>x[1]); return rcVis?(": "+(l.length?l.join(" · "):"nada todavía")):""; })()}</span>
           <button style={btn("gold")} onClick={()=>setInv({correo:"",nombre:"",empresa:E.nombre==="Sin desarrollador"?"":E.nombre,ids:[],bq:E.nombre==="Sin desarrollador"?"":E.nombre})}>＋ Agregar persona</button>
         </div>
-        {opE&&(<div style={{padding:"12px 14px",background:"#fffbeb",borderBottom:"1px solid #fde68a"}}>
-          <div style={{fontWeight:800,color:B.navy,fontSize:14}}>Qué ve todo {E.nombre} en Intelligence</div>
-          <div style={{fontSize:11.5,color:B.grey4,marginBottom:8}}>Aplica a sus {E.personas.length} persona{E.personas.length===1?"":"s"}. Lo apagado no le aparece y la base no se lo entrega. Abajo puedes afinar por persona.</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:8}}>
-            {ACC_SECS.map(([k,l,d])=>{ const st=vE.sec[k]; return (<div key={k} style={{display:"flex",gap:10,alignItems:"flex-start",background:"#fff",border:"1px solid "+B.grey1,borderRadius:10,padding:"9px 10px"}}>
-              <AccSwitch on={st==="si"} disabled={!!visErr||busy==="visE-"+E.k+k} onClick={()=>toggleVisEmp(E,k,st!=="si")}/>
-              <div><div style={{fontWeight:700,fontSize:12.8,color:B.navy}}>{l}{st==="mixto"?<span style={{fontSize:10.5,color:B.goldD,marginLeft:6}}>varía por persona</span>:null}</div><div style={{fontSize:11,color:B.grey4,lineHeight:1.35}}>{d}</div></div></div>); })}
-          </div>
-          <div style={{fontSize:11,color:B.grey4,marginTop:8}}>FODA y Radar pueden mencionar otros desarrollos de la zona; revísalos antes de prenderlos.</div>
-        </div>)}
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr><th style={th}>Persona</th><th style={th}>Desarrollos</th><th style={th}>Estado</th><th style={th}>Ve</th><th style={th}>Entradas (30 días)</th><th style={th}>Última vez</th><th style={th}></th></tr></thead>
-          <tbody>{E.personas.map(g=>{ const c=String(g.correo||"").toLowerCase(), vv=visDe(c), nOn=ACC_SECS.filter(x=>vv[x[0]]).length, op=abierto===c; return (<React.Fragment key={g.correo}><tr style={op?{background:"#fffbeb"}:null}>
+          <thead><tr><th style={th}>Persona</th><th style={th}>Desarrollos</th><th style={th}>Estado</th><th style={th}>Entradas (30 días)</th><th style={th}>Última vez</th><th style={th}></th></tr></thead>
+          <tbody>{E.personas.map(g=>{ const c=String(g.correo||"").toLowerCase(), vv=accVeUnion((g.filas||[]).filter(r=>r.estado==="activo").map(r=>r.desarrollo),rcVis); return (<React.Fragment key={g.correo}><tr>
             <td style={td}><b>{g.nombre||g.correo}</b><div style={{fontSize:11.5,color:B.grey3}}>{g.correo}</div></td>
             <td style={td}>{g.filas.map(r=><span key={r.id} style={{display:"inline-block",fontSize:11,background:"#f1f5f9",borderRadius:6,padding:"1px 6px",margin:"1px 3px 1px 0",color:r.estado==="activo"?B.navy:B.grey3}}>{r.desarrollo}{r.estado!=="activo"?" ("+r.estado+")":""}</span>)}</td>
             <td style={td}><AccTag c={EST[g.est][0]}>{EST[g.est][1]}</AccTag>{g.conv?null:<div style={{fontSize:11,color:B.grey3,marginTop:3}}>sin convenio</div>}</td>
-            <td style={td}><button style={btn(false)} onClick={()=>setAbierto(op?"":c)}>{nOn} de {ACC_SECS.length}</button></td>
             {(()=>{ const U=accUsoDe((usoEv||{})[c]), ab=histDe===c; if(usoEv===null) return <><td style={td}>…</td><td style={td}>…</td></>;
               if(usoErr) return <><td style={{...td,color:B.grey3}}>—</td><td style={{...td,color:B.grey3}}>—</td></>;
               const maxS=Math.max(1,...U.sem);
@@ -5495,7 +5491,7 @@ function ViewAccesos({ onToast }){
               {(g.est==="invitado"||g.est==="por_autorizar")&&<button disabled={busy===g.correo} style={{...btn(false),marginLeft:6}} onClick={()=>reinvitar(g)}>Reenviar liga</button>}
               <button disabled={busy==="del-"+c} style={{...btn(false),marginLeft:6,color:B.red}} onClick={()=>eliminarDev(g)} title="Quita sus accesos a todos sus desarrollos">Quitar</button>
             </td></tr>
-            {histDe===c&&(<tr><td colSpan={7} style={{padding:"0 10px 12px"}}>{(()=>{ const L=(usoEv||{})[c]||[]; return (<div data-acc-historial={c} style={{border:"1px solid "+B.grey1,background:"#f8fafc",borderRadius:12,padding:"12px 14px"}}>
+            {histDe===c&&(<tr><td colSpan={6} style={{padding:"0 10px 12px"}}>{(()=>{ const L=(usoEv||{})[c]||[]; return (<div data-acc-historial={c} style={{border:"1px solid "+B.grey1,background:"#f8fafc",borderRadius:12,padding:"12px 14px"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}><div style={{fontWeight:800,color:B.navy,fontSize:13.5}}>📋 Historial de {g.nombre||g.correo} · {L.length} registro{L.length===1?"":"s"} (últimos 120 días)</div>
                 <button onClick={()=>setHistDe("")} style={{border:"1px solid "+B.grey2,background:"#fff",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cerrar</button></div>
               <div style={{display:"grid",gridTemplateColumns:"170px 160px 1fr",gap:"0 12px",marginTop:8,fontSize:12.5}}>
@@ -5504,13 +5500,7 @@ function ViewAccesos({ onToast }){
               </div>
               {L.length>histN&&<button onClick={()=>setHistN(n=>n+50)} style={{marginTop:8,border:"1.5px solid "+B.grey2,background:"#fff",borderRadius:8,padding:"5px 11px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Ver más</button>}
             </div>); })()}</td></tr>)}
-            {cartaDe===c&&(<tr><td colSpan={7} style={{padding:"0 10px 12px"}}><AccCarta key={c} g={g} vv={vv} onCerrar={()=>setCartaDe("")} onToast={toast}/></td></tr>)}
-            {op&&(<tr><td colSpan={7} style={{padding:"0 10px 12px"}}><div style={{border:"1px solid #fde68a",background:"#fffbeb",borderRadius:12,padding:"12px 14px"}}>
-              <div style={{fontWeight:800,color:B.navy,fontSize:13.5,marginBottom:8}}>Solo para {g.nombre||g.correo}</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:8}}>
-                {ACC_SECS.map(([k,l])=>(<div key={k} style={{display:"flex",gap:10,alignItems:"center",background:"#fff",border:"1px solid "+B.grey1,borderRadius:10,padding:"8px 10px"}}>
-                  <AccSwitch on={!!vv[k]} disabled={!!visErr||busy==="vis-"+c+k} onClick={()=>toggleVis(g,k)}/><span style={{fontWeight:700,fontSize:12.5,color:B.navy}}>{l}</span></div>))}
-              </div></div></td></tr>)}
+            {cartaDe===c&&(<tr><td colSpan={6} style={{padding:"0 10px 12px"}}><AccCarta key={c} g={g} vv={vv} onCerrar={()=>setCartaDe("")} onToast={toast}/></td></tr>)}
           </React.Fragment>); })}</tbody></table></div>
       </div>); })}
       {invsPend.length>0&&(<div style={{marginTop:14}}><div style={{fontSize:11.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:1}}>Ligas de invitación vigentes sin usar ({invsPend.length})</div>
