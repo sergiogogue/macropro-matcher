@@ -5178,6 +5178,9 @@ function accToken(){ const r=new Uint8Array(32); crypto.getRandomValues(r); retu
 const ACC_SECS=[["metas","Metas y ventas","Resultado contra meta por mes"],["inventario","Inventario","Disponibles, colocados y absorción"],["interesados","Interesados y propuestas","Conteos de HubSpot, sin datos de clientes"],["capdo","Plan CAP-DO","Solo acciones marcadas “Visible para el desarrollador” en el Motor"],["foda","FODA","El último FODA guardado del desarrollo"],["radar","Radar competitivo","Competencia de suelo a 5 km (mercado)"],["presentacion","Presentación","Botón a la presentación del desarrollo"]];
 const ACC_VIS_DEF={metas:true,inventario:true,interesados:true,capdo:false,foda:false,radar:false,presentacion:false};
 function AccSwitch({on,onClick,disabled}){ return <button onClick={onClick} disabled={disabled} aria-pressed={!!on} style={{width:36,height:20,borderRadius:999,border:"none",background:on?"#16a34a":"#cbd5e1",position:"relative",cursor:disabled?"wait":"pointer",flex:"none",padding:0}}><span style={{position:"absolute",top:2,left:on?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 2px rgba(0,0,0,.25)",transition:"left .15s"}}/></button>; }
+async function accLlamarLanding(fn,payload){ const s=await window.sb.auth.getSession(); const tok=s&&s.data&&s.data.session&&s.data.session.access_token; if(!tok) throw new Error("Tu sesión expiró. Vuelve a entrar.");
+  const r=await fetch(LANDING_URL+"/.netlify/functions/"+fn,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:tok,...payload})});
+  const o=await r.json().catch(()=>({})); if(!r.ok||o.ok===false) throw new Error(o.error||("Error "+r.status)); return o; }
 function AccTag({c,children}){ const M={ok:["#dcfce7","#15803d"],wa:["#fef3c7","#b45309"],ba:["#fee2e2","#b91c1c"],gr:["#f1f5f9","#475569"]}; const m=M[c]||M.gr; return <span style={{display:"inline-block",fontSize:11,fontWeight:800,borderRadius:999,padding:"2px 8px",background:m[0],color:m[1],whiteSpace:"nowrap"}}>{children}</span>; }
 function AccLiga({titulo,url,mensaje,onCerrar}){
   const [cop,setCop]=useState(false);
@@ -5198,7 +5201,7 @@ function ViewAccesos({ onToast }){
   const [esAdm,setEsAdm]=useState(null);           // null = verificando
   const [sub,setSub]=useState(()=>{ try{ return localStorage.getItem("mp_accesos_sub")||"devs"; }catch(e){ return "devs"; } });
   const [rows,setRows]=useState(null), [cat,setCat]=useState([]), [invs,setInvs]=useState([]);
-  const [vis,setVis]=useState({}), [visErr,setVisErr]=useState(""), [abierto,setAbierto]=useState("");
+  const [vis,setVis]=useState({}), [visErr,setVisErr]=useState(""), [abierto,setAbierto]=useState(""), [abiertoEmp,setAbiertoEmp]=useState(""), [accDir,setAccDir]=useState(null);
   const [acuerdos,setAcuerdos]=useState(null), [aseAcc,setAseAcc]=useState([]), [errA,setErrA]=useState(""), [ligaAse,setLigaAse]=useState(null), [genAse,setGenAse]=useState(null);
   const [lotes,setLotes]=useState(null), [ligas,setLigas]=useState([]), [errD,setErrD]=useState(""), [errL,setErrL]=useState("");
   const [busy,setBusy]=useState(""), [q,setQ]=useState("");
@@ -5246,9 +5249,13 @@ function ViewAccesos({ onToast }){
       .filter(g=>{ const nq=ACC_NRM(q); return !nq || ACC_NRM([g.nombre,g.empresa,g.correo,g.filas.map(r=>r.desarrollo).join(" ")].join(" ")).includes(nq); }); })();
   const EST={activo:["ok","Activo"],por_autorizar:["wa","Por autorizar"],invitado:["wa","Invitado · sin activar"],suspendido:["gr","Suspendido"]};
   const ligaInv=(tok)=>LANDING_URL+"/portal-desarrollo?inv="+encodeURIComponent(tok);
-  const invitar=async(f)=>{ const correo=String(f.correo||"").trim().toLowerCase(); if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)){ toast("Escribe un correo válido."); return; } if(!f.ids.length){ toast("Elige al menos un desarrollo."); return; }
+  const invitar=async(f,directo)=>{ const correo=String(f.correo||"").trim().toLowerCase(); if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)){ toast("Escribe un correo válido."); return; } if(!f.ids.length){ toast("Elige al menos un desarrollo."); return; }
     setBusy("invitar"); try{ const {data,error}=await window.sb.rpc("landing_invitacion_crear",{p:{correo,nombre:f.nombre||null,empresa:f.empresa||null,desarrollo_ids:f.ids}}); if(error) throw error; if(data&&data.error) throw new Error(data.error);
-      setLigaDev({url:ligaInv(data.token),correo}); setInv(null); toast("✅ Invitación creada para "+correo); cargarDevs(); }
+      setInv(null);
+      if(directo){ try{ const o=await accLlamarLanding("portal-acceso-admin",{correo}); setAccDir({correo:o.correo||correo,password:o.password}); try{ await window.sb.rpc("landing_desarrollador_convenio_correo",{p_correo:correo,p_firmado:true}); await window.sb.rpc("landing_desarrollador_estado_correo",{p_correo:correo,p_estado:"activo"}); }catch(_){} toast("✅ Acceso directo para "+correo); }
+        catch(e2){ setLigaDev({url:ligaInv(data.token),correo}); toast("Se dio de alta, pero el acceso directo falló ("+String((e2&&e2.message)||e2)+"). Usa la liga de invitación."); } }
+      else { setLigaDev({url:ligaInv(data.token),correo}); toast("✅ Invitación creada para "+correo); }
+      cargarDevs(); }
     catch(e){ toast("No se pudo invitar: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
   const reinvitar=async(g)=>{ setBusy(g.correo); try{ const {data,error}=await window.sb.rpc("landing_invitacion_crear",{p:{correo:g.correo,nombre:g.nombre||null,empresa:g.empresa||null,desarrollo_ids:g.filas.map(r=>r.desarrollo_id)}}); if(error) throw error; if(data&&data.error) throw new Error(data.error);
       setLigaDev({url:ligaInv(data.token),correo:g.correo}); toast("Nueva liga de invitación (la anterior quedó invalidada)."); cargarDevs(); }
@@ -5262,6 +5269,24 @@ function ViewAccesos({ onToast }){
     try{ let quien=null; try{ const u=await window.sb.auth.getUser(); quien=(u&&u.data&&u.data.user&&u.data.user.email)||null; }catch(_){}
       const {error}=await window.sb.from("desarrollador_visibilidad").upsert({correo:c,secciones:nuevo,actualizado_por:quien,actualizado_en:new Date().toISOString()},{onConflict:"correo"}); if(error) throw error;
       setVis(v=>({...v,[c]:nuevo})); }
+    catch(e){ const msg=String((e&&e.message)||e); toast("No se pudo guardar: "+(/desarrollador_visibilidad|does not exist/i.test(msg)?"falta correr supabase/dev_visibilidad.sql.":msg)); }
+    finally{ setBusy(""); } };
+  const accesoDirecto=async(g)=>{ const c=String(g.correo||"").toLowerCase(); if(g.est==="activo"&&!window.confirm("¿Generar una contraseña nueva para "+(g.nombre||c)+"? La anterior deja de servir.")) return; setBusy("dir-"+c);
+    try{ const o=await accLlamarLanding("portal-acceso-admin",{correo:c}); setAccDir({correo:o.correo||c,password:o.password});
+      if(g.est!=="activo"){ if(!g.conv){ const r1=await window.sb.rpc("landing_desarrollador_convenio_correo",{p_correo:c,p_firmado:true}); if(r1.error) throw r1.error; } const r2=await window.sb.rpc("landing_desarrollador_estado_correo",{p_correo:c,p_estado:"activo"}); if(r2.error) throw r2.error; }
+      toast("✅ Acceso listo para "+(g.nombre||c)); cargarDevs(); }
+    catch(e){ toast("No se pudo dar el acceso: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
+  const verComo=async(g)=>{ const c=String(g.correo||"").toLowerCase(); setBusy("ver-"+c);
+    try{ const o=await accLlamarLanding("dev-magiclink",{correo:c}); if(!o.link) throw new Error("sin liga"); window.open(o.link,"_blank","noopener"); toast("Se abrió Intelligence como "+(g.nombre||c)+". Si cerró tu sesión, vuelve a entrar."); }
+    catch(e){ toast("No se pudo: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
+  const eliminarDev=async(g)=>{ const c=String(g.correo||"").toLowerCase(); if(!window.confirm("¿Quitar a "+(g.nombre||c)+" de todos sus desarrollos? Ya no podrá ver nada (su cuenta no se borra).")) return; setBusy("del-"+c);
+    try{ await accLlamarLanding("portal-acceso-admin",{correo:c,accion:"eliminar"}); toast((g.nombre||c)+": se quitaron sus accesos."); cargarDevs(); }
+    catch(e){ toast("No se pudo quitar: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
+  const toggleVisEmp=async(E,k,valor)=>{ setBusy("visE-"+E.k+k);
+    try{ let quien=null; try{ const u=await window.sb.auth.getUser(); quien=(u&&u.data&&u.data.user&&u.data.user.email)||null; }catch(_){}
+      const filas=E.personas.map(g=>{ const c=String(g.correo||"").toLowerCase(); return {correo:c,secciones:{...visDe(c),[k]:valor},actualizado_por:quien,actualizado_en:new Date().toISOString()}; });
+      const {error}=await window.sb.from("desarrollador_visibilidad").upsert(filas,{onConflict:"correo"}); if(error) throw error;
+      setVis(v=>{ const n={...v}; filas.forEach(f=>{ n[f.correo]=f.secciones; }); return n; }); }
     catch(e){ const msg=String((e&&e.message)||e); toast("No se pudo guardar: "+(/desarrollador_visibilidad|does not exist/i.test(msg)?"falta correr supabase/dev_visibilidad.sql.":msg)); }
     finally{ setBusy(""); } };
   const revocarInv=async(i)=>{ setBusy(i.id); try{ const {error}=await window.sb.rpc("landing_invitacion_revocar",{p_id:i.id}); if(error) throw error; cargarDevs(); } catch(e){ toast("No se pudo revocar: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
@@ -5305,6 +5330,14 @@ function ViewAccesos({ onToast }){
       if(r&&r.error) throw r.error; toast((g.nombre||g.email)+": "+(g.correo?"ya no entra con su correo.":"ya puede entrar con su correo en "+LANDING_URL+"/asesor")); cargarAsesores(); }
     catch(e){ const m=String((e&&e.message)||e); toast("No se pudo: "+(/asesor_accesos|does not exist/i.test(m)?"falta correr supabase/asesor_accesos.sql.":m)); } finally{ setBusy(""); } };
 
+  // Desarrolladores (empresa) → personas. La empresa sale de su ficha o del catálogo de sus desarrollos.
+  const catDe={}; (cat||[]).forEach(c=>{ catDe[c.id]=c.desarrollador||""; });
+  const devEmp=(()=>{ const m=new Map(); grupos.forEach(g=>{ const emp=String(g.empresa||"").trim()||(g.filas.map(r=>catDe[r.desarrollo_id]).filter(Boolean)[0]||"")||"Sin desarrollador"; const k=ACC_NRM(emp);
+      if(!m.has(k)) m.set(k,{k,nombre:emp,personas:[]}); m.get(k).personas.push(g); });
+    return [...m.values()].map(E=>({...E,activos:E.personas.filter(g=>g.est==="activo").length,desarrollos:[...new Set(E.personas.flatMap(g=>g.filas.map(r=>r.desarrollo)).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es"))}))
+      .sort((a,b)=>(a.nombre==="Sin desarrollador")-(b.nombre==="Sin desarrollador")||a.nombre.localeCompare(b.nombre,"es")); })();
+  const visEmp=(E)=>{ const sec={}; let n=0, mixto=false; ACC_SECS.forEach(([k])=>{ const vals=E.personas.map(g=>!!visDe(g.correo)[k]); const si=vals.every(x=>x), no=vals.every(x=>!x); sec[k]=si?"si":(no?"no":"mixto"); if(si) n++; if(!si&&!no) mixto=true; }); return {sec,n,mixto}; };
+
   const nDev=grupos.length, nAct=grupos.filter(g=>g.est==="activo").length, nPend=grupos.filter(g=>g.est==="invitado"||g.est==="por_autorizar").length;
   const nLig=terrenos.filter(t=>t.act.length).length;
   const vig6=(()=>{ const d=new Date(); d.setMonth(d.getMonth()+6); return d.toISOString().slice(0,10); })();
@@ -5316,7 +5349,7 @@ function ViewAccesos({ onToast }){
       <span style={{fontSize:12,background:B.blueL,color:B.blue,border:"1px solid #bfdbfe",borderRadius:999,padding:"4px 10px",fontWeight:700}}>🔒 Solo administradores</span>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,margin:"16px 0"}}>
-      {[["Desarrolladores",nDev,nAct+" activos"],["Pendientes de activar",nPend,"invitados o por autorizar"],["Terrenos de corretaje",terrenos.length,nLig+" con liga activa"],["Ligas de dueños",(ligas||[]).filter(a=>!a.revocado&&(!a.vigente_hasta||String(a.vigente_hasta)>=hoy)).length,"activas"],["Asesores opcionadores",asesores.length,asesores.filter(g=>g.ligas.length||g.correo).length+" con acceso"]].map(([l,v,sx])=>(
+      {[["Desarrolladores",devEmp.length,nDev+" personas · "+nAct+" activas"],["Pendientes de activar",nPend,"invitados o por autorizar"],["Terrenos de corretaje",terrenos.length,nLig+" con liga activa"],["Ligas de dueños",(ligas||[]).filter(a=>!a.revocado&&(!a.vigente_hasta||String(a.vigente_hasta)>=hoy)).length,"activas"],["Asesores opcionadores",asesores.length,asesores.filter(g=>g.ligas.length||g.correo).length+" con acceso"]].map(([l,v,sx])=>(
         <div key={l} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:"12px 14px"}}><div style={{fontSize:10.5,letterSpacing:1.2,textTransform:"uppercase",color:B.grey3,fontWeight:800}}>{l}</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:28,color:B.navy,fontWeight:800,lineHeight:1.15}}>{v}</div><div style={{fontSize:12,color:B.grey4}}>{sx}</div></div>))}
     </div>
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
@@ -5329,16 +5362,25 @@ function ViewAccesos({ onToast }){
 
     {sub==="devs"&&(<div style={card}>
       <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-        <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:21,fontWeight:800,color:B.navy}}>Desarrolladores</div><div style={{fontSize:12.5,color:B.grey4}}>Entran a Intelligence con su correo y solo ven sus desarrollos. Un correo por persona.</div></div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><button style={btn(true)} onClick={()=>setInv({correo:"",nombre:"",empresa:"",ids:[],bq:""})}>＋ Invitar desarrollador</button><a href={LANDING_URL+"/portal-desarrollo"} target="_blank" rel="noopener noreferrer" style={{...btn(false),textDecoration:"none"}}>Gestión completa ›</a></div>
+        <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:21,fontWeight:800,color:B.navy}}>Desarrolladores</div><div style={{fontSize:12.5,color:B.grey4}}>Primero se decide por desarrollador (qué ve y quién de su equipo entra); cada persona entra a Intelligence con su correo y solo ve los desarrollos asignados.</div></div>
+        <button style={btn(true)} onClick={()=>setInv({correo:"",nombre:"",empresa:"",ids:[],bq:""})}>＋ Invitar persona</button>
       </div>
       {errD&&<div style={{marginTop:10,color:B.red,fontSize:12.5}}>No se pudo leer la lista: {errD}</div>}
+      {visErr&&<div style={{marginTop:8,color:B.red,fontSize:12.5}}>{visErr}</div>}
       {ligaDev&&<AccLiga titulo={"Invitación para "+ligaDev.correo} url={ligaDev.url} mensaje={"Hola, te damos acceso a Intelligence de Grupo Guía Macrolotes para ver tus desarrollos. Activa tu cuenta aquí:"} onCerrar={()=>setLigaDev(null)}/>}
+      {accDir&&(<div style={{margin:"10px 0 14px",padding:"12px 14px",border:"1px solid #86efac",background:"#f0fdf4",borderRadius:12}}>
+        <div style={{fontSize:11,fontWeight:800,letterSpacing:1.2,textTransform:"uppercase",color:"#166534"}}>Acceso directo listo · {accDir.correo}</div>
+        <div style={{fontSize:13.5,marginTop:6}}>Entra en <b>{LANDING_URL}/intelligence.html</b> · Correo: <b>{accDir.correo}</b> · Contraseña: <b style={{fontFamily:"monospace"}}>{accDir.password}</b></div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+          <a href={"https://wa.me/?text="+encodeURIComponent("Hola, ya tienes acceso a Intelligence de Grupo Guía Macrolotes para ver tus desarrollos.\n\nEntra: "+LANDING_URL+"/intelligence.html\nCorreo: "+accDir.correo+"\nContraseña: "+accDir.password)} target="_blank" rel="noopener noreferrer" style={{...btn("gold"),textDecoration:"none"}}>💬 Enviar por WhatsApp</a>
+          <button style={btn(false)} onClick={()=>setAccDir(null)}>Listo</button></div>
+        <div style={{fontSize:11.5,color:"#166534",marginTop:6}}>Cópiala ahora: por seguridad no se vuelve a mostrar. Si la pierde, genera otra.</div></div>)}
       {inv&&(<div style={{margin:"12px 0",padding:"14px",border:"1px solid "+B.grey1,borderRadius:12,background:"#f8fafc"}}>
+        <div style={{fontWeight:800,color:B.navy,fontSize:14,marginBottom:8}}>{inv.empresa?("Agregar persona a "+inv.empresa):"Invitar persona de un desarrollador"}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:8}}>
           <input placeholder="Correo de la persona *" value={inv.correo} onChange={e=>setInv({...inv,correo:e.target.value})} style={{padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:13}}/>
           <input placeholder="Nombre" value={inv.nombre} onChange={e=>setInv({...inv,nombre:e.target.value})} style={{padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:13}}/>
-          <input placeholder="Empresa" value={inv.empresa} onChange={e=>setInv({...inv,empresa:e.target.value})} style={{padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:13}}/>
+          <input placeholder="Desarrollador (empresa)" value={inv.empresa} onChange={e=>setInv({...inv,empresa:e.target.value})} style={{padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:13}}/>
         </div>
         <div style={{fontSize:11.5,fontWeight:800,color:B.grey4,margin:"10px 0 4px",textTransform:"uppercase",letterSpacing:1}}>Desarrollos que puede ver *</div>
         <input placeholder="Filtrar desarrollos" value={inv.bq} onChange={e=>setInv({...inv,bq:e.target.value})} style={{padding:"6px 9px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:12,marginBottom:6}}/>
@@ -5346,41 +5388,55 @@ function ViewAccesos({ onToast }){
           {(cat||[]).filter(c=>!inv.bq||ACC_NRM((c.nombre||"")+" "+(c.desarrollador||"")).includes(ACC_NRM(inv.bq))).map(c=>{ const on=inv.ids.includes(c.id); return (
             <button key={c.id} onClick={()=>setInv({...inv,ids:on?inv.ids.filter(x=>x!==c.id):[...inv.ids,c.id]})} style={{padding:"5px 10px",borderRadius:999,fontSize:12,cursor:"pointer",border:"1px solid "+(on?B.navy:B.grey1),background:on?B.navy:"#fff",color:on?"#fff":B.navy}}>{on?"✓ ":""}{c.nombre}{c.desarrollador?<span style={{opacity:.65}}> · {c.desarrollador}</span>:null}</button>); })}
         </div>
-        <div style={{display:"flex",gap:8,marginTop:10}}><button disabled={busy==="invitar"} style={btn(true)} onClick={()=>invitar(inv)}>{busy==="invitar"?"Creando…":"Crear invitación"}</button><button style={btn(false)} onClick={()=>setInv(null)}>Cancelar</button></div>
-        <div style={{fontSize:11.5,color:B.grey4,marginTop:6}}>La persona recibe una liga para crear su contraseña y aceptar términos; después entra a Intelligence con ese correo.</div>
+        <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}><button disabled={busy==="invitar"} style={btn(true)} onClick={()=>invitar(inv,true)}>{busy==="invitar"?"Creando…":"Dar acceso directo (correo + contraseña)"}</button><button disabled={busy==="invitar"} style={btn(false)} onClick={()=>invitar(inv,false)}>Solo mandar liga de invitación</button><button style={btn(false)} onClick={()=>setInv(null)}>Cancelar</button></div>
+        <div style={{fontSize:11.5,color:B.grey4,marginTop:6}}>Acceso directo: queda activo y te damos su contraseña para mandársela. Liga de invitación: la persona crea su contraseña y acepta términos; luego la activas.</div>
       </div>)}
-      <div style={{overflowX:"auto",marginTop:10}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr><th style={th}>Desarrollador</th><th style={th}>Desarrollos</th><th style={th}>Estado</th><th style={th}>Convenio</th><th style={th}>Ve en su portal</th><th style={th}></th></tr></thead>
-        <tbody>
-          {rows===null&&<tr><td style={td} colSpan={6}>Cargando…</td></tr>}
-          {rows!==null&&!grupos.length&&<tr><td style={{...td,color:B.grey4}} colSpan={6}>Sin desarrolladores{q?" con esa búsqueda":""}.</td></tr>}
-          {grupos.map(g=>{ const c=String(g.correo||"").toLowerCase(), vv=visDe(c), nOn=ACC_SECS.filter(x=>vv[x[0]]).length, op=abierto===c; return (<React.Fragment key={g.correo}><tr style={op?{background:"#fffbeb"}:null}>
-            <td style={td}><b>{g.nombre||g.correo}</b>{g.empresa?<div style={{fontSize:11.5,color:B.grey4}}>{g.empresa}</div>:null}<div style={{fontSize:11.5,color:B.grey3}}>{g.correo}</div></td>
+      {rows===null&&<div style={{padding:12,color:B.grey4}}>Cargando…</div>}
+      {rows!==null&&!devEmp.length&&<div style={{padding:12,color:B.grey4}}>Sin desarrolladores{q?" con esa búsqueda":""}.</div>}
+      {devEmp.map(E=>{ const opE=abiertoEmp===E.k, vE=visEmp(E); return (<div key={E.k} style={{border:"1px solid "+B.grey1,borderRadius:14,marginTop:14,overflow:"hidden"}}>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"12px 14px",background:"#f8fafc",borderBottom:"1px solid "+B.grey1}}>
+          <div style={{width:34,height:34,borderRadius:9,background:B.navy,color:B.gold,display:"grid",placeItems:"center",fontWeight:800,fontSize:13}}>{(E.nombre||"?").slice(0,2).toUpperCase()}</div>
+          <div style={{flex:1,minWidth:180}}><div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:800,color:B.navy}}>{E.nombre}</div>
+            <div style={{fontSize:12,color:B.grey4}}>{E.personas.length} persona{E.personas.length===1?"":"s"} · {E.activos} activa{E.activos===1?"":"s"} · desarrollos: {E.desarrollos.join(", ")||"—"}</div></div>
+          <button style={btn(opE?true:false)} onClick={()=>setAbiertoEmp(opE?"":E.k)}>👁 Qué ve {E.nombre} · {vE.n} de {ACC_SECS.length}{vE.mixto?" (varía)":""}</button>
+          <button style={btn("gold")} onClick={()=>setInv({correo:"",nombre:"",empresa:E.nombre==="Sin desarrollador"?"":E.nombre,ids:[],bq:E.nombre==="Sin desarrollador"?"":E.nombre})}>＋ Agregar persona</button>
+        </div>
+        {opE&&(<div style={{padding:"12px 14px",background:"#fffbeb",borderBottom:"1px solid #fde68a"}}>
+          <div style={{fontWeight:800,color:B.navy,fontSize:14}}>Qué ve todo {E.nombre} en Intelligence</div>
+          <div style={{fontSize:11.5,color:B.grey4,marginBottom:8}}>Aplica a sus {E.personas.length} persona{E.personas.length===1?"":"s"}. Lo apagado no le aparece y la base no se lo entrega. Abajo puedes afinar por persona.</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:8}}>
+            {ACC_SECS.map(([k,l,d])=>{ const st=vE.sec[k]; return (<div key={k} style={{display:"flex",gap:10,alignItems:"flex-start",background:"#fff",border:"1px solid "+B.grey1,borderRadius:10,padding:"9px 10px"}}>
+              <AccSwitch on={st==="si"} disabled={!!visErr||busy==="visE-"+E.k+k} onClick={()=>toggleVisEmp(E,k,st!=="si")}/>
+              <div><div style={{fontWeight:700,fontSize:12.8,color:B.navy}}>{l}{st==="mixto"?<span style={{fontSize:10.5,color:B.goldD,marginLeft:6}}>varía por persona</span>:null}</div><div style={{fontSize:11,color:B.grey4,lineHeight:1.35}}>{d}</div></div></div>); })}
+          </div>
+          <div style={{fontSize:11,color:B.grey4,marginTop:8}}>FODA y Radar pueden mencionar otros desarrollos de la zona; revísalos antes de prenderlos.</div>
+        </div>)}
+        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr><th style={th}>Persona</th><th style={th}>Desarrollos</th><th style={th}>Estado</th><th style={th}>Ve</th><th style={th}></th></tr></thead>
+          <tbody>{E.personas.map(g=>{ const c=String(g.correo||"").toLowerCase(), vv=visDe(c), nOn=ACC_SECS.filter(x=>vv[x[0]]).length, op=abierto===c; return (<React.Fragment key={g.correo}><tr style={op?{background:"#fffbeb"}:null}>
+            <td style={td}><b>{g.nombre||g.correo}</b><div style={{fontSize:11.5,color:B.grey3}}>{g.correo}</div></td>
             <td style={td}>{g.filas.map(r=><span key={r.id} style={{display:"inline-block",fontSize:11,background:"#f1f5f9",borderRadius:6,padding:"1px 6px",margin:"1px 3px 1px 0",color:r.estado==="activo"?B.navy:B.grey3}}>{r.desarrollo}{r.estado!=="activo"?" ("+r.estado+")":""}</span>)}</td>
-            <td style={td}><AccTag c={EST[g.est][0]}>{EST[g.est][1]}</AccTag></td>
-            <td style={td}>{g.conv?"✓ Firmado":<span style={{color:B.grey3}}>—</span>}</td>
-            <td style={td}><button style={btn(false)} onClick={()=>setAbierto(op?"":c)}>{nOn} de {ACC_SECS.length} · {op?"cerrar":"editar"}</button></td>
+            <td style={td}><AccTag c={EST[g.est][0]}>{EST[g.est][1]}</AccTag>{g.conv?null:<div style={{fontSize:11,color:B.grey3,marginTop:3}}>sin convenio</div>}</td>
+            <td style={td}><button style={btn(false)} onClick={()=>setAbierto(op?"":c)}>{nOn} de {ACC_SECS.length}</button></td>
             <td style={{...td,whiteSpace:"nowrap"}}>
-              {g.est!=="activo"&&g.est!=="invitado"&&<button disabled={busy===g.correo} style={btn(true)} onClick={()=>setEstado(g,"activo")} title={g.conv?"":"Marca el convenio como firmado y activa"}>Activar</button>}
+              {g.est!=="activo"&&g.est!=="invitado"&&<button disabled={busy===g.correo} style={btn(true)} onClick={()=>setEstado(g,"activo")}>Activar</button>}
               {g.est==="activo"&&<button disabled={busy===g.correo} style={btn(false)} onClick={()=>setEstado(g,"suspendido")}>Suspender</button>}
-              {(g.est==="invitado"||g.est==="por_autorizar")&&<button disabled={busy===g.correo} style={{...btn("gold"),marginLeft:6}} onClick={()=>reinvitar(g)}>Reenviar invitación</button>}
+              <button disabled={busy==="dir-"+c} style={{...btn("gold"),marginLeft:6}} onClick={()=>accesoDirecto(g)} title="Crea o restablece su contraseña y lo deja activo">🔑 {g.est==="activo"?"Nueva contraseña":"Dar acceso"}</button>
+              {g.est==="activo"&&<button disabled={busy==="ver-"+c} style={{...btn(false),marginLeft:6}} onClick={()=>verComo(g)} title="Abre Intelligence como esta persona (úsalo en ventana de incógnito)">👁 Ver como</button>}
+              {(g.est==="invitado"||g.est==="por_autorizar")&&<button disabled={busy===g.correo} style={{...btn(false),marginLeft:6}} onClick={()=>reinvitar(g)}>Reenviar liga</button>}
+              <button disabled={busy==="del-"+c} style={{...btn(false),marginLeft:6,color:B.red}} onClick={()=>eliminarDev(g)} title="Quita sus accesos a todos sus desarrollos">Quitar</button>
             </td></tr>
-            {op&&(<tr><td colSpan={6} style={{padding:"0 10px 12px"}}><div style={{border:"1px solid #fde68a",background:"#fffbeb",borderRadius:14,padding:"14px 16px"}}>
-              <div style={{fontWeight:800,color:B.navy,fontSize:14.5}}>Qué puede ver {g.nombre||g.correo} en Intelligence</div>
-              <div style={{fontSize:11.5,color:B.grey4,marginBottom:8}}>Aplica a sus {g.filas.length} desarrollo{g.filas.length===1?"":"s"}. Lo apagado no le aparece en su portal y la base no se lo entrega.</div>
-              {visErr&&<div style={{color:B.red,fontSize:12.5,marginBottom:8}}>{visErr}</div>}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:8}}>
-                {ACC_SECS.map(([k,l,d])=>(<div key={k} style={{display:"flex",gap:10,alignItems:"flex-start",background:"#fff",border:"1px solid "+B.grey1,borderRadius:10,padding:"9px 10px"}}>
-                  <AccSwitch on={!!vv[k]} disabled={!!visErr||busy==="vis-"+c+k} onClick={()=>toggleVis(g,k)}/>
-                  <div><div style={{fontWeight:700,fontSize:12.8,color:B.navy}}>{l}</div><div style={{fontSize:11,color:B.grey4,lineHeight:1.35}}>{d}</div></div></div>))}
-              </div>
-              <div style={{fontSize:11,color:B.grey4,marginTop:8}}>FODA y Radar pueden mencionar otros desarrollos de la zona; revísalos antes de prenderlos.</div>
-            </div></td></tr>)}
-            </React.Fragment>); })}
-        </tbody></table></div>
-      {invsPend.length>0&&(<div style={{marginTop:12}}><div style={{fontSize:11.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:1}}>Invitaciones vigentes sin usar ({invsPend.length})</div>
+            {op&&(<tr><td colSpan={5} style={{padding:"0 10px 12px"}}><div style={{border:"1px solid #fde68a",background:"#fffbeb",borderRadius:12,padding:"12px 14px"}}>
+              <div style={{fontWeight:800,color:B.navy,fontSize:13.5,marginBottom:8}}>Solo para {g.nombre||g.correo}</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:8}}>
+                {ACC_SECS.map(([k,l])=>(<div key={k} style={{display:"flex",gap:10,alignItems:"center",background:"#fff",border:"1px solid "+B.grey1,borderRadius:10,padding:"8px 10px"}}>
+                  <AccSwitch on={!!vv[k]} disabled={!!visErr||busy==="vis-"+c+k} onClick={()=>toggleVis(g,k)}/><span style={{fontWeight:700,fontSize:12.5,color:B.navy}}>{l}</span></div>))}
+              </div></div></td></tr>)}
+          </React.Fragment>); })}</tbody></table></div>
+      </div>); })}
+      {invsPend.length>0&&(<div style={{marginTop:14}}><div style={{fontSize:11.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:1}}>Ligas de invitación vigentes sin usar ({invsPend.length})</div>
         {invsPend.map(i=>(<div key={i.id} style={{display:"flex",gap:10,alignItems:"center",fontSize:12.5,padding:"6px 0",borderBottom:"1px dashed "+B.grey1}}><span style={{flex:1}}>{i.correo}{i.expira_en?<span style={{color:B.grey3}}> · vence {ACC_FECHA(i.expira_en)}</span>:null}</span><button disabled={busy===i.id} style={btn(false)} onClick={()=>revocarInv(i)}>Revocar</button></div>))}</div>)}
-      <div style={{fontSize:11.5,color:B.grey4,marginTop:10}}>“Activar” marca el convenio como firmado si aún no lo está (la base lo exige para activar). Contraseña directa, teléfono, bitácora de entradas y eliminar: en “Gestión completa”.</div>
+      <div style={{fontSize:11.5,color:B.grey4,marginTop:10}}>“Activar” marca el convenio si falta (la base lo exige). “Ver como” solo funciona para el owner; ábrelo en incógnito para no cerrar tu sesión.</div>
     </div>)}
 
     {sub==="asesores"&&(<div style={card}>
