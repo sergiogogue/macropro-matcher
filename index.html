@@ -5182,6 +5182,39 @@ async function accLlamarLanding(fn,payload){ const s=await window.sb.auth.getSes
   const r=await fetch(LANDING_URL+"/.netlify/functions/"+fn,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:tok,...payload})});
   const o=await r.json().catch(()=>({})); if(!r.ok||o.ok===false) throw new Error(o.error||("Error "+r.status)); return o; }
 function AccTag({c,children}){ const M={ok:["#dcfce7","#15803d"],wa:["#fef3c7","#b45309"],ba:["#fee2e2","#b91c1c"],gr:["#f1f5f9","#475569"]}; const m=M[c]||M.gr; return <span style={{display:"inline-block",fontSize:11,fontWeight:800,borderRadius:999,padding:"2px 8px",background:m[0],color:m[1],whiteSpace:"nowrap"}}>{children}</span>; }
+// 📨 MANDAR LIGA + CARTA a una persona de un desarrollador (Dirección 2026-11-21): liga de Intelligence y una
+// carta corta y sencilla de cómo funciona ahora su acceso y que seguiremos mejorando. Se arma con SUS datos
+// (sus desarrollos activos y las secciones que tiene prendidas) y se puede editar antes de mandarla.
+function accCartaTexto(g, vv){
+  const n1=String(g.nombre||"").trim().split(/\s+/)[0]||"";
+  const des=(g.filas||[]).filter(r=>r.estado==="activo").map(r=>r.desarrollo).filter(Boolean);
+  // Explicación SENCILLA para el desarrollador (sin términos internos como HubSpot o absorción).
+  const SIMPLE={ metas:"Metas y ventas: cómo vas contra la meta de cada mes", inventario:"Inventario: lotes disponibles, vendidos y qué tan rápido se venden",
+    interesados:"Interesados y propuestas: cuántos hay (sin datos personales de los clientes)", capdo:"Plan comercial: las acciones que estamos haciendo para vender tu desarrollo",
+    foda:"FODA: fortalezas, oportunidades, debilidades y amenazas de tu desarrollo", radar:"Radar competitivo: los terrenos de la competencia cerca de tu desarrollo",
+    presentacion:"Presentación: la presentación de tu desarrollo, lista para compartir" };
+  const secs=ACC_SECS.filter(x=>vv&&vv[x[0]]).map(x=>"• "+(SIMPLE[x[0]]||(x[1]+": "+String(x[2]).replace(/^./,m=>m.toLowerCase()))));
+  return "Hola"+(n1?" "+n1:"")+" 👋\n\n"
+    +"Te compartimos de nuevo tu acceso a *Intelligence* de Grupo Guía · Macrolotes, con los cambios que hicimos para que te sea más fácil:\n\n"
+    +"✅ Entras con *tu propio correo* ("+g.correo+") y ves *solo tus desarrollos*"+(des.length?": "+des.join(", ")+".":".")+"\n"
+    +(secs.length?"✅ Lo que puedes consultar:\n"+secs.join("\n")+"\n":"")
+    +"\n👉 Entra aquí: "+LANDING_URL+"/intelligence.html\n"
+    +"Si no recuerdas tu contraseña, contéstanos este mensaje y te mandamos una nueva.\n\n"
+    +"Seguiremos agregando mejoras y te avisaremos cuando haya algo nuevo. Cualquier duda o sugerencia, aquí estamos.\n\n"
+    +"— Equipo Macrolotes de Grupo Guía";
+}
+function AccCarta({ g, vv, onCerrar, onToast }){
+  const [txt,setTxt]=useState(()=>accCartaTexto(g,vv));
+  const url=LANDING_URL+"/intelligence.html";
+  return (<div data-acc-carta={g.correo} style={{border:"1.5px solid "+B.navy,background:"#f8fafc",borderRadius:12,padding:"12px 14px"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+      <div style={{fontWeight:800,color:B.navy,fontSize:13.5}}>📨 Mandar liga y carta a {g.nombre||g.correo}</div>
+      <button onClick={onCerrar} style={{border:"1px solid "+B.grey2,background:"#fff",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cerrar</button></div>
+    <div style={{fontSize:11.5,color:B.grey4,margin:"4px 0 8px"}}>Se armó con sus desarrollos y lo que tiene prendido. Puedes cambiar el texto antes de mandarlo. La liga no vence: entra con su correo y contraseña.</div>
+    <textarea data-acc-carta-texto value={txt} onChange={e=>setTxt(e.target.value)} style={{width:"100%",minHeight:340,boxSizing:"border-box",border:"1px solid "+B.grey2,borderRadius:10,padding:"10px 12px",fontSize:13,lineHeight:1.5,fontFamily:"'DM Sans',sans-serif",resize:"vertical"}}/>
+    <div style={{marginTop:8}}><ShareButtons url={url} mensaje={txt} asunto="Tu acceso a Intelligence · Grupo Guía Macrolotes" email={g.correo} onToast={onToast}/></div>
+    <div style={{fontSize:11,color:B.grey4,marginTop:6}}>WhatsApp: elige su contacto · Copiar liga: copia solo la liga · Correo: se abre tu correo con la carta y su dirección.</div>
+  </div>); }
 function AccLiga({titulo,url,mensaje,onCerrar}){
   const [cop,setCop]=useState(false);
   return (<div style={{margin:"10px 0 14px",padding:"12px 14px",border:"1px solid #fcd34d",background:"#fffbeb",borderRadius:12}}>
@@ -5207,6 +5240,7 @@ function ViewAccesos({ onToast }){
   const [busy,setBusy]=useState(""), [q,setQ]=useState("");
   const [inv,setInv]=useState(null);                // formulario de invitación abierto
   const [ligaDev,setLigaDev]=useState(null), [ligaDue,setLigaDue]=useState(null), [genDue,setGenDue]=useState(null);
+  const [cartaDe,setCartaDe]=useState("");          // correo de la persona con "📨 Mandar liga" abierto
   const cambiaSub=(v)=>{ setSub(v); try{ localStorage.setItem("mp_accesos_sub",v); }catch(e){} };
   const cargarDevs=async()=>{ const sbc=window.sb; if(!sbc) return; setErrD("");
     try{ const [a,b,c]=await Promise.all([sbc.rpc("landing_desarrolladores_admin"),sbc.rpc("landing_desarrollos_cat"),sbc.rpc("landing_invitaciones_admin")]);
@@ -5422,10 +5456,12 @@ function ViewAccesos({ onToast }){
               {g.est!=="activo"&&g.est!=="invitado"&&<button disabled={busy===g.correo} style={btn(true)} onClick={()=>setEstado(g,"activo")}>Activar</button>}
               {g.est==="activo"&&<button disabled={busy===g.correo} style={btn(false)} onClick={()=>setEstado(g,"suspendido")}>Suspender</button>}
               <button disabled={busy==="dir-"+c} style={{...btn("gold"),marginLeft:6}} onClick={()=>accesoDirecto(g)} title="Crea o restablece su contraseña y lo deja activo">🔑 {g.est==="activo"?"Nueva contraseña":"Dar acceso"}</button>
+              {g.est==="activo"&&<button data-acc-mandar={c} style={{...btn(cartaDe===c?true:false),marginLeft:6}} onClick={()=>setCartaDe(cartaDe===c?"":c)} title="Liga de Intelligence + carta sencilla de cómo funciona ahora">📨 Mandar liga</button>}
               {g.est==="activo"&&<button disabled={busy==="ver-"+c} style={{...btn(false),marginLeft:6}} onClick={()=>verComo(g)} title="Abre Intelligence como esta persona (úsalo en ventana de incógnito)">👁 Ver como</button>}
               {(g.est==="invitado"||g.est==="por_autorizar")&&<button disabled={busy===g.correo} style={{...btn(false),marginLeft:6}} onClick={()=>reinvitar(g)}>Reenviar liga</button>}
               <button disabled={busy==="del-"+c} style={{...btn(false),marginLeft:6,color:B.red}} onClick={()=>eliminarDev(g)} title="Quita sus accesos a todos sus desarrollos">Quitar</button>
             </td></tr>
+            {cartaDe===c&&(<tr><td colSpan={5} style={{padding:"0 10px 12px"}}><AccCarta key={c} g={g} vv={vv} onCerrar={()=>setCartaDe("")} onToast={toast}/></td></tr>)}
             {op&&(<tr><td colSpan={5} style={{padding:"0 10px 12px"}}><div style={{border:"1px solid #fde68a",background:"#fffbeb",borderRadius:12,padding:"12px 14px"}}>
               <div style={{fontWeight:800,color:B.navy,fontSize:13.5,marginBottom:8}}>Solo para {g.nombre||g.correo}</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:8}}>
