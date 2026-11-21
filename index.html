@@ -5177,6 +5177,18 @@ function accToken(){ const r=new Uint8Array(32); crypto.getRandomValues(r); retu
 // Fase 2 · qué ve cada desarrollador en su portal de Intelligence (la base lo impone con intel_dev_*).
 const ACC_SECS=[["metas","Metas y ventas","Resultado contra meta por mes"],["inventario","Inventario","Disponibles, colocados y absorción"],["interesados","Interesados y propuestas","Conteos de HubSpot, sin datos de clientes"],["capdo","Plan CAP-DO","Solo acciones marcadas “Visible para el desarrollador” en el Motor"],["foda","FODA","El último FODA guardado del desarrollo"],["radar","Radar competitivo","Competencia de suelo a 5 km (mercado)"],["presentacion","Presentación","Botón a la presentación del desarrollo"]];
 const ACC_VIS_DEF={metas:true,inventario:true,interesados:true,capdo:false,foda:false,radar:false,presentacion:false};
+// 📊 USO DE ACCESOS de desarrolladores (Dirección 2026-11-21): lo registra Intelligence en dev_accesos
+// (supabase/dev_accesos_2026-11-21.sql). Aquí: entradas en 30 días, última vez, actividad por semana e historial.
+const ACC_DIA=864e5;
+const accFechaCorta=(iso)=>{ try{ const d=new Date(iso), hoy=new Date(); const h=d.toLocaleTimeString("es-MX",{hour:"numeric",minute:"2-digit"});
+  if(d.toDateString()===hoy.toDateString()) return "Hoy "+h; const ay=new Date(hoy.getTime()-ACC_DIA); if(d.toDateString()===ay.toDateString()) return "Ayer "+h;
+  return d.toLocaleDateString("es-MX",{day:"numeric",month:"short"})+" · "+h; }catch(e){ return ""; } };
+const accQueHizo=(e)=>e.accion==="entro"?"Entró al portal":(e.accion==="descargo"?("⬇️ Descargó "+(e.detalle||"")).trim():("Vio "+(e.detalle==="Resumen"?"el resumen":(e.detalle||"su desarrollo"))));
+function accUsoDe(evs){ const ahora=Date.now(), L=evs||[], d30=L.filter(e=>ahora-new Date(e.creado_at).getTime()<=30*ACC_DIA);
+  const entradas=d30.filter(e=>e.accion==="entro").length, dias=new Set(d30.map(e=>new Date(e.creado_at).toDateString())).size;
+  const sem=[...Array(8)].map((_,i)=>L.filter(e=>{ const t=ahora-new Date(e.creado_at).getTime(); return e.accion==="entro"&&t>=i*7*ACC_DIA&&t<(i+1)*7*ACC_DIA; }).length).reverse();
+  const ult=L[0]||null, ultVio=L.find(e=>e.accion!=="entro")||null;
+  return { entradas, dias, sem, ult, ultVio, total:L.length }; }
 function AccSwitch({on,onClick,disabled}){ return <button onClick={onClick} disabled={disabled} aria-pressed={!!on} style={{width:36,height:20,borderRadius:999,border:"none",background:on?"#16a34a":"#cbd5e1",position:"relative",cursor:disabled?"wait":"pointer",flex:"none",padding:0}}><span style={{position:"absolute",top:2,left:on?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 2px rgba(0,0,0,.25)",transition:"left .15s"}}/></button>; }
 async function accLlamarLanding(fn,payload){ const s=await window.sb.auth.getSession(); const tok=s&&s.data&&s.data.session&&s.data.session.access_token; if(!tok) throw new Error("Tu sesión expiró. Vuelve a entrar.");
   const r=await fetch(LANDING_URL+"/.netlify/functions/"+fn,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:tok,...payload})});
@@ -5241,8 +5253,18 @@ function ViewAccesos({ onToast }){
   const [inv,setInv]=useState(null);                // formulario de invitación abierto
   const [ligaDev,setLigaDev]=useState(null), [ligaDue,setLigaDue]=useState(null), [genDue,setGenDue]=useState(null);
   const [cartaDe,setCartaDe]=useState("");          // correo de la persona con "📨 Mandar liga" abierto
+  const [usoEv,setUsoEv]=useState(null), [usoErr,setUsoErr]=useState(""), [histDe,setHistDe]=useState(""), [histN,setHistN]=useState(30);   // 📊 uso de accesos
   const cambiaSub=(v)=>{ setSub(v); try{ localStorage.setItem("mp_accesos_sub",v); }catch(e){} };
-  const cargarDevs=async()=>{ const sbc=window.sb; if(!sbc) return; setErrD("");
+  const cargarUso=async()=>{ const sbc=window.sb; if(!sbc) return;
+    try{ const r=await sbc.from("dev_accesos").select("correo,accion,desarrollo,detalle,creado_at").gte("creado_at",new Date(Date.now()-120*864e5).toISOString()).order("creado_at",{ascending:false}).limit(20000); if(r.error) throw r.error;
+      const m={}; (r.data||[]).forEach(e=>{ const k=String(e.correo||"").toLowerCase(); (m[k]=m[k]||[]).push(e); }); setUsoEv(m); setUsoErr(""); }
+    catch(e){ const msg=String((e&&e.message)||e); setUsoEv({}); setUsoErr(/dev_accesos|does not exist|schema cache/i.test(msg)?"Para ver el uso falta correr supabase/dev_accesos_2026-11-21.sql en Supabase.":("No se pudo leer el uso: "+msg)); } };
+  const exportarUso=async()=>{ if(!(await mpLib("xlsx"))){ toast("No se pudo cargar Excel."); return; }
+    const filas=[], nom={}; (rows||[]).forEach(r=>{ nom[String(r.correo||"").toLowerCase()]={nombre:r.nombre||"",empresa:r.empresa||""}; });
+    Object.entries(usoEv||{}).forEach(([c,L])=>L.forEach(e=>filas.push({Fecha:new Date(e.creado_at).toLocaleString("es-MX"),Persona:(nom[c]&&nom[c].nombre)||"",Correo:c,Desarrollador:(nom[c]&&nom[c].empresa)||"",Desarrollo:e.desarrollo||"",Qué:accQueHizo(e)})));
+    if(!filas.length){ toast("Todavía no hay entradas registradas."); return; }
+    const ws=XLSX.utils.json_to_sheet(filas), wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Uso de accesos"); XLSX.writeFile(wb,"Uso-accesos-desarrolladores-"+new Date().toISOString().slice(0,10)+".xlsx"); };
+  const cargarDevs=async()=>{ const sbc=window.sb; if(!sbc) return; setErrD(""); cargarUso();
     try{ const [a,b,c]=await Promise.all([sbc.rpc("landing_desarrolladores_admin"),sbc.rpc("landing_desarrollos_cat"),sbc.rpc("landing_invitaciones_admin")]);
       if(a.error) throw a.error; setRows(a.data||[]); setCat((b&&!b.error&&b.data)||[]); setInvs((c&&!c.error&&c.data)||[]); }
     catch(e){ setRows([]); setErrD(String((e&&e.message)||e)); }
@@ -5425,13 +5447,17 @@ function ViewAccesos({ onToast }){
         <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}><button disabled={busy==="invitar"} style={btn(true)} onClick={()=>invitar(inv,true)}>{busy==="invitar"?"Creando…":"Dar acceso directo (correo + contraseña)"}</button><button disabled={busy==="invitar"} style={btn(false)} onClick={()=>invitar(inv,false)}>Solo mandar liga de invitación</button><button style={btn(false)} onClick={()=>setInv(null)}>Cancelar</button></div>
         <div style={{fontSize:11.5,color:B.grey4,marginTop:6}}>Acceso directo: queda activo y te damos su contraseña para mandársela. Liga de invitación: la persona crea su contraseña y acepta términos; luego la activas.</div>
       </div>)}
+      {usoErr&&<div style={{margin:"10px 0",padding:"9px 12px",border:"1px solid #fcd34d",background:"#fffbeb",borderRadius:10,fontSize:12.5,color:"#92400e"}}>📊 {usoErr}</div>}
+      {rows!==null&&devEmp.length>0&&!usoErr&&<div style={{display:"flex",justifyContent:"flex-end",marginTop:10}}><button data-acc-exportar style={btn(false)} onClick={exportarUso}>⬇️ Exportar uso (Excel)</button></div>}
       {rows===null&&<div style={{padding:12,color:B.grey4}}>Cargando…</div>}
       {rows!==null&&!devEmp.length&&<div style={{padding:12,color:B.grey4}}>Sin desarrolladores{q?" con esa búsqueda":""}.</div>}
       {devEmp.map(E=>{ const opE=abiertoEmp===E.k, vE=visEmp(E); return (<div key={E.k} style={{border:"1px solid "+B.grey1,borderRadius:14,marginTop:14,overflow:"hidden"}}>
         <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"12px 14px",background:"#f8fafc",borderBottom:"1px solid "+B.grey1}}>
           <div style={{width:34,height:34,borderRadius:9,background:B.navy,color:B.gold,display:"grid",placeItems:"center",fontWeight:800,fontSize:13}}>{(E.nombre||"?").slice(0,2).toUpperCase()}</div>
           <div style={{flex:1,minWidth:180}}><div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:800,color:B.navy}}>{E.nombre}</div>
-            <div style={{fontSize:12,color:B.grey4}}>{E.personas.length} persona{E.personas.length===1?"":"s"} · {E.activos} activa{E.activos===1?"":"s"} · desarrollos: {E.desarrollos.join(", ")||"—"}</div></div>
+            <div style={{fontSize:12,color:B.grey4}}>{E.personas.length} persona{E.personas.length===1?"":"s"} · {E.activos} activa{E.activos===1?"":"s"} · desarrollos: {E.desarrollos.join(", ")||"—"}</div>
+            {usoEv&&!usoErr&&(()=>{ const U=E.personas.map(g=>accUsoDe(usoEv[String(g.correo||"").toLowerCase()])); const ent=U.reduce((a,u)=>a+u.entradas,0), quien=U.filter(u=>u.entradas>0).length;
+              return <div data-acc-uso-emp={E.k} style={{fontSize:12,color:B.navy,marginTop:2}}>📊 Últimos 30 días: <b>{ent} entrada{ent===1?"":"s"}</b> · {quien} de {E.personas.length} entraron</div>; })()}</div>
           <button style={btn(opE?true:false)} onClick={()=>setAbiertoEmp(opE?"":E.k)}>👁 Qué ve {E.nombre} · {vE.n} de {ACC_SECS.length}{vE.mixto?" (varía)":""}</button>
           <button style={btn("gold")} onClick={()=>setInv({correo:"",nombre:"",empresa:E.nombre==="Sin desarrollador"?"":E.nombre,ids:[],bq:E.nombre==="Sin desarrollador"?"":E.nombre})}>＋ Agregar persona</button>
         </div>
@@ -5446,12 +5472,20 @@ function ViewAccesos({ onToast }){
           <div style={{fontSize:11,color:B.grey4,marginTop:8}}>FODA y Radar pueden mencionar otros desarrollos de la zona; revísalos antes de prenderlos.</div>
         </div>)}
         <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr><th style={th}>Persona</th><th style={th}>Desarrollos</th><th style={th}>Estado</th><th style={th}>Ve</th><th style={th}></th></tr></thead>
+          <thead><tr><th style={th}>Persona</th><th style={th}>Desarrollos</th><th style={th}>Estado</th><th style={th}>Ve</th><th style={th}>Entradas (30 días)</th><th style={th}>Última vez</th><th style={th}></th></tr></thead>
           <tbody>{E.personas.map(g=>{ const c=String(g.correo||"").toLowerCase(), vv=visDe(c), nOn=ACC_SECS.filter(x=>vv[x[0]]).length, op=abierto===c; return (<React.Fragment key={g.correo}><tr style={op?{background:"#fffbeb"}:null}>
             <td style={td}><b>{g.nombre||g.correo}</b><div style={{fontSize:11.5,color:B.grey3}}>{g.correo}</div></td>
             <td style={td}>{g.filas.map(r=><span key={r.id} style={{display:"inline-block",fontSize:11,background:"#f1f5f9",borderRadius:6,padding:"1px 6px",margin:"1px 3px 1px 0",color:r.estado==="activo"?B.navy:B.grey3}}>{r.desarrollo}{r.estado!=="activo"?" ("+r.estado+")":""}</span>)}</td>
             <td style={td}><AccTag c={EST[g.est][0]}>{EST[g.est][1]}</AccTag>{g.conv?null:<div style={{fontSize:11,color:B.grey3,marginTop:3}}>sin convenio</div>}</td>
             <td style={td}><button style={btn(false)} onClick={()=>setAbierto(op?"":c)}>{nOn} de {ACC_SECS.length}</button></td>
+            {(()=>{ const U=accUsoDe((usoEv||{})[c]), ab=histDe===c; if(usoEv===null) return <><td style={td}>…</td><td style={td}>…</td></>;
+              if(usoErr) return <><td style={{...td,color:B.grey3}}>—</td><td style={{...td,color:B.grey3}}>—</td></>;
+              const maxS=Math.max(1,...U.sem);
+              return <><td style={{...td,minWidth:110}} data-acc-entradas={c}>{U.entradas>0?<><b style={{fontSize:18,color:B.navy}}>{U.entradas}</b><div style={{fontSize:11,color:B.grey4}}>{U.dias} día{U.dias===1?"":"s"} distinto{U.dias===1?"":"s"}</div>
+                  <div title="Entradas por semana (últimas 8)" style={{display:"flex",gap:2,alignItems:"flex-end",height:18,marginTop:3}}>{U.sem.map((n,i)=><span key={i} style={{width:6,height:Math.max(2,n/maxS*18),background:n?B.navy:B.grey1,borderRadius:1}}/>)}</div></>
+                  :(g.est==="activo"?<><b style={{fontSize:18,color:B.red}}>0</b><div style={{fontSize:11,color:B.red,fontWeight:800}}>⚠ no ha entrado</div></>:<span style={{color:B.grey3}}>0</span>)}</td>
+                <td style={{...td,minWidth:170,cursor:U.total?"pointer":"default"}} data-acc-ultima={c} onClick={()=>{ if(U.total){ setHistDe(ab?"":c); setHistN(30); } }} title={U.total?"Clic para ver su historial":""}>
+                  {U.ult?<><b style={{color:B.navy,textDecoration:"underline dotted",whiteSpace:"nowrap"}}>{accFechaCorta(U.ult.creado_at)}</b><div style={{fontSize:11,color:B.grey4}}>{U.ultVio?[U.ultVio.desarrollo,U.ultVio.accion==="descargo"?("descargó "+(U.ultVio.detalle||"")):((U.ultVio.detalle&&U.ultVio.detalle!=="Resumen")?U.ultVio.detalle:"")].filter(Boolean).join(" · "):"Entró al portal"}</div><div style={{fontSize:10.5,color:"#1d4ed8",fontWeight:800}}>{ab?"▾ ocultar historial":"▸ ver historial"}</div></>:<span style={{color:B.grey3}}>—</span>}</td></>; })()}
             <td style={{...td,whiteSpace:"nowrap"}}>
               {g.est!=="activo"&&g.est!=="invitado"&&<button disabled={busy===g.correo} style={btn(true)} onClick={()=>setEstado(g,"activo")}>Activar</button>}
               {g.est==="activo"&&<button disabled={busy===g.correo} style={btn(false)} onClick={()=>setEstado(g,"suspendido")}>Suspender</button>}
@@ -5461,8 +5495,17 @@ function ViewAccesos({ onToast }){
               {(g.est==="invitado"||g.est==="por_autorizar")&&<button disabled={busy===g.correo} style={{...btn(false),marginLeft:6}} onClick={()=>reinvitar(g)}>Reenviar liga</button>}
               <button disabled={busy==="del-"+c} style={{...btn(false),marginLeft:6,color:B.red}} onClick={()=>eliminarDev(g)} title="Quita sus accesos a todos sus desarrollos">Quitar</button>
             </td></tr>
-            {cartaDe===c&&(<tr><td colSpan={5} style={{padding:"0 10px 12px"}}><AccCarta key={c} g={g} vv={vv} onCerrar={()=>setCartaDe("")} onToast={toast}/></td></tr>)}
-            {op&&(<tr><td colSpan={5} style={{padding:"0 10px 12px"}}><div style={{border:"1px solid #fde68a",background:"#fffbeb",borderRadius:12,padding:"12px 14px"}}>
+            {histDe===c&&(<tr><td colSpan={7} style={{padding:"0 10px 12px"}}>{(()=>{ const L=(usoEv||{})[c]||[]; return (<div data-acc-historial={c} style={{border:"1px solid "+B.grey1,background:"#f8fafc",borderRadius:12,padding:"12px 14px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}><div style={{fontWeight:800,color:B.navy,fontSize:13.5}}>📋 Historial de {g.nombre||g.correo} · {L.length} registro{L.length===1?"":"s"} (últimos 120 días)</div>
+                <button onClick={()=>setHistDe("")} style={{border:"1px solid "+B.grey2,background:"#fff",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cerrar</button></div>
+              <div style={{display:"grid",gridTemplateColumns:"170px 160px 1fr",gap:"0 12px",marginTop:8,fontSize:12.5}}>
+                {["Fecha y hora","Desarrollo","Qué vio / hizo"].map(h=><div key={h} style={{fontSize:10.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:0.6,padding:"4px 0",borderBottom:"1px solid "+B.grey1}}>{h}</div>)}
+                {L.slice(0,histN).map((e,i)=><React.Fragment key={i}><div style={{padding:"5px 0",borderBottom:"1px dashed "+B.grey1}}>{new Date(e.creado_at).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"})}</div><div style={{padding:"5px 0",borderBottom:"1px dashed "+B.grey1}}>{e.desarrollo||"—"}</div><div style={{padding:"5px 0",borderBottom:"1px dashed "+B.grey1}}>{accQueHizo(e)}</div></React.Fragment>)}
+              </div>
+              {L.length>histN&&<button onClick={()=>setHistN(n=>n+50)} style={{marginTop:8,border:"1.5px solid "+B.grey2,background:"#fff",borderRadius:8,padding:"5px 11px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>Ver más</button>}
+            </div>); })()}</td></tr>)}
+            {cartaDe===c&&(<tr><td colSpan={7} style={{padding:"0 10px 12px"}}><AccCarta key={c} g={g} vv={vv} onCerrar={()=>setCartaDe("")} onToast={toast}/></td></tr>)}
+            {op&&(<tr><td colSpan={7} style={{padding:"0 10px 12px"}}><div style={{border:"1px solid #fde68a",background:"#fffbeb",borderRadius:12,padding:"12px 14px"}}>
               <div style={{fontWeight:800,color:B.navy,fontSize:13.5,marginBottom:8}}>Solo para {g.nombre||g.correo}</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:8}}>
                 {ACC_SECS.map(([k,l])=>(<div key={k} style={{display:"flex",gap:10,alignItems:"center",background:"#fff",border:"1px solid "+B.grey1,borderRadius:10,padding:"8px 10px"}}>
