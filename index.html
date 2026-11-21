@@ -5199,6 +5199,7 @@ function ViewAccesos({ onToast }){
   const [sub,setSub]=useState(()=>{ try{ return localStorage.getItem("mp_accesos_sub")||"devs"; }catch(e){ return "devs"; } });
   const [rows,setRows]=useState(null), [cat,setCat]=useState([]), [invs,setInvs]=useState([]);
   const [vis,setVis]=useState({}), [visErr,setVisErr]=useState(""), [abierto,setAbierto]=useState("");
+  const [acuerdos,setAcuerdos]=useState(null), [aseAcc,setAseAcc]=useState([]), [errA,setErrA]=useState(""), [ligaAse,setLigaAse]=useState(null), [genAse,setGenAse]=useState(null);
   const [lotes,setLotes]=useState(null), [ligas,setLigas]=useState([]), [errD,setErrD]=useState(""), [errL,setErrL]=useState("");
   const [busy,setBusy]=useState(""), [q,setQ]=useState("");
   const [inv,setInv]=useState(null);                // formulario de invitación abierto
@@ -5218,8 +5219,14 @@ function ViewAccesos({ onToast }){
     try{ const p=await sbc.from("propietario_accesos").select("id,desarrollo,propietario,vigente_hasta,revocado,accesos,ultimo_acceso,creado_en").order("creado_en",{ascending:false}).limit(5000);
       if(p.error) throw p.error; setLigas(p.data||[]); }
     catch(e){ setLigas([]); const m=String((e&&e.message)||e); if(/propietario_accesos|does not exist|schema cache/i.test(m)) setErrL("Falta correr supabase/propietario_accesos.sql (landing)."); } };
+  // Fase 3 · asesores opcionadores: sus acuerdos de comisión (acuerdos_lista, equipo) y sus accesos.
+  const cargarAsesores=async()=>{ const sbc=window.sb; if(!sbc) return; setErrA("");
+    try{ const r=await sbc.rpc("acuerdos_lista",{p_captacion_id:null,p_lote_id:null}); if(r.error) throw r.error; setAcuerdos((r.data||[]).filter(a=>a.estado!=="anulado")); }
+    catch(e){ setAcuerdos([]); setErrA("No se pudieron leer los acuerdos: "+String((e&&e.message)||e)); }
+    try{ const a=await sbc.from("asesor_accesos").select("id,modo,asesor_email,asesor_nombre,vigente_hasta,revocado,accesos,ultimo_acceso,creado_en").order("creado_en",{ascending:false}).limit(5000); if(a.error) throw a.error; setAseAcc(a.data||[]); }
+    catch(e){ setAseAcc([]); const m=String((e&&e.message)||e); if(/asesor_accesos|does not exist|schema cache/i.test(m)) setErrA("Falta correr supabase/asesor_accesos.sql (landing)."); } };
   React.useEffect(()=>{ let vivo=true; const sbc=window.sb; if(!sbc){ setEsAdm(false); return; }
-    sbc.rpc("landing_es_admin").then(({data})=>{ if(!vivo) return; const ok=data===true; setEsAdm(ok); if(ok){ cargarDevs(); cargarDuenos(); } },()=>{ if(vivo) setEsAdm(false); });
+    sbc.rpc("landing_es_admin").then(({data})=>{ if(!vivo) return; const ok=data===true; setEsAdm(ok); if(ok){ cargarDevs(); cargarDuenos(); cargarAsesores(); } },()=>{ if(vivo) setEsAdm(false); });
     return ()=>{ vivo=false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -5275,6 +5282,29 @@ function ViewAccesos({ onToast }){
     try{ const {error}=await window.sb.from("propietario_accesos").update({revocado:true}).eq("id",a.id); if(error) throw error; toast("Liga revocada."); cargarDuenos(); }
     catch(e){ toast("No se pudo revocar: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
 
+  // ── Asesores opcionadores agrupados por correo ──
+  const asesores=(()=>{ const m=new Map(); (acuerdos||[]).forEach(a=>{ const k=String(a.asesor_email||"").trim().toLowerCase(); if(!k) return; if(!m.has(k)) m.set(k,{email:k,nombre:a.asesor_nombre||"",celular:a.asesor_celular||"",acuerdos:[]}); const g=m.get(k); g.acuerdos.push(a); if(a.asesor_nombre&&!g.nombre) g.nombre=a.asesor_nombre; if(a.asesor_celular&&!g.celular) g.celular=a.asesor_celular; });
+    return [...m.values()].map(g=>{ const acc=(aseAcc||[]).filter(x=>String(x.asesor_email||"").toLowerCase()===g.email); const vig=(x)=>!x.revocado&&(!x.vigente_hasta||String(x.vigente_hasta)>=hoy);
+      const ligas=acc.filter(x=>x.modo==="liga"&&vig(x)), correo=acc.find(x=>x.modo==="correo"&&!x.revocado)||null, correoRow=acc.find(x=>x.modo==="correo")||null;
+      const ult=acc.map(x=>x.ultimo_acceso).filter(Boolean).sort().pop()||null; const est=g.acuerdos.some(a=>a.estado==="validado")?"validado":(g.acuerdos.some(a=>a.estado==="firmado")?"firmado":"pendiente");
+      return {...g,ligas,correo,correoRow,ult,est,esq:[...new Set(g.acuerdos.map(a=>a.esquema).filter(Boolean))].join(" · ")}; })
+      .filter(g=>{ const nq=ACC_NRM(q); return !nq||ACC_NRM([g.nombre,g.email,g.acuerdos.map(a=>a.terreno_nombre).join(" ")].join(" ")).includes(nq); })
+      .sort((a,b)=>(a.nombre||a.email).localeCompare(b.nombre||b.email,"es")); })();
+  const EST_AC={validado:["ok","Validado"],firmado:["wa","Firmado · por validar"],pendiente:["wa","Pendiente de firma"]};
+  const generarAse=async(g,vig)=>{ setBusy("ase-"+g.email); try{ const tok=accToken(); const h=await accSha256(tok);
+      const {error}=await window.sb.from("asesor_accesos").insert({modo:"liga",token_hash:h,asesor_email:g.email,asesor_nombre:g.nombre||null,vigente_hasta:vig||null,creado_por:"macropro"}); if(error) throw error;
+      setLigaAse({url:LANDING_URL+"/asesor/"+tok,nombre:g.nombre||g.email}); setGenAse(null); toast("✅ Liga personal para "+(g.nombre||g.email)); cargarAsesores(); }
+    catch(e){ const m=String((e&&e.message)||e); toast("No se pudo generar: "+(/asesor_accesos|does not exist/i.test(m)?"falta correr supabase/asesor_accesos.sql.":m)); } finally{ setBusy(""); } };
+  const revocarAse=async(x,g)=>{ if(!window.confirm("¿Revocar la liga de "+(g.nombre||g.email)+"?")) return; setBusy(x.id);
+    try{ const {error}=await window.sb.from("asesor_accesos").update({revocado:true}).eq("id",x.id); if(error) throw error; toast("Liga revocada."); cargarAsesores(); }
+    catch(e){ toast("No se pudo revocar: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
+  const toggleCorreo=async(g)=>{ setBusy("cor-"+g.email);
+    try{ let r; if(g.correo){ r=await window.sb.from("asesor_accesos").update({revocado:true}).eq("id",g.correo.id); }
+      else if(g.correoRow){ r=await window.sb.from("asesor_accesos").update({revocado:false,asesor_nombre:g.nombre||null}).eq("id",g.correoRow.id); }
+      else { r=await window.sb.from("asesor_accesos").insert({modo:"correo",asesor_email:g.email,asesor_nombre:g.nombre||null,creado_por:"macropro"}); }
+      if(r&&r.error) throw r.error; toast((g.nombre||g.email)+": "+(g.correo?"ya no entra con su correo.":"ya puede entrar con su correo en "+LANDING_URL+"/asesor")); cargarAsesores(); }
+    catch(e){ const m=String((e&&e.message)||e); toast("No se pudo: "+(/asesor_accesos|does not exist/i.test(m)?"falta correr supabase/asesor_accesos.sql.":m)); } finally{ setBusy(""); } };
+
   const nDev=grupos.length, nAct=grupos.filter(g=>g.est==="activo").length, nPend=grupos.filter(g=>g.est==="invitado"||g.est==="por_autorizar").length;
   const nLig=terrenos.filter(t=>t.act.length).length;
   const vig6=(()=>{ const d=new Date(); d.setMonth(d.getMonth()+6); return d.toISOString().slice(0,10); })();
@@ -5286,12 +5316,12 @@ function ViewAccesos({ onToast }){
       <span style={{fontSize:12,background:B.blueL,color:B.blue,border:"1px solid #bfdbfe",borderRadius:999,padding:"4px 10px",fontWeight:700}}>🔒 Solo administradores</span>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,margin:"16px 0"}}>
-      {[["Desarrolladores",nDev,nAct+" activos"],["Pendientes de activar",nPend,"invitados o por autorizar"],["Terrenos de corretaje",terrenos.length,nLig+" con liga activa"],["Ligas de dueños",(ligas||[]).filter(a=>!a.revocado&&(!a.vigente_hasta||String(a.vigente_hasta)>=hoy)).length,"activas"]].map(([l,v,sx])=>(
+      {[["Desarrolladores",nDev,nAct+" activos"],["Pendientes de activar",nPend,"invitados o por autorizar"],["Terrenos de corretaje",terrenos.length,nLig+" con liga activa"],["Ligas de dueños",(ligas||[]).filter(a=>!a.revocado&&(!a.vigente_hasta||String(a.vigente_hasta)>=hoy)).length,"activas"],["Asesores opcionadores",asesores.length,asesores.filter(g=>g.ligas.length||g.correo).length+" con acceso"]].map(([l,v,sx])=>(
         <div key={l} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:"12px 14px"}}><div style={{fontSize:10.5,letterSpacing:1.2,textTransform:"uppercase",color:B.grey3,fontWeight:800}}>{l}</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:28,color:B.navy,fontWeight:800,lineHeight:1.15}}>{v}</div><div style={{fontSize:12,color:B.grey4}}>{sx}</div></div>))}
     </div>
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
       <div style={{display:"inline-flex",background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,padding:4,gap:4}}>
-        {[["devs","Desarrolladores",nDev],["duenos","Dueños de terreno",terrenos.length]].map(([v,l,n])=>(
+        {[["devs","Desarrolladores",nDev],["duenos","Dueños de terreno",terrenos.length],["asesores","Asesores opcionadores",asesores.length]].map(([v,l,n])=>(
           <button key={v} onClick={()=>cambiaSub(v)} style={{padding:"8px 14px",borderRadius:9,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:sub===v?B.navy:"transparent",color:sub===v?"#fff":B.grey4}}>{l} <span style={{fontSize:11,opacity:.8}}>({n})</span></button>))}
       </div>
       <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔎 Buscar" style={{padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:9,fontSize:13,minWidth:200}}/>
@@ -5351,6 +5381,34 @@ function ViewAccesos({ onToast }){
       {invsPend.length>0&&(<div style={{marginTop:12}}><div style={{fontSize:11.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:1}}>Invitaciones vigentes sin usar ({invsPend.length})</div>
         {invsPend.map(i=>(<div key={i.id} style={{display:"flex",gap:10,alignItems:"center",fontSize:12.5,padding:"6px 0",borderBottom:"1px dashed "+B.grey1}}><span style={{flex:1}}>{i.correo}{i.expira_en?<span style={{color:B.grey3}}> · vence {ACC_FECHA(i.expira_en)}</span>:null}</span><button disabled={busy===i.id} style={btn(false)} onClick={()=>revocarInv(i)}>Revocar</button></div>))}</div>)}
       <div style={{fontSize:11.5,color:B.grey4,marginTop:10}}>“Activar” marca el convenio como firmado si aún no lo está (la base lo exige para activar). Contraseña directa, teléfono, bitácora de entradas y eliminar: en “Gestión completa”.</div>
+    </div>)}
+
+    {sub==="asesores"&&(<div style={card}>
+      <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:21,fontWeight:800,color:B.navy}}>Asesores opcionadores</div><div style={{fontSize:12.5,color:B.grey4}}>Ven “Mi terreno” de los terrenos que trajeron, más su comisión (esquema, %, acuerdo y comisión estimada). Entran con liga personal y/o con su correo.</div></div>
+      {errA&&<div style={{marginTop:10,color:B.red,fontSize:12.5}}>{errA}</div>}
+      {ligaAse&&<AccLiga titulo={"Liga personal de "+ligaAse.nombre} url={ligaAse.url} mensaje={"Hola, aquí puedes ver el avance de los terrenos que trajiste y tu comisión:"} onCerrar={()=>setLigaAse(null)}/>}
+      <div style={{overflowX:"auto",marginTop:10}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+        <thead><tr><th style={th}>Asesor</th><th style={th}>Terrenos</th><th style={th}>Esquema</th><th style={th}>Acuerdo</th><th style={th}>Liga personal</th><th style={th}>Con su correo</th><th style={th}>Último acceso</th></tr></thead>
+        <tbody>
+          {acuerdos===null&&<tr><td style={td} colSpan={7}>Cargando…</td></tr>}
+          {acuerdos!==null&&!asesores.length&&<tr><td style={{...td,color:B.grey4}} colSpan={7}>Sin asesores con acuerdo de comisión{q?" con esa búsqueda":""}.</td></tr>}
+          {asesores.map(g=>(<React.Fragment key={g.email}><tr>
+            <td style={td}><b>{g.nombre||g.email}</b><div style={{fontSize:11.5,color:B.grey3}}>{g.email}</div></td>
+            <td style={td}>{g.acuerdos.map(a=><span key={a.id} style={{display:"inline-block",fontSize:11,background:"#f1f5f9",borderRadius:6,padding:"1px 6px",margin:"1px 3px 1px 0"}}>{a.terreno_nombre||a.lote_id||"—"}</span>)}</td>
+            <td style={td}>{g.esq||"—"}</td>
+            <td style={td}><AccTag c={EST_AC[g.est][0]}>{EST_AC[g.est][1]}</AccTag></td>
+            <td style={{...td,whiteSpace:"nowrap"}}>{g.ligas.length?<AccTag c="ok">{"Activa"+(g.ligas[0].vigente_hasta?" · hasta "+ACC_FECHA(g.ligas[0].vigente_hasta+"T12:00:00"):"")}</AccTag>:<AccTag c="gr">Sin liga</AccTag>}
+              <div style={{marginTop:6}}><button style={btn(g.ligas.length?false:true)} onClick={()=>setGenAse({g,vig:vig6})}>🔗 {g.ligas.length?"Otra":"Generar"}</button>{g.ligas.map(x=><button key={x.id} disabled={busy===x.id} style={{...btn(false),marginLeft:6}} onClick={()=>revocarAse(x,g)}>Revocar</button>)}</div></td>
+            <td style={td}><div style={{display:"flex",gap:8,alignItems:"center"}}><AccSwitch on={!!g.correo} disabled={busy==="cor-"+g.email} onClick={()=>toggleCorreo(g)}/><span style={{fontSize:12,color:g.correo?B.green:B.grey3}}>{g.correo?"Puede entrar":"No"}</span></div></td>
+            <td style={td}>{g.ult?ACC_FECHA(g.ult):<span style={{color:B.grey3}}>—</span>}</td></tr>
+            {genAse&&genAse.g.email===g.email&&(<tr><td colSpan={7} style={{padding:"0 10px 12px"}}><div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:12,border:"1px solid "+B.grey1,borderRadius:12,background:"#f8fafc"}}>
+              <span style={{fontSize:12.5,color:B.navy,fontWeight:700}}>Liga personal para {g.nombre||g.email}</span>
+              <label style={{fontSize:12,color:B.grey4}}>Vigente hasta <input type="date" value={genAse.vig} onChange={e=>setGenAse({...genAse,vig:e.target.value})} style={{padding:"6px 8px",border:"1px solid "+B.grey1,borderRadius:8,fontSize:12}}/></label>
+              <button disabled={busy==="ase-"+g.email} style={btn(true)} onClick={()=>generarAse(g,genAse.vig)}>{busy==="ase-"+g.email?"Generando…":"Generar"}</button><button style={btn(false)} onClick={()=>setGenAse(null)}>Cancelar</button>
+            </div></td></tr>)}
+          </React.Fragment>))}
+        </tbody></table></div>
+      <div style={{fontSize:11.5,color:B.grey4,marginTop:10}}>Con su correo entran en {LANDING_URL}/asesor con la misma cuenta de su acuerdo de comisión. Solo ven los terrenos de sus acuerdos (no anulados).</div>
     </div>)}
 
     {sub==="duenos"&&(<div style={card}>
