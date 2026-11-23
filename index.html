@@ -4988,6 +4988,64 @@ function ViewCartasOferta({ s, onToast, onNueva, onAbrirTerreno, embebido }){
 // panel se actualiza solo. Nivel superior (no se re-crea con cada aviso).
 const CD_VACIO=(v)=>{ if(v==null) return true; if(Array.isArray(v)) return !v.filter(x=>String(x||"").trim()&&!CD_VACIO(x)).length; const s=String(v).trim().toLowerCase(); return !s||["s/d","sd","s.d.","n/d","nd","na","n/a","-","—","–","0","pendiente","por definir","sin dato","sin datos","?"].includes(s); };
 const CD_NUM=(v)=>{ const n=parseFloat(String(v==null?"":v).replace(/[^\d.]/g,"")); return isNaN(n)?0:n; };
+// 🗂 TERRENOS (Dirección 2026-11-23): UN solo lugar con TODOS los lotes del inventario (corretaje y desarrollos),
+// buscador y acceso directo a su ficha y a "📸 Multimedia y Documentos" (KMZ, fotos, plano, uso de suelo,
+// presentación). Muestra qué medios tiene cada uno (landing_lote_meta).
+function ViewTerrenos({ inventory, onAbrir, onMedia, onToast }){
+  const [q,setQ]=useState(""), [tipo,setTipo]=useState(""), [falta,setFalta]=useState(""), [lim,setLim]=useState(100);
+  const [media,setMedia]=useState(null), [cargando,setCargando]=useState(false);
+  const cargar=async()=>{ if(!window.sb){ setMedia({}); return; } setCargando(true);
+    try{ const r=await window.sb.from("landing_lote_meta").select("lote_id,fotos_urls,kmz_url,plano_url,uso_suelo_url,presentacion_url,ficha_tecnica_url").limit(10000); if(r.error) throw r.error;
+      const m={}; (r.data||[]).forEach(x=>{ m[String(x.lote_id||"").toLowerCase()]=x; }); setMedia(m); }
+    catch(e){ setMedia({}); } finally{ setCargando(false); } };
+  React.useEffect(()=>{ cargar(); },[]);
+  const nrm=(x)=>String(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+  const lotes=(inventory||[]).filter(Boolean);
+  const md=(l)=>(media||{})[loteKey(l)]||{};
+  const tiene=(l)=>{ const m=md(l); return { fotos:Array.isArray(m.fotos_urls)&&m.fotos_urls.length>0, kmz:!!m.kmz_url, plano:!!m.plano_url, uso:!!m.uso_suelo_url, pres:!!m.presentacion_url, pdf:!!m.ficha_tecnica_url }; };
+  const esCorr=(l)=>/corretaje/i.test(String(l.tipo_inventario||l.desarrollo||""));
+  const nq=nrm(q);
+  const vis=lotes.filter(l=>(!tipo||(tipo==="corretaje"?esCorr(l):!esCorr(l)))
+    &&(!falta||!tiene(l)[falta])
+    &&(!nq||nrm([l.id,loteKey(l),l.nombre,l.desarrollo,l.ciudad,l.estado,l.uso].join(" ")).includes(nq)))
+    .sort((a,b)=>String(a.desarrollo||"").localeCompare(String(b.desarrollo||""),"es")||String(loteKey(a)).localeCompare(String(loteKey(b)),"es",{numeric:true}));
+  const sinKmz=lotes.filter(l=>!tiene(l).kmz).length, sinFotos=lotes.filter(l=>!tiene(l).fotos).length;
+  const chip=(ok,t)=><span title={(ok?"Tiene ":"Falta ")+t} style={{display:"inline-block",fontSize:10.5,fontWeight:800,borderRadius:6,padding:"1px 6px",margin:"1px 3px 1px 0",background:ok?"#dcfce7":"#f1f5f9",color:ok?"#15803d":"#94a3b8"}}>{ok?"✓":"—"} {t}</span>;
+  const inp={padding:"9px 12px",border:"1.5px solid "+B.grey2,borderRadius:10,fontSize:13.5,fontFamily:"inherit",background:"#fff"};
+  const th={textAlign:"left",fontSize:10.5,letterSpacing:1,textTransform:"uppercase",color:"#fff",background:B.navy,padding:"9px 10px",whiteSpace:"nowrap"};
+  const td={padding:"8px 10px",borderBottom:"1px solid "+B.grey1,fontSize:13,verticalAlign:"middle"};
+  return (<div data-view-terrenos style={{maxWidth:1280,margin:"0 auto",padding:"22px 18px 40px",fontFamily:"'DM Sans',system-ui,sans-serif"}}>
+    <div style={{background:"linear-gradient(135deg,"+B.navy+",#0b3a5c)",color:"#fff",borderRadius:18,padding:"22px 26px",marginBottom:14}}>
+      <div style={{fontSize:11,fontWeight:800,letterSpacing:2.5,color:B.gold}}>INVENTARIO · GRUPO GUÍA</div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:30,fontWeight:800,marginTop:4}}>🗂 Terrenos</div>
+      <div style={{fontSize:13.5,color:"#cbd5e1",marginTop:4}}>Todos los lotes en un solo lugar. Toca <b style={{color:"#fff"}}>📸 Multimedia</b> para subir KMZ, fotos, plano, uso de suelo y presentación, o <b style={{color:"#fff"}}>📋 Ficha</b> para ver su ficha técnica.</div>
+      <div style={{display:"flex",gap:18,marginTop:12,fontSize:13}}><span><b style={{fontSize:20,color:B.gold}}>{lotes.length}</b> lotes</span><span><b style={{fontSize:20,color:B.gold}}>{sinKmz}</b> sin KMZ</span><span><b style={{fontSize:20,color:B.gold}}>{sinFotos}</b> sin fotos</span></div>
+    </div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:10}}>
+      <input data-terrenos-buscar value={q} onChange={e=>{ setQ(e.target.value); setLim(100); }} placeholder="🔎 Buscar por clave, nombre, desarrollo o ciudad…" style={{...inp,flex:"1 1 320px"}}/>
+      <select value={tipo} onChange={e=>setTipo(e.target.value)} style={inp}><option value="">Todos</option><option value="corretaje">Corretaje</option><option value="desarrollo">Desarrollos</option></select>
+      <select data-terrenos-falta value={falta} onChange={e=>setFalta(e.target.value)} style={inp}><option value="">Con o sin medios</option><option value="kmz">Falta KMZ</option><option value="fotos">Faltan fotos</option><option value="plano">Falta plano</option><option value="uso">Falta uso de suelo</option><option value="pres">Falta presentación</option></select>
+      <button onClick={cargar} style={{...inp,cursor:"pointer",fontWeight:800,color:B.navy}}>{cargando?"Actualizando…":"🔄 Actualizar"}</button>
+    </div>
+    {!lotes.length?<div style={{padding:28,textAlign:"center",color:B.grey4,background:"#fff",borderRadius:14,border:"1px solid "+B.grey1}}>No hay lotes cargados en este equipo. Actualiza el inventario desde ⚙️ Admin.</div>:
+    <div style={{overflowX:"auto",borderRadius:14,border:"1px solid "+B.grey1,background:"#fff"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:900}}>
+      <thead><tr><th style={th}>Clave</th><th style={th}>Terreno</th><th style={th}>Ciudad</th><th style={{...th,textAlign:"right"}}>Superficie</th><th style={{...th,textAlign:"right"}}>Precio</th><th style={th}>Medios</th><th style={th}></th></tr></thead>
+      <tbody>{vis.slice(0,lim).map(l=>{ const t=tiene(l), k=loteKey(l), sup=Number(l.sup_m2)||0, pr=Number(l.precio_total)||0; return (<tr key={k} data-terreno={k}>
+        <td style={{...td,fontWeight:800,color:B.navy,whiteSpace:"nowrap"}}>{String(l.id||k).toUpperCase()}</td>
+        <td style={td}><b style={{color:B.navy}}>{l.nombre||"—"}</b><div style={{fontSize:11.5,color:B.grey4}}>{[l.desarrollo,l.uso].filter(Boolean).join(" · ")}{l.status&&!/disponible/i.test(String(l.status))?(" · "+l.status):""}</div></td>
+        <td style={{...td,color:B.grey5}}>{[l.ciudad,l.estado].filter(Boolean).join(", ")||"—"}</td>
+        <td style={{...td,textAlign:"right",whiteSpace:"nowrap"}}>{sup?sup.toLocaleString("es-MX")+" m²":"—"}</td>
+        <td style={{...td,textAlign:"right",whiteSpace:"nowrap"}}>{pr?coMx(pr):"—"}</td>
+        <td style={td}>{media===null?<span style={{color:B.grey3}}>…</span>:<>{chip(t.kmz,"KMZ")}{chip(t.fotos,"Fotos")}{chip(t.plano,"Plano")}{chip(t.uso,"Uso de suelo")}{chip(t.pres,"Presentación")}{chip(t.pdf,"PDF")}</>}</td>
+        <td style={{...td,whiteSpace:"nowrap",textAlign:"right"}}>
+          <button data-terreno-media={k} onClick={()=>onMedia(l)} style={{border:"none",background:B.gold,color:B.navy,borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:900,cursor:"pointer",fontFamily:"inherit",marginRight:6}}>📸 Multimedia</button>
+          <button data-terreno-ficha={k} onClick={()=>onAbrir(l)} style={{border:"1.5px solid "+B.grey2,background:"#fff",color:B.navy,borderRadius:9,padding:"6px 11px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📋 Ficha</button></td>
+      </tr>); })}</tbody></table>
+      {vis.length>lim&&<div style={{padding:10,textAlign:"center"}}><button onClick={()=>setLim(n=>n+100)} style={{...inp,cursor:"pointer",fontWeight:800,color:B.navy}}>Ver más ({vis.length-lim})</button></div>}
+      {!vis.length&&<div style={{padding:22,textAlign:"center",color:B.grey4}}>Ningún terreno coincide con la búsqueda.</div>}
+    </div>}
+  </div>); }
+
 function ViewCalidadDatos({ s, clients, inventory, captaciones, onAbrirCliente, onAbrirLote, onAbrirCaptacion }){
   const [tab,setTab]=useState("clientes");
   const [falta,setFalta]=useState("");           // filtro por dato faltante
@@ -5595,7 +5653,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const setView=(v)=>{setViewRaw(v);savePersisted(STORAGE_KEYS.view,v);};
   // Back-Office "Option Engine": si al cargar, la vista persistida/por URL es OCULTA, redirige a
   // Captación (solo al montar; la navegación interna no se bloquea). Reversible.
-  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch","equipo","requerimientos","calidad","cartas","accesos"];
+  React.useEffect(()=>{ const permitidas=["home","captacion","documentos","admin","pitch","equipo","requerimientos","calidad","cartas","accesos","terrenos"];
     // "Cartas oferta" dejó de ser sub-pestaña de Asesores (2026-11-19): quien la tenía abierta, va a la pestaña propia.
     try{ if(view==="equipo"&&MP_FA_MODO_INICIAL==="cartas"){ localStorage.setItem("mp_fa_modo","general"); setView("cartas"); return; } }catch(e){}
     if(!permitidas.includes(view)){ setView("captacion"); try{ if(window.location.hash && window.location.hash!=="#captacion") window.history.replaceState(null,"","#captacion"); }catch(e){} }
@@ -25116,7 +25174,7 @@ Respuesta: [respuesta exacta, conversacional]
               NO se borran vistas: componentes y render (view===) siguen intactos; reversible re-agregando entradas.
               Ocultas (solo accesibles internamente): dashboard, corretaje, asesores(Buscando), quickSearch,
               matchClient, matchLot, matches, clients, lots(Inventario), crm, metas, ejecutivo, comparador. */}
-          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["cartas","📝 Cartas oferta"],["equipo","👔 Asesores"],["requerimientos","🔍 Requerimientos"],["calidad","🩺 Calidad de datos"],["admin","⚙️ Admin"]].concat(esAdminReal?[["accesos","🔐 Accesos"]]:[]).map(([v,l])=>(
+          {[["home","🏠 Inicio"],["captacion","🌱 Opción / Captación"],["documentos","📄 Documentos"],["cartas","📝 Cartas oferta"],["terrenos","🗂 Terrenos"],["equipo","👔 Asesores"],["requerimientos","🔍 Requerimientos"],["calidad","🩺 Calidad de datos"],["admin","⚙️ Admin"]].concat(esAdminReal?[["accesos","🔐 Accesos"]]:[]).map(([v,l])=>(
             <button key={v} style={s.navBtn(view===v||view==="result"&&((v==="matchClient"&&matchMode==="clientToLots")||(v==="matchLot"&&matchMode==="lotToClients")))} onClick={()=>setView(v)}>{l}</button>
           ))}
           <button title="Crear una carta oferta desde cero" style={{...s.navBtn(false),background:B.gold,color:B.navy,fontWeight:800}} onClick={()=>setWizardCO({})}>➕ Nueva Carta Oferta</button>
@@ -25183,6 +25241,7 @@ Respuesta: [respuesta exacta, conversacional]
       {view==="equipo"&&<TramiteOpcionPaso1 asesores={asesoresCloud} onToast={toast} onCotizar={(a)=>{ iniciarCotizacionDeAcuerdo(a); setView("pitch"); }} ver={acuerdosVer+"-"+cotPrefillVer}/>}
       {view==="equipo"&&<ViewFichaAsesores/>}
       {view==="equipo"&&<EstadoCorreosModal/>}
+      {view==="terrenos"&&<ViewTerrenos inventory={inventory} onToast={toast} onAbrir={(l)=>{ setFtMedia(false); setSelectedLotDetail(l); }} onMedia={(l)=>{ setSelectedLotDetail(l); setFtMedia(true); }}/>}
       {view==="calidad"&&<ViewCalidadDatos s={s} clients={clients} inventory={inventory} captaciones={captaciones}
         onAbrirCliente={(c)=>abrirFichaCliente(c)} onAbrirLote={(l)=>setSelectedLotDetail(l)} onAbrirCaptacion={(c)=>{ setEditingCaptacion(c); setShowCaptacionModal(true); }}/>}
       {view==="requerimientos"&&<ViewRequerimientos s={s} onToast={toast} onBorrarCompradores={(ids)=>{ const set=new Set((ids||[]).map(String)); setClients(prev=>(prev||[]).filter(c=>{ const r=clienteToSupabase(c,{}); return !(r&&set.has(String(r.id_cliente))); })); }}/>}
