@@ -5715,7 +5715,7 @@ function MensajesTerreno({ cap, onToast }){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
         <div>
           <div style={{fontSize:13,fontWeight:800,color:B.navy}}>📵 Mensajes de este terreno</div>
-          <div style={{fontSize:11,color:B.grey4,marginTop:2}}>Correos y WhatsApp <b>automáticos</b> del sistema. Dueños: por omisión <b style={{color:"#b91c1c"}}>NO</b>. Asesores: por omisión <b style={{color:"#15803d"}}>SÍ</b>.</div>
+          <div style={{fontSize:11,color:B.grey4,marginTop:2}}>Correos y WhatsApp <b>automáticos</b> del sistema. Dueños: por omisión <b style={{color:"#b91c1c"}}>NO</b>. Asesores: por omisión <b style={{color:"#15803d"}}>SÍ</b>; si firmó <b>100/0</b>, <b style={{color:"#b91c1c"}}>NO</b>. Los avisos para <b>firmar</b> el convenio siempre llegan.</div>
         </div>
         {admin && <div style={{display:"flex",gap:6}}>
           <button onClick={()=>setNuevo(nuevo?null:{rol:"dueno"})} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:8,padding:"6px 10px",fontSize:12,fontWeight:700,color:B.navy,cursor:"pointer"}}>+ Persona</button>
@@ -5726,12 +5726,16 @@ function MensajesTerreno({ cap, onToast }){
       {st.error && <div style={{fontSize:12,color:"#b91c1c",marginTop:10,fontWeight:700}}>{st.error}</div>}
       {st.datos && <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6}}>
         {!pers.length && <div style={{fontSize:12,color:B.grey4}}>Este terreno no tiene correo ni teléfono registrado de dueño o asesor.</div>}
+        {String(cap.asesorResponsableGG||"").trim() && !pers.some(p=>/Asesor responsable/.test(p.fuente||"")) && <div style={{fontSize:11.5,color:"#b45309",fontWeight:700,background:"#fff",border:"1px dashed #fdba74",borderRadius:8,padding:"7px 10px"}}>Asesor responsable: {cap.asesorResponsableGG} — no encuentro su correo en el catálogo. Captúralo en 👔 Asesores → Datos del asesor (o agrégalo aquí con “+ Persona” como Asesor).</div>}
         {pers.map((p,i)=>(
           <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:"#fff",border:"1px solid "+B.grey1,borderRadius:9,padding:"8px 10px",flexWrap:"wrap"}}>
             <div style={{minWidth:0,flex:"1 1 220px"}}>
               <div style={{fontSize:12.5,fontWeight:700,color:B.navy}}>{p.nombre||"(sin nombre)"} <span style={{fontSize:10,fontWeight:800,padding:"2px 7px",borderRadius:10,marginLeft:4,background:p.rol==="dueno"?"#fee2e2":"#e0f2fe",color:p.rol==="dueno"?"#991b1b":"#075985"}}>{rolTxt[p.rol]||p.rol}</span></div>
               <div style={{fontSize:11,color:B.grey4,overflow:"hidden",textOverflow:"ellipsis"}}>{[p.email,p.telefono].filter(Boolean).join(" · ")||"—"}</div>
-              <div style={{fontSize:10,color:B.grey4}}>{p.fuente}{p.no_en_otro?" · está en NO en otro terreno (gana el NO)":""}{!p.explicito&&!p.cambiado?" · por omisión":""}</div>
+              <div style={{fontSize:10,color:B.grey4}}>{p.fuente}{p.no_en_otro?" · está en NO en otro terreno (gana el NO)":""}{!p.explicito&&!p.cambiado?(p.cien?" · automático por 100/0":" · por omisión"):""}</div>
+              {p.convenio && <div style={{fontSize:10.5,fontWeight:700,marginTop:3,color:(p.convenio==="sin firma"||p.convenio==="pendiente")?"#b45309":(p.convenio==="100/0"?"#b91c1c":"#15803d")}}>
+                {(p.convenio==="sin firma"||p.convenio==="pendiente")?"✍️ Sin firma: la liga y los recordatorios para FIRMAR le llegan siempre":(p.convenio==="100/0"?"✍️ Firmó 100/0 → ya no recibe notificaciones automáticas":("✍️ Convenio firmado"+(p.convenio==="firmado"?"":" ("+p.convenio+")")))}
+              </div>}
             </div>
             <button disabled={!admin||p.no_en_otro} onClick={()=>cambiar(i,!p.permitir)} title={admin?"Cambiar":"Solo administradores"} style={{border:"none",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:admin&&!p.no_en_otro?"pointer":"default",background:p.permitir?"#dcfce7":"#fee2e2",color:p.permitir?"#15803d":"#b91c1c",minWidth:118}}>{p.permitir?"● Sí recibe":"● No recibe"}</button>
           </div>
