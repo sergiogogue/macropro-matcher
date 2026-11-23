@@ -5624,6 +5624,93 @@ function ViewAccesos({ onToast }){
   </div>);
 }
 
+// ═══ 📵 MENSAJES DE ESTE TERRENO (Dirección 2026-11-23) ═══
+// A quién SÍ y a quién NO le llegan correos / WhatsApp AUTOMÁTICOS del sistema por este terreno.
+// Dueños: por omisión NO. Asesores: por omisión SÍ. Solo administradores cambian (RPC comunicacion_guardar).
+// El bloqueo real vive en la landing (netlify/lib/bloqueo-comunicados.mjs) y revisa TODO envío.
+// Requiere: supabase/comunicacion_terrenos.sql (landing).
+function MensajesTerreno({ cap, onToast }){
+  const [st,setSt]=React.useState({cargando:true});
+  const [pers,setPers]=React.useState([]);
+  const [nuevo,setNuevo]=React.useState(null);
+  const [guardando,setGuardando]=React.useState(false);
+  const [verLog,setVerLog]=React.useState(false);
+  const capId=String((cap&&cap.id)||"");
+  const cargar=React.useCallback(async()=>{
+    if(!capId||!window.sb){ setSt({error:"Sin conexión."}); return; }
+    try{ const { data, error } = await window.sb.rpc("comunicacion_ficha",{ p_cap:capId }); if(error) throw error;
+      setSt({ datos:data||{} }); setPers(((data&&data.personas)||[]).map(p=>({...p}))); }
+    catch(e){ const m=String((e&&e.message)||e); setSt({ error:/does not exist|schema cache|PGRST202|42883|Could not find/i.test(m)?"Falta correr supabase/comunicacion_terrenos.sql en Supabase.":m }); }
+  },[capId]);
+  React.useEffect(()=>{ cargar(); },[cargar]);
+  const admin=!!(st.datos&&st.datos.admin);
+  const cambiar=(i,v)=>setPers(ps=>ps.map((p,j)=>j===i?{...p,permitir:v,cambiado:true}:p));
+  const guardar=async()=>{
+    setGuardando(true);
+    try{
+      const claves=[cap.zona,cap.propietario,cap.clave,cap.ubicacion].map(x=>String(x||"").trim()).filter(x=>x.length>=4);
+      const { error } = await window.sb.rpc("comunicacion_guardar",{ p_cap:capId, p_terreno:String(cap.zona||cap.propietario||"").trim(), p_claves:claves,
+        p_personas:pers.map(p=>({ rol:p.rol, nombre:p.nombre||"", email:p.email||"", telefono:p.telefono||"", permitir:!!p.permitir })) });
+      if(error) throw error; onToast&&onToast("Guardado: a quién le llegan mensajes de este terreno"); await cargar();
+    }catch(e){ onToast&&onToast("No se pudo guardar: "+((e&&e.message)||e)); }
+    setGuardando(false);
+  };
+  const agregar=()=>{ if(!nuevo) return; const em=String(nuevo.email||"").trim(), tl=String(nuevo.telefono||"").trim();
+    if(!em&&!tl){ onToast&&onToast("Pon correo o teléfono."); return; }
+    setPers(ps=>[...ps,{ nombre:nuevo.nombre||"", email:em, telefono:tl, rol:nuevo.rol||"dueno", fuente:"Agregado a mano", permitir:false, cambiado:true }]); setNuevo(null); };
+  const hayCambios=pers.some(p=>p.cambiado);
+  const rolTxt={dueno:"Dueño",asesor:"Asesor",otro:"Otro"};
+  const log=(st.datos&&st.datos.bloqueados)||[];
+  const caja={background:"#fff7ed",border:"1px solid #fdba74",borderRadius:12,padding:"14px 16px"};
+  const inp={padding:"7px 9px",borderRadius:7,border:"1px solid "+B.grey1,fontSize:12,minWidth:0};
+  return (
+    <div style={caja}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:13,fontWeight:800,color:B.navy}}>📵 Mensajes de este terreno</div>
+          <div style={{fontSize:11,color:B.grey4,marginTop:2}}>Correos y WhatsApp <b>automáticos</b> del sistema. Dueños: por omisión <b style={{color:"#b91c1c"}}>NO</b>. Asesores: por omisión <b style={{color:"#15803d"}}>SÍ</b>.</div>
+        </div>
+        {admin && <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>setNuevo(nuevo?null:{rol:"dueno"})} style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:8,padding:"6px 10px",fontSize:12,fontWeight:700,color:B.navy,cursor:"pointer"}}>+ Persona</button>
+          <button disabled={guardando||!hayCambios} onClick={guardar} style={{background:hayCambios?B.navy:"#cbd5e1",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:800,cursor:hayCambios?"pointer":"default"}}>{guardando?"Guardando…":"Guardar"}</button>
+        </div>}
+      </div>
+      {st.cargando && <div style={{fontSize:12,color:B.grey4,marginTop:10}}>Cargando…</div>}
+      {st.error && <div style={{fontSize:12,color:"#b91c1c",marginTop:10,fontWeight:700}}>{st.error}</div>}
+      {st.datos && <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6}}>
+        {!pers.length && <div style={{fontSize:12,color:B.grey4}}>Este terreno no tiene correo ni teléfono registrado de dueño o asesor.</div>}
+        {pers.map((p,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:"#fff",border:"1px solid "+B.grey1,borderRadius:9,padding:"8px 10px",flexWrap:"wrap"}}>
+            <div style={{minWidth:0,flex:"1 1 220px"}}>
+              <div style={{fontSize:12.5,fontWeight:700,color:B.navy}}>{p.nombre||"(sin nombre)"} <span style={{fontSize:10,fontWeight:800,padding:"2px 7px",borderRadius:10,marginLeft:4,background:p.rol==="dueno"?"#fee2e2":"#e0f2fe",color:p.rol==="dueno"?"#991b1b":"#075985"}}>{rolTxt[p.rol]||p.rol}</span></div>
+              <div style={{fontSize:11,color:B.grey4,overflow:"hidden",textOverflow:"ellipsis"}}>{[p.email,p.telefono].filter(Boolean).join(" · ")||"—"}</div>
+              <div style={{fontSize:10,color:B.grey4}}>{p.fuente}{p.no_en_otro?" · está en NO en otro terreno (gana el NO)":""}{!p.explicito&&!p.cambiado?" · por omisión":""}</div>
+            </div>
+            <button disabled={!admin||p.no_en_otro} onClick={()=>cambiar(i,!p.permitir)} title={admin?"Cambiar":"Solo administradores"} style={{border:"none",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:admin&&!p.no_en_otro?"pointer":"default",background:p.permitir?"#dcfce7":"#fee2e2",color:p.permitir?"#15803d":"#b91c1c",minWidth:118}}>{p.permitir?"● Sí recibe":"● No recibe"}</button>
+          </div>
+        ))}
+        {nuevo && <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto auto",gap:6,alignItems:"center"}}>
+          <input style={inp} placeholder="Nombre" value={nuevo.nombre||""} onChange={e=>setNuevo({...nuevo,nombre:e.target.value})}/>
+          <input style={inp} placeholder="Correo" value={nuevo.email||""} onChange={e=>setNuevo({...nuevo,email:e.target.value})}/>
+          <input style={inp} placeholder="Teléfono" value={nuevo.telefono||""} onChange={e=>setNuevo({...nuevo,telefono:e.target.value})}/>
+          <select style={inp} value={nuevo.rol} onChange={e=>setNuevo({...nuevo,rol:e.target.value})}><option value="dueno">Dueño</option><option value="asesor">Asesor</option><option value="otro">Otro</option></select>
+          <button onClick={agregar} style={{background:B.navy,color:"#fff",border:"none",borderRadius:7,padding:"7px 10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Agregar</button>
+        </div>}
+        {admin && hayCambios && <div style={{fontSize:11,color:"#b45309",fontWeight:700}}>Tienes cambios sin guardar.</div>}
+        {!admin && <div style={{fontSize:11,color:B.grey4}}>Solo Dirección (administradores) puede cambiar esto.</div>}
+        {admin && <div style={{marginTop:4}}>
+          <span onClick={()=>setVerLog(!verLog)} style={{fontSize:11.5,fontWeight:700,color:B.navy,cursor:"pointer"}}>{verLog?"▾":"▸"} Mensajes detenidos ({log.length})</span>
+          {verLog && <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:4}}>
+            {!log.length && <div style={{fontSize:11,color:B.grey4}}>Ninguno todavía.</div>}
+            {log.map((l,i)=>(<div key={i} style={{fontSize:11,color:B.navy,background:"#fff",border:"1px solid "+B.grey1,borderRadius:7,padding:"5px 8px"}}>
+              <b>{new Date(l.cuando).toLocaleString("es-MX",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}</b> · {l.canal==="whatsapp"?"WhatsApp":"Correo"} a {l.destino} · {l.asunto||"(sin asunto)"}{l.funcion?<span style={{color:B.grey4}}> · {l.funcion}</span>:null}</div>))}
+          </div>}
+        </div>}
+      </div>}
+    </div>
+  );
+}
+
 function MacroProMatcher({ sessionEmail } = {}) {
   // ═══════════════════════════════════════════════════════════
   // PERSISTENCIA: claves de localStorage y helpers
@@ -25304,6 +25391,8 @@ Respuesta: [respuesta exacta, conversacional]
                   </div>
                 </div>
                 <div style={{padding:"20px 26px",maxHeight:"62vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:16}}>
+                  {/* 📵 A quién SÍ / NO le llegan mensajes automáticos de este terreno (Dirección) */}
+                  {!esNueva && <MensajesTerreno key={"msg-"+f.id} cap={f} onToast={toast}/>}
                   {/* 📝 Cartas oferta (solo equipo interno) */}
                   {!esNueva && <CartasOfertaPanel key={"co-"+f.id} cap={f} onToast={toast} onNueva={()=>setWizardCO({cap:f})}/>}
                   {/* 🔗 Liga Mágica: link único para que el propietario suba su expediente legal */}
