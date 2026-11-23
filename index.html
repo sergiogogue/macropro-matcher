@@ -3635,7 +3635,7 @@ function coImprimir(c, modo, opts){
     if(!r.comprador_firma_at&&sig) fC=nota("Superada por la ronda "+sig.ronda+(base?" (abajo)":""));
     // Grupo Guía RECIBE (no acepta ni autoriza la oferta); quien ACEPTA es el vendedor.
     const fG=sello(!!c.gg_firma_at&&!!r.comprador_firma_at,[coFH(c.gg_firma_at)+(c.gg_firma_ip?(" · IP "+c.gg_firma_ip):""), c.gg_firma_email],"Recibida");
-    let fV=sello(!!r.vendedor_firma_at,[coFH(r.vendedor_firma_at)+(r.vendedor_firma_ip?(" · IP "+r.vendedor_firma_ip):""), r.vendedor_firma_email],r.propone==="vendedor"?"Contrapropuesta firmada":"Aceptada electrónicamente");
+    let fV=sello(!!r.vendedor_firma_at,r.vendedor_acepto_via==="grupo_guia"?[coFH(r.vendedor_firma_at),"Aceptó por WhatsApp/correo · evidencia en el expediente"]:[coFH(r.vendedor_firma_at)+(r.vendedor_firma_ip?(" · IP "+r.vendedor_firma_ip):""), r.vendedor_firma_email],r.vendedor_acepto_via==="grupo_guia"?"Aceptación registrada por Grupo Guía":r.propone==="vendedor"?"Contrapropuesta firmada":"Aceptada electrónicamente");
     if(!r.vendedor_firma_at&&sig) fV=nota(sig.propone==="vendedor"?("No aceptó · contrapropuso (ronda "+sig.ronda+(base?", abajo":"")+")"):("Superada por la ronda "+sig.ronda+(base?" (abajo)":"")));
     const hist=(!base&&rs.length>1)?`<div class="cl"><span class="n">ANEXO. Historial de la negociación.</span></div><table class="hi"><tr><th>Ronda</th><th>Propuesta de</th><th>Precio por m²</th><th>Total</th><th>Forma de pago</th></tr>${rs.map(x=>`<tr${x.ronda===r.ronda?' class="ac"':''}><td>${x.ronda}</td><td>${esc(x.propone==="grupo_guia"&&Number(x.ronda)>1?"Contraoferta acordada":coQuien(x))}</td><td>${coMx(x.precio_m2)}</td><td>${coMx(x.total)}</td><td>${esc(x.forma_pago)}</td></tr>`).join("")}</table>`:"";
     return `<div class="hoja${base?" sigue":""}">
@@ -3683,7 +3683,7 @@ ${!conf&&c.asesor_nombre?`<div class="cc">c.c.p. ${esc(c.asesor_nombre)} · Ases
     let fC=sello(!!x.comprador_firma_at,[coFH(x.comprador_firma_at)+(conf?"":(x.comprador_firma_ip?(" · IP "+x.comprador_firma_ip):"")), conf?"Comprador confidencial":x.comprador_firma_email],x.propone==="comprador"?"Contrapropuesta firmada":"Firmado electrónicamente");
     if(!x.comprador_firma_at&&sig) fC=nota("Superada por la ronda "+sig.ronda);
     const fG=sello(!!c.gg_firma_at&&!!x.comprador_firma_at,[coFH(c.gg_firma_at), c.gg_firma_email],"Recibida");
-    let fV=sello(!!x.vendedor_firma_at,[coFH(x.vendedor_firma_at)+(x.vendedor_firma_ip?(" · IP "+x.vendedor_firma_ip):""), x.vendedor_firma_email],x.propone==="vendedor"?"Contrapropuesta firmada":"Aceptada electrónicamente");
+    let fV=sello(!!x.vendedor_firma_at,x.vendedor_acepto_via==="grupo_guia"?[coFH(x.vendedor_firma_at),"Aceptó por WhatsApp/correo · evidencia en el expediente"]:[coFH(x.vendedor_firma_at)+(x.vendedor_firma_ip?(" · IP "+x.vendedor_firma_ip):""), x.vendedor_firma_email],x.vendedor_acepto_via==="grupo_guia"?"Aceptación registrada por Grupo Guía":x.propone==="vendedor"?"Contrapropuesta firmada":"Aceptada electrónicamente");
     if(!x.vendedor_firma_at&&sig) fV=nota(sig.propone==="vendedor"?("No aceptó · contrapropuso (ronda "+sig.ronda+")"):("Superada por la ronda "+sig.ronda));
     return `<div class="corte">${act?"CONTRAOFERTA · VIGENTE":"CONTRAOFERTA"}</div><div class="rb${act?"":" su"}">
 <div class="rbh"><div class="t"><i>RONDA ${x.ronda}</i>${esc(tit.toUpperCase())}</div><div class="s">${fLarga(x.created_at||c.created_at)}<br>${act?("Vigente al "+fLarga(vence)):(sig?("Superada por la ronda "+sig.ronda):"")}</div></div>
@@ -3820,6 +3820,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
   const [envioOk,setEnvioOkRaw]=useState(()=>(CO_UI[uiKey]&&CO_UI[uiKey].envioOk)||null);
   const setEnvioOk=(v)=>{ CO_UI[uiKey]={...(CO_UI[uiKey]||{}),envioOk:v}; setEnvioOkRaw(v); };
   const [masId,setMasId]=useState(null);     // carta con el menú "⋯ Más opciones" abierto
+  const [acepV,setAcepV]=useState(null);   // ✍️ registrar aceptación del vendedor (respondió por WhatsApp/correo) {id,file,prev,nombre,nota,ok}
   const [autOk,setAutOkRaw]=useState(()=>({...CO_AUT}));   // casilla de autorización antes de mandar una respuesta
   const setAutOk=(k,v)=>{ CO_AUT[k]=v; setAutOkRaw({...CO_AUT}); };
   const [fichaId,setFichaIdRaw]=useState(()=>(CO_UI[uiKey]&&CO_UI[uiKey].fichaId)||null); // ficha abierta desde el kanban
@@ -3984,6 +3985,24 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
     finally{ setBusy(""); } };
   // 📩 CONTRAPROPUESTA QUE LLEGÓ (la firmó el vendedor desde su liga): Grupo Guía la manda tal cual a la
   // otra parte con SU MISMA liga (sql v8). rol = a quién se manda · modo: copiar | whatsapp | correo.
+  // ✍️ El vendedor aceptó por WhatsApp/correo: Grupo Guía lo REGISTRA con la captura como evidencia (sql v9).
+  const registrarAceptacion=async(c)=>{ const a=acepV; if(!a||a.id!==c.id) return;
+    if(!a.file){ toast("Sube o pega la captura de la respuesta del vendedor."); return; }
+    if(!a.ok){ toast("Marca la casilla de confirmación."); return; }
+    if(!window.confirm("¿Registrar que "+(String(a.nombre||c.vendedor_nombre||"el vendedor").trim())+" ACEPTÓ la ronda "+(c.ronda_actual||1)+"? La carta quedará ACEPTADA.")) return;
+    setBusy(c.id+"acepv");
+    try{ const ext=(String(a.file.name||"").match(/\.([a-z0-9]{2,5})$/i)||[])[1]||(a.file.type==="application/pdf"?"pdf":"png");
+      const path=c.id+"/r"+(c.ronda_actual||1)+"-vendedor-"+Date.now()+"."+ext.toLowerCase();
+      const up=await window.sb.storage.from("cartas-evidencias").upload(path,a.file,{contentType:a.file.type||"image/png",upsert:false}); if(up.error) throw up.error;
+      const {data,error}=await window.sb.rpc("carta_oferta_aceptar_vendedor",{p_id:c.id,p_nombre:String(a.nombre||c.vendedor_nombre||"").trim()||null,p_evidencia:{path,nombre:a.file.name||("captura."+ext),tipo:a.file.type||null},p_nota:String(a.nota||"").trim()||null});
+      if(error) throw error; if(data&&data.error) throw new Error(data.error);
+      // Mismo flujo que si firmara en su liga: avisos de ACEPTADA (incluye la solicitud de documentos al comprador).
+      try{ const tok=c.token_vendedor||c.token_comprador; if(tok) fetch(LANDING_URL+"/.netlify/functions/carta-oferta-notificar",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:tok})}).catch(()=>{}); }catch(_){}
+      setAcepV(null); toast("✅ Aceptación del vendedor registrada · la carta quedó ACEPTADA"); try{ window.dispatchEvent(new Event("co-actualizado")); }catch(_){}
+    }catch(e){ const m=String((e&&e.message)||e); toast(/carta_oferta_aceptar_vendedor|cartas-evidencias|bucket|does not exist|schema cache|PGRST202/i.test(m)?"Falta correr sql/cartas_oferta_v9_aceptacion_registrada.sql en Supabase.":("No se pudo registrar: "+m)); }
+    finally{ setBusy(""); } };
+  const verEvidencia=async(ev)=>{ const w=window.open("","_blank"); try{ const r=await window.sb.storage.from("cartas-evidencias").createSignedUrl(ev.path,600); if(r.error) throw r.error; if(w) w.location.href=r.data.signedUrl; else window.open(r.data.signedUrl,"_blank","noopener"); }
+    catch(e){ try{ w&&w.close(); }catch(_){} toast("No se pudo abrir la evidencia: "+((e&&e.message)||e)); } };
   const reenviar=async(c,rol,modo)=>{ const w=modo==="whatsapp"?window.open("","_blank"):null;
     const url=await liga(c,rol,false); if(!url){ try{ w&&w.close(); }catch(e){} return; }
     const n=c.ronda_actual||1, folio=c.folio||"", terr=c.terreno_nombre||"";
@@ -4260,7 +4279,32 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
             {opcion(2,"El vendedor pidió otras condiciones",<button onClick={()=>abrirContra(c,"vendedor")} style={bB("#fff7ed","#b45309","#fdba74")}>🔄 Hacer contraoferta · ronda {nSig}</button>)}
           </div>); }
       if(c.estado==="enviada_vendedor") return caja(az,"Siguiente paso",venc?"La liga del vendedor venció":("Que el vendedor acepte la ronda "+nA),venc?"Genera una liga nueva y mándasela.":"Si acepta, queda ACEPTADA. Si pide cambios desde su liga, te llega aviso y aquí te aparece.",
-        <React.Fragment><button disabled={!!busy} onClick={()=>copiar(c,"vendedor",venc)} style={bB(B.navy,"#fff")}>🔗 {venc?"Liga nueva":"Copiar liga"} del vendedor</button><button disabled={!!busy} onClick={()=>whats(c,"vendedor")} style={bB("#25D366","#fff")}>🟢 WhatsApp</button></React.Fragment>);
+        <React.Fragment><button disabled={!!busy} onClick={()=>copiar(c,"vendedor",venc)} style={bB(B.navy,"#fff")}>🔗 {venc?"Liga nueva":"Copiar liga"} del vendedor</button><button disabled={!!busy} onClick={()=>whats(c,"vendedor")} style={bB("#25D366","#fff")}>🟢 WhatsApp</button></React.Fragment>,
+        (()=>{ const rr=r||{}; if(!rr.comprador_firma_at||rr.vendedor_firma_at) return null; const a=acepV&&acepV.id===c.id?acepV:null;
+          const ponFile=(file)=>{ if(!file) return; if(!/^image\//.test(file.type)&&file.type!=="application/pdf"){ toast("Debe ser una imagen (captura) o un PDF."); return; } if(file.size>10*1024*1024){ toast("La captura pesa más de 10 MB."); return; }
+            const prev=/^image\//.test(file.type)?URL.createObjectURL(file):null; setAcepV(p=>({...(p&&p.id===c.id?p:{id:c.id,nombre:c.vendedor_nombre||"",nota:"",ok:false}),file,prev})); };
+          if(!a) return (<div style={{marginTop:10,borderTop:"1px dashed #93c5fd",paddingTop:10,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:12.5,color:B.grey5}}>¿El vendedor ya aceptó por WhatsApp o correo?</span>
+            <button data-co-acepv-abrir onClick={()=>setAcepV({id:c.id,nombre:c.vendedor_nombre||"",nota:"",ok:false,file:null,prev:null})} style={bB("#fff","#15803d","#86efac")}>✍️ Registrar que el vendedor aceptó</button></div>);
+          return (<div data-co-acepv style={{marginTop:10,border:"2px solid #86efac",background:"#f0fdf4",borderRadius:12,padding:"11px 13px"}}>
+            <div style={{fontWeight:800,color:B.navy,fontSize:14}}>✍️ Registrar la aceptación del vendedor · ronda {nA}</div>
+            <div style={{fontSize:12,color:B.grey5,marginTop:2}}>Úsalo cuando el vendedor respondió que <b>acepta</b> por WhatsApp o correo. Queda como <b>"Aceptación registrada por Grupo Guía"</b> (no como su firma electrónica), con la captura como evidencia.</div>
+            <div onPaste={e=>{ const it=[...((e.clipboardData&&e.clipboardData.items)||[])].find(x=>x.kind==="file"); if(it){ e.preventDefault(); ponFile(it.getAsFile()); } }} tabIndex={0}
+              style={{marginTop:9,border:"2px dashed "+(a.file?"#86efac":"#cbd5e1"),borderRadius:10,background:"#fff",padding:"10px 12px",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",outline:"none"}}>
+              {a.prev?<img src={a.prev} alt="Captura" style={{height:90,maxWidth:160,objectFit:"contain",borderRadius:6,border:"1px solid "+B.grey1}}/>:(a.file?<span style={{fontSize:26}}>📄</span>:<span style={{fontSize:26}}>🖼️</span>)}
+              <div style={{flex:1,minWidth:200}}>
+                <div style={{fontSize:13,fontWeight:800,color:a.file?"#15803d":B.navy}}>{a.file?("✓ "+(a.file.name||"captura")):"Captura de la respuesta del vendedor *"}</div>
+                <div style={{fontSize:11.5,color:B.grey4}}>Pégala aquí (clic y Cmd+V / Ctrl+V) o elige el archivo · imagen o PDF, máx. 10 MB</div>
+                <label style={{display:"inline-block",marginTop:6,...bB("#fff",B.navy,B.grey2),cursor:"pointer"}}>📎 {a.file?"Cambiar archivo":"Elegir archivo"}<input data-co-acepv-file type="file" accept="image/*,application/pdf" style={{display:"none"}} onChange={e=>{ const fl=e.target.files&&e.target.files[0]; e.target.value=""; ponFile(fl); }}/></label>
+              </div></div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:8,marginTop:9}}>
+              <div><label style={lbS}>Quién aceptó (vendedor)</label><input style={inS} value={a.nombre} onChange={e=>setAcepV({...a,nombre:e.target.value})}/></div>
+              <div><label style={lbS}>Nota (opcional)</label><input style={inS} placeholder="Ej. Aceptó por WhatsApp el 23 nov" value={a.nota} onChange={e=>setAcepV({...a,nota:e.target.value})}/></div></div>
+            <label style={{display:"flex",gap:8,alignItems:"center",marginTop:9,fontSize:13,fontWeight:700,color:B.navy,cursor:"pointer"}}><input data-co-acepv-ok type="checkbox" checked={!!a.ok} onChange={e=>setAcepV({...a,ok:e.target.checked})} style={{width:17,height:17}}/>Confirmo que el vendedor aceptó la ronda {nA} tal como está ({coMx(r.total)}).</label>
+            <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+              <button data-co-acepv-registrar disabled={busy===c.id+"acepv"||!a.file||!a.ok} onClick={()=>registrarAceptacion(c)} style={{...bB("#15803d","#fff"),opacity:(!a.file||!a.ok)?0.5:1}}>{busy===c.id+"acepv"?"Registrando…":"✅ Registrar aceptación del vendedor"}</button>
+              <button onClick={()=>setAcepV(null)} style={bB("#fff",B.grey5,B.grey2)}>Cancelar</button></div>
+          </div>); })());
       if(c.estado==="contrapropuesta_vendedor"||c.estado==="contrapropuesta_comprador"){ if(cof&&cof.id===c.id) return null;
         const deV=c.estado==="contrapropuesta_vendedor", prev=rs.find(x=>x.ronda===nA-1)||{}, dest=deV?"comprador":"vendedor";
         const dPct=Number(prev.total)?((Number(r.total)-Number(prev.total))/Number(prev.total)*100):null;
@@ -4365,7 +4409,9 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
               return (<div data-co-constancia style={{marginTop:10,border:"1.5px solid #86efac",background:"#fff",borderRadius:10,padding:"9px 12px",fontSize:13,color:B.navy,lineHeight:1.55}}>
                 <div style={{fontSize:10.5,fontWeight:800,letterSpacing:0.8,textTransform:"uppercase",color:"#15803d"}}>🧾 Constancia</div>
                 {fin.comprador_firma_at&&<div>✅ El <b>comprador</b>{fin.comprador_firma_nombre?(" ("+fin.comprador_firma_nombre+")"):""} <b>aceptó {quienF}</b> (ronda {fin.ronda}) y la firmó el <b>{coFH(fin.comprador_firma_at)}</b>{fin.comprador_firma_email?(" · "+fin.comprador_firma_email):""}.</div>}
-                {fin.vendedor_firma_at&&<div>✅ El <b>vendedor</b>{fin.vendedor_firma_nombre?(" ("+fin.vendedor_firma_nombre+")"):""} la firmó el <b>{coFH(fin.vendedor_firma_at)}</b>.</div>}
+                {fin.vendedor_firma_at&&(fin.vendedor_acepto_via==="grupo_guia"
+                  ?<div>✅ El <b>vendedor</b>{fin.vendedor_firma_nombre?(" ("+fin.vendedor_firma_nombre+")"):""} <b>aceptó por WhatsApp/correo</b>; lo registró <b>{fin.vendedor_registro_por||"Grupo Guía"}</b> el <b>{coFH(fin.vendedor_firma_at)}</b>{fin.vendedor_nota?(" · "+fin.vendedor_nota):""}.{fin.vendedor_evidencia&&fin.vendedor_evidencia.path&&<button onClick={()=>verEvidencia(fin.vendedor_evidencia)} style={{marginLeft:8,border:"1px solid #86efac",background:"#f0fdf4",color:"#15803d",borderRadius:7,padding:"1px 8px",fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📎 Ver evidencia</button>}</div>
+                  :<div>✅ El <b>vendedor</b>{fin.vendedor_firma_nombre?(" ("+fin.vendedor_firma_nombre+")"):""} la firmó el <b>{coFH(fin.vendedor_firma_at)}</b>.</div>)}
                 <div>✅ Total {coMxC(fin.total)} · {fl(fin.forma_pago)}{coLineasDe(fin,c.apartado)?(" en "+coLineasDe(fin,c.apartado).length+" pagos"):""}.</div>
                 {avAt?<div style={{color:"#15803d"}}>📧 Solicitud de documentos enviada en automático al comprador{c.comprador_email?(" ("+c.comprador_email+")"):""} el <b>{coFH(avAt)}</b>.</div>
                   :(c.comprador_email?<div style={{color:"#b45309"}}>📧 La solicitud automática de documentos al comprador ({c.comprador_email}) aún no aparece registrada: mándale su liga con los botones de abajo.</div>
@@ -4388,7 +4434,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
       const pago=L?(L.map((y,i)=>{ const md=coMedioTxt(y); return "("+(i+1)+") "+y.c+", "+String(y.w||"").replace(/^./,m=>m.toLowerCase())+": "+coMxC(y.m)+(md?(" "+md):""); }).join(" · ")):(()=>{ const t0=coClausula3(x); return t0.length>200?t0.slice(0,200)+"…":t0; })();
       const fC=x.comprador_firma_at?chip((x.propone==="vendedor"?"✓ Comprador aceptó ":"✓ Comprador firmó ")+fH(x.comprador_firma_at),"ok","c"):(s?chip("↪ Comprador no firmó","cp","c"):chip("⏳ Comprador","pe","c"));
       const fG=(c.gg_firma_at&&x.comprador_firma_at)?chip("✓ Grupo Guía recibió","ok","g"):chip("⏳ Grupo Guía","pe","g");
-      const fV=x.vendedor_firma_at?chip(x.propone==="vendedor"?"✓ Vendedor la firmó":"✓ Vendedor aceptó","ok","v"):(s?chip(s.propone==="vendedor"?"↪ Vendedor pidió cambios":"↪ Vendedor","cp","v"):chip("⏳ Vendedor","pe","v"));
+      const fV=x.vendedor_firma_at?chip(x.propone==="vendedor"?"✓ Vendedor la firmó":(x.vendedor_acepto_via==="grupo_guia"?("✓ Vendedor aceptó "+fH(x.vendedor_firma_at)+" · registrado por Grupo Guía"):"✓ Vendedor aceptó"),"ok","v"):(s?chip(s.propone==="vendedor"?"↪ Vendedor pidió cambios":"↪ Vendedor","cp","v"):chip("⏳ Vendedor","pe","v"));
       return (<div key={x.ronda} data-co-ronda={x.ronda} style={{border:act?"1.5px solid "+B.gold:"1px solid "+B.grey1,background:act?"#fffdf5":"#fff",borderRadius:10,padding:"9px 12px",display:"grid",gridTemplateColumns:"auto 1fr auto",gap:"5px 12px",alignItems:"center",marginBottom:7}}>
         <span style={{background:act?B.navy:B.grey4,color:"#fff",borderRadius:7,padding:"3px 9px",fontSize:12,fontWeight:900,letterSpacing:0.5,whiteSpace:"nowrap"}}>{coEsResp(c)&&act?("RESPUESTA A R"+(x.ronda-1)):("RONDA "+x.ronda)}</span>
         <div style={{fontSize:13.5,color:B.navy}}>{quien} · {fH(x.created_at||c.created_at)} · <b>{coMx(x.precio_m2)}/m² · {coMx(x.total)}</b> <span style={{color:B.grey4}}>· {fl(x.forma_pago)}</span></div>
@@ -4396,6 +4442,7 @@ function CartasOfertaPanel({ cap, lote, onToast, onNueva, todas, filtro, onLista
         {act&&<div style={{gridColumn:"2 / 4",fontSize:12.5,color:B.grey5,background:"#fbfaf6",borderLeft:"3px solid "+B.gold,borderRadius:"0 7px 7px 0",padding:"5px 9px"}}><b>Forma de pago:</b> {pago}</div>}
         <div style={{gridColumn:"2 / 4",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>{fC}{fG}{fV}
           {x.nota_interna&&<span title="Nota interna (solo equipo)" style={{fontSize:11,color:"#b45309"}}>🔒 {x.nota_interna}</span>}
+          {x.vendedor_evidencia&&x.vendedor_evidencia.path&&<button data-co-evidencia={x.ronda} onClick={()=>verEvidencia(x.vendedor_evidencia)} title={"Registró: "+(x.vendedor_registro_por||"—")+(x.vendedor_nota?(" · "+x.vendedor_nota):"")} style={{border:"1px solid #86efac",background:"#f0fdf4",color:"#15803d",borderRadius:7,padding:"2px 8px",fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📎 Ver evidencia</button>}
           <button onClick={()=>pdf({opts:{ronda:x.ronda}})} style={{marginLeft:"auto",border:"none",background:"none",color:"#1d4ed8",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📄 Ver carta</button></div>
       </div>); };
     const masAbierto=masId===c.id;
