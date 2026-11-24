@@ -5310,6 +5310,38 @@ function AccSwitch({on,onClick,disabled}){ return <button onClick={onClick} disa
 async function accLlamarLanding(fn,payload){ const s=await window.sb.auth.getSession(); const tok=s&&s.data&&s.data.session&&s.data.session.access_token; if(!tok) throw new Error("Tu sesión expiró. Vuelve a entrar.");
   const r=await fetch(LANDING_URL+"/.netlify/functions/"+fn,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:tok,...payload})});
   const o=await r.json().catch(()=>({})); if(!r.ok||o.ok===false) throw new Error(o.error||("Error "+r.status)); return o; }
+// 🔗 HUBSPOT · PERFIL DEL INVERSIONISTA (Dirección 2026-11-24). Jerarquía de verdad:
+//   Supabase → HubSpot: TODO el perfil (propiedades "MacroPro · …", solo lectura) · HubSpot → Supabase: SOLO
+//   dueño del lead (hubspot_owner_id) y etapa del deal (dealstage). Lo envía la bandeja hubspot_outbox cada 10 min.
+function AccHubSpot({ onToast }){
+  const toast=onToast||(()=>{});
+  const [ob,setOb]=useState(null), [err,setErr]=useState(""), [busy,setBusy]=useState(""), [res,setRes]=useState(null);
+  const llamar=async(fn,payload)=>{ const s=await window.sb.auth.getSession(); const tok=s&&s.data&&s.data.session&&s.data.session.access_token; if(!tok) throw new Error("Tu sesión expiró. Vuelve a entrar.");
+    const r=await fetch(LANDING_URL+"/.netlify/functions/"+fn,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:tok,...payload})}); return await r.json().catch(()=>({ok:false,error:"Error "+r.status})); };
+  const cargar=async()=>{ try{ const r=await window.sb.from("hubspot_outbox").select("id,cliente_id,motivo,procesado_at,error,intentos,creado_at").order("creado_at",{ascending:false}).limit(300); if(r.error) throw r.error; setOb(r.data||[]); setErr(""); }
+    catch(e){ const m=String((e&&e.message)||e); setOb([]); setErr(/hubspot_outbox|does not exist|schema cache/i.test(m)?"Falta correr supabase/hubspot_bidireccional_fase1_2026-11-24.sql en Supabase.":m); } };
+  React.useEffect(()=>{ cargar(); },[]);
+  const accion=async(k,fn,payload,msg)=>{ setBusy(k); setRes(null);
+    try{ const o=await llamar(fn,payload); setRes({k,o}); toast(o.ok===false?("⚠ "+(o.error||o.motivo||"No se pudo")):msg); }
+    catch(e){ setRes({k,o:{ok:false,error:String((e&&e.message)||e)}}); } finally{ setBusy(""); cargar(); } };
+  const pend=(ob||[]).filter(o=>!o.procesado_at), conErr=(ob||[]).filter(o=>o.error), hechos=(ob||[]).filter(o=>o.procesado_at&&!o.error);
+  const btn=(on)=>({padding:"9px 14px",borderRadius:10,border:on?"none":"1.5px solid "+B.grey2,background:on?B.navy:"#fff",color:on?"#fff":B.navy,fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"});
+  const paso=(n,t,d,b)=>(<div style={{display:"flex",gap:12,alignItems:"flex-start",padding:"12px 0",borderBottom:"1px solid "+B.grey1}}><div style={{width:28,height:28,borderRadius:"50%",background:B.gold,color:B.navy,fontWeight:900,display:"grid",placeItems:"center",flex:"none"}}>{n}</div><div style={{flex:1}}><div style={{fontWeight:800,color:B.navy,fontSize:14}}>{t}</div><div style={{fontSize:12.5,color:B.grey4,marginTop:2}}>{d}</div><div style={{marginTop:8}}>{b}</div></div></div>);
+  const wh=LANDING_URL+"/.netlify/functions/hubspot-webhook";
+  return (<div data-acc-hubspot style={{background:"#fff",border:"1px solid "+B.grey1,borderRadius:14,padding:"16px 18px"}}>
+    <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:800,color:B.navy}}>🔗 HubSpot · Perfil del inversionista</div>
+    <div style={{fontSize:12.5,color:B.grey5,marginTop:4,lineHeight:1.55}}><b>MacroPro es dueño de los datos del terreno</b> (presupuesto, uso, zonas, m², forma de pago): se mandan a HubSpot como propiedades <b>"MacroPro · …"</b> de solo lectura. <b>HubSpot es dueño del estatus del negocio</b>: de allá solo regresan el <b>dueño del lead</b> y la <b>etapa del deal</b>. Nada más.</div>
+    {err&&<div style={{marginTop:10,padding:"9px 12px",border:"1px solid #fcd34d",background:"#fffbeb",borderRadius:10,fontSize:12.5,color:"#92400e"}}>⚠ {err}</div>}
+    <div style={{display:"flex",gap:16,marginTop:12,fontSize:13}}><span>⏳ <b>{pend.length}</b> por enviar</span><span>✅ <b>{hechos.length}</b> enviados</span><span style={{color:conErr.length?B.red:B.grey4}}>⚠ <b>{conErr.length}</b> con aviso</span><button onClick={cargar} style={{...btn(false),padding:"3px 10px",fontSize:12}}>🔄</button></div>
+    {paso(1,"Crear las propiedades en HubSpot","Una sola vez (se puede repetir sin duplicar): crea el grupo \"MacroPro · Perfil del inversionista\" con sus 11 propiedades.",<button data-hs-props disabled={!!busy} onClick={()=>accion("props","hubspot-propiedades",{},"✅ Propiedades listas en HubSpot")} style={btn(true)}>{busy==="props"?"Creando…":"Crear propiedades"}</button>)}
+    {paso(2,"Primera carga: mandar a todos los clientes","Pone en la bandeja a todos los clientes activos con correo y manda el primer bloque. Después se envían solos cada 10 minutos cuando cambia un perfil.",<button data-hs-todos disabled={!!busy||!!err} onClick={async()=>{ if(!window.confirm("¿Mandar el perfil de TODOS los clientes con correo a HubSpot? Se crean los contactos que no existan.")) return; setBusy("todos"); try{ const a=await llamar("hubspot-perfil-push",{todos:true}); if(a.ok===false) throw new Error(a.error||a.motivo); const b=await llamar("hubspot-perfil-push",{}); setRes({k:"todos",o:{...b,encolados:a.encolados}}); toast("📤 "+a.encolados+" clientes en la bandeja"); }catch(e){ setRes({k:"todos",o:{ok:false,error:String((e&&e.message)||e)}}); } finally{ setBusy(""); cargar(); } }} style={btn(false)}>{busy==="todos"?"Enviando…":"Mandar a todos"}</button>)}
+    {paso(3,"Avisos de HubSpot (dueño y etapa)","En HubSpot → tu app privada → Webhooks: URL de destino y suscripciones. Solo estas dos; cualquier otra se ignora.",<div style={{fontSize:12.5,color:B.navy,background:"#f8fafc",border:"1px solid "+B.grey1,borderRadius:10,padding:"8px 11px",lineHeight:1.6}}>URL: <b style={{wordBreak:"break-all"}}>{wh}</b><br/>Suscripción 1: <b>Contacto · cambio de propiedad · hubspot_owner_id</b><br/>Suscripción 2: <b>Negocio · cambio de propiedad · dealstage</b></div>)}
+    <div style={{display:"flex",gap:8,marginTop:12,alignItems:"center",flexWrap:"wrap"}}><button data-hs-ahora disabled={!!busy||!!err} onClick={()=>accion("ahora","hubspot-perfil-push",{},"📤 Bandeja enviada")} style={btn(false)}>{busy==="ahora"?"Enviando…":"📤 Enviar pendientes ahora"}</button><span style={{fontSize:11.5,color:B.grey4}}>(si no, se envían solos cada 10 min)</span></div>
+    {res&&<div data-hs-res style={{marginTop:10,padding:"9px 12px",borderRadius:10,fontSize:12.5,border:"1px solid "+(res.o.ok===false?"#fca5a5":"#86efac"),background:res.o.ok===false?"#fef2f2":"#f0fdf4",color:res.o.ok===false?"#b91c1c":"#15803d"}}>
+      {res.o.ok===false?("⚠ "+(res.o.error||res.o.motivo||"No se pudo")+((res.o.errores||[]).length?(" · "+res.o.errores.map(x=>(x.propiedad||x.cliente||"")+": "+x.error).slice(0,3).join(" | ")):"")):
+        (res.k==="props"?("✅ Grupo: "+res.o.grupo+" · creadas "+(res.o.creadas||[]).length+" · actualizadas "+(res.o.actualizadas||[]).length):("✅ "+(res.o.encolados!=null?(res.o.encolados+" en la bandeja · "):"")+"enviados "+(res.o.enviados||0)+" · contactos nuevos "+(res.o.creados||0)+" · sin correo "+(res.o.sin_correo||0)+((res.o.errores||[]).length?(" · con aviso "+res.o.errores.length):"")))}</div>}
+    {conErr.length>0&&<div style={{marginTop:12}}><div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:1}}>Últimos avisos</div>{conErr.slice(0,8).map(o=><div key={o.id} style={{fontSize:12,padding:"4px 0",borderBottom:"1px dashed "+B.grey1}}><b>{o.cliente_id}</b> · {o.error}{o.procesado_at?"":" · reintento "+o.intentos}</div>)}</div>}
+  </div>); }
 function AccTag({c,children}){ const M={ok:["#dcfce7","#15803d"],wa:["#fef3c7","#b45309"],ba:["#fee2e2","#b91c1c"],gr:["#f1f5f9","#475569"]}; const m=M[c]||M.gr; return <span style={{display:"inline-block",fontSize:11,fontWeight:800,borderRadius:999,padding:"2px 8px",background:m[0],color:m[1],whiteSpace:"nowrap"}}>{children}</span>; }
 // 📨 MANDAR LIGA + CARTA a una persona de un desarrollador (Dirección 2026-11-21): liga de Intelligence y una
 // carta corta y sencilla de cómo funciona ahora su acceso y que seguiremos mejorando. Se arma con SUS datos
@@ -5529,12 +5561,13 @@ function ViewAccesos({ onToast }){
     </div>
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
       <div style={{display:"inline-flex",background:"#fff",border:"1px solid "+B.grey1,borderRadius:12,padding:4,gap:4}}>
-        {[["devs","Desarrolladores",nDev],["duenos","Dueños de terreno",terrenos.length],["asesores","Asesores opcionadores",asesores.length]].map(([v,l,n])=>(
-          <button key={v} onClick={()=>cambiaSub(v)} style={{padding:"8px 14px",borderRadius:9,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:sub===v?B.navy:"transparent",color:sub===v?"#fff":B.grey4}}>{l} <span style={{fontSize:11,opacity:.8}}>({n})</span></button>))}
+        {[["devs","Desarrolladores",nDev],["duenos","Dueños de terreno",terrenos.length],["asesores","Asesores opcionadores",asesores.length],["hubspot","🔗 HubSpot",null]].map(([v,l,n])=>(
+          <button key={v} onClick={()=>cambiaSub(v)} style={{padding:"8px 14px",borderRadius:9,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:sub===v?B.navy:"transparent",color:sub===v?"#fff":B.grey4}}>{l} {n!=null&&<span style={{fontSize:11,opacity:.8}}>({n})</span>}</button>))}
       </div>
       <input value={q} onChange={e=>setQ(e.target.value)} placeholder="🔎 Buscar" style={{padding:"8px 10px",border:"1px solid "+B.grey1,borderRadius:9,fontSize:13,minWidth:200}}/>
     </div>
 
+    {sub==="hubspot"&&<AccHubSpot onToast={toast}/>}
     {sub==="devs"&&(<div style={card}>
       <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",alignItems:"center"}}>
         <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:21,fontWeight:800,color:B.navy}}>Desarrolladores</div><div style={{fontSize:12.5,color:B.grey4}}>Primero se decide por desarrollador (qué ve y quién de su equipo entra); cada persona entra a Intelligence con su correo y solo ve los desarrollos asignados.</div></div>
