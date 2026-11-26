@@ -5359,12 +5359,34 @@ function RcPanel({ acuerdo, rc, contacto, onCambio, onToast }){
   const toast=onToast||(()=>{});
   const [busy,setBusy]=useState("");
   const [pdf,setPdf]=useState("");
+  const [opciones,setOpciones]=useState(null);   // todos los terrenos del convenio (sin doble) · null = cargando/no disponible
+  const [elegidos,setElegidos]=useState(null);   // Set de "tipo:id" elegidos por Dirección
+  const [editando,setEditando]=useState(false);
   const ct=contacto||{};
+  const kT=(t)=>t.tipo+":"+String(t.id).toLowerCase();
+  const pendienteRc=!!rc&&rc.estado==="pendiente";
+  React.useEffect(()=>{ if(!window.sb||!acuerdo||!acuerdo.id) return; if(rc&&!pendienteRc) return; let vivo=true;
+    window.sb.rpc("reconsideracion_opciones",{p_acuerdo:acuerdo.id}).then(({data,error})=>{ if(!vivo) return; if(error||!Array.isArray(data)){ setOpciones(false); return; }
+      setOpciones(data); const base=(rc&&Array.isArray(rc.terrenos))?rc.terrenos:data; setElegidos(new Set(base.map(kT))); }).catch(()=>{ if(vivo) setOpciones(false); });
+    return ()=>{ vivo=false; }; },[acuerdo&&acuerdo.id, rc&&rc.id, rc&&rc.estado, rc&&JSON.stringify((rc.terrenos||[]).map(kT))]);
+  const seleccion=()=>Array.isArray(opciones)?opciones.filter(t=>elegidos&&elegidos.has(kT(t))).map(t=>({tipo:t.tipo,id:t.id})):null;
+  const nSel=Array.isArray(opciones)&&elegidos?opciones.filter(t=>elegidos.has(kT(t))).length:0;
+  const toggle=(t)=>setElegidos(prev=>{ const n=new Set(prev||[]); const k=kT(t); if(n.has(k)) n.delete(k); else n.add(k); return n; });
+  const casillas=()=>Array.isArray(opciones)&&opciones.length>0 ? (<div data-rc-elegir style={{background:"#fff",border:"1px solid #f3e3c0",borderRadius:8,padding:"6px 9px",margin:"6px 0"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:3}}><b style={{fontSize:11.5,color:B.navy}}>¿Qué terrenos entran? ({nSel} de {opciones.length})</b>
+        <span style={{display:"flex",gap:8}}><a onClick={()=>setElegidos(new Set(opciones.map(kT)))} style={{cursor:"pointer",fontSize:11,fontWeight:800,color:"#1d4ed8"}}>Todos</a><a onClick={()=>setElegidos(new Set())} style={{cursor:"pointer",fontSize:11,fontWeight:800,color:B.grey4}}>Ninguno</a></span></div>
+      {opciones.map(t=>(<label key={kT(t)} style={{display:"flex",alignItems:"center",gap:7,fontSize:12,padding:"3px 0",cursor:"pointer"}}><input type="checkbox" data-rc-check={t.id} checked={!!(elegidos&&elegidos.has(kT(t)))} onChange={()=>toggle(t)}/>
+        <span><b style={{color:B.navy}}>{t.nombre||t.id}</b>{t.tipo==="lote"?<span style={{color:B.grey4}}> · corretaje</span>:null}{t.lote_id?<span style={{color:B.grey4}}> · captación y corretaje (es el mismo terreno)</span>:null}</span></label>))}
+    </div>) : null;
+  const guardarTerrenos=async()=>{ if(!window.sb||!rc) return; const sel=seleccion(); if(sel&&!sel.length){ toast("Elige al menos un terreno"); return; } setBusy("terrenos");
+    try{ const {error}=await window.sb.rpc("reconsideracion_set_terrenos",{p_id:rc.id,p_terrenos:sel}); if(error) throw error; toast("✅ Terrenos de la reconsideración actualizados"); setEditando(false); await onCambio(); }
+    catch(e){ toast("⚠ "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
   const fechaC=(iso)=>{ try{ return iso?new Date(iso).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"}):""; }catch(e){ return ""; } };
   const err=(e)=>String((e&&e.message)||e||"").replace(/^.*?:\s*/,"");
   React.useEffect(()=>{ setPdf(""); if(!rc||!rc.pdf_path||!window.sb) return; window.sb.storage.from("acuerdos-comision").createSignedUrl(rc.pdf_path,3600).then(({data})=>setPdf((data&&data.signedUrl)||"")).catch(()=>{}); },[rc&&rc.pdf_path]);
   const crear=async(renovar)=>{ if(!window.sb) return; setBusy("crear");
-    try{ const {data,error}=await window.sb.rpc("reconsideracion_crear",{p_acuerdo:acuerdo.id,p_renovar:!!renovar}); if(error) throw error; toast(renovar?"♻ Liga nueva: 7 días más":"⚖️ Reconsideración lista: mándale la liga"); await onCambio(); }
+    const sel=renovar?null:seleccion(); if(sel&&!sel.length){ toast("Elige al menos un terreno"); setBusy(""); return; }
+    try{ const args={p_acuerdo:acuerdo.id,p_renovar:!!renovar}; if(sel) args.p_terrenos=sel; const {data,error}=await window.sb.rpc("reconsideracion_crear",args); if(error) throw error; toast(renovar?"♻ Liga nueva: 7 días más":"⚖️ Reconsideración lista: mándale la liga"); await onCambio(); }
     catch(e){ const m=err(e); toast(/does not exist|schema cache|reconsideracion_crear/i.test(m)?"⚠ Falta correr supabase/reconsideracion_comision_2026-11-26.sql":("⚠ "+m)); }
     finally{ setBusy(""); } };
   const avisar=async(id)=>{ try{ const {data:s}=await window.sb.auth.getSession(); const tk=s&&s.session&&s.session.access_token; if(!tk) return;
@@ -5381,15 +5403,18 @@ function RcPanel({ acuerdo, rc, contacto, onCambio, onToast }){
   const caja={marginTop:8,border:"1.5px solid #d79f33",background:"#fffaf0",borderRadius:10,padding:"9px 11px",fontSize:12};
   if(!rc) return (<div data-rc-panel style={caja}>
     <div style={{fontWeight:800,color:B.navy,marginBottom:4}}>⚖️ Reconsideración de comisión</div>
-    <div style={{color:B.grey5,marginBottom:7}}>Liga personal de 7 días: la carta completa + sus datos y terrenos ya llenos; elige y firma. Tú aceptas o rechazas terreno por terreno.</div>
-    <button data-rc-crear disabled={!!busy} onClick={()=>crear(false)} style={bt("#d79f33","#2b2005")}>{busy?"Generando…":"⚖️ Reconsideración comisión"}</button></div>);
+    <div style={{color:B.grey5,marginBottom:4}}>Liga personal de 7 días: la carta completa + sus datos y terrenos ya llenos; elige y firma. Tú aceptas o rechazas terreno por terreno.</div>
+    {casillas()}
+    <button data-rc-crear disabled={!!busy||(Array.isArray(opciones)&&nSel===0)} onClick={()=>crear(false)} style={bt("#d79f33","#2b2005")}>{busy?"Generando…":("⚖️ Reconsideración comisión"+(Array.isArray(opciones)?(" · "+nSel+" terreno"+(nSel===1?"":"s")):""))}</button></div>);
   const url=LANDING_URL+"/reconsideracion/"+rc.token;
   const nom=String(acuerdo.asesor_nombre||"").trim().split(/\s+/)[0];
   const vencida=rc.estado==="pendiente"&&rc.vence_at&&new Date(rc.vence_at)<new Date();
   const ter=Array.isArray(rc.terrenos)?rc.terrenos:[];
   if(rc.estado==="pendiente") return (<div data-rc-panel style={caja}>
     <div style={{fontWeight:800,color:B.navy}}>⚖️ Reconsideración {rc.folio} · <span style={{color:vencida?B.red:"#b45309"}}>{vencida?("venció el "+fechaC(rc.vence_at)):("por firmar · vence "+fechaC(rc.vence_at))}</span></div>
-    <div style={{color:B.grey5,margin:"3px 0 7px"}}>Cubre {ter.length} terreno{ter.length===1?"":"s"}. Mientras no firme, todo sigue en 60/40.</div>
+    <div style={{color:B.grey5,margin:"3px 0 5px"}}>Incluye {ter.length} terreno{ter.length===1?"":"s"}: <b style={{color:B.navy}}>{ter.map(t=>t.nombre||t.id).join(" · ")}</b>. Mientras no firme, todo sigue en 60/40.
+      {Array.isArray(opciones)&&!editando&&<a data-rc-editar onClick={()=>setEditando(true)} style={{marginLeft:8,cursor:"pointer",fontWeight:800,color:"#1d4ed8"}}>✏️ Cambiar terrenos</a>}</div>
+    {editando&&<React.Fragment>{casillas()}<div style={{display:"flex",gap:6,marginBottom:7}}><button data-rc-guardar-terrenos disabled={!!busy||nSel===0} onClick={guardarTerrenos} style={bt(B.navy,"#fff")}>{busy==="terrenos"?"Guardando…":"Guardar ("+nSel+")"}</button><button onClick={()=>setEditando(false)} style={bt("#fff",B.grey4,B.grey2)}>Cancelar</button></div></React.Fragment>}
     {vencida
       ? <button disabled={!!busy} onClick={()=>crear(true)} style={bt(B.navy,"#fff")}>{busy?"…":"♻ Liga nueva (7 días más)"}</button>
       : <ShareButtons chico url={url} etiqueta="📨 Mandar la liga de reconsideración" telefono={ct.telefono} email={ct.email} onToast={toast}
@@ -24323,7 +24348,7 @@ Respuesta: [respuesta exacta, conversacional]
     const envioDe=(nombre)=>{ const a=acuerdoDeAsesor(nombre); if(!a) return null; return {folio:a.folio||"",fecha:fmtFecha(a.liga_enviada_at||a.creado_at||a.created_at),terrenoId:(a.captacion_id!=null&&a.captacion_id!=="")?String(a.captacion_id):((a.lote_id!=null&&a.lote_id!=="")?("lote:"+idLote(a.lote_id)):"")}; };
     // Reconsideración del convenio y decisión de Dirección para ESTE terreno.
     const rcDe=(a)=>(a&&a.id)?(rcs||[]).find(r=>r&&r.acuerdo_id===a.id&&r.estado!=="anulada")||null:null;
-    const rcDecDe=(a,c)=>{ const r=rcDe(a); if(!r||!c||!Array.isArray(r.terrenos)) return null; const lt=c.__lote; const t=r.terrenos.find(x=>x&&(lt?(x.tipo==="lote"&&String(x.id).toLowerCase()===String(lt.id||"").toLowerCase()):(x.tipo==="captacion"&&String(x.id)===String(c.id)))); return t?{r,t}:null; };
+    const rcDecDe=(a,c)=>{ const r=rcDe(a); if(!r||!c||!Array.isArray(r.terrenos)) return null; const lt=c.__lote; const t=r.terrenos.find(x=>x&&(lt?((x.tipo==="lote"&&String(x.id).toLowerCase()===String(lt.id||"").toLowerCase())||(x.lote_id&&String(x.lote_id).toLowerCase()===String(lt.id||"").toLowerCase())):(x.tipo==="captacion"&&String(x.id)===String(c.id)))); return t?{r,t}:null; };
     const pillConv=(a,c)=>{ const esq=esqTxt(a,c); const forz=a&&a.estado==="forzado_6040";
       const rd=forz?rcDecDe(a,c):null;
       if(rd&&rd.t.decision==="aceptado"&&rd.r.esquema) return <span title={"Reconsideración "+rd.r.folio+" aceptada por Dirección"} style={/^100/.test(rd.r.esquema)?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>✓ {rd.r.esquema} por reconsideración · {rd.r.folio}</span>;
