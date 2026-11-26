@@ -25139,6 +25139,7 @@ Respuesta: [respuesta exacta, conversacional]
                       <div style={{fontSize:11,color:B.grey3,marginTop:8}}>El recordatorio automático sale solo cada 2 días; estos botones son para mandarlo a mano.</div>
                     </div>
                   )}
+                  {a.estado==="forzado_6040" && <RcPanel acuerdo={a} rc={rcDe(a)} contacto={contactoDe(sa.nombre)} onCambio={recargar} onToast={toast}/>}
                   {(comsAcuerdo[a.id]||[]).length>0 && (
                     <div style={{borderTop:"1px dashed "+B.grey1,padding:"8px 14px",background:"#f8fafc",fontSize:11.5,color:B.grey5,borderRadius:"0 0 12px 12px"}}>
                       📜 {(comsAcuerdo[a.id]||[]).map((c)=>("Comunicado oficial de política enviado el "+fAMD(c.enviado_at)+(c.canal&&c.canal!=="ninguno"?(" · "+c.canal):""))).join("  ·  ")}
