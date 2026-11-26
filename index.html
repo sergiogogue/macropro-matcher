@@ -5264,7 +5264,7 @@ const MP_FA_BUSY = { ase:{}, bulk:"" };
 function mpFaBusy(k){ return k ? (MP_FA_BUSY.ase[k]||"") : ""; }
 function mpFaBusySet(k,v){ if(!k) return; if(v) MP_FA_BUSY.ase[k]=v; else delete MP_FA_BUSY.ase[k]; try{ window.dispatchEvent(new CustomEvent("mp-fa-busy")); }catch(e){} }
 function mpFaBulkSet(v){ MP_FA_BUSY.bulk=v||""; try{ window.dispatchEvent(new CustomEvent("mp-fa-busy")); }catch(e){} }
-const MP_FA_CACHE = { acuerdos:null, cots:null };
+const MP_FA_CACHE = { acuerdos:null, cots:null, rc:null };
 // Estados que CIERRAN el convenio: firmado/validado por el asesor, o 60/40 aplicado por política
 // tras 5 recordatorios sin firma (forzado_6040: tiene PDF pero NO lleva firma del asesor).
 const MP_AC_CERRADOS = ["firmado","validado","forzado_6040"];
@@ -5351,6 +5351,68 @@ function AccHubSpot({ onToast }){
         (res.o.enCurso?("⏳ Enviando… "+res.o.enviados+" enviados · quedan "+(res.o.restantes??"?")):res.k==="props"?("✅ Grupo: "+res.o.grupo+" · creadas "+(res.o.creadas||[]).length+" · actualizadas "+(res.o.actualizadas||[]).length):("✅ "+(res.o.encolados!=null?(res.o.encolados+" en la bandeja · "):"")+"enviados "+(res.o.enviados||0)+" · contactos nuevos "+(res.o.creados||0)+" · sin correo "+(res.o.sin_correo||0)+((res.o.errores||[]).length?(" · con aviso "+res.o.errores.length):"")+(res.o.restantes?(" · quedan "+res.o.restantes+" (se reintentan solos cada 10 min)"):"")))}</div>}
     {conErr.length>0&&<div style={{marginTop:12}}><div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:1}}>Últimos avisos</div>{conErr.slice(0,8).map(o=><div key={o.id} style={{fontSize:12,padding:"4px 0",borderBottom:"1px dashed "+B.grey1}}><b>{o.cliente_id}</b> · {o.error}{o.procesado_at?"":" · reintento "+o.intentos}</div>)}</div>}
   </div>); }
+// ⚖️ RECONSIDERACIÓN DE COMISIÓN (Dirección 2026-11-26) · para convenios en 60/40 por política.
+// Una sola liga personal (7 días) /reconsideracion/<token> en la Landing: la carta + sus datos y terrenos ya llenos;
+// el asesor elige y firma. Lo firmado cubre todos sus terrenos, pero DIRECCIÓN acepta o rechaza TERRENO POR TERRENO
+// aquí (RPC reconsideracion_decidir). Al decidir todos, se le avisa el resultado (función reconsideracion-avisar).
+function RcPanel({ acuerdo, rc, contacto, onCambio, onToast }){
+  const toast=onToast||(()=>{});
+  const [busy,setBusy]=useState("");
+  const [pdf,setPdf]=useState("");
+  const ct=contacto||{};
+  const fechaC=(iso)=>{ try{ return iso?new Date(iso).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"}):""; }catch(e){ return ""; } };
+  const err=(e)=>String((e&&e.message)||e||"").replace(/^.*?:\s*/,"");
+  React.useEffect(()=>{ setPdf(""); if(!rc||!rc.pdf_path||!window.sb) return; window.sb.storage.from("acuerdos-comision").createSignedUrl(rc.pdf_path,3600).then(({data})=>setPdf((data&&data.signedUrl)||"")).catch(()=>{}); },[rc&&rc.pdf_path]);
+  const crear=async(renovar)=>{ if(!window.sb) return; setBusy("crear");
+    try{ const {data,error}=await window.sb.rpc("reconsideracion_crear",{p_acuerdo:acuerdo.id,p_renovar:!!renovar}); if(error) throw error; toast(renovar?"♻ Liga nueva: 7 días más":"⚖️ Reconsideración lista: mándale la liga"); await onCambio(); }
+    catch(e){ const m=err(e); toast(/does not exist|schema cache|reconsideracion_crear/i.test(m)?"⚠ Falta correr supabase/reconsideracion_comision_2026-11-26.sql":("⚠ "+m)); }
+    finally{ setBusy(""); } };
+  const avisar=async(id)=>{ try{ const {data:s}=await window.sb.auth.getSession(); const tk=s&&s.session&&s.session.access_token; if(!tk) return;
+      const r=await fetch(LANDING_URL+"/.netlify/functions/reconsideracion-avisar",{method:"POST",headers:{"content-type":"application/json",Authorization:"Bearer "+tk},body:JSON.stringify({id})});
+      const o=await r.json().catch(()=>({})); if(o&&o.ok&&!o.ya) toast("📨 Resultado enviado al asesor"+(o.correo_enviado?" por correo":"")+(o.whatsapp?" y WhatsApp":"")); else if(o&&o.error) toast("⚠ Aviso: "+o.error); }catch(e){ toast("⚠ No se pudo avisar al asesor: "+err(e)); } };
+  const decidir=async(t,dec)=>{ if(!window.sb) return; let nota=null;
+    if(dec==="rechazado"){ nota=window.prompt("¿Por qué se mantiene en 60/40 «"+(t.nombre||t.id)+"»? (opcional, lo verá el asesor)",""); if(nota===null) return; }
+    setBusy(t.tipo+":"+t.id);
+    try{ const {data,error}=await window.sb.rpc("reconsideracion_decidir",{p_id:rc.id,p_tipo:t.tipo,p_terreno:String(t.id),p_decision:dec,p_nota:nota||null}); if(error) throw error;
+      toast(dec==="aceptado"?("✅ "+(t.nombre||"Terreno")+" queda en "+rc.esquema):(dec==="rechazado"?("↩ "+(t.nombre||"Terreno")+" sigue en 60/40"):"Decisión quitada"));
+      await onCambio(); if(data&&data.estado==="resuelta"&&!data.resultado_avisado_at) await avisar(rc.id);
+    }catch(e){ toast("⚠ "+err(e)); } finally{ setBusy(""); } };
+  const bt=(bg,fg,brd)=>({padding:"4px 10px",borderRadius:8,border:brd?("1.5px solid "+brd):"none",background:bg,color:fg,fontSize:11.5,fontWeight:800,cursor:busy?"wait":"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+  const caja={marginTop:8,border:"1.5px solid #d79f33",background:"#fffaf0",borderRadius:10,padding:"9px 11px",fontSize:12};
+  if(!rc) return (<div data-rc-panel style={caja}>
+    <div style={{fontWeight:800,color:B.navy,marginBottom:4}}>⚖️ Reconsideración de comisión</div>
+    <div style={{color:B.grey5,marginBottom:7}}>Liga personal de 7 días: la carta completa + sus datos y terrenos ya llenos; elige y firma. Tú aceptas o rechazas terreno por terreno.</div>
+    <button data-rc-crear disabled={!!busy} onClick={()=>crear(false)} style={bt("#d79f33","#2b2005")}>{busy?"Generando…":"⚖️ Reconsideración comisión"}</button></div>);
+  const url=LANDING_URL+"/reconsideracion/"+rc.token;
+  const nom=String(acuerdo.asesor_nombre||"").trim().split(/\s+/)[0];
+  const vencida=rc.estado==="pendiente"&&rc.vence_at&&new Date(rc.vence_at)<new Date();
+  const ter=Array.isArray(rc.terrenos)?rc.terrenos:[];
+  if(rc.estado==="pendiente") return (<div data-rc-panel style={caja}>
+    <div style={{fontWeight:800,color:B.navy}}>⚖️ Reconsideración {rc.folio} · <span style={{color:vencida?B.red:"#b45309"}}>{vencida?("venció el "+fechaC(rc.vence_at)):("por firmar · vence "+fechaC(rc.vence_at))}</span></div>
+    <div style={{color:B.grey5,margin:"3px 0 7px"}}>Cubre {ter.length} terreno{ter.length===1?"":"s"}. Mientras no firme, todo sigue en 60/40.</div>
+    {vencida
+      ? <button disabled={!!busy} onClick={()=>crear(true)} style={bt(B.navy,"#fff")}>{busy?"…":"♻ Liga nueva (7 días más)"}</button>
+      : <ShareButtons chico url={url} etiqueta="📨 Mandar la liga de reconsideración" telefono={ct.telefono} email={ct.email} onToast={toast}
+          asunto={"Reconsideración de tu comisión · "+(acuerdo.folio||"")+" · Grupo Guía Macrolotes"}
+          mensaje={"Hola"+(nom?" "+nom:"")+", tu convenio "+(acuerdo.folio||"")+" quedó en 60/40 por política porque no se firmó a tiempo. Te damos una oportunidad de reconsiderarlo: lee la carta completa y elige y firma tu esquema aquí (vence el "+fechaC(rc.vence_at)+"): "+url}/>}
+  </div>);
+  const n=(d)=>ter.filter(t=>(t.decision||"pendiente")===d).length;
+  return (<div data-rc-panel style={caja}>
+    <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+      <div style={{fontWeight:800,color:B.navy}}>⚖️ Reconsideración {rc.folio} · firmó <span style={{color:/100/.test(rc.esquema||"")?"#b07d2b":B.green}}>{rc.esquema}</span> el {fechaC(rc.firmado_at)}</div>
+      {pdf&&<a href={pdf} target="_blank" rel="noopener noreferrer" style={{fontSize:11.5,fontWeight:800,color:"#1d4ed8"}}>📄 PDF ↗</a>}</div>
+    <div style={{color:B.grey5,margin:"3px 0 6px"}}>{rc.estado==="resuelta"?("✓ Resuelta: "+n("aceptado")+" aceptado(s), "+n("rechazado")+" en 60/40"+(rc.resultado_avisado_at?" · ya se le avisó":"")):("Decide terreno por terreno · faltan "+n("pendiente"))}</div>
+    {ter.map(t=>{ const d=t.decision||"pendiente"; const k=t.tipo+":"+t.id; return (
+      <div key={k} data-rc-ter={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap",borderTop:"1px solid #f3e3c0",padding:"6px 0"}}>
+        <span><b style={{color:B.navy}}>{t.nombre||t.id}</b>{t.tipo==="lote"&&<span style={{fontSize:10,color:B.grey4}}> · corretaje</span>}
+          {d!=="pendiente"&&<span style={{marginLeft:6,fontWeight:800,color:d==="aceptado"?B.green:"#b45309"}}>{d==="aceptado"?("✓ "+rc.esquema):"60/40"}{t.nota?<span style={{fontWeight:500,color:B.grey4}}> · {t.nota}</span>:null}</span>}</span>
+        <span style={{display:"flex",gap:5}}>
+          {d!=="aceptado"&&<button data-rc-aceptar disabled={!!busy} onClick={()=>decidir(t,"aceptado")} style={bt(B.green,"#fff")}>{busy===k?"…":("✓ Aceptar "+rc.esquema)}</button>}
+          {d!=="rechazado"&&<button data-rc-mantener disabled={!!busy} onClick={()=>decidir(t,"rechazado")} style={bt("#fff","#b45309","#b45309")}>{busy===k?"…":"Mantener 60/40"}</button>}
+        </span></div>); })}
+    {rc.estado==="resuelta"&&rc.resultado_avisado_at==null&&<button onClick={()=>avisar(rc.id)} style={{...bt(B.navy,"#fff"),marginTop:6}}>📨 Avisarle el resultado</button>}
+  </div>);
+}
 function AccTag({c,children}){ const M={ok:["#dcfce7","#15803d"],wa:["#fef3c7","#b45309"],ba:["#fee2e2","#b91c1c"],gr:["#f1f5f9","#475569"]}; const m=M[c]||M.gr; return <span style={{display:"inline-block",fontSize:11,fontWeight:800,borderRadius:999,padding:"2px 8px",background:m[0],color:m[1],whiteSpace:"nowrap"}}>{children}</span>; }
 // 📨 MANDAR LIGA + CARTA a una persona de un desarrollador (Dirección 2026-11-21): liga de Intelligence y una
 // carta corta y sencilla de cómo funciona ahora su acceso y que seguiremos mejorando. Se arma con SUS datos
@@ -23749,6 +23811,8 @@ Respuesta: [respuesta exacta, conversacional]
     // en cada re-montaje; recargar() trae lo fresco de la base y actualiza la caché.
     const [acuerdos,setAcuerdosRaw]=React.useState(()=>MP_FA_CACHE.acuerdos||[]);
     const setAcuerdos=(fn)=>setAcuerdosRaw(prev=>{ const n=(typeof fn==="function")?fn(prev):fn; MP_FA_CACHE.acuerdos=n; return n; });
+    // ⚖️ Reconsideraciones (convenios en 60/40 por política). Si aún no se corre el SQL, queda vacío.
+    const [rcs,setRcs]=React.useState(()=>MP_FA_CACHE.rc||[]);
     const [cots,setCots]=React.useState(()=>MP_FA_CACHE.cots||[]);
     const [cargando,setCargando]=React.useState(()=>!MP_FA_CACHE.acuerdos);
     // Banderas "en curso" a nivel módulo (MP_FA_BUSY): este tick solo re-pinta cuando cambian.
@@ -23799,6 +23863,8 @@ Respuesta: [respuesta exacta, conversacional]
         if(ac&&!ac.error&&Array.isArray(ac.data)){ const lst=ac.data.filter(a=>a&&a.estado!=="anulado"); MP_FA_CACHE.acuerdos=lst; setAcuerdosRaw(lst); }
         if(ct&&!ct.error&&Array.isArray(ct.data)){ MP_FA_CACHE.cots=ct.data; setCots(ct.data); }
       }catch(e){}
+      try{ const rr=await window.sb.from("acuerdos_reconsideracion").select("id,acuerdo_id,folio,token,estado,esquema,terrenos,vence_at,firmado_at,firma_nombre,pdf_path,resuelta_at,resultado_avisado_at,creado_at").neq("estado","anulada");
+        if(rr&&!rr.error&&Array.isArray(rr.data)){ MP_FA_CACHE.rc=rr.data; setRcs(rr.data); } }catch(e){}
       setCargando(false);
     },[]);
     React.useEffect(()=>{ recargar(); },[recargar]);
@@ -24255,7 +24321,13 @@ Respuesta: [respuesta exacta, conversacional]
     const fmtFecha=(iso)=>{ if(!iso) return ""; try{ return new Date(iso).toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"}); }catch(e){ return ""; } };
     // Envío del asesor: folio + fecha del PRIMER envío de la liga (o de creación) + a qué terreno quedó ligado.
     const envioDe=(nombre)=>{ const a=acuerdoDeAsesor(nombre); if(!a) return null; return {folio:a.folio||"",fecha:fmtFecha(a.liga_enviada_at||a.creado_at||a.created_at),terrenoId:(a.captacion_id!=null&&a.captacion_id!=="")?String(a.captacion_id):((a.lote_id!=null&&a.lote_id!=="")?("lote:"+idLote(a.lote_id)):"")}; };
+    // Reconsideración del convenio y decisión de Dirección para ESTE terreno.
+    const rcDe=(a)=>(a&&a.id)?(rcs||[]).find(r=>r&&r.acuerdo_id===a.id&&r.estado!=="anulada")||null:null;
+    const rcDecDe=(a,c)=>{ const r=rcDe(a); if(!r||!c||!Array.isArray(r.terrenos)) return null; const lt=c.__lote; const t=r.terrenos.find(x=>x&&(lt?(x.tipo==="lote"&&String(x.id).toLowerCase()===String(lt.id||"").toLowerCase()):(x.tipo==="captacion"&&String(x.id)===String(c.id)))); return t?{r,t}:null; };
     const pillConv=(a,c)=>{ const esq=esqTxt(a,c); const forz=a&&a.estado==="forzado_6040";
+      const rd=forz?rcDecDe(a,c):null;
+      if(rd&&rd.t.decision==="aceptado"&&rd.r.esquema) return <span title={"Reconsideración "+rd.r.folio+" aceptada por Dirección"} style={/^100/.test(rd.r.esquema)?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>✓ {rd.r.esquema} por reconsideración · {rd.r.folio}</span>;
+      if(rd&&rd.r.estado==="firmada"&&(rd.t.decision||"pendiente")==="pendiente") return <span title="El asesor firmó su reconsideración: decide este terreno en su tarjeta" style={{background:"#fff7ed",color:"#b45309",border:"1px dashed #f59e0b",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>⚖️ 60/40 · reconsideración por decidir</span>;
       if(forz) return <span title="Cerrado por política tras 5 recordatorios sin firma (no lo firmó el asesor)" style={{background:"#fff7ed",color:"#b45309",border:"1px solid #fdba74",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>⚖️ 60/40 por política{a.folio?(" · "+a.folio):""}</span>;
       return <span style={/^100\s*\/\s*0$/.test(esq||"")?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>✓ {(a&&a.folio)||"Firmado"}{esq?(" · esquema "+esq):""}{(a&&a.estado==="validado")?" · validado":""}</span>; };
 
@@ -24347,6 +24419,7 @@ Respuesta: [respuesta exacta, conversacional]
       // ✅ Firmado
       const c2=porAsesor(g2).map((g,gi)=>{ const a0=acuerdoFirmadoDe(g.items[0]); return tarjeta("s2-"+gi,<React.Fragment>
         {titAse(g.nombre,g.items.length+" terreno"+(g.items.length===1?"":"s"),a0&&a0.folio?<span style={{display:"inline-block",fontSize:9,fontWeight:800,borderRadius:5,padding:"1px 6px",marginBottom:4,color:"#15803d",background:"#ecfdf3",border:"1px solid #86efac"}}>{a0.folio}</span>:null)}
+        {a0&&a0.estado==="forzado_6040"&&<RcPanel acuerdo={a0} rc={rcDe(a0)} contacto={contactoDe(g.nombre)} onCambio={recargar} onToast={toast}/>}
         {g.items.map(c=>filaT(c,<span style={{marginLeft:6}}>{pillConv(acuerdoFirmadoDe(c),c)}</span>,<React.Fragment>{shAse(c)}{btnBorrar(c)}</React.Fragment>))}
       </React.Fragment>); });
       const columna=(key,titulo,fg,bgc,bd,count,vacioTxt,cards,extra)=>(
