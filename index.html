@@ -5351,6 +5351,57 @@ function AccHubSpot({ onToast }){
         (res.o.enCurso?("⏳ Enviando… "+res.o.enviados+" enviados · quedan "+(res.o.restantes??"?")):res.k==="props"?("✅ Grupo: "+res.o.grupo+" · creadas "+(res.o.creadas||[]).length+" · actualizadas "+(res.o.actualizadas||[]).length):("✅ "+(res.o.encolados!=null?(res.o.encolados+" en la bandeja · "):"")+"enviados "+(res.o.enviados||0)+" · contactos nuevos "+(res.o.creados||0)+" · sin correo "+(res.o.sin_correo||0)+((res.o.errores||[]).length?(" · con aviso "+res.o.errores.length):"")+(res.o.restantes?(" · quedan "+res.o.restantes+" (se reintentan solos cada 10 min)"):"")))}</div>}
     {conErr.length>0&&<div style={{marginTop:12}}><div style={{fontSize:11,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:1}}>Últimos avisos</div>{conErr.slice(0,8).map(o=><div key={o.id} style={{fontSize:12,padding:"4px 0",borderBottom:"1px dashed "+B.grey1}}><b>{o.cliente_id}</b> · {o.error}{o.procesado_at?"":" · reintento "+o.intentos}</div>)}</div>}
   </div>); }
+// Manda la liga de reconsideración desde el servidor (WhatsApp del chatbot + correo). Respeta la lista de Dirección.
+async function rcEnviarServidor(ids){
+  const {data:s}=await window.sb.auth.getSession(); const tk=s&&s.session&&s.session.access_token; if(!tk) throw new Error("Tu sesión venció: vuelve a entrar.");
+  const r=await fetch(LANDING_URL+"/.netlify/functions/reconsideracion-enviar",{method:"POST",headers:{"content-type":"application/json",Authorization:"Bearer "+tk},body:JSON.stringify({ids})});
+  const o=await r.json().catch(()=>({})); if(!r.ok||!o.ok) throw new Error(o.error||("Error "+r.status)); return o.resultados||[];
+}
+const MP_RC_RES={}; // resultado del último envío por reconsideración (sobrevive a los re-montajes de la vista)
+const rcFecha=(iso)=>{ try{ return iso?new Date(iso).toLocaleDateString("es-MX",{day:"numeric",month:"short"}):""; }catch(e){ return ""; } };
+// ⚖️ Todas las reconsideraciones de una vez (Asesores → Todos): generar las que faltan y mandarlas.
+function RcMasivo({ acuerdos, rcs, onCambio, onToast }){
+  const toast=onToast||(()=>{});
+  const [busy,setBusy]=useState(""); const [res,setRes]=useState(()=>({...MP_RC_RES}));
+  const lista=(acuerdos||[]).filter(a=>a&&a.estado==="forzado_6040").sort((x,y)=>String(x.asesor_nombre||"").localeCompare(String(y.asesor_nombre||"")));
+  if(!lista.length) return null;
+  const rcDeA=(a)=>(rcs||[]).find(r=>r&&r.acuerdo_id===a.id&&r.estado!=="anulada")||null;
+  const vencida=(r)=>r&&r.estado==="pendiente"&&new Date(r.vence_at)<new Date();
+  const faltan=lista.filter(a=>!rcDeA(a));
+  const porMandar=lista.map(rcDeA).filter(r=>r&&r.estado==="pendiente"&&!vencida(r));
+  const generar=async()=>{ if(!faltan.length) return; if(!window.confirm("¿Generar la reconsideración de "+faltan.length+" asesor(es)?\n\n"+faltan.map(a=>"• "+(a.asesor_nombre||a.asesor_email)).join("\n")+"\n\nSe generan con TODOS sus terrenos (sin contar doble). Antes de mandarlas puedes quitar terrenos en la tarjeta de cada asesor. Todavía NO se manda nada.")) return;
+    setBusy("gen"); let ok=0; const mal=[];
+    for(const a of faltan){ try{ const {error}=await window.sb.rpc("reconsideracion_crear",{p_acuerdo:a.id,p_renovar:false}); if(error) throw error; ok++; }catch(e){ mal.push((a.asesor_nombre||a.folio)+": "+String((e&&e.message)||e)); } }
+    setBusy(""); await onCambio(); toast("⚖️ "+ok+" reconsideración(es) generada(s)"+(mal.length?(" · no se pudo: "+mal.join(" | ")):"")); };
+  const mandar=async(rows)=>{ if(!rows.length) return; if(!window.confirm("¿Mandar la liga de reconsideración por WhatsApp (chatbot) y correo a "+rows.length+" asesor(es)?\n\n"+rows.map(r=>"• "+((lista.find(a=>a.id===r.acuerdo_id)||{}).asesor_nombre||r.folio)+" · "+((r.terrenos||[]).length)+" terreno(s)").join("\n"))) return;
+    setBusy("env"); try{ const out=await rcEnviarServidor(rows.map(r=>r.id)); const m={}; out.forEach(x=>{ m[x.id]=x; MP_RC_RES[x.id]=x; }); setRes(prev=>({...prev,...m}));
+      const bien=out.filter(x=>x.whatsapp||x.correo).length; toast("📨 Enviadas: "+bien+" de "+out.length+(out.length>bien?" · revisa los avisos en la lista":"")); await onCambio(); }
+    catch(e){ toast("⚠ "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
+  const bt=(bg,fg,brd)=>({padding:"6px 12px",borderRadius:8,border:brd?("1.5px solid "+brd):"none",background:bg,color:fg,fontSize:12,fontWeight:800,cursor:busy?"wait":"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+  return (<div data-rc-masivo style={{background:"#fffaf0",border:"1.5px solid #d79f33",borderRadius:14,padding:"14px 16px",margin:"14px 0"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <div><div style={{fontSize:15,fontWeight:800,color:B.navy}}>⚖️ Reconsideraciones · convenios en 60/40 por política ({lista.length})</div>
+        <div style={{fontSize:12,color:B.grey5,marginTop:2}}>1) Genera las que faltan · 2) si quieres, quita terrenos en la tarjeta de cada asesor · 3) mándalas por WhatsApp y correo. Tú decides terreno por terreno cuando firmen.</div></div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button data-rc-gen-todas disabled={!!busy||!faltan.length} onClick={generar} style={bt(faltan.length?"#d79f33":"#e5e7eb",faltan.length?"#2b2005":B.grey4)}>{busy==="gen"?"Generando…":("1) Generar las que faltan ("+faltan.length+")")}</button>
+        <button data-rc-mandar-todas disabled={!!busy||!porMandar.length} onClick={()=>mandar(porMandar)} style={bt(porMandar.length?B.navy:"#e5e7eb",porMandar.length?"#fff":B.grey4)}>{busy==="env"?"Enviando…":("📨 2) Mandar por WhatsApp y correo ("+porMandar.length+")")}</button>
+      </div></div>
+    <div style={{marginTop:10,background:"#fff",border:"1px solid #f3e3c0",borderRadius:10,overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5}}>
+      <thead><tr style={{textAlign:"left",color:B.grey4,fontSize:10.5,textTransform:"uppercase"}}><th style={{padding:"7px 10px"}}>Asesor</th><th>Convenio</th><th>Terrenos</th><th>Reconsideración</th><th style={{textAlign:"right",paddingRight:10}}>Acción</th></tr></thead>
+      <tbody>{lista.map(a=>{ const r=rcDeA(a); const x=r?res[r.id]:null; const ven=vencida(r);
+        const est=!r?<span style={{color:B.grey4}}>Sin generar</span>
+          :r.estado==="pendiente"?<span style={{color:ven?B.red:"#b45309",fontWeight:700}}>{ven?("Venció "+rcFecha(r.vence_at)):("Por firmar · vence "+rcFecha(r.vence_at))}{r.liga_enviada_at?<span style={{color:B.green}}> · enviada {rcFecha(r.liga_enviada_at)}</span>:<span style={{color:B.grey4}}> · sin mandar</span>}</span>
+          :r.estado==="firmada"?<span style={{color:"#1d4ed8",fontWeight:800}}>✍️ Firmó {r.esquema} · decide sus terrenos</span>
+          :<span style={{color:B.green,fontWeight:800}}>✓ Resuelta</span>;
+        return (<tr key={a.id} data-rc-fila={a.id} style={{borderTop:"1px solid #f3e3c0"}}>
+          <td style={{padding:"7px 10px",fontWeight:800,color:B.navy}}>{a.asesor_nombre||a.asesor_email}</td>
+          <td style={{color:B.grey5}}>{a.folio}</td>
+          <td style={{color:B.grey5}}>{r?(r.terrenos||[]).length:"—"}</td>
+          <td>{est}{x?<div style={{fontSize:11,color:(x.whatsapp||x.correo)?B.green:B.red}}>{(x.whatsapp||x.correo)?("✓ "+[x.whatsapp?"WhatsApp":null,x.correo?"correo":null].filter(Boolean).join(" y ")):("⚠ "+(x.motivo||x.error||"no se envió"))}</div>:null}</td>
+          <td style={{textAlign:"right",paddingRight:10}}>{r&&r.estado==="pendiente"&&!ven&&<button data-rc-mandar-uno disabled={!!busy} onClick={()=>mandar([r])} style={bt("#fff",B.navy,B.navy)}>📨 {r.liga_enviada_at?"Reenviar":"Mandar"}</button>}</td>
+        </tr>); })}</tbody></table></div>
+  </div>);
+}
 // ⚖️ RECONSIDERACIÓN DE COMISIÓN (Dirección 2026-11-26) · para convenios en 60/40 por política.
 // Una sola liga personal (7 días) /reconsideracion/<token> en la Landing: la carta + sus datos y terrenos ya llenos;
 // el asesor elige y firma. Lo firmado cubre todos sus terrenos, pero DIRECCIÓN acepta o rechaza TERRENO POR TERRENO
@@ -5415,6 +5466,11 @@ function RcPanel({ acuerdo, rc, contacto, onCambio, onToast }){
     <div style={{color:B.grey5,margin:"3px 0 5px"}}>Incluye {ter.length} terreno{ter.length===1?"":"s"}: <b style={{color:B.navy}}>{ter.map(t=>t.nombre||t.id).join(" · ")}</b>. Mientras no firme, todo sigue en 60/40.
       {Array.isArray(opciones)&&!editando&&<a data-rc-editar onClick={()=>setEditando(true)} style={{marginLeft:8,cursor:"pointer",fontWeight:800,color:"#1d4ed8"}}>✏️ Cambiar terrenos</a>}</div>
     {editando&&<React.Fragment>{casillas()}<div style={{display:"flex",gap:6,marginBottom:7}}><button data-rc-guardar-terrenos disabled={!!busy||nSel===0} onClick={guardarTerrenos} style={bt(B.navy,"#fff")}>{busy==="terrenos"?"Guardando…":"Guardar ("+nSel+")"}</button><button onClick={()=>setEditando(false)} style={bt("#fff",B.grey4,B.grey2)}>Cancelar</button></div></React.Fragment>}
+    {!vencida&&<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
+      <button data-rc-enviar disabled={!!busy} onClick={async()=>{ if(!window.confirm("¿Mandar la liga de reconsideración por WhatsApp (chatbot) y correo a "+(acuerdo.asesor_nombre||"el asesor")+"?")) return; setBusy("enviar");
+          try{ const out=await rcEnviarServidor([rc.id]); const x=out[0]||{}; toast((x.whatsapp||x.correo)?("📨 Enviada por "+[x.whatsapp?"WhatsApp":null,x.correo?"correo":null].filter(Boolean).join(" y ")):("⚠ No se envió: "+(x.motivo||x.error||"sin detalle"))); await onCambio(); }
+          catch(e){ toast("⚠ "+String((e&&e.message)||e)); } finally{ setBusy(""); } }} style={bt(B.navy,"#fff")}>{busy==="enviar"?"Enviando…":("📨 "+(rc.liga_enviada_at?"Reenviar":"Mandar")+" por WhatsApp y correo")}</button>
+      {rc.liga_enviada_at&&<span style={{fontSize:11.5,color:B.green,fontWeight:700}}>✓ enviada {rcFecha(rc.liga_enviada_at)}</span>}</div>}
     {vencida
       ? <button disabled={!!busy} onClick={()=>crear(true)} style={bt(B.navy,"#fff")}>{busy?"…":"♻ Liga nueva (7 días más)"}</button>
       : <ShareButtons chico url={url} etiqueta="📨 Mandar la liga de reconsideración" telefono={ct.telefono} email={ct.email} onToast={toast}
@@ -23888,7 +23944,7 @@ Respuesta: [respuesta exacta, conversacional]
         if(ac&&!ac.error&&Array.isArray(ac.data)){ const lst=ac.data.filter(a=>a&&a.estado!=="anulado"); MP_FA_CACHE.acuerdos=lst; setAcuerdosRaw(lst); }
         if(ct&&!ct.error&&Array.isArray(ct.data)){ MP_FA_CACHE.cots=ct.data; setCots(ct.data); }
       }catch(e){}
-      try{ const rr=await window.sb.from("acuerdos_reconsideracion").select("id,acuerdo_id,folio,token,estado,esquema,terrenos,vence_at,firmado_at,firma_nombre,pdf_path,resuelta_at,resultado_avisado_at,creado_at").neq("estado","anulada");
+      try{ const rr=await window.sb.from("acuerdos_reconsideracion").select("id,acuerdo_id,folio,token,estado,esquema,terrenos,vence_at,firmado_at,firma_nombre,pdf_path,resuelta_at,resultado_avisado_at,creado_at,liga_enviada_at").neq("estado","anulada");
         if(rr&&!rr.error&&Array.isArray(rr.data)){ MP_FA_CACHE.rc=rr.data; setRcs(rr.data); } }catch(e){}
       setCargando(false);
     },[]);
@@ -25010,6 +25066,7 @@ Respuesta: [respuesta exacta, conversacional]
           </>) : (verTodos ? (<>
             {/* 📊 RECUADROS POR ETAPA + ESQUEMA ELEGIDO + GRÁFICA POR ASESOR */}
             {panelEtapas(etTodos)}
+            <RcMasivo acuerdos={acuerdos} rcs={rcs} onCambio={recargar} onToast={toast}/>
 
             {/* 📊 RESUMEN POR ASESOR · cuántos terrenos, con convenio y pendientes */}
             {(()=>{ // Mismas listas que el kanban (captaciones + corretaje): etTodos.
