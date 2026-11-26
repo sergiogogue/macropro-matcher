@@ -2471,34 +2471,8 @@ function MultimediaLote({ lot, onToast }){
   const setOrig=(v)=>mpMediaSet(id,{orig:v});
   const setSubiendo=(v)=>mpMediaSet(id,{subiendo:v});
   const setGuardando=(v)=>mpMediaSet(id,{guardando:v});
-  const pdfEstado=st.pdf||"";   // "" | "generando" | "ok" | "error"
-  // 📄 PDF de la ficha técnica: la Landing lo genera con el MISMO diseño (fichaPrint.js + el motor de
-  // "Descargar PDF") en una ventanita y nos lo regresa; aquí se sube a media-terrenos y se guarda la liga.
-  // La ventanita se abre en el CLIC (si no, el navegador la bloquea).
-  const abrirVentanaPdf=()=>{ try{ return window.open("","gg-ficha-pdf","width=920,height=760"); }catch(e){ return null; } };
-  const generarPdf=async(w)=>{
-    if(!w){ toast("⚠ Permite las ventanas emergentes de MacroPro para generar el PDF de la ficha"); return; }
-    const nonce=Math.random().toString(36).slice(2)+Date.now().toString(36);
-    mpMediaSet(id,{pdf:"generando"});
-    try{
-      w.location.href=LANDING_URL+"/f/"+tipoFicha+"/"+encodeURIComponent(id)+"?ft=1&pdf=macropro&n="+nonce+"&o="+encodeURIComponent(window.location.origin);
-      const d=await new Promise((res,rej)=>{
-        const fin=(fn,v)=>{ window.removeEventListener("message",oir); clearTimeout(t); fn(v); };
-        const oir=(ev)=>{ if(ev.origin!==LANDING_URL) return; const x=ev.data||{}; if(x.tipo!=="gg-ficha-pdf"||x.nonce!==nonce) return; if(x.ok&&x.buffer) fin(res,x); else fin(rej,new Error(x.error||"la Landing no pudo generar el PDF")); };
-        const t=setTimeout(()=>fin(rej,new Error("tardó demasiado (60 s)")),60000);
-        window.addEventListener("message",oir);
-      });
-      const blob=new Blob([d.buffer],{type:"application/pdf"});
-      const url=await subir(new File([blob],"ficha-tecnica.pdf",{type:"application/pdf"}),"ficha");
-      const ahora=new Date().toISOString();
-      const {error}=await window.sb.from("landing_lote_meta").upsert({lote_id:id,ficha_tecnica_url:url,ficha_tecnica_at:ahora,updated_at:ahora},{onConflict:"lote_id"});
-      if(error) throw error;
-      const cur=(MP_MEDIA.draft[id]&&MP_MEDIA.draft[id].m)||vacio; const nm={...cur,ficha_tecnica_url:url,ficha_tecnica_at:ahora};
-      let o=null; try{ o=JSON.parse((MP_MEDIA.draft[id]&&MP_MEDIA.draft[id].orig)||"null"); }catch(e){}
-      mpMediaSet(id,{m:nm,orig:o?JSON.stringify({...o,ficha_tecnica_url:url,ficha_tecnica_at:ahora}):JSON.stringify(nm),pdf:"ok"});
-      toast("📄 PDF de la ficha técnica guardado");
-    }catch(e){ mpMediaSet(id,{pdf:"error"}); toast("⚠ No se pudo generar el PDF: "+((e&&e.message)||e)); try{ w.close(); }catch(_){} }
-  };
+  // (2026-11-26) La ficha técnica oficial es la Ficha Técnica Universal de la Landing (liga viva /f/lote/<id>):
+  // se arma sola con los datos del lote. MacroPro YA NO genera ni guarda la hoja PDF azul.
   const toast=(t)=>{ try{ onToast&&onToast(t); }catch(e){} };
   const recargar=()=>{ mpMediaSet(id,{cargado:false,err:"",m:undefined,orig:undefined}); cargarNube(); };
   const cargarNube=()=>{
@@ -2534,7 +2508,22 @@ function MultimediaLote({ lot, onToast }){
       setM(p=>{ const fotos=[...p.fotos_urls,...nuevas]; return {...p,fotos_urls:fotos,portada_url:p.portada_url||fotos[0]||""}; });
       toast("📷 "+nuevas.length+" foto(s) subida(s) · falta 💾 Guardar ficha"); }
     catch(e){ toast("No se pudo subir: "+((e&&e.message)||e)); } finally{ setSubiendo(""); } };
+  // 📐 PLANO = solo el dibujo del predio (Dirección 2026-11-26): se subían fichas, brochures y capturas de
+  // pantalla y en la Landing salía una hoja azul donde va el plano. Se revisa el nombre y, si es PDF, sus hojas y su texto.
+  const revisarPlano=async(file)=>{
+    const NO="El campo Plano es SOLO para el dibujo del predio (plano o levantamiento con medidas). No subas fichas técnicas, brochures, cotizaciones ni capturas de pantalla: la ficha técnica se genera sola.";
+    if(/ficha|brochure|folleto|captura|screen ?shot|screenshot|pantallazo|whatsapp image|presentaci|cotizaci/i.test(String(file.name||"").normalize("NFD").replace(/[\u0300-\u036f]/g,""))) return "⚠ Por el nombre, esto parece una ficha, brochure o captura. "+NO;
+    if(/\.pdf$/i.test(file.name)&&(await mpLib("pdfjs"))){
+      try{ const doc=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+        if(doc.numPages>3) return "⚠ Este PDF tiene "+doc.numPages+" hojas: parece un documento (brochure o ficha), no un plano. "+NO;
+        let txt=""; for(let i=1;i<=Math.min(2,doc.numPages);i++){ const pg=await doc.getPage(i); const tc=await pg.getTextContent(); txt+=" "+tc.items.map(x=>x.str).join(" "); }
+        if(/FICHA\s*T[EÉ]CNICA|BROCHURE|COTIZACI[OÓ]N|PRECIO\s+(POR|\/)\s*M/i.test(txt)) return "⚠ Este PDF dice ficha técnica / brochure / cotización. "+NO;
+      }catch(e){ /* si no se puede leer el PDF, se deja pasar */ }
+    }
+    return "";
+  };
   const subirUno=async(file,k,carpeta,okRe,msg)=>{ if(!file) return; if(!okRe.test(file.name)){ toast(msg); return; }
+    if(k==="plano_url"){ const no=await revisarPlano(file); if(no){ toast(no); try{ window.alert(no); }catch(_){} return; } }
     setSubiendo(carpeta); try{ const url=await subir(file,carpeta); set(k,url); toast("✅ Subido · falta 💾 Guardar ficha"); }
     catch(e){ toast("No se pudo subir: "+((e&&e.message)||e)); } finally{ setSubiendo(""); } };
   // KMZ/KML → la Landing (kmz-poligono) lee el perímetro y su centro: el mapa dibuja el predio exacto.
@@ -2552,9 +2541,7 @@ function MultimediaLote({ lot, onToast }){
     if(m.video_url&&!mediaEsVideo(m.video_url)){ toast("⚠ El video debe ser una liga de YouTube o Vimeo"); return; }
     if(m.maps_url&&!mediaEsMaps(m.maps_url)){ toast("⚠ La liga de Maps debe ser de Google Maps (maps.app.goo.gl o google.com/maps)"); return; }
     if(!id||id!==id.toLowerCase()){ toast("⚠ Id de lote inválido"); return; }
-    const w=abrirVentanaPdf();   // en el clic, para que el navegador no la bloquee
     setGuardando(true);
-    let okGuardado=false;
     try{
       let quien=""; try{ const u=await window.sb.auth.getUser(); quien=(u&&u.data&&u.data.user&&u.data.user.email)||""; }catch(e){}
       const ahora=new Date().toISOString();
@@ -2563,10 +2550,9 @@ function MultimediaLote({ lot, onToast }){
       const {error}=await window.sb.from("landing_lote_meta").upsert(fila,{onConflict:"lote_id"});
       if(error) throw error;
       const d={...m,media_actualizado_at:ahora,media_actualizado_por:quien}; setM(d); setOrig(JSON.stringify(d));
-      toast("💾 Ficha guardada · generando su PDF…"); okGuardado=true;
+      toast("💾 Guardado · la ficha técnica se actualiza sola");
     }catch(e){ const t=String((e&&e.message)||e); toast(/row-level security|permission|policy/i.test(t)?"⚠ Tu usuario no tiene permiso de administrador en la Landing":"No se pudo guardar: "+t); }
     finally{ setGuardando(false); }
-    if(okGuardado) generarPdf(w); else { try{ w&&w.close(); }catch(_){} }
   };
   const sec={border:"1px solid "+B.grey1,borderRadius:12,padding:"12px 14px",display:"flex",flexDirection:"column",gap:8,background:"#fff"};
   const tit={fontSize:13,fontWeight:800,color:B.navy};
@@ -2595,7 +2581,7 @@ function MultimediaLote({ lot, onToast }){
           {m.portada_url?<img src={m.portada_url} alt="Portada" style={{width:190,height:110,objectFit:"cover",borderRadius:8,display:"block",flexShrink:0,background:"#e2e8f0"}}/>:<div style={{width:190,height:110,borderRadius:8,background:"#e2e8f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,flexShrink:0}}>🖼️</div>}
           <div style={{minWidth:0}}>
             <div style={{fontSize:13,fontWeight:900,color:"#92400e",letterSpacing:0.5}}>⭐ PORTADA</div>
-            <div style={{fontSize:12,color:B.grey5,lineHeight:1.45,marginTop:3}}>{m.portada_url?"Es la foto que se ve primero en la Landing, en la ficha técnica y en su PDF. Para cambiarla, toca ☆ en otra foto.":"Aún no hay portada. La primera foto que subas será la portada (luego la cambias con ☆)."}</div>
+            <div style={{fontSize:12,color:B.grey5,lineHeight:1.45,marginTop:3}}>{m.portada_url?"Es la foto que se ve primero en la Landing y en la ficha técnica. Para cambiarla, toca ☆ en otra foto.":"Aún no hay portada. La primera foto que subas será la portada (luego la cambias con ☆)."}</div>
             {m.portada_url&&m.fotos_urls.length>1&&<div style={{fontSize:11,color:B.grey4,marginTop:4}}>{m.fotos_urls.length===2?"La otra foto sale en la GALERÍA.":("Las otras "+(m.fotos_urls.length-1)+" fotos salen en la GALERÍA.")}</div>}
           </div>
         </div>
@@ -2620,7 +2606,9 @@ function MultimediaLote({ lot, onToast }){
         {m.video_url&&!mediaEsVideo(m.video_url)&&<span style={{fontSize:11,color:"#b91c1c",fontWeight:700}}>Debe ser una liga de YouTube o Vimeo</span>}
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-        <div style={sec}><span style={tit}>📐 Plano (PDF o imagen)</span>{archivo("plano_url","plano","plano","application/pdf,image/*",/\.(pdf|jpe?g|png|webp)$/i,"⚠ El plano debe ser PDF, JPG, PNG o WEBP")}</div>
+        <div style={sec}><span style={tit}>📐 Plano del predio (PDF o imagen)</span>
+          <span data-media-plano-ayuda style={{fontSize:11,color:"#92400e",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:7,padding:"5px 8px",lineHeight:1.45}}>Solo el <b>dibujo del terreno</b> (plano o levantamiento con medidas). <b>No</b> subas fichas técnicas, brochures, cotizaciones ni capturas de pantalla: la ficha técnica se genera sola.</span>
+          {archivo("plano_url","plano","plano","application/pdf,image/*",/\.(pdf|jpe?g|png|webp)$/i,"⚠ El plano debe ser PDF, JPG, PNG o WEBP")}</div>
         <div style={sec}><span style={tit}>🗂 KMZ / KML</span>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
             {m.kmz_url?<a href={m.kmz_url} target="_blank" rel="noopener noreferrer" style={{fontSize:12,fontWeight:800,color:"#1d4ed8",textDecoration:"none"}}>✅ Ver KMZ ↗</a>:<span style={{fontSize:12,color:B.grey4}}>Sin KMZ</span>}
@@ -2640,16 +2628,11 @@ function MultimediaLote({ lot, onToast }){
         <input data-media-maps value={m.maps_url} onChange={e=>set("maps_url",e.target.value)} placeholder="https://maps.app.goo.gl/…" style={{...inp,borderColor:m.maps_url&&!mediaEsMaps(m.maps_url)?"#f87171":"#cbd5e1"}}/>
         {m.maps_url&&mediaEsMaps(m.maps_url)&&<a href={m.maps_url} target="_blank" rel="noopener noreferrer" style={{fontSize:12,fontWeight:800,color:"#1d4ed8",textDecoration:"none"}}>Abrir en Maps ↗</a>}
       </div>
-      <div style={{...sec,background:"#f8fafc"}}>
-        <span style={tit}>📄 Ficha técnica</span>
-        <div style={{fontSize:12,color:B.grey5}}>Liga viva (siempre al día con lo que guardes): <a data-media-ficha-viva href={ligaViva} target="_blank" rel="noopener noreferrer" style={{fontWeight:800,color:"#1d4ed8"}}>{ligaViva.replace("https://","")} ↗</a></div>
-        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontSize:12,color:B.grey4}}>
-          {pdfEstado==="generando"?<span data-media-pdf="generando" style={{fontWeight:800,color:"#92400e"}}>⏳ Generando el PDF (se abre una ventanita unos segundos)…</span>
-            :(m.ficha_tecnica_url?<a data-media-pdf="ok" href={m.ficha_tecnica_url} target="_blank" rel="noopener noreferrer" style={{fontWeight:800,color:"#1d4ed8"}}>📄 PDF guardado{m.ficha_tecnica_at?(" · "+new Date(m.ficha_tecnica_at).toLocaleString("es-MX",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})):""} ↗</a>
-            :<span>El PDF se genera solo al <b>💾 Guardar ficha</b>.</span>)}
-          {pdfEstado==="error"&&<span style={{color:"#b91c1c",fontWeight:800}}>No se pudo generar.</span>}
-          <button data-media-regenerar disabled={pdfEstado==="generando"||cambios} title={cambios?"Primero guarda los cambios":"Vuelve a generar el PDF con los datos actuales"} onClick={()=>generarPdf(abrirVentanaPdf())} style={{...bt("#fff",B.navy,"#cbd5e1"),opacity:(pdfEstado==="generando"||cambios)?0.5:1}}>🔄 {m.ficha_tecnica_url?"Regenerar PDF":"Generar PDF ahora"}</button>
-        </div>
+      <div data-media-ficha style={{...sec,background:"#f8fafc"}}>
+        <span style={tit}>📄 Ficha técnica (automática)</span>
+        <div style={{fontSize:12,color:B.grey5,lineHeight:1.5}}>La ficha técnica oficial es la <b>Ficha Técnica Universal</b>: se arma sola con los datos de este lote (superficie, precio/m², uso, COS/CUS, niveles, viviendas, plano y mapa) y siempre está al día. Se comparte con su liga:</div>
+        <a data-media-ficha-viva href={ligaViva} target="_blank" rel="noopener noreferrer" style={{fontSize:12.5,fontWeight:800,color:"#1d4ed8",wordBreak:"break-all"}}>{ligaViva.replace("https://","")} ↗</a>
+        <ShareButtons chico url={ligaViva} etiqueta="Compartir la ficha técnica" mensaje={"Ficha técnica de "+((lot&&(lot.nombre||lot.desarrollo))||"este terreno")+": "+ligaViva} asunto={"Ficha técnica · "+((lot&&(lot.nombre||lot.desarrollo))||"terreno")+" · Grupo Guía Macrolotes"} onToast={toast}/>
       </div>
       <div style={{position:"sticky",bottom:0,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",padding:"10px 12px",borderRadius:12,background:cambios?"#fffbeb":"#f0fdf4",border:"1px solid "+(cambios?"#fde68a":"#bbf7d0")}}>
         <span style={{fontSize:12,fontWeight:700,color:cambios?"#92400e":"#15803d"}}>{cambios?"Hay cambios sin guardar":(m.media_actualizado_at?("Guardado "+new Date(m.media_actualizado_at).toLocaleString("es-MX",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})+(m.media_actualizado_por?(" · "+m.media_actualizado_por):"")):"Sin cambios")}</span>
@@ -5090,7 +5073,7 @@ function ViewTerrenos({ inventory, onAbrir, onMedia, onToast }){
         <td style={{...td,color:B.grey5}}>{[l.ciudad,l.estado].filter(Boolean).join(", ")||"—"}</td>
         <td style={{...td,textAlign:"right",whiteSpace:"nowrap"}}>{sup?sup.toLocaleString("es-MX")+" m²":"—"}</td>
         <td style={{...td,textAlign:"right",whiteSpace:"nowrap"}}>{pr?coMx(pr):"—"}</td>
-        <td style={td}>{media===null?<span style={{color:B.grey3}}>…</span>:<>{chip(t.kmz,"KMZ")}{chip(t.fotos,"Fotos")}{chip(t.plano,"Plano")}{chip(t.uso,"Uso de suelo")}{chip(t.pres,"Presentación")}{chip(t.pdf,"PDF")}</>}</td>
+        <td style={td}>{media===null?<span style={{color:B.grey3}}>…</span>:<>{chip(t.kmz,"KMZ")}{chip(t.fotos,"Fotos")}{chip(t.plano,"Plano")}{chip(t.uso,"Uso de suelo")}{chip(t.pres,"Presentación")}</>}</td>
         <td style={{...td,whiteSpace:"nowrap",textAlign:"right"}}>
           <button data-terreno-media={k} onClick={()=>onMedia(l)} style={{border:"none",background:B.gold,color:B.navy,borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:900,cursor:"pointer",fontFamily:"inherit",marginRight:6}}>📸 Multimedia</button>
           <button data-terreno-ficha={k} onClick={()=>onAbrir(l)} style={{border:"1.5px solid "+B.grey2,background:"#fff",color:B.navy,borderRadius:9,padding:"6px 11px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📋 Ficha</button></td>
@@ -23024,32 +23007,20 @@ Respuesta: [respuesta exacta, conversacional]
           <div style={{padding:"20px 24px"}}>
             {/* 📝 Cartas oferta de este lote */}
             <div style={{marginBottom:14}}><CartasOfertaPanel key={"co-l-"+lot.id} lote={lot} onToast={toast} onNueva={()=>setWizardCO({lote:lot})}/></div>
-            {/* Sección ficha técnica PDF */}
-            <div style={{background:"#f8fafc",borderRadius:12,padding:"14px 16px",border:"1px solid #e5e7eb",marginBottom:18}}>
+            {/* 📄 Ficha técnica = Ficha Técnica Universal (Landing, liga viva). Ya no se sube ni descarga un PDF. */}
+            {(()=>{ const fUrl="https://macrolotes.grupoguia.mx/f/"+(/corretaje/i.test(String(lot.tipo_inventario||lot.tipo||lot.desarrollo||""))?"corretaje":"lote")+"/"+encodeURIComponent(loteKey(lot)); return (
+            <div data-ficha-universal style={{background:"#f8fafc",borderRadius:12,padding:"14px 16px",border:"1px solid #e5e7eb",marginBottom:18}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:16}}>📎</span>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:800,color:B.navy,fontFamily:"'DM Sans',sans-serif"}}>Ficha técnica del lote</div>
-                    {fichaData
-                      ?<div style={{fontSize:10,color:"#16a34a",fontWeight:600}}>✓ {fichaData.nombre} · {new Date(fichaData.fecha).toLocaleDateString("es-MX")}</div>
-                      :<div style={{fontSize:10,color:"#9ca3af"}}>Sin ficha cargada</div>}
+                <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                  <span style={{fontSize:16}}>📄</span>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:11,fontWeight:800,color:B.navy,fontFamily:"'DM Sans',sans-serif"}}>Ficha técnica del lote · automática</div>
+                    <a href={fUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:10.5,fontWeight:700,color:"#1d4ed8",wordBreak:"break-all"}}>{fUrl.replace("https://","")} ↗</a>
                   </div>
                 </div>
-                <div style={{display:"flex",gap:7}}>
-                  {fichaData&&(
-                    <>
-                      <a href={fichaData.src} download={fichaData.nombre} style={{padding:"6px 12px",background:"#002B49",color:"#fff",borderRadius:7,fontSize:10,fontWeight:700,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:5}}>⬇ Descargar</a>
-                      <button onClick={()=>{if(window.confirm("¿Eliminar la ficha de "+lot.nombre+"?"))setFichasTecnicas(prev=>{const n={...prev};delete n[lot.id];return n;});}} style={{padding:"6px 10px",background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer"}}>✕</button>
-                    </>
-                  )}
-                  <button onClick={()=>fichaInputRef.current&&fichaInputRef.current.click()} style={{padding:"6px 14px",background:fichaData?"#eff6ff":"#002B49",color:fichaData?"#1d4ed8":"#fff",border:fichaData?"1px solid #bfdbfe":"none",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
-                    {fichaData?"🔄 Cambiar":"📎 Subir PDF"}
-                  </button>
-                  <input ref={fichaInputRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleFichaUpload} style={{display:"none"}}/>
-                </div>
+                <ShareButtons chico url={fUrl} mensaje={"Ficha técnica de "+(lot.nombre||lot.desarrollo||"este terreno")+": "+fUrl} asunto={"Ficha técnica · "+(lot.nombre||lot.desarrollo||"terreno")+" · Grupo Guía Macrolotes"} onToast={toast}/>
               </div>
-            </div>
+            </div>); })()}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
               {[["Superficie",lot.sup_m2?(lot.sup_m2.toLocaleString("es-MX")+" m²"):null],["Precio/m²",lot.precio_m2?("$"+lot.precio_m2.toLocaleString("es-MX")):null],["Precio Total",precioTotal?("$"+(precioTotal/1000000).toFixed(1)+" MDP"):null],["CUS",lot.cus||null],["Niveles",lot.niveles||null],["Entrega",lot.entrega||null]].filter(([,v])=>v).map(([l,v])=>(
                 <div key={l} style={{background:`linear-gradient(135deg,${B.navy}08,${B.navy}15)`,border:`2px solid ${B.navy}22`,borderRadius:10,padding:"11px 14px",textAlign:"center"}}>
