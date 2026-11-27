@@ -5488,7 +5488,7 @@ const mpMoneda=(n)=>n?("$"+Math.round(n).toLocaleString("es-MX")):"—";
 // 🔎 SEGUIMIENTO DEL TERRENO (Asesores · Dirección 2026-11-27): SOLO cliente, terreno, ficha técnica, precio,
 // comisión y total a cobrar, el ÚLTIMO acuerdo firmado (vista previa / PDF), historial de firmas y avisos, y el
 // conteo de documentos (se ven y suben en 🌱 Opción / Captación). Nada se edita aquí.
-function SeguimientoTerreno({ cap, lote, catalogo, onToast, onClose, docsDe, onIrOpcion }){
+function SeguimientoTerreno({ cap, lote, catalogo, onToast, onClose, docsDe, docsLista, onIrOpcion }){
   const toast=onToast||(()=>{});
   const [d,setD]=useState(()=>SELLO_CACHE);
   const [docsNube,setDocsNube]=useState(null);
@@ -5520,7 +5520,8 @@ function SeguimientoTerreno({ cap, lote, catalogo, onToast, onClose, docsDe, onI
   const vista=async()=>{ if(verPdf){ setVerPdf(""); return; } setBusy("ver"); try{ setVerPdf(await urlPdf(false)); }catch(e){ toast("⚠ No se pudo abrir el PDF"); } setBusy(""); };
   const bajar=async()=>{ setBusy("bajar"); try{ const u=await urlPdf(true); const a=document.createElement("a"); a.href=u; a.rel="noopener"; document.body.appendChild(a); a.click(); a.remove(); }catch(e){ toast("⚠ No se pudo descargar el PDF"); } setBusy(""); };
   // Documentos: solo el conteo (se ven y suben en Opción / Captación).
-  let docs=null;
+  let docs=null, grupos=null;
+  if(cap&&docsLista){ try{ grupos=docsLista(docsNube?{...cap,documentosUrls:docsNube}:cap); }catch(e){ grupos=null; } }
   if(cap&&docsDe){ try{ const c2=docsNube?{...cap,documentosUrls:docsNube}:cap; const ed=docsDe(c2); const fal=[...ed.viab.faltan,...ed.comp.faltan];
     const nombres=(g)=>g; docs={faltan:fal,completas:ed.viab.completas+ed.comp.completas,total:ed.viab.total+ed.comp.total,viabFaltan:ed.viab.faltan,compFaltan:ed.comp.faltan,confirmada:ed.confirmada}; void nombres; }catch(e){ docs=null; } }
   const blk={border:"1px solid #e5e7eb",borderRadius:11,padding:"10px 13px"};
@@ -5545,8 +5546,22 @@ function SeguimientoTerreno({ cap, lote, catalogo, onToast, onClose, docsDe, onI
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:"6px 16px"}}>
             <div>{k("Cliente (dueño)")}{v(cliente||"—")}</div>
             <div>{k("Terreno")}{v(nombreT)}<div style={{fontSize:11.5,color:B.grey4}}>{[cap&&cap.ubicacion,pr.m2?(pr.m2.toLocaleString("es-MX")+" m²"):""].filter(Boolean).join(" · ")}</div></div></div>
-          <div style={{marginTop:8}}>{fUrl?<a data-seg-ficha href={fUrl} target="_blank" rel="noopener noreferrer" style={btn(false)}>📋 Ver ficha técnica ↗</a>
-            :<span style={{fontSize:11.5,color:B.grey4}}>📋 La ficha técnica se activa cuando el terreno se sube al inventario.</span>}</div></div>
+</div>
+        {(()=>{ const L=lote||{}; const c=cap||{}; const num=(x,suf)=>{ const n=mpNum(x); return n?(n.toLocaleString("es-MX")+(suf||"")):""; };
+          const filas=[
+            ["Ubicación / dirección", c.ubicacion||L.direccion||""], ["Zona / colonia", c.zona||L.colonia||""], ["Ciudad", c.ciudad||L.ciudad||""], ["Estado", c.estado||L.estado||""],
+            ["Superficie", num(c.superficie||L.sup_m2||L.superficie_m2," m²")], ["Frente", num(c.frente||L.frente," m")], ["Fondo", num(L.fondo," m")], ["Polígono", c.poligono||""],
+            ["Uso de suelo", c.usoSuelo||L.uso||""], ["Otros usos", Array.isArray(L.usos_todos)?L.usos_todos.join(", "):""], ["COS", L.cos||""], ["CUS", L.cus||""], ["Niveles", L.niveles||""], ["Vivienda máx.", L.viv_max||""],
+            ["Precio total", pr.precio?mpMoneda(pr.precio):""], ["Precio por m²", pr.pm2?mpMoneda(pr.pm2):""], ["Comisión", pr.pct?(pr.pct.toLocaleString("es-MX")+"%"):""],
+            ["Tipo de acuerdo", c.tipoAcuerdo||""], ["Vigencia", c.vigencia||""], ["Viabilidad", c.viabilidad||""], ["Desarrollo", L.desarrollo||""], ["Entrega", L.entrega||""], ["Estatus en inventario", L.status||L.status_inventario||""],
+          ].filter(([,x])=>x!==""&&x!=null&&x!=="null");
+          const maps=c.ligaMaps||L.maps_url||"";
+          return (<div data-seg-ficha-tecnica style={blk}>{h4("📋 Ficha técnica del terreno",fUrl?<a data-seg-ficha href={fUrl} target="_blank" rel="noopener noreferrer" style={btn(false)}>Ver ficha pública ↗</a>:null)}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"6px 16px"}}>
+              {filas.map(([kk,vv])=>(<div key={kk}>{k(kk)}<div style={{fontSize:13,fontWeight:700,color:B.navy}}>{String(vv)}</div></div>))}</div>
+            {maps&&<div style={{marginTop:8}}><a href={maps} target="_blank" rel="noopener noreferrer" style={{fontSize:12,fontWeight:800,color:"#1d4ed8"}}>📍 Ver ubicación en Google Maps ↗</a></div>}
+            {!fUrl&&<div style={{fontSize:11,color:B.grey4,marginTop:6}}>La ficha pública se activa cuando el terreno se sube al inventario.</div>}
+          </div>); })()}
         <div data-seg-precio style={blk}>{h4("💰 Precio y comisión")}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"6px 16px"}}>
             <div>{k("Precio total")}{v(mpMoneda(pr.precio))}<div style={{fontSize:11,color:B.grey4}}>{pr.pm2?(mpMoneda(pr.pm2)+" /m²"):""}</div></div>
@@ -5565,9 +5580,15 @@ function SeguimientoTerreno({ cap, lote, catalogo, onToast, onClose, docsDe, onI
         <HistorialTerreno cap={cap} lote={cap?null:lote} catalogo={catalogo} onToast={toast}/>
         {cap&&<div data-seg-docs style={blk}>{h4("📂 Documentos",onIrOpcion&&<button data-seg-ir-opcion onClick={()=>onIrOpcion(cap)} style={{...btn(false),background:"#d4a72c",borderColor:"#d4a72c"}}>Ver y subir en 🌱 Opción / Captación →</button>)}
           {!docs?<div style={{color:B.grey4}}>No se pudo leer el expediente.</div>:<React.Fragment>
-            <div><span style={{color:B.green,fontWeight:800}}>✓ Subidos {docs.completas} de {docs.total}</span></div>
-            <div style={{marginTop:3}}>{docs.faltan.length?<span><span style={{color:B.red,fontWeight:800}}>✗ Faltan {docs.faltan.length}</span> · {docs.viabFaltan.join(" · ")}{docs.viabFaltan.length&&docs.compFaltan.length?" · ":""}{docs.compFaltan.length?<span style={{color:B.grey4}}>{(docs.confirmada?"":"para el contrato: ")+docs.compFaltan.join(" · ")}</span>:null}</span>:<span style={{color:B.green,fontWeight:800}}>Expediente completo</span>}</div>
-            <div style={{fontSize:11,color:B.grey4,marginTop:4}}>Aquí solo el conteo: los archivos se ven, suben y revisan en 🌱 Opción / Captación.</div></React.Fragment>}</div>}
+            <div style={{display:"flex",gap:14,flexWrap:"wrap",marginBottom:6}}><span style={{color:B.green,fontWeight:800}}>✓ Subidos {docs.completas} de {docs.total}</span>{docs.faltan.length?<span style={{color:B.red,fontWeight:800}}>✗ Faltan {docs.faltan.length}</span>:<span style={{color:B.green,fontWeight:800}}>Expediente completo</span>}</div>
+            {(grupos||[]).map(g=>(<div key={g.titulo} style={{marginTop:6}}>
+              <div style={{fontSize:10.5,fontWeight:800,color:B.grey5,textTransform:"uppercase",letterSpacing:.4,marginBottom:2}}>{g.titulo} · {g.items.filter(x=>x.ok).length}/{g.items.length}</div>
+              {g.items.map(x=>(<div key={x.tipo} data-seg-doc={x.ok?"ok":"falta"} style={{display:"flex",gap:8,alignItems:"baseline",padding:"4px 2px",borderTop:"1px solid #f1f5f9",fontSize:12.5}}>
+                <span style={{width:18,textAlign:"center",fontWeight:900,color:x.ok?B.green:B.red}}>{x.ok?"✓":"✗"}</span>
+                <span style={{color:x.ok?B.navy:B.grey5,fontWeight:x.ok?700:600}}>{x.icon} {x.tipo}{x.min>1?(" ("+x.n+"/"+x.min+")"):""}</span>
+                <span style={{marginLeft:"auto",fontSize:11,color:x.ok?B.grey4:B.red,textAlign:"right"}}>{x.ok?[x.quien?("subió: "+x.quien):"",x.fecha?rcFechaHora(x.fecha):"",/rechaz/i.test(x.estatus)?"rechazado":""].filter(Boolean).join(" · "):"falta"}</span></div>))}
+            </div>))}
+            <div style={{fontSize:11,color:B.grey4,marginTop:6}}>Aquí solo qué hay y qué falta: los archivos se ven, suben y revisan en 🌱 Opción / Captación.</div></React.Fragment>}</div>}
         {!cap&&<div style={{...blk,color:B.grey4}}>📂 Documentos: este terreno es solo de corretaje; su expediente se lleva al crear su captación en 🌱 Opción / Captación.</div>}
       </div>
     </div>
@@ -19955,6 +19976,13 @@ Respuesta: [respuesta exacta, conversacional]
     const rv=DOCS_REQUERIDOS.find(r=>r.grupo==="valid"); const validada=!!(rv&&capDocsDe(c,rv).length>0);
     return { faltan, total, completas:total-faltan.length, listo:faltan.length===0, viab, comp, confirmada, validada };
   };
+  // Lista de documentos ✓/✗ por renglón (Seguimiento del terreno en Asesores): misma regla que el expediente.
+  const docsChecklistCap=(c)=>{ const fila=(r)=>{ const ds=capDocsDe(c,r); const need=r.min||1; const d0=ds[0]||{};
+      return {tipo:r.label||r.tipo, icon:r.icon||"📄", ok:ds.length>=need, n:ds.length, min:need, quien:ds.some(d=>d&&d.origen==="legal")?"propietario":(ds.length?"equipo / asesor":""), fecha:d0.fecha||d0.created_at||d0.subido_at||"", estatus:d0.estatus||""}; };
+    return [
+      {titulo:"1 · Para el análisis (viabilidad)", items:[...DOCS_REQUERIDOS.filter(r=>r.grupo==="viab").map(fila), {tipo:"Liga de Google Maps",icon:"📍",ok:mapsOkCap(c),n:mapsOkCap(c)?1:0,min:1,quien:"",fecha:""}]},
+      {titulo:"2 · Para el contrato"+(capViabConfirmada(c)?"":" (se piden al confirmar la viabilidad)"), items:capReqsComp(c).map(fila)},
+      {titulo:"✔ Validación", items:DOCS_REQUERIDOS.filter(r=>r.grupo==="valid").map(fila)} ]; };
   const capDocsTxt=(ed)=>ed.confirmada
     ? (ed.listo?"✅ Expediente completo":("📄 Docs contrato "+ed.comp.completas+"/"+ed.comp.total+(ed.viab.listo?"":(" · 🚦 "+ed.viab.completas+"/"+ed.viab.total))))
     : (ed.listo?"✅ Listo para analizar":("🚦 Docs viabilidad "+ed.viab.completas+"/"+ed.viab.total));
@@ -25862,7 +25890,7 @@ Respuesta: [respuesta exacta, conversacional]
       {ModalAddClient}
       {/* ─── MODAL: Alta / edición de solicitud de asesor ─── */}
         {/* ══════ MODAL: alta / edición de captación ══════ */}
-        {segTerreno && <SeguimientoTerreno key={"seg-"+((segTerreno.cap&&segTerreno.cap.id)||(segTerreno.lote&&segTerreno.lote.id))} cap={segTerreno.cap} lote={segTerreno.lote} catalogo={asesoresCatalog} onToast={toast} docsDe={estadoDocsCaptacion}
+        {segTerreno && <SeguimientoTerreno key={"seg-"+((segTerreno.cap&&segTerreno.cap.id)||(segTerreno.lote&&segTerreno.lote.id))} cap={segTerreno.cap} lote={segTerreno.lote} catalogo={asesoresCatalog} onToast={toast} docsDe={estadoDocsCaptacion} docsLista={docsChecklistCap}
           onClose={()=>setSegTerreno(null)} onIrOpcion={(c)=>{ setSegTerreno(null); setView("captacion"); setEditingCaptacion(c); setShowCaptacionModal(true); }}/>}
         {showCaptacionModal && editingCaptacion && (()=>{
           const f = editingCaptacion;
