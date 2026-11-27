@@ -23978,6 +23978,11 @@ Respuesta: [respuesta exacta, conversacional]
       setCargando(false);
     },[]);
     React.useEffect(()=>{ recargar(); },[recargar]);
+    // Se actualiza SOLO (Dirección 2026-11-27: "ya firmó y no aparece"): al volver a la ventana/app y cada
+    // minuto mientras está visible, para que una firma hecha en la Landing aparezca sin recargar.
+    React.useEffect(()=>{ const f=()=>{ try{ if(document.visibilityState==="visible") recargar(); }catch(e){} };
+      window.addEventListener("focus",f); document.addEventListener("visibilitychange",f); const t=setInterval(f,60000);
+      return ()=>{ window.removeEventListener("focus",f); document.removeEventListener("visibilitychange",f); clearInterval(t); }; },[recargar]);
 
     // Listado de colaboradores (con correo) — misma fuente que usa el login/firma de la Landing.
     React.useEffect(()=>{ if(!window.sb) return; window.sb.rpc("landing_asesores_catalogo").then(({data})=>{ const list=(data||[]).map(x=>({nombre:x.nombre||"",email:String(x.email||"").trim().toLowerCase(),telefono:x.telefono||""})); if(list.length){ setCatColab(list); FAset("catColab",JSON.stringify(list)); } }).catch(()=>{}); },[]);
@@ -24437,7 +24442,7 @@ Respuesta: [respuesta exacta, conversacional]
     const pillConv=(a,c)=>{ const esq=esqTxt(a,c); const forz=a&&a.estado==="forzado_6040";
       const rd=forz?rcDecDe(a,c):null;
       if(rd&&rd.t.decision==="aceptado"&&rd.r.esquema) return <span title={"Reconsideración "+rd.r.folio+" aceptada por Dirección"} style={/^100/.test(rd.r.esquema)?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>✓ {rd.r.esquema} por reconsideración · {rd.r.folio}</span>;
-      if(rd&&rd.r.estado==="firmada"&&(rd.t.decision||"pendiente")==="pendiente") return <span title="El asesor firmó su reconsideración: decide este terreno en su tarjeta" style={{background:"#fff7ed",color:"#b45309",border:"1px dashed #f59e0b",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>⚖️ 60/40 · reconsideración por decidir</span>;
+      if(rd&&rd.r.estado==="firmada"&&(rd.t.decision||"pendiente")==="pendiente") return <span data-rc-pill-firmo title="El asesor firmó su reconsideración: decide este terreno en su tarjeta (mientras, sigue en 60/40)" style={{background:"#eff6ff",color:"#1d4ed8",border:"1px dashed #60a5fa",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>✍️ Firmó {rd.r.esquema} · {rd.r.folio} · decide este terreno</span>;
       if(forz) return <span title="Cerrado por política tras 5 recordatorios sin firma (no lo firmó el asesor)" style={{background:"#fff7ed",color:"#b45309",border:"1px solid #fdba74",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>⚖️ 60/40 por política{a.folio?(" · "+a.folio):""}</span>;
       return <span style={/^100\s*\/\s*0$/.test(esq||"")?{background:"#F5B335",color:"#002B49",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}:{background:"#0f6b38",color:"#fff",borderRadius:999,padding:"1px 9px",fontSize:11.5,fontWeight:800,whiteSpace:"nowrap"}}>✓ {(a&&a.folio)||"Firmado"}{esq?(" · esquema "+esq):""}{(a&&a.estado==="validado")?" · validado":""}</span>; };
 
@@ -24730,9 +24735,19 @@ Respuesta: [respuesta exacta, conversacional]
 
     if(cargando) return <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}><div style={{...s.page,textAlign:"center",color:B.grey3,paddingTop:60}}>Cargando dashboard…</div></div>;
 
+    // ✍️ Reconsideraciones FIRMADAS que esperan la decisión de Dirección: aviso arriba, en cualquier vista.
+    const rcFirmadas=(rcs||[]).filter(r=>r&&r.estado==="firmada").map(r=>({r,a:(acuerdos||[]).find(a=>a&&a.id===r.acuerdo_id)||null,pend:(Array.isArray(r.terrenos)?r.terrenos:[]).filter(t=>(t&&t.decision||"pendiente")==="pendiente").length})).filter(x=>x.pend>0);
+    const fHora=(iso)=>{ try{ return new Date(iso).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; } };
     return (
       <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}>
         <div style={{...s.page,maxWidth:1440}}>
+          {rcFirmadas.length>0&&<div data-rc-firmadas style={{background:"#eff6ff",border:"2px solid #60a5fa",borderRadius:12,padding:"10px 14px",margin:"0 0 12px"}}>
+            {rcFirmadas.map(({r,a,pend})=>{ const nm=(a&&a.asesor_nombre)||r.asesor_nombre||"Asesor"; return (
+              <div key={r.id} data-rc-firmada={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",padding:"3px 0"}}>
+                <span style={{fontSize:13.5,color:B.navy}}>✍️ <b>{nm}</b> firmó su reconsideración <b>{r.folio}</b> · eligió <b style={{color:/^100/.test(r.esquema||"")?"#b07d2b":B.green}}>{r.esquema}</b> · {fHora(r.firmado_at)} · <span style={{color:"#b45309",fontWeight:800}}>te falta decidir {pend} terreno{pend===1?"":"s"}</span></span>
+                <button data-rc-ir-decidir onClick={()=>{ setSel(nm); setModo("asesor"); }} style={{...s.btn("sm"),background:"#1d4ed8",color:"#fff",boxShadow:"none",whiteSpace:"nowrap"}}>Decidir →</button>
+              </div>); })}
+          </div>}
           {/* ENCABEZADO FIJO: tarjeta del asesor + filtros quedan fijos debajo del menú (fondo sólido,
               así nada se mete por debajo). Solo se desplaza la lista. En celular se deja normal. */}
           <div ref={hdrRef} style={(typeof window!=="undefined"&&window.innerWidth>760)?{position:"sticky",top:navH,zIndex:50,background:B.offW,paddingTop:12,marginTop:-12}:{}}>
