@@ -5355,37 +5355,65 @@ function rcEvTexto(e){ const d=e.detalle||{}; const quien=e.actor_email?(" · "+
     case "pdf_error": return ["⚠","No se generó el PDF"];
     default: return ["•",e.tipo];
   } }
-// Cerrado/abierto y eventos fuera de React: la vista de asesores se vuelve a montar con cada aviso de la app.
-// Historial de FIRMAS del convenio completo (Dirección 2026-11-27): alta, recordatorios, 60/40 por política,
-// reconsideración, envíos, apertura y firma. Se muestra ABIERTO; se puede ocultar.
-const MP_RC_HIST={ cerrado:new Set(), ev:{} };
-function RcHistorial({ rc, version }){
-  const rid=rc&&rc.id;
-  const [ev,setEvSt]=useState(()=>(rid&&MP_RC_HIST.ev[rid])||null);
-  const [abierto,setAbiertoSt]=useState(()=>!(rid&&MP_RC_HIST.cerrado.has(rid)));
-  const setEv=(l)=>{ if(rid) MP_RC_HIST.ev[rid]=l; setEvSt(l); };
-  const setAbierto=(v)=>{ if(rid){ if(v) MP_RC_HIST.cerrado.delete(rid); else MP_RC_HIST.cerrado.add(rid); } setAbiertoSt(v); };
-  React.useEffect(()=>{ let vivo=true; if(!window.sb||!rc||!rc.acuerdo_id) return;
-    window.sb.from("acuerdos_comision_eventos").select("id,tipo,creado_at,actor_email,ip,detalle").eq("acuerdo_id",rc.acuerdo_id).order("creado_at",{ascending:false}).limit(300)
-      .then(({data})=>{ if(!vivo) return; setEv(data||[]); }).catch(()=>{ if(vivo) setEv([]); });
-    return ()=>{ vivo=false; }; },[rc&&rc.id, rc&&rc.estado, rc&&rc.liga_enviada_at, rc&&rc.firmado_at, version]);
-  const ult=(t,f)=>(ev||[]).find(e=>e.tipo===t&&(!f||f(e)));
-  const delRc=(e)=>!(e.detalle&&e.detalle.folio)||e.detalle.folio===rc.folio;
-  const envio=ult("reconsideracion_enviada",delRc), firma=ult("reconsideracion_firmada",delRc);
-  // "La abrió": la apertura de la liga o la entrada con su código (lo que haya pasado después del envío).
-  const vista=(ev||[]).find(e=>(e.tipo==="reconsideracion_vista"||e.tipo==="reconsideracion_abierta")&&delRc(e));
+// Qué historiales están abiertos (fuera de React: las vistas se vuelven a montar con cada aviso de la app).
+const MP_RC_HIST={ abierto:new Set(), ev:{} };
+// 📜 HISTORIAL DE FIRMAS POR TERRENO (Dirección 2026-11-27: "la historia es por lote; cuando abra el terreno
+// me aparece"). Va dentro de la ficha del terreno (captación o lote). Resumen visible; la lista completa
+// queda escondida hasta seleccionarla. UN convenio por asesor (misma regla que el sello): el del terreno o
+// el de su asesor. Los pasos de la reconsideración solo salen si ESTE terreno está en ella.
+function HistorialTerreno({ cap, lote, catalogo }){
+  const [d,setD]=useState(()=>SELLO_CACHE);
+  const [rc,setRc]=useState(undefined);
+  const [ev,setEv]=useState(null);
+  const tid=cap?String(cap.id||""):(lote?String(lote.id||"").toLowerCase():"");
+  const kH="ter:"+tid;
+  const [abierto,setAbiertoSt]=useState(()=>MP_RC_HIST.abierto.has(kH));
+  const setAbierto=(v)=>{ if(v) MP_RC_HIST.abierto.add(kH); else MP_RC_HIST.abierto.delete(kH); setAbiertoSt(v); };
+  React.useEffect(()=>{ let vivo=true; selloCargar(false).then(x=>{ if(vivo) setD(x); }); return ()=>{ vivo=false; }; },[]);
+  const nombre=String((cap?cap.asesorResponsableGG:(lote&&lote.asesor))||"").trim();
+  const idx=rqIndiceAsesores(d&&d.as, d&&d.cat, catalogo);
+  const ct=nombre?rqContacto(idx,{asesor:nombre,asesor_email:"",asesor_tel:""}):{email:""};
+  const esDelAsesor=(a)=> !!nombre && ((ct.email&&rqNorm(a.asesor_email)===rqNorm(ct.email)) || (a.asesor_nombre&&rqNorm(a.asesor_nombre)===rqNorm(nombre)));
+  const delTerreno=(a)=> cap ? String(a.captacion_id||"")===tid : String(a.lote_id||"").toLowerCase()===tid;
+  const acs=(d&&d.acuerdos)||[];
+  const ac=acs.find(a=>mpAcCerrado(a)&&delTerreno(a)) || acs.find(a=>mpAcCerrado(a)&&esDelAsesor(a)) || acs.find(a=>a&&a.token&&(delTerreno(a)||esDelAsesor(a))) || null;
+  const acId=ac&&ac.id;
+  React.useEffect(()=>{ let vivo=true; if(!window.sb||!acId) return;
+    window.sb.from("acuerdos_reconsideracion").select("id,acuerdo_id,folio,estado,esquema,terrenos,firmado_at,liga_enviada_at,creado_at").eq("acuerdo_id",acId).neq("estado","anulada")
+      .then(({data})=>{ if(vivo) setRc(((data||[])[0])||null); }).catch(()=>{ if(vivo) setRc(null); });
+    window.sb.from("acuerdos_comision_eventos").select("id,tipo,creado_at,actor_email,ip,detalle").eq("acuerdo_id",acId).order("creado_at",{ascending:false}).limit(300)
+      .then(({data})=>{ if(vivo) setEv(data||[]); }).catch(()=>{ if(vivo) setEv([]); });
+    return ()=>{ vivo=false; }; },[acId]);
+  if(!tid) return null;
+  const caja={border:"1.5px solid #e5e7eb",background:"#fafbfc",borderRadius:10,padding:"9px 12px",fontSize:12};
+  if(!ac) return (<div data-hist-terreno style={caja}><b style={{color:B.navy}}>📜 Historial de firmas</b> <span style={{color:B.grey4}}>· sin convenio de comisión todavía</span></div>);
+  // ¿Este terreno está en la reconsideración? (captación por id; lote por id o por el lote ligado a la captación)
+  const terRc=rc&&Array.isArray(rc.terrenos)?rc.terrenos.find(t=>t&&(cap?(t.tipo==="captacion"&&String(t.id)===tid):((t.tipo==="lote"&&String(t.id).toLowerCase()===tid)||String(t.lote_id||"").toLowerCase()===tid))):null;
+  const esDeRc=(e)=>/^reconsideracion_/.test(e.tipo)||(/^acceso_/.test(e.tipo)&&e.detalle&&e.detalle.reconsideracion);
+  const lista=(ev||[]).filter(e=>{ const x=e.detalle||{};
+    if(e.tipo==="reconsideracion_decision") return !!terRc && (String(x.terreno||"").toLowerCase()===String(terRc.id).toLowerCase());
+    if(esDeRc(e)) return !!terRc && (!x.folio||!rc||x.folio===rc.folio);
+    return true; });
+  const ult=(t)=>lista.find(e=>e.tipo===t);
+  const envio=ult("reconsideracion_enviada"), firma=ult("reconsideracion_firmada"), vista=lista.find(e=>e.tipo==="reconsideracion_vista"||e.tipo==="reconsideracion_abierta");
   const linea=(ico,txt,fecha,col)=>(<div style={{display:"flex",gap:"2px 6px",alignItems:"baseline",flexWrap:"wrap",fontSize:11.5,color:col||B.navy}}><span style={{width:16,textAlign:"center",flexShrink:0}}>{ico}</span><b style={{whiteSpace:"nowrap",flexShrink:0}}>{txt}</b><span style={{color:B.grey4,marginLeft:"auto",textAlign:"right"}}>{fecha}</span></div>);
-  return (<div data-rc-historial style={{marginTop:7,borderTop:"1px dashed #f3d9a4",paddingTop:6}}>
-    {linea("📨","Liga enviada / copiada",envio?rcFechaHora(envio.creado_at):(rc.liga_enviada_at?rcFechaHora(rc.liga_enviada_at):"— todavía no"),envio||rc.liga_enviada_at?B.navy:"#b45309")}
-    {linea("👀","La abrió el asesor",vista?rcFechaHora(vista.creado_at):"— todavía no",vista?B.navy:B.grey4)}
-    {linea("✍️","Firmó",rc.firmado_at?(rcFechaHora(rc.firmado_at)+(firma&&firma.ip?(" · IP "+firma.ip):"")):"— todavía no",rc.firmado_at?B.green:B.grey4)}
-    <a data-rc-ver-historial onClick={()=>setAbierto(!abierto)} style={{display:"inline-block",marginTop:4,fontSize:11.5,fontWeight:800,color:"#1d4ed8",cursor:"pointer"}}>{abierto?("▾ Ocultar el historial de firmas"+(ev?(" ("+ev.length+")"):"")):("▸ 📜 Ver el historial de firmas del convenio"+(ev?(" ("+ev.length+")"):""))}</a>
-    {abierto&&<div data-rc-hist-lista style={{marginTop:5,background:"#fff",border:"1px solid #f3e3c0",borderRadius:8,padding:"6px 8px",maxHeight:340,overflowY:"auto"}}>
-      <div style={{fontSize:11,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>📜 Historial de firmas del convenio · más reciente arriba</div>
-      {ev===null?<div style={{fontSize:11.5,color:B.grey4}}>Cargando…</div>:ev.length===0?<div style={{fontSize:11.5,color:B.grey4}}>Sin movimientos todavía.</div>:
-        ev.map(e=>{ const [ico,txt]=rcEvTexto(e); return (<div key={e.id} data-rc-ev={e.tipo} style={{display:"flex",gap:7,fontSize:11.5,padding:"3px 0",borderBottom:"1px solid #f8eedb"}}>
+  const esq=String(ac.esquema||(ac.estado==="forzado_6040"?"60/40":"")).replace("_","/");
+  const nomT=terRc&&(terRc.nombre||terRc.id);
+  return (<div data-hist-terreno data-rc-historial style={caja}>
+    <div style={{fontWeight:800,color:B.navy,marginBottom:4}}>📜 Historial de firmas de este terreno <span style={{fontWeight:600,color:B.grey4}}>· convenio {ac.folio||""}</span></div>
+    {linea("📝","Convenio",ac.estado==="forzado_6040"?("60/40 por política (sin firma) · "+rcFechaHora(ac.forzado_6040_at)):(ac.firmado_at?("firmó "+esq+" · "+rcFechaHora(ac.firmado_at)):(ac.estado==="pendiente"?"por firmar":ac.estado)),ac.estado==="forzado_6040"?"#b45309":B.navy)}
+    {terRc&&<React.Fragment>
+      {linea("📨","Reconsideración "+rc.folio+" enviada",envio?rcFechaHora(envio.creado_at):(rc.liga_enviada_at?rcFechaHora(rc.liga_enviada_at):"— todavía no"),(envio||rc.liga_enviada_at)?B.navy:"#b45309")}
+      {linea("👀","La abrió el asesor",vista?rcFechaHora(vista.creado_at):"— todavía no",vista?B.navy:B.grey4)}
+      {linea("✍️","Firmó",rc.firmado_at?(rc.esquema+" · "+rcFechaHora(rc.firmado_at)+(firma&&firma.ip?(" · IP "+firma.ip):"")):"— todavía no",rc.firmado_at?B.green:B.grey4)}
+      {rc.firmado_at&&linea("🏁","Decisión de Dirección",(terRc.decision||"pendiente")==="aceptado"?("✓ aceptado "+rc.esquema):((terRc.decision||"pendiente")==="rechazado"?"se mantiene 60/40":"— por decidir"),(terRc.decision||"pendiente")==="pendiente"?"#b45309":B.green)}
+    </React.Fragment>}
+    <a data-rc-ver-historial onClick={()=>setAbierto(!abierto)} style={{display:"inline-block",marginTop:5,fontSize:11.5,fontWeight:800,color:"#1d4ed8",cursor:"pointer"}}>{abierto?"▾ Ocultar el historial":("▸ Ver todo el historial de firmas"+(ev?(" ("+lista.length+")"):""))}</a>
+    {abierto&&<div data-rc-hist-lista style={{marginTop:5,background:"#fff",border:"1px solid #e5e7eb",borderRadius:8,padding:"6px 8px",maxHeight:300,overflowY:"auto"}}>
+      {ev===null?<div style={{fontSize:11.5,color:B.grey4}}>Cargando…</div>:lista.length===0?<div style={{fontSize:11.5,color:B.grey4}}>Sin movimientos todavía.</div>:
+        lista.map(e=>{ let [ico,txt]=rcEvTexto(e); if(e.tipo==="reconsideracion_decision"&&nomT) txt=txt.replace(String((e.detalle||{}).terreno||""),nomT); return (<div key={e.id} data-rc-ev={e.tipo} style={{display:"flex",gap:7,fontSize:11.5,padding:"3px 0",borderBottom:"1px solid #f1f5f9"}}>
           <span style={{color:B.grey4,whiteSpace:"nowrap",minWidth:118}}>{rcFechaHora(e.creado_at)}</span><span>{ico}</span><span style={{color:B.navy}}>{txt}</span></div>); })}
-      <div style={{fontSize:10.5,color:B.grey4,marginTop:4}}>Bitácora inalterable del convenio (no se puede editar ni borrar).</div>
+      <div style={{fontSize:10.5,color:B.grey4,marginTop:4}}>Más reciente arriba · bitácora inalterable del convenio (no se puede editar ni borrar).</div>
     </div>}
   </div>);
 }
@@ -5508,7 +5536,6 @@ function RcPanel({ acuerdo, rc, contacto, onCambio, onToast }){
       : <ShareButtons chico url={url} etiqueta="📨 Mandar la liga de reconsideración" telefono={ct.telefono} email={ct.email} onToast={toast} onEnviar={marcarEnvio}
           asunto={"Reconsideración de tu comisión · "+(acuerdo.folio||"")+" · Grupo Guía Macrolotes"}
           mensaje={"Hola"+(nom?" "+nom:"")+", tu convenio "+(acuerdo.folio||"")+" quedó en 60/40 por política porque no se firmó a tiempo. Te damos una oportunidad de reconsiderarlo: lee la carta completa y elige y firma tu esquema aquí (vence el "+fechaC(rc.vence_at)+"): "+url}/>}
-    <RcHistorial rc={rc} version={verHist}/>
   </div>);
   const n=(d)=>ter.filter(t=>(t.decision||"pendiente")===d).length;
   return (<div data-rc-panel style={caja}>
@@ -5525,7 +5552,6 @@ function RcPanel({ acuerdo, rc, contacto, onCambio, onToast }){
           {d!=="rechazado"&&<button data-rc-mantener disabled={!!busy} onClick={()=>decidir(t,"rechazado")} style={bt("#fff","#b45309","#b45309")}>{busy===k?"…":"Mantener 60/40"}</button>}
         </span></div>); })}
     {rc.estado==="resuelta"&&rc.resultado_avisado_at==null&&<button onClick={()=>avisar(rc.id)} style={{...bt(B.navy,"#fff"),marginTop:6}}>📨 Avisarle el resultado</button>}
-    <RcHistorial rc={rc} version={verHist}/>
   </div>);
 }
 function AccTag({c,children}){ const M={ok:["#dcfce7","#15803d"],wa:["#fef3c7","#b45309"],ba:["#fee2e2","#b91c1c"],gr:["#f1f5f9","#475569"]}; const m=M[c]||M.gr; return <span style={{display:"inline-block",fontSize:11,fontWeight:800,borderRadius:999,padding:"2px 8px",background:m[0],color:m[1],whiteSpace:"nowrap"}}>{children}</span>; }
@@ -23056,6 +23082,8 @@ Respuesta: [respuesta exacta, conversacional]
               <button key={k} data-ft-tab={k} onClick={()=>{ if(k==="media") setFtMedia(true); }} style={{padding:"9px 14px",border:"none",borderBottom:"3px solid "+(k==="ficha"?B.gold:"transparent"),background:"transparent",color:k==="ficha"?B.navy:B.grey4,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{t}</button>))}
           </div>
           <div style={{padding:"20px 24px"}}>
+            {/* 📜 Historial de firmas de ESTE lote (si tiene asesor) */}
+            {String(lot.asesor||"").trim()&&<div style={{marginBottom:14}}><HistorialTerreno key={"hist-l-"+lot.id} lote={lot} catalogo={asesoresCatalog}/></div>}
             {/* 📝 Cartas oferta de este lote */}
             <div style={{marginBottom:14}}><CartasOfertaPanel key={"co-l-"+lot.id} lote={lot} onToast={toast} onNueva={()=>setWizardCO({lote:lot})}/></div>
             {/* 📄 Ficha técnica = Ficha Técnica Universal (Landing, liga viva). Ya no se sube ni descarga un PDF. */}
@@ -25696,6 +25724,8 @@ Respuesta: [respuesta exacta, conversacional]
                   </div>
                 </div>
                 <div style={{padding:"20px 26px",maxHeight:"62vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:16}}>
+                  {/* 📜 Historial de firmas de ESTE terreno (resumen; la lista se abre al seleccionarla) */}
+                  {!esNueva && <HistorialTerreno key={"hist-"+f.id} cap={f} catalogo={asesoresCatalog}/>}
                   {/* 📵 A quién SÍ / NO le llegan mensajes automáticos de este terreno (Dirección) */}
                   {!esNueva && <MensajesTerreno key={"msg-"+f.id} cap={f} onToast={toast}/>}
                   {/* 📝 Cartas oferta (solo equipo interno) */}
