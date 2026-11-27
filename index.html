@@ -5476,7 +5476,7 @@ function HistorialTerreno({ cap, lote, catalogo, onToast }){
 }
 // 💰 Precio, m² y comisión de un terreno: lo que se CAPTURA en el terreno (Dirección 2026-11-27). Captación:
 // precio autorizado o, si no, el que pidió el dueño; superficie; % de comisión. Lote: precio_total y m².
-// Comisión total a cobrar = precio total × % de comisión.
+// Comisión total a cobrar = precio total × % de comisión. Es la comisión de GRUPO GUÍA (no la del asesor).
 function mpNum(x){ if(x==null||x===true||x===false) return 0; if(typeof x==="number") return isFinite(x)?x:0; const n=parseFloat(String(x).replace(/[^0-9.]/g,"")); return isFinite(n)?n:0; }
 function mpPct(x){ const t=String(x==null?"":x); let n=mpNum(t); if(n>0&&n<1&&!/%/.test(t)) n=n*100; return n; }
 function mpPrecioTerreno(cap, lote){
@@ -5552,7 +5552,7 @@ function SeguimientoTerreno({ cap, lote, catalogo, onToast, onClose, docsDe, doc
             ["Ubicación / dirección", c.ubicacion||L.direccion||""], ["Zona / colonia", c.zona||L.colonia||""], ["Ciudad", c.ciudad||L.ciudad||""], ["Estado", c.estado||L.estado||""],
             ["Superficie", num(c.superficie||L.sup_m2||L.superficie_m2," m²")], ["Frente", num(c.frente||L.frente," m")], ["Fondo", num(L.fondo," m")], ["Polígono", c.poligono||""],
             ["Uso de suelo", c.usoSuelo||L.uso||""], ["Otros usos", Array.isArray(L.usos_todos)?L.usos_todos.join(", "):""], ["COS", L.cos||""], ["CUS", L.cus||""], ["Niveles", L.niveles||""], ["Vivienda máx.", L.viv_max||""],
-            ["Precio total", pr.precio?mpMoneda(pr.precio):""], ["Precio por m²", pr.pm2?mpMoneda(pr.pm2):""], ["Comisión", pr.pct?(pr.pct.toLocaleString("es-MX")+"%"):""],
+            ["Precio total", pr.precio?mpMoneda(pr.precio):""], ["Precio por m²", pr.pm2?mpMoneda(pr.pm2):""], ["Comisión de Grupo Guía", pr.pct?(pr.pct.toLocaleString("es-MX")+"%"):""],
             ["Tipo de acuerdo", c.tipoAcuerdo||""], ["Vigencia", c.vigencia||""], ["Viabilidad", c.viabilidad||""], ["Desarrollo", L.desarrollo||""], ["Entrega", L.entrega||""], ["Estatus en inventario", L.status||L.status_inventario||""],
           ].filter(([,x])=>x!==""&&x!=null&&x!=="null");
           const maps=c.ligaMaps||L.maps_url||"";
@@ -5562,12 +5562,12 @@ function SeguimientoTerreno({ cap, lote, catalogo, onToast, onClose, docsDe, doc
             {maps&&<div style={{marginTop:8}}><a href={maps} target="_blank" rel="noopener noreferrer" style={{fontSize:12,fontWeight:800,color:"#1d4ed8"}}>📍 Ver ubicación en Google Maps ↗</a></div>}
             {!fUrl&&<div style={{fontSize:11,color:B.grey4,marginTop:6}}>La ficha pública se activa cuando el terreno se sube al inventario.</div>}
           </div>); })()}
-        <div data-seg-precio style={blk}>{h4("💰 Precio y comisión")}
+        <div data-seg-precio style={blk}>{h4("💰 Precio y comisión de Grupo Guía")}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"6px 16px"}}>
             <div>{k("Precio total")}{v(mpMoneda(pr.precio))}<div style={{fontSize:11,color:B.grey4}}>{pr.pm2?(mpMoneda(pr.pm2)+" /m²"):""}</div></div>
-            <div>{k("% de comisión")}{v(pr.pct?(pr.pct.toLocaleString("es-MX")+"%"):"—")}</div></div>
+            <div>{k("% de comisión de Grupo Guía")}{v(pr.pct?(pr.pct.toLocaleString("es-MX")+"%"):"—")}</div></div>
           <div data-seg-total style={{marginTop:8,background:"#fffbeb",border:"1.5px solid #f3d19c",borderRadius:9,padding:"8px 11px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <span><b>Total de la comisión a cobrar</b><br/><span style={{fontSize:11,color:B.grey4}}>{(pr.precio&&pr.pct)?("Precio total × "+pr.pct.toLocaleString("es-MX")+"%"):"Falta capturar "+[!pr.precio?"el precio":null,!pr.pct?"el % de comisión":null].filter(Boolean).join(" y ")+" del terreno"}</span></span>
+            <span><b>Total de la comisión de Grupo Guía a cobrar</b><br/><span style={{fontSize:11,color:B.grey4}}>{(pr.precio&&pr.pct)?("Precio total × "+pr.pct.toLocaleString("es-MX")+"%"):"Falta capturar "+[!pr.precio?"el precio":null,!pr.pct?"el % de comisión":null].filter(Boolean).join(" y ")+" del terreno"}</span></span>
             <span style={{fontSize:19,fontWeight:900,color:B.navy}}>{mpMoneda(pr.total)}</span></div></div>
         <div data-seg-acuerdo style={blk}>{h4("✍️ Acuerdo firmado (el último)")}
           {!ultimo?<div style={{color:B.grey4}}>{ac?"Todavía no hay un acuerdo firmado con PDF.":"Sin convenio de comisión."}</div>:<React.Fragment>
@@ -25003,7 +25003,7 @@ Respuesta: [respuesta exacta, conversacional]
                   <div style={s.stat}><div style={s.statNum}>{itemsSa.length}</div><div style={s.statLabel}>Opciones</div></div>
                   <div style={s.stat}><div data-hero-pend="asesor" style={{...s.statNum,color:(etSa.g0.length+etSa.g1.length)?B.gold:undefined}}>{etSa.g0.length+etSa.g1.length}</div><div style={s.statLabel}>Pendientes</div></div>
                   <div style={s.stat}><div style={s.statNum}>{etSa.g2.length}</div><div style={s.statLabel}>Firmados</div></div>
-                  {(()=>{ const tot=itemsSa.reduce((acc,c)=>acc+mpPrecioTerreno(c.__lote?null:c,c.__lote||null).total,0); return (<div style={s.stat} title="Suma de sus terrenos: precio total × % de comisión de cada uno"><div data-hero-comision style={{...s.statNum,fontSize:22}}>{mpMoneda(tot)}</div><div style={s.statLabel}>Comisión a cobrar</div></div>); })()}
+                  {(()=>{ const tot=itemsSa.reduce((acc,c)=>acc+mpPrecioTerreno(c.__lote?null:c,c.__lote||null).total,0); return (<div style={s.stat} title="Comisión de GRUPO GUÍA (no del asesor): suma de sus terrenos, precio total × % de comisión de cada uno"><div data-hero-comision style={{...s.statNum,fontSize:22}}>{mpMoneda(tot)}</div><div style={s.statLabel}>Comisión Grupo Guía a cobrar</div></div>); })()}
                 </div>}
               </div>
             )}
