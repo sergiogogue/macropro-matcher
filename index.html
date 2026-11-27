@@ -5342,6 +5342,60 @@ async function rcEnviarServidor(ids){
 }
 const MP_RC_RES={}; // resultado del último envío por reconsideración (sobrevive a los re-montajes de la vista)
 const rcFecha=(iso)=>{ try{ return iso?new Date(iso).toLocaleDateString("es-MX",{day:"numeric",month:"short"}):""; }catch(e){ return ""; } };
+// 🕘 HISTORIAL de la reconsideración (Dirección 2026-11-27): cada paso con fecha y hora, de la bitácora del convenio
+// (acuerdos_comision_eventos: NO se puede editar ni borrar). Envíos (chatbot o a mano), aperturas, código, firma con IP y huella,
+// PDF, decisiones por terreno y aviso del resultado.
+const RC_EV_TIPOS=["reconsideracion_creada","reconsideracion_terrenos","reconsideracion_renovada","reconsideracion_enviada","reconsideracion_vista","acceso_codigo","acceso_error","reconsideracion_abierta","reconsideracion_otra_cuenta","reconsideracion_firmada","reconsideracion_correo","reconsideracion_decision","reconsideracion_resultado","reconsideracion_anulada"];
+const rcFechaHora=(iso)=>{ try{ return new Date(iso).toLocaleString("es-MX",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}); }catch(e){ return iso||""; } };
+function rcEvTexto(e){ const d=e.detalle||{}; const quien=e.actor_email?(" · "+String(e.actor_email).split("@")[0]):"";
+  const canal={liga:"🔗 copió la liga",whatsapp:"🟢 abrió WhatsApp para mandarla",correo:"✉️ abrió el correo para mandarla"}[d.canal];
+  switch(e.tipo){
+    case "reconsideracion_creada": return ["⚖️","Reconsideración generada"+(d.terrenos?(" · "+d.terrenos+" terreno(s)"):"")+quien];
+    case "reconsideracion_terrenos": return ["✏️","Terrenos cambiados → "+(d.terrenos||"?")+quien];
+    case "reconsideracion_renovada": return ["♻","Liga nueva (vence "+(d.vence_at?rcFechaHora(d.vence_at):"")+")"+quien];
+    case "reconsideracion_enviada": return d.manual?["📨","Liga a mano: "+(canal||d.canal)+quien]:["📨","Enviada por el sistema: "+[d.whatsapp?"WhatsApp (chatbot)":null,d.correo?"correo":null].filter(Boolean).join(" y ")+(d.motivo?(" · ⚠ "+d.motivo):"")+quien];
+    case "reconsideracion_vista": return ["👀","El asesor ABRIÓ su liga"];
+    case "acceso_codigo": return ["🔐","Pidió su código ("+[d.whatsapp?"WhatsApp":null,d.correo?"correo":null].filter(Boolean).join(" y ")+")"];
+    case "acceso_error": return ["⚠","No se pudo mandar su código"];
+    case "reconsideracion_abierta": return ["✅","Entró con su código ("+(e.actor_email||"")+")"];
+    case "reconsideracion_otra_cuenta": return ["⛔","Intentaron abrirla con OTRA cuenta: "+(e.actor_email||"")];
+    case "reconsideracion_firmada": return ["✍️","FIRMÓ "+(d.esquema||"")+(e.ip?(" · IP "+e.ip):"")+(d.hash?(" · huella "+String(d.hash).slice(0,12)+"…"):"")];
+    case "reconsideracion_correo": return d.enviado?["📄","PDF de la adenda enviado a su correo"]:["⚠","No salió el correo del PDF"+(d.error?(": "+String(d.error).slice(0,80)):"")];
+    case "reconsideracion_decision": return ["🏁","Dirección: "+(d.terreno||"")+" → "+(d.decision==="aceptado"?("ACEPTADO "+(d.esquema||"")):(d.decision==="rechazado"?"sigue 60/40":"sin decidir"))+(d.nota?(" · "+d.nota):"")+quien];
+    case "reconsideracion_resultado": return ["📬","Resultado avisado al asesor ("+[d.correo?"correo":null,d.whatsapp?"WhatsApp":null].filter(Boolean).join(" y ")+")"];
+    case "reconsideracion_anulada": return ["🗑","Reconsideración anulada"+(d.motivo?(" · "+d.motivo):"")+quien];
+    default: return ["•",e.tipo];
+  } }
+// Abierto/cerrado y eventos fuera de React: la vista de asesores se vuelve a montar con cada aviso de la app.
+const MP_RC_HIST={ abierto:new Set(), ev:{} };
+function RcHistorial({ rc, version }){
+  const rid=rc&&rc.id;
+  const [ev,setEvSt]=useState(()=>(rid&&MP_RC_HIST.ev[rid])||null);
+  const [abierto,setAbiertoSt]=useState(()=>!!(rid&&MP_RC_HIST.abierto.has(rid)));
+  const setEv=(l)=>{ if(rid) MP_RC_HIST.ev[rid]=l; setEvSt(l); };
+  const setAbierto=(v)=>{ if(rid){ if(v) MP_RC_HIST.abierto.add(rid); else MP_RC_HIST.abierto.delete(rid); } setAbiertoSt(v); };
+  React.useEffect(()=>{ let vivo=true; if(!window.sb||!rc||!rc.acuerdo_id) return;
+    const desde=new Date(new Date(rc.creado_at||0).getTime()-60000).toISOString();
+    window.sb.from("acuerdos_comision_eventos").select("id,tipo,creado_at,actor_email,ip,detalle").eq("acuerdo_id",rc.acuerdo_id).in("tipo",RC_EV_TIPOS).gte("creado_at",desde).order("creado_at",{ascending:false}).limit(200)
+      .then(({data})=>{ if(!vivo) return; const l=(data||[]).filter(e=>!/^acceso_/.test(e.tipo)||(e.detalle&&e.detalle.reconsideracion===rc.folio)||(e.detalle&&e.detalle.folio===rc.folio));
+        setEv(l.filter(e=>!(e.detalle&&e.detalle.folio)||e.detalle.folio===rc.folio||/^acceso_/.test(e.tipo))); }).catch(()=>{ if(vivo) setEv([]); });
+    return ()=>{ vivo=false; }; },[rc&&rc.id, rc&&rc.estado, rc&&rc.liga_enviada_at, rc&&rc.firmado_at, version]);
+  const ult=(t,f)=>(ev||[]).find(e=>e.tipo===t&&(!f||f(e)));
+  const envio=ult("reconsideracion_enviada"), vista=ult("reconsideracion_vista"), firma=ult("reconsideracion_firmada");
+  const linea=(ico,txt,fecha,col)=>(<div style={{display:"flex",gap:6,alignItems:"baseline",fontSize:11.5,color:col||B.navy}}><span style={{width:16,textAlign:"center"}}>{ico}</span><b style={{minWidth:0}}>{txt}</b><span style={{color:B.grey4,marginLeft:"auto",whiteSpace:"nowrap"}}>{fecha}</span></div>);
+  return (<div data-rc-historial style={{marginTop:7,borderTop:"1px dashed #f3d9a4",paddingTop:6}}>
+    {linea("📨","Liga enviada / copiada",envio?rcFechaHora(envio.creado_at):(rc.liga_enviada_at?rcFechaHora(rc.liga_enviada_at):"— todavía no"),envio||rc.liga_enviada_at?B.navy:"#b45309")}
+    {linea("👀","La abrió el asesor",vista?rcFechaHora(vista.creado_at):"— todavía no",vista?B.navy:B.grey4)}
+    {linea("✍️","Firmó",rc.firmado_at?(rcFechaHora(rc.firmado_at)+(firma&&firma.ip?(" · IP "+firma.ip):"")):"— todavía no",rc.firmado_at?B.green:B.grey4)}
+    <a data-rc-ver-historial onClick={()=>setAbierto(!abierto)} style={{display:"inline-block",marginTop:4,fontSize:11.5,fontWeight:800,color:"#1d4ed8",cursor:"pointer"}}>{abierto?"▾ Ocultar historial":("▸ Ver todo el historial"+(ev?(" ("+ev.length+")"):""))}</a>
+    {abierto&&<div style={{marginTop:5,background:"#fff",border:"1px solid #f3e3c0",borderRadius:8,padding:"6px 8px",maxHeight:260,overflowY:"auto"}}>
+      {ev===null?<div style={{fontSize:11.5,color:B.grey4}}>Cargando…</div>:ev.length===0?<div style={{fontSize:11.5,color:B.grey4}}>Sin movimientos todavía.</div>:
+        ev.map(e=>{ const [ico,txt]=rcEvTexto(e); return (<div key={e.id} data-rc-ev={e.tipo} style={{display:"flex",gap:7,fontSize:11.5,padding:"3px 0",borderBottom:"1px solid #f8eedb"}}>
+          <span style={{color:B.grey4,whiteSpace:"nowrap",minWidth:118}}>{rcFechaHora(e.creado_at)}</span><span>{ico}</span><span style={{color:B.navy}}>{txt}</span></div>); })}
+      <div style={{fontSize:10.5,color:B.grey4,marginTop:4}}>Bitácora inalterable del convenio (no se puede editar ni borrar).</div>
+    </div>}
+  </div>);
+}
 // ⚖️ Todas las reconsideraciones de una vez (Asesores → Todos): generar las que faltan y mandarlas.
 function RcMasivo({ acuerdos, rcs, onCambio, onToast }){
   const toast=onToast||(()=>{});
@@ -5374,7 +5428,7 @@ function RcMasivo({ acuerdos, rcs, onCambio, onToast }){
       <tbody>{lista.map(a=>{ const r=rcDeA(a); const x=r?res[r.id]:null; const ven=vencida(r);
         const est=!r?<span style={{color:B.grey4}}>Sin generar</span>
           :r.estado==="pendiente"?<span style={{color:ven?B.red:"#b45309",fontWeight:700}}>{ven?("Venció "+rcFecha(r.vence_at)):("Por firmar · vence "+rcFecha(r.vence_at))}{r.liga_enviada_at?<span style={{color:B.green}}> · enviada {rcFecha(r.liga_enviada_at)}</span>:<span style={{color:B.grey4}}> · sin mandar</span>}</span>
-          :r.estado==="firmada"?<span style={{color:"#1d4ed8",fontWeight:800}}>✍️ Firmó {r.esquema} · decide sus terrenos</span>
+          :r.estado==="firmada"?<span style={{color:"#1d4ed8",fontWeight:800}}>✍️ Firmó {r.esquema} el {rcFecha(r.firmado_at)} · decide sus terrenos</span>
           :<span style={{color:B.green,fontWeight:800}}>✓ Resuelta</span>;
         return (<tr key={a.id} data-rc-fila={a.id} style={{borderTop:"1px solid #f3e3c0"}}>
           <td style={{padding:"7px 10px",fontWeight:800,color:B.navy}}>{a.asesor_nombre||a.asesor_email}</td>
@@ -5396,7 +5450,9 @@ function RcPanel({ acuerdo, rc, contacto, onCambio, onToast }){
   const [opciones,setOpciones]=useState(null);   // todos los terrenos del convenio (sin doble) · null = cargando/no disponible
   const [elegidos,setElegidos]=useState(null);   // Set de "tipo:id" elegidos por Dirección
   const [editando,setEditando]=useState(false);
+  const [verHist,setVerHist]=useState(0);   // sube para recargar el historial tras un envío
   const ct=contacto||{};
+  const marcarEnvio=async(canal)=>{ try{ if(window.sb&&rc){ await window.sb.rpc("reconsideracion_marcar_envio",{p_id:rc.id,p_canal:canal}); setVerHist(v=>v+1); } }catch(e){} };
   const kT=(t)=>t.tipo+":"+String(t.id).toLowerCase();
   const pendienteRc=!!rc&&rc.estado==="pendiente";
   React.useEffect(()=>{ if(!window.sb||!acuerdo||!acuerdo.id) return; if(rc&&!pendienteRc) return; let vivo=true;
@@ -5451,14 +5507,15 @@ function RcPanel({ acuerdo, rc, contacto, onCambio, onToast }){
     {editando&&<React.Fragment>{casillas()}<div style={{display:"flex",gap:6,marginBottom:7}}><button data-rc-guardar-terrenos disabled={!!busy||nSel===0} onClick={guardarTerrenos} style={bt(B.navy,"#fff")}>{busy==="terrenos"?"Guardando…":"Guardar ("+nSel+")"}</button><button onClick={()=>setEditando(false)} style={bt("#fff",B.grey4,B.grey2)}>Cancelar</button></div></React.Fragment>}
     {!vencida&&<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
       <button data-rc-enviar disabled={!!busy} onClick={async()=>{ if(!window.confirm("¿Mandar la liga de reconsideración por WhatsApp (chatbot) y correo a "+(acuerdo.asesor_nombre||"el asesor")+"?")) return; setBusy("enviar");
-          try{ const out=await rcEnviarServidor([rc.id]); const x=out[0]||{}; toast((x.whatsapp||x.correo)?("📨 Enviada por "+[x.whatsapp?"WhatsApp":null,x.correo?"correo":null].filter(Boolean).join(" y ")):("⚠ No se envió: "+(x.motivo||x.error||"sin detalle"))); await onCambio(); }
+          try{ const out=await rcEnviarServidor([rc.id]); const x=out[0]||{}; toast((x.whatsapp||x.correo)?("📨 Enviada por "+[x.whatsapp?"WhatsApp":null,x.correo?"correo":null].filter(Boolean).join(" y ")):("⚠ No se envió: "+(x.motivo||x.error||"sin detalle"))); setVerHist(v=>v+1); await onCambio(); }
           catch(e){ toast("⚠ "+String((e&&e.message)||e)); } finally{ setBusy(""); } }} style={bt(B.navy,"#fff")}>{busy==="enviar"?"Enviando…":("📨 "+(rc.liga_enviada_at?"Reenviar":"Mandar")+" por WhatsApp y correo")}</button>
       {rc.liga_enviada_at&&<span style={{fontSize:11.5,color:B.green,fontWeight:700}}>✓ enviada {rcFecha(rc.liga_enviada_at)}</span>}</div>}
     {vencida
       ? <button disabled={!!busy} onClick={()=>crear(true)} style={bt(B.navy,"#fff")}>{busy?"…":"♻ Liga nueva (7 días más)"}</button>
-      : <ShareButtons chico url={url} etiqueta="📨 Mandar la liga de reconsideración" telefono={ct.telefono} email={ct.email} onToast={toast}
+      : <ShareButtons chico url={url} etiqueta="📨 Mandar la liga de reconsideración" telefono={ct.telefono} email={ct.email} onToast={toast} onEnviar={marcarEnvio}
           asunto={"Reconsideración de tu comisión · "+(acuerdo.folio||"")+" · Grupo Guía Macrolotes"}
           mensaje={"Hola"+(nom?" "+nom:"")+", tu convenio "+(acuerdo.folio||"")+" quedó en 60/40 por política porque no se firmó a tiempo. Te damos una oportunidad de reconsiderarlo: lee la carta completa y elige y firma tu esquema aquí (vence el "+fechaC(rc.vence_at)+"): "+url}/>}
+    <RcHistorial rc={rc} version={verHist}/>
   </div>);
   const n=(d)=>ter.filter(t=>(t.decision||"pendiente")===d).length;
   return (<div data-rc-panel style={caja}>
@@ -5475,6 +5532,7 @@ function RcPanel({ acuerdo, rc, contacto, onCambio, onToast }){
           {d!=="rechazado"&&<button data-rc-mantener disabled={!!busy} onClick={()=>decidir(t,"rechazado")} style={bt("#fff","#b45309","#b45309")}>{busy===k?"…":"Mantener 60/40"}</button>}
         </span></div>); })}
     {rc.estado==="resuelta"&&rc.resultado_avisado_at==null&&<button onClick={()=>avisar(rc.id)} style={{...bt(B.navy,"#fff"),marginTop:6}}>📨 Avisarle el resultado</button>}
+    <RcHistorial rc={rc} version={verHist}/>
   </div>);
 }
 function AccTag({c,children}){ const M={ok:["#dcfce7","#15803d"],wa:["#fef3c7","#b45309"],ba:["#fee2e2","#b91c1c"],gr:["#f1f5f9","#475569"]}; const m=M[c]||M.gr; return <span style={{display:"inline-block",fontSize:11,fontWeight:800,borderRadius:999,padding:"2px 8px",background:m[0],color:m[1],whiteSpace:"nowrap"}}>{children}</span>; }
