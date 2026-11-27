@@ -5357,14 +5357,14 @@ function rcEvTexto(e){ const d=e.detalle||{}; const quien=e.actor_email?(" · "+
   } }
 // Cerrado/abierto y eventos fuera de React: la vista de asesores se vuelve a montar con cada aviso de la app.
 // Historial de FIRMAS del convenio completo (Dirección 2026-11-27): alta, recordatorios, 60/40 por política,
-// reconsideración, envíos, apertura y firma. Se muestra ABIERTO; se puede ocultar.
-const MP_RC_HIST={ cerrado:new Set(), ev:{} };
+// reconsideración, envíos, apertura y firma. Viene ESCONDIDO: se abre solo al seleccionarlo (Dirección 2026-11-27).
+const MP_RC_HIST={ abierto:new Set(), ev:{} };
 function RcHistorial({ rc, version }){
   const rid=rc&&rc.id;
   const [ev,setEvSt]=useState(()=>(rid&&MP_RC_HIST.ev[rid])||null);
-  const [abierto,setAbiertoSt]=useState(()=>!(rid&&MP_RC_HIST.cerrado.has(rid)));
+  const [abierto,setAbiertoSt]=useState(()=>!!(rid&&MP_RC_HIST.abierto.has(rid)));
   const setEv=(l)=>{ if(rid) MP_RC_HIST.ev[rid]=l; setEvSt(l); };
-  const setAbierto=(v)=>{ if(rid){ if(v) MP_RC_HIST.cerrado.delete(rid); else MP_RC_HIST.cerrado.add(rid); } setAbiertoSt(v); };
+  const setAbierto=(v)=>{ if(rid){ if(v) MP_RC_HIST.abierto.add(rid); else MP_RC_HIST.abierto.delete(rid); } setAbiertoSt(v); };
   React.useEffect(()=>{ let vivo=true; if(!window.sb||!rc||!rc.acuerdo_id) return;
     window.sb.from("acuerdos_comision_eventos").select("id,tipo,creado_at,actor_email,ip,detalle").eq("acuerdo_id",rc.acuerdo_id).order("creado_at",{ascending:false}).limit(300)
       .then(({data})=>{ if(!vivo) return; setEv(data||[]); }).catch(()=>{ if(vivo) setEv([]); });
