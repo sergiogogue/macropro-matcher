@@ -5474,6 +5474,67 @@ function HistorialTerreno({ cap, lote, catalogo, onToast }){
     </div>}
   </div>);
 }
+// 🧠 SEMÁFORO CON IA (Wizard de opción por WhatsApp · Dirección 2026-11-28): la IA RECOMIENDA y DIRECCIÓN
+// decide aquí. Aprobar → Dictamen GG-AUT (se guarda en la ficha y GG-IA se lo manda al asesor). Regresar →
+// el terreno vuelve a documentos con lo marcado (el bot le explica al asesor por qué, con "Descartar terreno").
+const SEM_ETQ={verde:["🟢 VERDE","#15803d","#ecfdf5"],amarillo:["🟡 AMARILLO","#b45309","#fffbeb"],rojo:["🔴 ROJO","#b91c1c","#fef2f2"]};
+const SEM_CRIT={predial:"Boleta predial",uso_suelo:"Uso de suelo",restricciones:"Restricciones",superficie:"Superficie",plano:"Plano",usos:"Usos y trazos"};
+const SEM_REG={predial:"predial",uso_suelo:"usos",restricciones:"usos",usos:"usos",plano:"plano",superficie:"superficie"};
+const WIZ_ETAPA={borrador:"Borrador",pendiente_firma:"Esperando su firma del convenio",firmado:"Convenio firmado",documentos_incompletos:"Juntando documentos",en_revision_semaforo:"En revisión del semáforo",aprobado_viabilidad:"Aprobado (viabilidad)",documentos_legales_pendientes:"Expediente para contrato",listo_para_publicar:"Listo para publicar",publicado:"Publicado",descartado:"Descartado"};
+async function mpLandingPost(fn, body){ const {data:s}=await window.sb.auth.getSession(); const tk=s&&s.session&&s.session.access_token; if(!tk) throw new Error("Tu sesión venció: vuelve a entrar.");
+  const r=await fetch(LANDING_URL+"/.netlify/functions/"+fn,{method:"POST",headers:{"content-type":"application/json",Authorization:"Bearer "+tk},body:JSON.stringify(body)}); const o=await r.json().catch(()=>({}));
+  if(!r.ok||o.error) throw new Error(o.error||("Error "+r.status)); return o; }
+function SemaforoIABloque({ capId, onToast }){
+  const toast=onToast||(()=>{});
+  const [d,setD]=useState(null); const [ver,setVer]=useState(0); const [busy,setBusy]=useState("");
+  const [nota,setNota]=useState(""); const [reg,setReg]=useState(null); const [abierto,setAbierto]=useState(false);
+  React.useEffect(()=>{ let vivo=true; if(!window.sb||!capId) return;
+    Promise.all([window.sb.from("captaciones").select("etapa_wizard,wizard_canal,viabilidad").eq("id",capId).limit(1),
+      window.sb.from("captacion_semaforo_ia").select("*").eq("captacion_id",capId).order("creado_at",{ascending:false}).limit(5)])
+      .then(([c,sm])=>{ if(!vivo) return; setD({cap:(c&&c.data&&c.data[0])||{}, sem:(sm&&sm.data)||[]}); }).catch(()=>{ if(vivo) setD({cap:{},sem:[]}); });
+    return ()=>{ vivo=false; }; },[capId,ver]);
+  React.useEffect(()=>{ if(!d||reg) return; const s0=d.sem[0]; if(!s0) return; const m={}; (s0.criterios||[]).forEach(c=>{ if(c&&(c.nivel==="rojo"||c.nivel==="amarillo")&&SEM_REG[c.clave]) m[SEM_REG[c.clave]]=true; }); setReg(m); },[d]);
+  if(!d) return null;
+  const et=d.cap.etapa_wizard||"", s0=d.sem[0]||null;
+  if(!et&&!s0) return null;   // terreno que no entró por el wizard
+  const enRev=et==="en_revision_semaforo";
+  const blk={border:"1.5px solid "+(enRev?"#0b2545":"#e5e7eb"),borderRadius:11,padding:"10px 13px",background:enRev?"#f8fafc":"#fff"};
+  const bt=(bg,fg,brd)=>({padding:"6px 12px",borderRadius:8,border:brd?("1.5px solid "+brd):"none",background:bg,color:fg,fontSize:12,fontWeight:800,cursor:busy?"wait":"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+  const correr=async()=>{ setBusy("correr"); try{ const o=await mpLandingPost("semaforo-ia",{capId}); toast("🧠 "+(o.mensaje||"Semáforo en camino")); setTimeout(()=>setVer(v=>v+1),9000); }catch(e){ toast("⚠ "+e.message); } setBusy(""); };
+  const decidir=async(decision)=>{
+    const rech=Object.keys(reg||{}).filter(k=>reg[k]);
+    if(decision==="regresar"&&!rech.length){ toast("Marca qué se le regresa al asesor"); return; }
+    if(!window.confirm(decision==="aprobar"?"¿APROBAR este terreno?\n\nSe genera el Dictamen de autorización (GG-AUT), se guarda en la ficha y GG-IA se lo manda al asesor por WhatsApp.":"¿REGRESAR al asesor?\n\nSe le regresa: "+rech.map(k=>({plano:"Plano",usos:"Certificado de usos y trazos",predial:"Boleta predial",superficie:"m²"}[k])).join(", ")+".\nGG-IA le explica por qué, con el botón para descartar el terreno.")) return;
+    setBusy(decision);
+    try{ const o=await mpLandingPost("semaforo-decidir",{capId,decision,nota:nota||null,rechazar:decision==="regresar"?rech:null});
+      toast(decision==="aprobar"?("✅ Aprobado · Dictamen "+(o.folio||"")+(o.whatsapp?" enviado al asesor":(o.aviso?(" · "+o.aviso):" · no salió el WhatsApp"))):("↩ Regresado al asesor"+(o.whatsapp?" (ya le llegó el motivo)":(o.aviso?(" · "+o.aviso):""))));
+      try{ window.dispatchEvent(new Event("mp-rc-cambio")); }catch(e2){} setNota(""); setVer(v=>v+1);
+    }catch(e){ toast("⚠ "+e.message); } finally{ setBusy(""); } };
+  const etq=s0?SEM_ETQ[s0.veredicto]||SEM_ETQ.amarillo:null;
+  return (<div data-semaforo-ia style={blk}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
+      <span style={{fontSize:11.5,fontWeight:800,textTransform:"uppercase",letterSpacing:.6,color:B.navy}}>🧠 Semáforo IA {et&&<span style={{textTransform:"none",letterSpacing:0,fontWeight:700,color:B.grey4}}>· 🤖 WhatsApp: {WIZ_ETAPA[et]||et}</span>}</span>
+      {etq&&<span data-semaforo-veredicto={s0.veredicto} style={{background:etq[2],color:etq[1],border:"1.5px solid "+etq[1],borderRadius:999,padding:"2px 10px",fontSize:12,fontWeight:900}}>IA recomienda: {etq[0]}</span>}
+    </div>
+    {!s0?<div style={{color:B.grey4,fontSize:12}}>{enRev?"La IA todavía no termina de leer los documentos.":"Aún no se corre el semáforo."}</div>:<React.Fragment>
+      {(s0.criterios||[]).map((c,i)=>(<div key={i} data-semaforo-crit={c.clave} style={{display:"flex",gap:7,fontSize:12.5,padding:"3px 0",borderTop:i?"1px solid #f1f5f9":"none"}}>
+        <span>{c.nivel==="rojo"?"🔴":c.nivel==="amarillo"?"🟡":"🟢"}</span><span><b style={{color:B.navy}}>{SEM_CRIT[c.clave]||c.clave}:</b> {c.detalle}</span></div>))}
+      {s0.resumen&&<div style={{fontSize:12,color:B.grey5,marginTop:5,fontStyle:"italic"}}>{s0.resumen}</div>}
+      <div style={{fontSize:10.5,color:B.grey4,marginTop:4}}>Corrida {rcFechaHora(s0.creado_at)}{s0.decision?(" · Dirección: "+(s0.decision==="aprobado"?"✅ APROBADO":"↩ REGRESADO")+(s0.decidido_at?(" el "+rcFechaHora(s0.decidido_at)):"")+(s0.dictamen_folio?(" · Dictamen "+s0.dictamen_folio):"")):""}{d.sem.length>1?<a onClick={()=>setAbierto(!abierto)} style={{marginLeft:8,cursor:"pointer",fontWeight:800,color:"#1d4ed8"}}>{abierto?"ocultar anteriores":("ver "+(d.sem.length-1)+" anterior(es)")}</a>:null}</div>
+      {abierto&&d.sem.slice(1).map(x=>(<div key={x.id} style={{fontSize:11,color:B.grey5,marginTop:2}}>· {rcFechaHora(x.creado_at)} → {(SEM_ETQ[x.veredicto]||[x.veredicto])[0]}{x.decision?(" · "+x.decision):""}</div>))}
+    </React.Fragment>}
+    {enRev&&<div data-semaforo-decidir style={{marginTop:9,borderTop:"1px dashed #cbd5e1",paddingTop:8}}>
+      <div style={{fontSize:11.5,fontWeight:800,color:B.navy,marginBottom:4}}>Tu decisión (la IA solo recomienda):</div>
+      <input value={nota} onChange={e=>setNota(e.target.value)} placeholder="Nota para el dictamen / para el asesor (opcional)" style={{width:"100%",boxSizing:"border-box",padding:"7px 9px",borderRadius:8,border:"1px solid #cbd5e1",fontSize:12.5,fontFamily:"inherit",marginBottom:6}}/>
+      <div style={{fontSize:11.5,color:B.grey5,marginBottom:4}}>Si lo regresas, se le pide de nuevo:</div>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:12,marginBottom:8}}>{[["plano","Plano"],["usos","Certificado de usos y trazos"],["predial","Boleta predial"],["superficie","m² (superficie)"]].map(([k,t])=>(<label key={k} style={{display:"flex",gap:4,alignItems:"center",cursor:"pointer"}}><input type="checkbox" data-semaforo-reg={k} checked={!!(reg&&reg[k])} onChange={()=>setReg(p=>({...(p||{}),[k]:!(p&&p[k])}))}/>{t}</label>))}</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button data-semaforo-aprobar disabled={!!busy} onClick={()=>decidir("aprobar")} style={bt(B.green,"#fff")}>{busy==="aprobar"?"Aprobando…":"✓ Aprobar y mandar Dictamen"}</button>
+        <button data-semaforo-regresar disabled={!!busy} onClick={()=>decidir("regresar")} style={bt("#fff","#b45309","#b45309")}>{busy==="regresar"?"Regresando…":"↩ Regresar al asesor"}</button>
+        <button data-semaforo-correr disabled={!!busy} onClick={correr} style={bt("#fff",B.navy,B.navy)}>{busy==="correr"?"…":(s0?"🧠 Volver a correr la IA":"🧠 Correr semáforo IA")}</button>
+      </div></div>}
+  </div>);
+}
 // 💰 Precio, m² y comisión de un terreno: lo que se CAPTURA en el terreno (Dirección 2026-11-27). Captación:
 // precio autorizado o, si no, el que pidió el dueño; superficie; % de comisión. Lote: precio_total y m².
 // Comisión total a cobrar = precio total × % de comisión. Es la comisión de GRUPO GUÍA (no la del asesor).
@@ -5577,6 +5638,7 @@ function SeguimientoTerreno({ cap, lote, catalogo, onToast, onClose, docsDe, doc
               <button data-seg-pdf onClick={bajar} style={btn(false)}>{busy==="bajar"?"Descargando…":"⬇️ Descargar PDF"}</button></div>
             {verPdf&&<iframe title="Vista previa del acuerdo" src={verPdf} style={{width:"100%",height:460,border:"1px solid #e5e7eb",borderRadius:8,marginTop:8}}/>}
           </React.Fragment>}</div>
+        {cap&&cap.id&&<SemaforoIABloque capId={cap.id} onToast={toast}/>}
         <HistorialTerreno cap={cap} lote={cap?null:lote} catalogo={catalogo} onToast={toast}/>
         {cap&&<div data-seg-docs style={blk}>{h4("📂 Documentos",onIrOpcion&&<button data-seg-ir-opcion onClick={()=>onIrOpcion(cap)} style={{...btn(false),background:"#d4a72c",borderColor:"#d4a72c"}}>Ver y subir en 🌱 Opción / Captación →</button>)}
           {!docs?<div style={{color:B.grey4}}>No se pudo leer el expediente.</div>:<React.Fragment>
@@ -24130,6 +24192,7 @@ Respuesta: [respuesta exacta, conversacional]
     const setAcuerdos=(fn)=>setAcuerdosRaw(prev=>{ const n=(typeof fn==="function")?fn(prev):fn; MP_FA_CACHE.acuerdos=n; return n; });
     // ⚖️ Reconsideraciones (convenios en 60/40 por política). Si aún no se corre el SQL, queda vacío.
     const [rcs,setRcs]=React.useState(()=>MP_FA_CACHE.rc||[]);
+    const [semPend,setSemPend]=React.useState(()=>MP_FA_CACHE.semp||[]); // 🧠 terrenos del wizard esperando tu decisión de semáforo
     const [cots,setCots]=React.useState(()=>MP_FA_CACHE.cots||[]);
     const [cargando,setCargando]=React.useState(()=>!MP_FA_CACHE.acuerdos);
     // Banderas "en curso" a nivel módulo (MP_FA_BUSY): este tick solo re-pinta cuando cambian.
@@ -24182,6 +24245,12 @@ Respuesta: [respuesta exacta, conversacional]
       }catch(e){}
       try{ const rr=await window.sb.from("acuerdos_reconsideracion").select("id,acuerdo_id,folio,token,estado,esquema,terrenos,vence_at,firmado_at,firma_nombre,pdf_path,resuelta_at,resultado_avisado_at,creado_at,liga_enviada_at").neq("estado","anulada");
         if(rr&&!rr.error&&Array.isArray(rr.data)){ MP_FA_CACHE.rc=rr.data; setRcs(rr.data); } }catch(e){}
+      // 🧠 Semáforo: terrenos del wizard (WhatsApp) en revisión + la última recomendación de la IA.
+      try{ const sp=await window.sb.from("captaciones").select("id,zona,ubicacion,asesor_responsable_gg,etapa_wizard,etapa_wizard_at").eq("etapa_wizard","en_revision_semaforo");
+        if(sp&&!sp.error&&Array.isArray(sp.data)){ let rows=sp.data.filter(r=>r&&r.etapa_wizard==="en_revision_semaforo");
+          if(rows.length){ const sm=await window.sb.from("captacion_semaforo_ia").select("captacion_id,veredicto,creado_at").in("captacion_id",rows.map(r=>r.id)).order("creado_at",{ascending:false});
+            const ult={}; ((sm&&sm.data)||[]).forEach(x=>{ if(!ult[x.captacion_id]) ult[x.captacion_id]=x; }); rows=rows.map(r=>({...r,sem:ult[r.id]||null})); }
+          MP_FA_CACHE.semp=rows; setSemPend(rows); } }catch(e){}
       setCargando(false);
     },[]);
     React.useEffect(()=>{ recargar(); },[recargar]);
@@ -24960,6 +25029,14 @@ Respuesta: [respuesta exacta, conversacional]
     return (
       <div style={{background:B.offW,minHeight:"calc(100vh - 56px)"}}>
         <div style={{...s.page,maxWidth:1440}}>
+          {semPend.length>0&&<div data-semaforo-pendientes style={{background:"#f8fafc",border:"2px solid #0b2545",borderRadius:12,padding:"10px 14px",margin:"0 0 12px"}}>
+            <div style={{fontSize:12,fontWeight:800,color:B.navy,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>🧠 Semáforo · {semPend.length} terreno{semPend.length===1?"":"s"} esperan tu decisión</div>
+            {semPend.map(r=>{ const e=r.sem?(SEM_ETQ[r.sem.veredicto]||SEM_ETQ.amarillo):null; const nm=r.zona||r.ubicacion||r.id; return (
+              <div key={r.id} data-semaforo-pend={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",padding:"3px 0"}}>
+                <span style={{fontSize:13.5,color:B.navy}}><b>{nm}</b> · {r.asesor_responsable_gg||"—"} · {e?<span style={{color:e[1],fontWeight:800}}>IA: {e[0]}</span>:<span style={{color:B.grey4}}>la IA está leyendo los documentos…</span>}</span>
+                <button data-semaforo-ir onClick={()=>{ const c=(captaciones||[]).find(x=>x&&x.id===r.id)||{id:r.id,zona:r.zona,ubicacion:r.ubicacion,asesorResponsableGG:r.asesor_responsable_gg}; setSegTerreno({cap:c,lote:null}); }} style={{...s.btn("sm"),background:B.navy,color:"#fff",boxShadow:"none",whiteSpace:"nowrap"}}>Decidir →</button>
+              </div>); })}
+          </div>}
           {rcFirmadas.length>0&&<div data-rc-firmadas style={{background:"#eff6ff",border:"2px solid #60a5fa",borderRadius:12,padding:"10px 14px",margin:"0 0 12px"}}>
             {rcFirmadas.map(({r,a,pend})=>{ const nm=(a&&a.asesor_nombre)||r.asesor_nombre||"Asesor"; return (
               <div key={r.id} data-rc-firmada={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",padding:"3px 0"}}>
