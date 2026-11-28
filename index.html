@@ -5842,6 +5842,87 @@ function AccLiga({titulo,url,mensaje,onCerrar}){
     <div style={{fontSize:11.5,color:"#92400e",marginTop:6}}>Cópiala ahora: por seguridad no se vuelve a mostrar.</div>
   </div>);
 }
+// ⭐ INVITACIÓN VIP a desarrolladores (Intelligence + GG-IA · Dirección 2026-11-28, mockup aprobado).
+// Carta editable con logos de Grupo Guía y del desarrollo; se manda por Resend desde la Landing (invitacion-vip),
+// con copia a macrolotes@ y registro de entrega. Si NO tiene cuenta se crea su invitación (liga de activación,
+// vence en 72 h); si ya está activo, el botón lleva directo a Intelligence. Firma: Sergio González Guerra G.
+const VIP_FECHA=(iso)=>{ try{ return new Date(iso).toLocaleString("es-MX",{timeZone:"America/Mexico_City",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; } };
+function vipTexto(nombre, des){ const nm=String(nombre||"").trim(); const d=des&&des.length?des.join(", "):"sus desarrollos";
+  return "Estimado(a) "+(nm||"desarrollador")+":\n\nEn Grupo Guía · Macrolotes lo invitamos a *Intelligence*, nuestro portal donde podrá consultar en tiempo real el avance comercial de *"+d+"*:\n• Metas y ventas del mes\n• Inventario disponible y velocidad de venta\n• Interesados y propuestas (sin datos personales)\n• Plan comercial y radar competitivo\n\nEntrará con su propio correo y verá *solo sus desarrollos*."; }
+function InvitacionVIP({ preset, onClose, onToast }){
+  const toast=onToast||(()=>{}); const P=preset||{};
+  const [cat,setCat]=useState(null); const [adm,setAdm]=useState([]); const [logos,setLogos]=useState({});
+  const [nombre,setNombre]=useState(P.nombre||""); const [correo,setCorreo]=useState(P.correo||""); const [empresa,setEmpresa]=useState(P.empresa||"");
+  const [sel,setSel]=useState(()=>new Set(P.ids||[])); const [texto,setTexto]=useState(""); const [editado,setEditado]=useState(false);
+  const [logo,setLogo]=useState(""); const [logoMan,setLogoMan]=useState(false); const [wa,setWa]=useState(true);
+  const [prev,setPrev]=useState(""); const [busy,setBusy]=useState(""); const [verMas,setVerMas]=useState(false);
+  const low=(x)=>String(x||"").trim().toLowerCase();
+  React.useEffect(()=>{ let vivo=true; if(!window.sb){ setCat([]); return; }
+    Promise.all([window.sb.rpc("landing_desarrollos_cat"),window.sb.rpc("landing_desarrolladores_admin"),window.sb.from("desarrollos").select("nombre,logo_url")]).then(([a,b,c])=>{ if(!vivo) return;
+      const L=(a&&a.data)||[]; setCat(L); setAdm((b&&b.data)||[]); const m={}; ((c&&c.data)||[]).forEach(x=>{ if(x&&x.logo_url) m[low(x.nombre)]=x.logo_url; }); setLogos(m);
+      if(P.desNombre){ const hit=L.find(x=>low(x.nombre)===low(P.desNombre)); if(hit) setSel(new Set([hit.id])); } }).catch(()=>{ if(vivo) setCat([]); });
+    return ()=>{ vivo=false; }; },[]);
+  const lista=Array.isArray(cat)?cat:[];
+  const desSel=lista.filter(x=>sel.has(x.id)).map(x=>x.nombre);
+  const activo=(adm||[]).some(r=>low(r.correo)===low(correo)&&r.estado==="activo");
+  const logoAuto=(desSel.map(n=>logos[low(n)]).find(Boolean))||"";
+  React.useEffect(()=>{ if(!editado) setTexto(vipTexto(nombre,desSel)); },[nombre,desSel.join("|"),editado]);
+  React.useEffect(()=>{ if(!logoMan) setLogo(logoAuto); },[logoAuto,logoMan]);
+  const ligaIntel=LANDING_URL+"/intelligence.html";
+  const datos=(liga,vence)=>({correo:low(correo),nombre:nombre.trim(),empresa:empresa.trim(),desarrollos:desSel,texto,logo_url:logo,liga,cta:activo?"Entrar a Intelligence":"Activar mi acceso",vence:vence||"",whatsapp:wa});
+  const vista=async()=>{ setBusy("ver"); try{ const o=await mpLandingPost("invitacion-vip",{...datos(activo?ligaIntel:(LANDING_URL+"/portal-desarrollo?inv=SE-GENERA-AL-ENVIAR"),activo?"":"en 72 horas"),preview:true}); setPrev(o.html||""); }catch(e){ toast("⚠ "+e.message); } setBusy(""); };
+  const enviar=async()=>{
+    const c=low(correo); if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c)){ toast("Escribe un correo válido."); return; }
+    if(!activo&&!sel.size){ toast("Elige al menos un desarrollo que verá."); return; }
+    if(!window.confirm("¿Enviar la Invitación VIP a "+(nombre||c)+" ("+c+")?\n\n"+(activo?"Ya tiene acceso: el botón lo lleva directo a Intelligence.":"Se crea su invitación (liga de activación, vence en 72 horas) a: "+desSel.join(", ")+".")+"\nSale con copia a macrolotes@ y firmada por Sergio González Guerra G.")) return;
+    setBusy("enviar");
+    try{ let liga=ligaIntel, vence="";
+      if(!activo){ const {data,error}=await window.sb.rpc("landing_invitacion_crear",{p:{correo:c,nombre:nombre.trim()||null,empresa:empresa.trim()||null,desarrollo_ids:[...sel]}}); if(error) throw error; if(data&&data.error) throw new Error(data.error);
+        if(!data||!data.token) throw new Error("no se generó la invitación"); liga=LANDING_URL+"/portal-desarrollo?inv="+encodeURIComponent(data.token); vence=data.expira_en?("el "+VIP_FECHA(data.expira_en)):"en 72 horas"; }
+      await mpLandingPost("invitacion-vip",datos(liga,vence));
+      toast("⭐ Invitación VIP enviada a "+c+(activo?"":" · su liga de activación vence "+vence)); onClose&&onClose(true);
+    }catch(e){ toast("⚠ No se pudo enviar: "+String((e&&e.message)||e)); } finally{ setBusy(""); } };
+  const inp={width:"100%",boxSizing:"border-box",padding:"8px 10px",borderRadius:8,border:"1px solid #cbd5e1",fontSize:13,fontFamily:"inherit",background:"#f8fafc"};
+  const k=(t)=><div style={{fontSize:10,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:.4,marginBottom:3}}>{t}</div>;
+  const bt=(bg,fg,brd)=>({padding:"8px 13px",borderRadius:9,border:brd?("1.5px solid "+brd):"none",background:bg,color:fg,fontSize:12.5,fontWeight:800,cursor:busy?"wait":"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+  const visibles=verMas?lista:lista.filter(x=>x.activo!==false||sel.has(x.id));
+  return (<div data-vip-modal onClick={()=>onClose&&onClose(false)} style={{position:"fixed",inset:0,background:"rgba(0,43,73,0.6)",zIndex:2700,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"30px 16px",overflowY:"auto"}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,maxWidth:prev?1100:620,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",overflow:"hidden",margin:"auto"}}>
+      <div style={{padding:"14px 20px",background:"linear-gradient(135deg,#0b2545,#13315c)",color:"#fff",display:"flex",justifyContent:"space-between",gap:12}}>
+        <div><div style={{fontSize:10.5,fontWeight:800,letterSpacing:2,color:"#d4a72c"}}>⭐ INVITACIÓN VIP · INTELLIGENCE Y GG-IA</div>
+          <div style={{fontSize:20,fontWeight:800,fontFamily:"'Playfair Display',serif",marginTop:3}}>{[nombre||"Nuevo invitado",desSel.join(", ")].filter(Boolean).join(" · ")}</div></div>
+        <div onClick={()=>onClose&&onClose(false)} style={{fontSize:24,fontWeight:700,lineHeight:1,cursor:"pointer"}}>×</div></div>
+      <div style={{display:"flex",flexWrap:"wrap"}}>
+      <div style={{flex:"1 1 560px",padding:"14px 20px",display:"flex",flexDirection:"column",gap:10,fontSize:12.5}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:8}}>
+          <div>{k("Nombre")}<input data-vip-nombre value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Ing. Nombre Apellido" style={inp}/></div>
+          <div>{k("Correo")}<input data-vip-correo value={correo} onChange={e=>setCorreo(e.target.value)} placeholder="correo@empresa.mx" style={inp}/></div>
+          <div>{k("Empresa")}<input value={empresa} onChange={e=>setEmpresa(e.target.value)} placeholder="Desarrolladora" style={inp}/></div></div>
+        <div>{k("Desarrollos que verá")}
+          {cat===null?<span style={{color:B.grey4}}>Cargando…</span>:<div style={{display:"flex",flexWrap:"wrap",gap:5}}>{visibles.map(x=>{ const on=sel.has(x.id); return (
+            <span key={x.id} data-vip-des={x.nombre} onClick={()=>setSel(p=>{ const n=new Set(p); if(n.has(x.id)) n.delete(x.id); else n.add(x.id); return n; })} style={{cursor:"pointer",borderRadius:999,padding:"3px 10px",fontSize:11.5,fontWeight:800,border:"1px solid "+(on?"#93c5fd":"#e2e8f0"),background:on?"#eff6ff":"#fff",color:on?"#1d4ed8":B.grey5}}>{on?"✓ ":""}{x.nombre}</span>); })}
+            {!verMas&&lista.length>visibles.length&&<a onClick={()=>setVerMas(true)} style={{fontSize:11.5,fontWeight:800,color:"#1d4ed8",cursor:"pointer",alignSelf:"center"}}>+ inactivos</a>}</div>}</div>
+        <div data-vip-estado style={{borderRadius:8,padding:"7px 10px",fontWeight:700,background:activo?"#eff6ff":"#ecfdf5",border:"1px solid "+(activo?"#bfdbfe":"#a7f3d0"),color:activo?"#1d4ed8":"#15803d"}}>
+          {!correo.trim()?"Escribe su correo para saber si ya tiene cuenta.":activo?"✅ Ya tiene acceso activo: el botón del correo será “Entrar a Intelligence”.":"🆕 No tiene cuenta activa: se crea su invitación y el botón será “Activar mi acceso” (la liga vence en 72 horas)."}</div>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>{k("Logos")}
+          <span style={{background:"#0b1a33",borderRadius:6,padding:"5px 8px",display:"inline-flex"}}><img alt="Grupo Guía" src={LANDING_URL+"/img/brand/grupo-guia.png"} style={{height:16}}/></span><span style={{color:B.grey3}}>+</span>
+          {logo?<img data-vip-logo alt="logo del desarrollo" src={logo} style={{height:28,maxWidth:120,objectFit:"contain"}}/>:<span style={{fontSize:11.5,color:B.grey4}}>(sin logo del desarrollo: sale solo Grupo Guía)</span>}
+          <input value={logo} onChange={e=>{ setLogo(e.target.value); setLogoMan(true); }} placeholder="https://… (cambiar logo)" style={{...inp,flex:"1 1 180px",padding:"5px 8px",fontSize:11.5}}/></div>
+        <div>{k("Texto de la carta (editable · *negritas* y • viñetas)")}
+          <textarea data-vip-texto value={texto} onChange={e=>{ setTexto(e.target.value); setEditado(true); }} style={{...inp,minHeight:210,lineHeight:1.5,resize:"vertical"}}/>
+          {editado&&<a onClick={()=>setEditado(false)} style={{fontSize:11,fontWeight:800,color:"#1d4ed8",cursor:"pointer"}}>↺ volver al texto original</a>}</div>
+        <label style={{display:"flex",gap:6,alignItems:"center",cursor:"pointer"}}><input type="checkbox" data-vip-wa checked={wa} onChange={e=>setWa(e.target.checked)}/> Incluir botón “Escríbenos por WhatsApp” (GG-IA)</label>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button data-vip-enviar disabled={!!busy} onClick={enviar} style={bt(B.navy,"#fff")}>{busy==="enviar"?"Enviando…":"📧 Enviar invitación por correo"}</button>
+          <button data-vip-vista disabled={!!busy} onClick={vista} style={bt("#fff",B.navy,B.navy)}>{busy==="ver"?"…":(prev?"↻ Actualizar vista previa":"👁 Vista previa")}</button>
+          <button onClick={()=>onClose&&onClose(false)} style={bt("#fff",B.grey4,"#cbd5e1")}>Cancelar</button></div>
+        <div style={{fontSize:11,color:B.grey4}}>Sale desde el correo de Grupo Guía Macrolotes (Resend) con copia a macrolotes@, firmada por Sergio González Guerra G · Dirección. Queda registrado: fecha, a quién y si se entregó.</div>
+      </div>
+      {prev&&<div style={{flex:"1 1 480px",padding:"14px 16px 16px 0",minWidth:320}}><div style={{fontSize:10.5,fontWeight:800,color:B.grey4,textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>Así le llega</div>
+        <iframe data-vip-preview title="Vista previa de la invitación" srcDoc={prev} style={{width:"100%",height:620,border:"1px solid #e5e7eb",borderRadius:10,background:"#f4f5f7"}}/></div>}
+      </div>
+    </div></div>);
+}
 function ViewAccesos({ onToast }){
   const toast=onToast||(()=>{});
   const [esAdm,setEsAdm]=useState(null);           // null = verificando
@@ -5854,6 +5935,7 @@ function ViewAccesos({ onToast }){
   const [inv,setInv]=useState(null);                // formulario de invitación abierto
   const [ligaDev,setLigaDev]=useState(null), [ligaDue,setLigaDue]=useState(null), [genDue,setGenDue]=useState(null);
   const [cartaDe,setCartaDe]=useState("");          // correo de la persona con "📨 Mandar liga" abierto
+  const [vip,setVip]=useState(null);                // ⭐ Invitación VIP abierta: {correo, nombre, empresa, ids}
   const [rcVis,setRcVis]=useState(null);           // 👁 lo que decide Intelligence (rc_secciones_vis), solo lectura
   const [usoEv,setUsoEv]=useState(null), [usoErr,setUsoErr]=useState(""), [histDe,setHistDe]=useState(""), [histN,setHistN]=useState(30);   // 📊 uso de accesos
   const cambiaSub=(v)=>{ setSub(v); try{ localStorage.setItem("mp_accesos_sub",v); }catch(e){} };
@@ -6024,6 +6106,8 @@ function ViewAccesos({ onToast }){
       <div style={{display:"flex",justifyContent:"space-between",gap:10,flexWrap:"wrap",alignItems:"center"}}>
         <div><div style={{fontFamily:"'Playfair Display',serif",fontSize:21,fontWeight:800,color:B.navy}}>Desarrolladores</div><div style={{fontSize:12.5,color:B.grey4}}>Primero se decide por desarrollador (qué ve y quién de su equipo entra); cada persona entra a Intelligence con su correo y solo ve los desarrollos asignados.</div></div>
         <button style={btn(true)} onClick={()=>setInv({correo:"",nombre:"",empresa:"",ids:[],bq:""})}>＋ Invitar persona</button>
+        <button data-vip-abrir-nuevo style={{...btn("gold"),marginLeft:6}} onClick={()=>setVip({})}>⭐ Enviar Invitación VIP</button>
+        {vip&&<InvitacionVIP key={vip.correo||"nuevo"} preset={vip} onToast={toast} onClose={(hecho)=>{ setVip(null); if(hecho) cargarDevs(); }}/>}
       </div>
       {errD&&<div style={{marginTop:10,color:B.red,fontSize:12.5}}>No se pudo leer la lista: {errD}</div>}
       <div data-acc-nota-intel style={{marginTop:8,fontSize:12,color:B.grey4}}>👁 <b style={{color:B.navy}}>Qué ve cada desarrollo se decide en Intelligence</b> → Reporte Comercial, con el botón <b>"Desarrollador · Sí/No"</b> de cada bloque (y 📤 Publicar). Aquí solo se ve el resumen.</div>
@@ -6086,6 +6170,7 @@ function ViewAccesos({ onToast }){
               {g.est==="activo"&&<button data-acc-mandar={c} style={{...btn(cartaDe===c?true:false),marginLeft:6}} onClick={()=>setCartaDe(cartaDe===c?"":c)} title="Liga de Intelligence + carta sencilla de cómo funciona ahora">📨 Mandar liga</button>}
               {g.est==="activo"&&<button disabled={busy==="ver-"+c} style={{...btn(false),marginLeft:6}} onClick={()=>verComo(g)} title="Abre Intelligence como esta persona (úsalo en ventana de incógnito)">👁 Ver como</button>}
               {(g.est==="invitado"||g.est==="por_autorizar")&&<button disabled={busy===g.correo} style={{...btn(false),marginLeft:6}} onClick={()=>reinvitar(g)}>Reenviar liga</button>}
+              <button data-vip-abrir={c} style={{...btn("gold"),marginLeft:6}} onClick={()=>setVip({correo:g.correo,nombre:g.nombre||"",empresa:g.empresa||"",ids:g.filas.map(r=>r.desarrollo_id)})} title="Carta de invitación con logos, por correo (Resend)">⭐ Invitación VIP</button>
               <button disabled={busy==="del-"+c} style={{...btn(false),marginLeft:6,color:B.red}} onClick={()=>eliminarDev(g)} title="Quita sus accesos a todos sus desarrollos">Quitar</button>
             </td></tr>
             {histDe===c&&(<tr><td colSpan={6} style={{padding:"0 10px 12px"}}>{(()=>{ const L=(usoEv||{})[c]||[]; return (<div data-acc-historial={c} style={{border:"1px solid "+B.grey1,background:"#f8fafc",borderRadius:12,padding:"12px 14px"}}>
@@ -6911,6 +6996,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
   const [wizardCO, setWizardCO] = React.useState(null); // ➕ Nueva carta oferta: null | {} | {lote} | {cap}
   const [editingCaptacion, setEditingCaptacion] = React.useState(null);
   const [segTerreno, setSegTerreno] = React.useState(null); // 🔎 Seguimiento del terreno (Asesores): {cap, lote}
+  const [vipInv, setVipInv] = React.useState(null); // ⭐ Invitación VIP desde Admin → Desarrollos: {desNombre, empresa}
   const [respComentario, setRespComentario] = React.useState(""); // texto del comentario a enviar al asesor (Opción)
   // Cross-Check (Option Engine): CLIENTES compatibles con el terreno en captación (api-matching modo lote→clientes)
   const [ccCaptBusy, setCcCaptBusy] = React.useState(false);
@@ -10656,6 +10742,7 @@ function MacroProMatcher({ sessionEmail } = {}) {
                 <div style={{fontWeight:800,color:B.navy,fontSize:14}}>{r.nombre} {r.activo===false&&<span style={{fontSize:10,color:B.grey3}}>(inactivo)</span>}</div>
                 <div style={{fontSize:11,color:B.grey3}}>{r.desarrollador||"—"} · {r.tipo||"—"} · {r.ciudad||"—"} · <span style={{fontFamily:"monospace"}}>{r.slug}</span></div>
               </div>
+              <button data-vip-des-abrir={r.nombre} style={{...s.btn("sm"),background:B.gold,color:B.navy,marginRight:6}} onClick={()=>setVipInv({desNombre:r.nombre,empresa:r.desarrollador||""})} title="Invitar a la gente de este desarrollo a Intelligence y GG-IA">⭐ Enviar Invitación VIP</button>
               <button style={s.btn("sm")} onClick={()=>editId===r.id?cancel():startEdit(r)}>{editId===r.id?"✕ Cerrar":"✏️ Editar"}</button>
             </div>
             {editId===r.id&&(
@@ -25967,6 +26054,7 @@ Respuesta: [respuesta exacta, conversacional]
       {ModalAddClient}
       {/* ─── MODAL: Alta / edición de solicitud de asesor ─── */}
         {/* ══════ MODAL: alta / edición de captación ══════ */}
+        {vipInv && <InvitacionVIP key={"vip-"+(vipInv.desNombre||"")} preset={vipInv} onToast={toast} onClose={()=>setVipInv(null)}/>}
         {segTerreno && <SeguimientoTerreno key={"seg-"+((segTerreno.cap&&segTerreno.cap.id)||(segTerreno.lote&&segTerreno.lote.id))} cap={segTerreno.cap} lote={segTerreno.lote} catalogo={asesoresCatalog} onToast={toast} docsDe={estadoDocsCaptacion} docsLista={docsChecklistCap}
           onClose={()=>setSegTerreno(null)} onIrOpcion={(c)=>{ setSegTerreno(null); setView("captacion"); setEditingCaptacion(c); setShowCaptacionModal(true); }}/>}
         {showCaptacionModal && editingCaptacion && (()=>{
